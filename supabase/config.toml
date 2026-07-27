@@ -1,0 +1,16 @@
+# Supabase 프로젝트 설정 (Edge Functions)
+
+# 카페24 OAuth 콜백은 카페24 서버가 브라우저 리다이렉트로 호출하므로
+# JWT 검증을 끈다 (Authorization 헤더를 붙일 수 없음)
+[functions.cafe24-oauth]
+verify_jwt = false
+
+# 아래 두 함수는 대시보드에서 anon key와 함께 호출 (JWT 검증 유지)
+[functions.cafe24-claims]
+verify_jwt = true
+
+[functions.naver-claims]
+verify_jwt = true
+
+[functions.cafe24-analytics]
+verify_jwt = true

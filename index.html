@@ -1,0 +1,3130 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>온라인 쇼핑몰 성과 분석 대시보드 by DNRB</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.4.0/css/all.min.css" />
+  <link href="https://fonts.googleapis.com/css2?family=Pretendard:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <script src="./config.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Pretendard', 'Apple SD Gothic Neo', 'Noto Sans KR', sans-serif;
+      background: #f0f2f5;
+      color: #1a1a2e;
+      min-height: 100vh;
+    }
+
+    /* ── 헤더 ── */
+    .top-header {
+      background: linear-gradient(135deg, #1a1a2e 0%, #16213e 60%, #0f3460 100%);
+      padding: 16px 32px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      box-shadow: 0 4px 20px rgba(0,0,0,.35);
+      position: sticky;
+      top: 0;
+      z-index: 100;
+    }
+    .top-header h1 { color: #fff; font-size: 1.15rem; font-weight: 700; display:flex;align-items:center;gap:10px; }
+    .top-header h1 span { color: #4ade80; }
+    .btn-copy-link {
+      background: rgba(74,222,128,.15);
+      color: #4ade80;
+      border: 1px solid rgba(74,222,128,.4);
+      padding: 8px 18px;
+      border-radius: 8px;
+      font-size: .82rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all .2s;
+      display: flex; align-items: center; gap: 6px;
+    }
+    .btn-copy-link:hover { background: rgba(74,222,128,.28); }
+
+    /* ── 레이아웃 ── */
+    .container { max-width: 1300px; margin: 0 auto; padding: 28px 20px 80px; }
+
+    /* ── 섹션 카드 ── */
+    .section-card {
+      background: #fff;
+      border-radius: 16px;
+      box-shadow: 0 2px 14px rgba(0,0,0,.07);
+      margin-bottom: 24px;
+      overflow: hidden;
+    }
+    .section-header {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 16px 24px;
+      background: linear-gradient(90deg, #f8f9ff, #fff);
+      border-bottom: 1px solid #e8eaf0;
+      cursor: pointer;
+      user-select: none;
+    }
+    .section-header h2 {
+      font-size: 1.02rem; font-weight: 700; color: #1a1a2e;
+      display: flex; align-items: center; gap: 10px;
+    }
+    .toggle-btn {
+      background: none; border: none; color: #6b7280; cursor: pointer;
+      padding: 4px 10px; border-radius: 6px; font-size: .8rem; font-weight: 600;
+      display: flex; align-items: center; gap: 5px; transition: all .2s;
+    }
+    .toggle-btn:hover { background: #f3f4f6; }
+    .section-body { padding: 24px; }
+    .section-body.collapsed { display: none; }
+
+    /* ── 공통 입력 ── */
+    .input-group { margin-bottom: 14px; }
+    .input-group label { display:block; font-size:.82rem; font-weight:600; color:#4b5563; margin-bottom:5px; }
+    .inp {
+      padding: 9px 14px; border: 1.5px solid #e5e7eb; border-radius: 9px;
+      font-size: .92rem; font-family: inherit; color: #1a1a2e;
+      background: #fafafa; transition: border-color .2s; width:100%;
+    }
+    .inp:focus { outline: none; border-color: #6366f1; background:#fff; }
+    .inp-unit-row { display:flex; align-items:center; gap:8px; }
+    .inp-unit-row .inp { flex:1; }
+    .inp-unit { font-size:.82rem; color:#9ca3af; white-space:nowrap; }
+
+    /* ── 날짜/입력 바 ── */
+    .control-bar {
+      display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+      background: #f8f9ff; border-radius: 12px; padding: 16px 20px;
+      border: 1px solid #e8eaf0; margin-bottom: 24px;
+    }
+    .control-bar label { font-size:.83rem; font-weight:700; color:#4b5563; white-space:nowrap; }
+    .control-bar input[type="date"] {
+      padding: 8px 12px; border: 1.5px solid #e5e7eb; border-radius: 8px;
+      font-size:.87rem; font-family:inherit; color:#1a1a2e; background:#fff;
+    }
+    .control-bar input[type="date"]:focus { outline:none; border-color:#6366f1; }
+    .date-sep { color:#9ca3af; }
+    .divider { width:1px; height:28px; background:#e5e7eb; }
+    .revenue-input {
+      display:flex; align-items:center; gap:8px;
+    }
+    .revenue-input input {
+      padding: 8px 14px; border: 1.5px solid #e5e7eb; border-radius: 8px;
+      font-size:.87rem; font-family:inherit; color:#1a1a2e; background:#fff;
+      width: 180px;
+    }
+    .revenue-input input:focus { outline:none; border-color:#6366f1; }
+    .btn-analyze {
+      padding: 9px 22px; background: linear-gradient(135deg,#6366f1,#8b5cf6);
+      color:#fff; border:none; border-radius:9px; font-size:.88rem; font-weight:700;
+      cursor:pointer; transition:all .2s; display:flex; align-items:center; gap:7px;
+      white-space:nowrap;
+    }
+    .btn-analyze:hover { opacity:.9; transform:translateY(-1px); }
+
+    /* ── CSV 업로드 그리드 ── */
+    .upload-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 16px;
+      margin-bottom: 24px;
+    }
+    @media (max-width:1000px) { .upload-grid { grid-template-columns: repeat(2,1fr); } }
+    @media (max-width:600px)  { .upload-grid { grid-template-columns: 1fr; } }
+
+    .upload-card {
+      border: 2px dashed #c7d2fe;
+      border-radius: 12px; padding: 18px 14px;
+      text-align: center; cursor: pointer; transition: all .2s;
+      background: #fafbff; position: relative;
+    }
+    .upload-card:hover { border-color:#6366f1; background:#f0f0ff; }
+    .upload-card.active { border-color:#22c55e; background:#f0fdf4; border-style:solid; }
+    .upload-card input[type="file"] { position:absolute;inset:0;opacity:0;cursor:pointer;width:100%;height:100%; }
+    .upload-card .uc-icon { font-size:1.8rem; margin-bottom:7px; }
+    .upload-card h3 { font-size:.83rem; font-weight:700; color:#374151; margin-bottom:4px; line-height:1.4; }
+    .upload-card p  { font-size:.73rem; color:#9ca3af; line-height:1.5; }
+    .upload-card .fname { margin-top:8px; font-size:.75rem; color:#6366f1; font-weight:600; word-break:break-all; }
+    .upload-card .badge-ok { display:inline-block; margin-top:6px; padding:2px 10px; background:#dcfce7; color:#15803d; border-radius:50px; font-size:.72rem; font-weight:700; }
+    .btn-sample {
+      display:inline-flex; align-items:center; gap:5px; margin-top:8px;
+      padding:5px 12px; background:#ede9fe; color:#7c3aed; border-radius:7px;
+      font-size:.72rem; font-weight:600; cursor:pointer; border:none; transition:all .2s;
+    }
+    .btn-sample:hover { background:#ddd6fe; }
+
+    /* ── 비율 요약 카드 ── */
+    .ratio-cards {
+      display: grid;
+      grid-template-columns: repeat(3,1fr);
+      gap: 16px;
+      margin-bottom: 24px;
+    }
+    @media (max-width:700px) { .ratio-cards { grid-template-columns:1fr; } }
+
+    .ratio-card {
+      border-radius: 14px; padding: 20px; color: #fff; position:relative; overflow:hidden;
+    }
+    .ratio-card::before {
+      content:''; position:absolute; right:-16px; top:-16px;
+      width:70px; height:70px; border-radius:50%; background:rgba(255,255,255,.12);
+    }
+    .ratio-card .rc-label { font-size:.78rem; font-weight:600; opacity:.85; margin-bottom:6px; }
+    .ratio-card .rc-value { font-size:2.2rem; font-weight:800; line-height:1; }
+    .ratio-card .rc-sub   { font-size:.78rem; opacity:.75; margin-top:6px; }
+    .ratio-card .rc-amt   { font-size:1rem; font-weight:700; margin-top:4px; }
+    .rc-cancel { background: linear-gradient(135deg,#f59e0b,#d97706); }
+    .rc-return { background: linear-gradient(135deg,#ef4444,#dc2626); }
+    .rc-total  { background: linear-gradient(135deg,#6366f1,#4f46e5); }
+
+    /* ── 진행 바 ── */
+    .ratio-progress { margin-bottom:24px; }
+    .rp-row { display:flex; align-items:center; gap:12px; margin-bottom:10px; }
+    .rp-label { font-size:.83rem; font-weight:600; color:#4b5563; width:220px; flex-shrink:0; }
+    .rp-bar-wrap { flex:1; height:10px; background:#e5e7eb; border-radius:99px; overflow:hidden; }
+    .rp-bar-fill { height:100%; border-radius:99px; transition: width .6s ease; }
+    .rp-pct { font-size:.83rem; font-weight:700; color:#1a1a2e; width:52px; text-align:right; flex-shrink:0; }
+    .rp-count { font-size:.75rem; color:#9ca3af; width:80px; flex-shrink:0; }
+
+    /* ── 사유 분석 ── */
+    .reason-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 24px;
+    }
+    @media (max-width:800px) { .reason-grid { grid-template-columns:1fr; } }
+
+    .reason-panel h3 {
+      font-size:.92rem; font-weight:700; color:#1a1a2e;
+      margin-bottom:14px; display:flex; align-items:center; gap:8px;
+    }
+    .reason-item {
+      display:flex; align-items:center; gap:10px;
+      padding: 9px 12px; border-radius:9px; margin-bottom:6px;
+      background:#f8f9ff; transition: background .15s;
+    }
+    .reason-item:hover { background:#f0f0ff; }
+    .reason-rank {
+      width:22px; height:22px; border-radius:50%; display:flex; align-items:center; justify-content:center;
+      font-size:.72rem; font-weight:800; flex-shrink:0;
+    }
+    .rank-1 { background:#fbbf24; color:#78350f; }
+    .rank-2 { background:#94a3b8; color:#1e293b; }
+    .rank-3 { background:#cd7f32; color:#fff; }
+    .rank-n { background:#e5e7eb; color:#6b7280; }
+    .reason-name { flex:1; font-size:.85rem; color:#374151; }
+    .reason-bar-wrap { width:100px; height:6px; background:#e5e7eb; border-radius:99px; overflow:hidden; }
+    .reason-bar-fill { height:100%; border-radius:99px; }
+    .bar-cancel { background: linear-gradient(90deg,#f59e0b,#d97706); }
+    .bar-return { background: linear-gradient(90deg,#ef4444,#dc2626); }
+    .reason-pct { font-size:.82rem; font-weight:700; color:#1a1a2e; width:42px; text-align:right; flex-shrink:0; }
+    .reason-cnt { font-size:.72rem; color:#9ca3af; width:40px; flex-shrink:0; }
+
+    /* ── 데이터 없음 ── */
+    .empty-state {
+      text-align:center; padding:52px 20px; color:#9ca3af;
+    }
+    .empty-state .es-icon { font-size:3rem; margin-bottom:12px; }
+    .empty-state p { font-size:.9rem; line-height:1.8; }
+
+    /* ── 토스트 ── */
+    #toast {
+      position:fixed; bottom:28px; right:28px;
+      background:#1a1a2e; color:#fff; padding:12px 22px;
+      border-radius:10px; font-size:.87rem; font-weight:600;
+      opacity:0; transform:translateY(10px); transition:all .3s;
+      z-index:999; pointer-events:none;
+    }
+    #toast.show { opacity:1; transform:translateY(0); }
+
+    /* ── 구분선 ── */
+    .sub-title {
+      font-size:.8rem; font-weight:700; color:#9ca3af; text-transform:uppercase;
+      letter-spacing:.05em; margin: 20px 0 12px; display:flex; align-items:center; gap:8px;
+    }
+    .sub-title::after { content:''; flex:1; height:1px; background:#e5e7eb; }
+
+    /* ── 판매 성과 분석 업로드 (2개) ── */
+    .upload-grid-2 {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+      margin-bottom: 20px;
+    }
+    @media (max-width:700px) { .upload-grid-2 { grid-template-columns:1fr; } }
+
+    /* ── 테이블 ── */
+    .table-wrap { overflow-x:auto; border-radius:12px; border:1px solid #e5e7eb; }
+    table { width:100%; border-collapse:collapse; font-size:.84rem; }
+    thead tr { background:#f8f9ff; }
+    thead th { padding:11px 13px; text-align:center; font-weight:700; color:#4b5563; white-space:nowrap; border-bottom:2px solid #e5e7eb; }
+    tbody tr:hover { background:#fafbff; }
+    tbody td { padding:9px 13px; text-align:center; border-bottom:1px solid #f3f4f6; color:#374151; white-space:nowrap; }
+    tbody td.name-cell { text-align:left; white-space:normal; max-width:220px; }
+    .option-tag { display:inline-block; font-size:.7rem; color:#6366f1; background:#ede9fe; border-radius:4px; padding:1px 6px; margin-top:2px; }
+
+    /* ── 상태 뱃지 ── */
+    .status-badge { display:inline-flex; align-items:center; gap:4px; padding:3px 10px; border-radius:50px; font-size:.73rem; font-weight:700; white-space:nowrap; }
+    .badge-green  { background:#dcfce7; color:#15803d; }
+    .badge-yellow { background:#fef9c3; color:#92400e; }
+    .badge-red    { background:#fee2e2; color:#dc2626; }
+    .badge-gray   { background:#f3f4f6; color:#6b7280; }
+    .badge-blue   { background:#dbeafe; color:#1d4ed8; }
+    .badge-orange { background:#ffedd5; color:#c2410c; }
+
+    /* 필터 탭 */
+    .filter-tabs { display:flex; gap:7px; margin-bottom:12px; flex-wrap:wrap; }
+    .filter-tab {
+      padding:6px 15px; border-radius:50px; border:1.5px solid #e5e7eb;
+      font-size:.8rem; font-weight:600; cursor:pointer; transition:all .2s;
+      background:#fff; color:#6b7280;
+    }
+    .filter-tab.active { background:#6366f1; border-color:#6366f1; color:#fff; }
+    .filter-tab:hover:not(.active) { border-color:#a5b4fc; color:#6366f1; }
+
+    /* 매핑 통계 */
+    .info-bar {
+      display:flex; align-items:center; gap:8px; padding:9px 15px;
+      background:#eff6ff; border:1px solid #bfdbfe; border-radius:8px;
+      font-size:.8rem; color:#1d4ed8; margin-bottom:12px; flex-wrap:wrap;
+    }
+
+    @media (max-width:600px) {
+      .top-header { padding:13px 14px; }
+      .container { padding:14px 10px 56px; }
+      .section-body { padding:14px; }
+      .control-bar { padding:12px 14px; gap:10px; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- ══ 헤더 ══ -->
+<header class="top-header">
+  <h1><i class="fa-solid fa-chart-line"></i> 온라인 쇼핑몰 <span>성과 분석 대시보드 by DNRB</span></h1>
+  <button class="btn-copy-link" onclick="copyLink()">
+    <i class="fa-solid fa-link"></i> 링크 복사
+  </button>
+</header>
+
+<div class="container">
+
+  <!-- ════════════════════════════════════════
+       SECTION 1 : 취소 & 반품 비율 분석
+  ════════════════════════════════════════ -->
+  <div class="section-card">
+    <div class="section-header" onclick="toggleSection('cr')">
+      <h2><span>📉</span> 취소 &amp; 반품 비율 분석</h2>
+      <button class="toggle-btn" id="toggle-cr"><i class="fa-solid fa-chevron-up"></i> 접기</button>
+    </div>
+    <div class="section-body" id="body-cr">
+
+      <!-- ① 기간 + 총매출액 입력 -->
+      <div class="control-bar">
+        <label><i class="fa-regular fa-calendar"></i> 분석 기간</label>
+        <input type="date" id="crDateStart" />
+        <span class="date-sep">~</span>
+        <input type="date" id="crDateEnd" />
+        <div class="divider"></div>
+        <label>총 매출액</label>
+        <div class="revenue-input">
+          <input type="number" id="totalRevenue" placeholder="예: 150000000" oninput="runAnalysis()" />
+          <span class="inp-unit">원</span>
+        </div>
+        <button class="btn-analyze" onclick="runAnalysis()">
+          <i class="fa-solid fa-magnifying-glass-chart"></i> 분석 실행
+        </button>
+      </div>
+
+      <!-- ①-2 실시간 API 연동 -->
+      <div class="sub-title">🔌 실시간 API 연동</div>
+      <div class="control-bar" style="margin-bottom:24px;">
+        <span class="status-badge badge-gray" id="api-status-c24">🏪 카페24: 확인 중...</span>
+        <button class="btn-analyze" id="btn-api-c24" onclick="fetchCafe24Api()">
+          <i class="fa-solid fa-cloud-arrow-down"></i> 카페24 불러오기
+        </button>
+        <button class="btn-analyze" id="btn-api-np" style="background:linear-gradient(135deg,#059669,#10b981);" onclick="fetchNaverApi()">
+          <i class="fa-solid fa-cloud-arrow-down"></i> 네이버 불러오기
+        </button>
+        <div class="divider"></div>
+        <button class="btn-analyze" style="background:#fff;color:#4f46e5;border:1.5px solid #c7d2fe;" onclick="connectCafe24()">
+          <i class="fa-solid fa-link"></i> 카페24 최초 연동
+        </button>
+        <span style="font-size:.75rem;color:#9ca3af;">위 '분석 기간'의 날짜 범위로 조회합니다 · CSV 업로드와 병행 가능</span>
+      </div>
+
+      <!-- ② CSV 업로드 카드 3개 -->
+      <div class="sub-title">CSV 파일 업로드 (수동 방식)</div>
+      <div class="upload-grid" style="grid-template-columns:repeat(3,1fr);">
+
+        <!-- Cafe24 취소&반품 -->
+        <div class="upload-card" id="card-c24" onclick="document.getElementById('file-c24').click()">
+          <input type="file" id="file-c24" accept=".csv" onchange="handleC24CSV(event)" onclick="event.stopPropagation()" />
+          <div class="uc-icon">🏪</div>
+          <h3>Cafe24<br />취소&amp;반품 완료 목록</h3>
+          <p>주문번호 중복 제거 후<br />취소완료 / 반품완료-환불완료만 반영</p>
+          <div class="fname" id="fname-c24">카페24 취소_반품관리.csv</div>
+          <button class="btn-sample" onclick="event.stopPropagation(); downloadSampleC24()"><i class="fa-solid fa-download"></i> 샘플</button>
+        </div>
+
+        <!-- 네이버페이 취소완료 -->
+        <div class="upload-card" id="card-np-cancel" onclick="document.getElementById('file-np-cancel').click()">
+          <input type="file" id="file-np-cancel" accept=".csv" onchange="handleNPCancelCSV(event)" onclick="event.stopPropagation()" />
+          <div class="uc-icon">🟢</div>
+          <h3>네이버페이<br />취소완료 목록</h3>
+          <p>D열: 취소완료 / 직권취소완료<br />금액: AA+AL+AM열 합산</p>
+          <div class="fname" id="fname-np-cancel">네이버페이_취소관리_.csv</div>
+          <button class="btn-sample" onclick="event.stopPropagation(); downloadSampleNPCancel()"><i class="fa-solid fa-download"></i> 샘플</button>
+        </div>
+
+        <!-- 네이버페이 반품완료 -->
+        <div class="upload-card" id="card-np-return" onclick="document.getElementById('file-np-return').click()">
+          <input type="file" id="file-np-return" accept=".csv" onchange="handleNPReturnCSV(event)" onclick="event.stopPropagation()" />
+          <div class="uc-icon">🔄</div>
+          <h3>네이버페이<br />반품완료 목록</h3>
+          <p>D열: 반품완료<br />금액: AH − O + AR열 합산</p>
+          <div class="fname" id="fname-np-return">네이버페이_반품관리_.csv</div>
+          <button class="btn-sample" onclick="event.stopPropagation(); downloadSampleNPReturn()"><i class="fa-solid fa-download"></i> 샘플</button>
+        </div>
+      </div>
+
+      <!-- ③ 분석 결과 -->
+      <div id="cr-result">
+        <div class="empty-state">
+          <div class="es-icon">📂</div>
+          <p>CSV 파일을 업로드하고<br />총 매출액을 입력한 뒤 <strong>분석 실행</strong>을 눌러주세요.</p>
+        </div>
+      </div>
+
+      <!-- ④ 분석 결과 저장 패널 -->
+      <div id="cr-save-panel" style="display:none; margin-top:24px; background:#f8f9ff; border:1.5px solid #e0e7ff; border-radius:14px; padding:20px 24px;">
+        <div style="font-size:.95rem; font-weight:700; color:#4f46e5; margin-bottom:14px;">
+          <i class="fa-solid fa-floppy-disk"></i> 분석 결과 저장
+        </div>
+        <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
+          <div style="display:flex; flex-direction:column; gap:4px; flex:1; min-width:140px;">
+            <label style="font-size:.75rem; color:#6b7280; font-weight:600;">저장 이름</label>
+            <input id="cr-save-label" type="text" placeholder="예: 2025년 3월" style="border:1.5px solid #d1d5db; border-radius:8px; padding:8px 12px; font-size:.88rem; outline:none;" />
+          </div>
+          <div style="display:flex; flex-direction:column; gap:4px; flex:1; min-width:140px;">
+            <label style="font-size:.75rem; color:#6b7280; font-weight:600;">메모 (선택)</label>
+            <input id="cr-save-memo" type="text" placeholder="예: 프로모션 기간" style="border:1.5px solid #d1d5db; border-radius:8px; padding:8px 12px; font-size:.88rem; outline:none;" />
+          </div>
+          <div style="display:flex; flex-direction:column; gap:4px;">
+            <label style="font-size:.75rem; color:transparent;">저장</label>
+            <button onclick="saveCrArchive()" style="background:#4f46e5; color:#fff; border:none; border-radius:8px; padding:8px 20px; font-size:.88rem; font-weight:700; cursor:pointer; white-space:nowrap;">
+              <i class="fa-solid fa-floppy-disk"></i> 저장
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- ⑤ 기록 비교 섹션 -->
+      <div style="margin-top:32px;" id="cr-archive-section">
+        <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:14px; flex-wrap:wrap; gap:8px;">
+          <div style="font-size:.98rem; font-weight:700; color:#1e1b4b;">
+            <i class="fa-solid fa-chart-line"></i> 기간별 비교 분석
+          </div>
+          <div style="display:flex; gap:8px;">
+            <button onclick="loadCrArchive()" style="background:#f3f4f6; border:1.5px solid #d1d5db; border-radius:8px; padding:6px 14px; font-size:.82rem; cursor:pointer; font-weight:600;">
+              <i class="fa-solid fa-rotate"></i> 새로고침
+            </button>
+            <button onclick="compareCrArchive()" style="background:#059669; color:#fff; border:none; border-radius:8px; padding:6px 14px; font-size:.82rem; cursor:pointer; font-weight:700;">
+              <i class="fa-solid fa-code-compare"></i> 선택 항목 비교
+            </button>
+          </div>
+        </div>
+        <div style="font-size:.78rem; color:#9ca3af; margin-bottom:10px;">최대 5개까지 선택하여 비교할 수 있습니다.</div>
+
+        <!-- 저장 기록 목록 -->
+        <div id="cr-archive-list">
+          <div style="color:#9ca3af; font-size:.88rem; text-align:center; padding:24px;">저장된 기록이 없습니다.</div>
+        </div>
+
+        <!-- 비교 결과 (그래프 + 테이블) -->
+        <div id="cr-compare-result" style="display:none; margin-top:24px;">
+          <div style="font-size:.92rem; font-weight:700; color:#1e1b4b; margin-bottom:14px;">📊 비교 결과</div>
+          <!-- 차트 -->
+          <div style="background:#fff; border:1.5px solid #e5e7eb; border-radius:12px; padding:20px; margin-bottom:16px;">
+            <canvas id="cr-compare-chart" style="height:320px;"></canvas>
+          </div>
+          <!-- 비교 테이블 -->
+          <div id="cr-compare-table" style="overflow-x:auto;"></div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ════════════════════════════════════════
+       SECTION 1.5 : 상품 조회수 & 주문율 (카페24 애널리틱스)
+  ════════════════════════════════════════ -->
+  <div class="section-card">
+    <div class="section-header" onclick="toggleSection('an')">
+      <h2><span>👀</span> 상품 조회수 &amp; 주문율 분석</h2>
+      <button class="toggle-btn" id="toggle-an"><i class="fa-solid fa-chevron-up"></i> 접기</button>
+    </div>
+    <div class="section-body" id="body-an">
+
+      <!-- 조회 조건 -->
+      <div class="control-bar">
+        <label><i class="fa-regular fa-calendar"></i> 조회 기간</label>
+        <input type="date" id="anDateStart" />
+        <span class="date-sep">~</span>
+        <input type="date" id="anDateEnd" />
+        <div class="divider"></div>
+        <label>디바이스</label>
+        <select id="anDevice" style="border:1.5px solid #d1d5db;border-radius:8px;padding:8px 10px;font-size:.88rem;">
+          <option value="total">전체</option>
+          <option value="pc">PC</option>
+          <option value="mobile">모바일</option>
+        </select>
+        <label>카테고리</label>
+        <select id="anCategory" onchange="applyAnCategory()" style="border:1.5px solid #d1d5db;border-radius:8px;padding:8px 10px;font-size:.88rem;min-width:160px;">
+          <option value="">전체 카테고리</option>
+        </select>
+        <button class="btn-analyze" id="btn-an-fetch" onclick="fetchAnalytics()">
+          <i class="fa-solid fa-cloud-arrow-down"></i> 조회
+        </button>
+        <span style="font-size:.75rem;color:#9ca3af;">카페24 애널리틱스 API · 일 단위 집계 (실시간 아님)</span>
+      </div>
+
+      <!-- 요약 타일 -->
+      <div id="an-summary" style="display:none;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-bottom:20px;"></div>
+
+      <!-- 정렬 + 결과 -->
+      <div id="an-toolbar" style="display:none;align-items:center;gap:10px;margin-bottom:12px;flex-wrap:wrap;">
+        <label style="font-size:.82rem;color:#6b7280;font-weight:600;">정렬</label>
+        <select id="anSort" onchange="renderAnalytics()" style="border:1.5px solid #d1d5db;border-radius:8px;padding:6px 10px;font-size:.85rem;">
+          <option value="views">조회수순</option>
+          <option value="order_count">주문수순</option>
+          <option value="rate">주문율순</option>
+          <option value="order_amount">매출액순</option>
+        </select>
+        <span id="an-filter-info" style="font-size:.78rem;color:#9ca3af;"></span>
+        <button onclick="downloadAnalyticsCSV()" style="margin-left:auto;background:#f3f4f6;border:1.5px solid #d1d5db;border-radius:8px;padding:6px 14px;font-size:.82rem;cursor:pointer;font-weight:600;">
+          <i class="fa-solid fa-download"></i> CSV 다운로드
+        </button>
+      </div>
+      <div id="an-result">
+        <div class="empty-state">
+          <div class="es-icon">👀</div>
+          <p>조회 기간을 선택하고 <strong>조회</strong>를 눌러주세요.<br />상품별 조회수·주문수·주문율을 카테고리별로 분석합니다.</p>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ════════════════════════════════════════
+       SECTION 2 : 판매 성과 분석
+  ════════════════════════════════════════ -->
+  <div class="section-card">
+    <div class="section-header" onclick="toggleSection('perf')">
+      <h2><span>📊</span> 판매 성과 분석</h2>
+      <button class="toggle-btn" id="toggle-perf"><i class="fa-solid fa-chevron-up"></i> 접기</button>
+    </div>
+    <div class="section-body" id="body-perf">
+
+      <!-- 날짜 -->
+      <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:18px;">
+        <label style="font-size:.83rem;font-weight:700;color:#4b5563;"><i class="fa-regular fa-calendar"></i> 분석 기간</label>
+        <input type="date" id="perfDateStart" style="padding:7px 11px;border:1.5px solid #e5e7eb;border-radius:8px;font-size:.85rem;font-family:inherit;" />
+        <span class="date-sep">~</span>
+        <input type="date" id="perfDateEnd" style="padding:7px 11px;border:1.5px solid #e5e7eb;border-radius:8px;font-size:.85rem;font-family:inherit;" />
+      </div>
+
+      <!-- 업로드 -->
+      <div class="upload-grid-2">
+        <div class="upload-card" id="card-cost" onclick="document.getElementById('file-cost').click()">
+          <input type="file" id="file-cost" accept=".csv" onchange="handleCostCSV(event)" onclick="event.stopPropagation()" />
+          <div class="uc-icon">🗂️</div>
+          <h3>STEP 1. 원가 정보 CSV</h3>
+          <p>A: 상품명 / B: 공급가 / C: 판매가</p>
+          <div class="fname" id="fname-cost">파일을 선택하세요</div>
+          <button class="btn-sample" onclick="event.stopPropagation(); downloadSampleCost()"><i class="fa-solid fa-download"></i> 샘플</button>
+        </div>
+        <div class="upload-card" id="card-sales" onclick="document.getElementById('file-sales').click()">
+          <input type="file" id="file-sales" accept=".csv" onchange="handleSalesCSV(event)" onclick="event.stopPropagation()" />
+          <div class="uc-icon">📋</div>
+          <h3>STEP 2. 판매 성과 CSV (Cafe24)</h3>
+          <p>Cafe24 어드민 → 상품 판매 현황 CSV</p>
+          <div class="fname" id="fname-sales">파일을 선택하세요</div>
+          <button class="btn-sample" onclick="event.stopPropagation(); downloadSampleSales()"><i class="fa-solid fa-download"></i> 샘플</button>
+        </div>
+      </div>
+
+      <!-- 판매 성과 결과 -->
+      <div id="perf-result">
+        <div class="empty-state">
+          <div class="es-icon">📂</div>
+          <p>STEP 2 판매 성과 CSV를 업로드하면 분석 결과가 표시됩니다.</p>
+        </div>
+      </div>
+
+      <!-- 판매 성과 저장 패널 -->
+      <div id="perf-save-panel" style="display:none; margin-top:24px; background:#f0fdf4; border:1.5px solid #bbf7d0; border-radius:14px; padding:20px 24px;">
+        <div style="font-size:.95rem; font-weight:700; color:#059669; margin-bottom:14px;">
+          <i class="fa-solid fa-floppy-disk"></i> 판매 성과 결과 저장
+        </div>
+        <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
+          <div style="display:flex; flex-direction:column; gap:4px; flex:1; min-width:140px;">
+            <label style="font-size:.75rem; color:#6b7280; font-weight:600;">저장 이름</label>
+            <input id="perf-save-label" type="text" placeholder="예: 2025년 3월"
+              style="border:1.5px solid #d1d5db; border-radius:8px; padding:8px 12px; font-size:.88rem; outline:none;" />
+          </div>
+          <div style="display:flex; flex-direction:column; gap:4px; flex:1; min-width:140px;">
+            <label style="font-size:.75rem; color:#6b7280; font-weight:600;">메모 (선택)</label>
+            <input id="perf-save-memo" type="text" placeholder="예: 신상품 출시 기간"
+              style="border:1.5px solid #d1d5db; border-radius:8px; padding:8px 12px; font-size:.88rem; outline:none;" />
+          </div>
+          <div style="display:flex; flex-direction:column; gap:4px;">
+            <label style="font-size:.75rem; color:transparent;">저장</label>
+            <button onclick="savePerfArchive()" style="background:#059669; color:#fff; border:none; border-radius:8px; padding:8px 20px; font-size:.88rem; font-weight:700; cursor:pointer; white-space:nowrap;">
+              <i class="fa-solid fa-floppy-disk"></i> 저장
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 판매 성과 기간별 비교 섹션 -->
+      <div style="margin-top:32px;" id="perf-archive-section">
+        <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:14px; flex-wrap:wrap; gap:8px;">
+          <div style="font-size:.98rem; font-weight:700; color:#1e1b4b;">
+            <i class="fa-solid fa-chart-line"></i> 판매 성과 기간별 비교
+          </div>
+          <div style="display:flex; gap:8px;">
+            <button onclick="loadPerfArchive()" style="background:#f3f4f6; border:1.5px solid #d1d5db; border-radius:8px; padding:6px 14px; font-size:.82rem; cursor:pointer; font-weight:600;">
+              <i class="fa-solid fa-rotate"></i> 새로고침
+            </button>
+            <button onclick="comparePerfArchive()" style="background:#0891b2; color:#fff; border:none; border-radius:8px; padding:6px 14px; font-size:.82rem; cursor:pointer; font-weight:700;">
+              <i class="fa-solid fa-code-compare"></i> 선택 항목 비교
+            </button>
+          </div>
+        </div>
+        <div style="font-size:.78rem; color:#9ca3af; margin-bottom:10px;">최대 5개까지 선택하여 비교할 수 있습니다.</div>
+
+        <div id="perf-archive-list">
+          <div style="color:#9ca3af; font-size:.88rem; text-align:center; padding:24px;">저장된 기록이 없습니다.</div>
+        </div>
+
+        <div id="perf-compare-result" style="display:none; margin-top:24px;">
+          <div style="font-size:.92rem; font-weight:700; color:#1e1b4b; margin-bottom:14px;">📊 비교 결과</div>
+          <div style="background:#fff; border:1.5px solid #e5e7eb; border-radius:12px; padding:20px; margin-bottom:16px;">
+            <canvas id="perf-compare-chart" style="height:320px;"></canvas>
+          </div>
+          <div id="perf-compare-table" style="overflow-x:auto;"></div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ════════════════════════════════════════
+       SECTION 3 : 광고 효율 & 수익 분석
+  ════════════════════════════════════════ -->
+  <div class="section-card">
+    <div class="section-header" onclick="toggleSection('adv')">
+      <h2><span>📣</span> 광고 효율 &amp; 수익 분석</h2>
+      <button class="toggle-btn" id="toggle-adv"><i class="fa-solid fa-chevron-up"></i> 접기</button>
+    </div>
+    <div class="section-body" id="body-adv">
+
+      <!-- ① 기본 데이터 입력 -->
+      <div class="sub-title">기간 매출 &amp; 비용 입력</div>
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-bottom:20px;">
+
+        <div class="input-group">
+          <label>📅 분석 기간 매출 (순매출)</label>
+          <div class="inp-unit-row">
+            <input class="inp" type="number" id="adv-revenue" placeholder="판매 성과 CSV 순매출" oninput="calcAdv()" />
+            <span class="inp-unit">원</span>
+          </div>
+          <div style="font-size:.73rem;color:#9ca3af;margin-top:4px;">판매 성과 분석 업로드 시 자동 반영</div>
+        </div>
+
+        <div class="input-group">
+          <label>📣 광고비 (해당 기간 집행액)</label>
+          <div class="inp-unit-row">
+            <input class="inp" type="number" id="adv-cost" placeholder="예: 30000000" oninput="calcAdv()" />
+            <span class="inp-unit">원</span>
+          </div>
+        </div>
+
+        <div class="input-group">
+          <label>🏢 사무실 월세 (월)</label>
+          <div class="inp-unit-row">
+            <input class="inp" type="number" id="adv-rent" placeholder="예: 1500000" oninput="calcAdv()" />
+            <span class="inp-unit">원</span>
+          </div>
+        </div>
+
+        <div class="input-group">
+          <label>👥 인건비 합계 (해당 기간)</label>
+          <div class="inp-unit-row">
+            <input class="inp" type="number" id="adv-labor" placeholder="예: 5000000" oninput="calcAdv()" />
+            <span class="inp-unit">원</span>
+          </div>
+        </div>
+
+        <div class="input-group">
+          <label>📦 기타 고정비 (택배·포장 등 제외)</label>
+          <div class="inp-unit-row">
+            <input class="inp" type="number" id="adv-etc" placeholder="예: 500000" oninput="calcAdv()" />
+            <span class="inp-unit">원</span>
+          </div>
+        </div>
+
+        <div class="input-group">
+          <label>📊 분석 기간 (개월 수)</label>
+          <div class="inp-unit-row">
+            <input class="inp" type="number" id="adv-months" placeholder="예: 1" value="1" min="1" max="12" oninput="calcAdv()" />
+            <span class="inp-unit">개월</span>
+          </div>
+          <div style="font-size:.73rem;color:#9ca3af;margin-top:4px;">월세·인건비 자동 × 개월수 적용</div>
+        </div>
+
+      </div>
+
+      <!-- ② 시나리오 커스텀 입력 -->
+      <div class="sub-title">📊 시나리오 분석 변동폭 설정</div>
+      <div style="background:#f8f9ff;border:1.5px solid #e8eaf0;border-radius:12px;padding:16px 20px;margin-bottom:16px;">
+        <div style="font-size:.78rem;color:#6b7280;margin-bottom:12px;line-height:1.7;">
+          시나리오 ① (효율 개선)과 ③ (볼륨 확대)의 변동폭을 직접 설정하세요.<br>
+          <span style="color:#0284c7;">① 현재 대비 순매출 <b>감소</b> + ROAS <b>상승</b></span> &nbsp;|&nbsp;
+          <span style="color:#b45309;">③ 현재 대비 순매출 <b>증가</b> + ROAS <b>하락</b></span>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:14px;">
+          <div class="input-group">
+            <label>📉 매출 변동폭 (1억 = 100,000,000)</label>
+            <div class="inp-unit-row">
+              <input class="inp" type="number" id="sc-rev-delta" value="100000000" placeholder="예: 100000000" oninput="calcAdv()" />
+              <span class="inp-unit">원</span>
+            </div>
+            <div style="font-size:.72rem;color:#9ca3af;margin-top:4px;">①은 이 금액만큼 감소, ③은 이 금액만큼 증가</div>
+          </div>
+          <div class="input-group">
+            <label>📈 ROAS 변동폭</label>
+            <div class="inp-unit-row">
+              <input class="inp" type="number" id="sc-roas-delta" value="100" placeholder="예: 100" oninput="calcAdv()" />
+              <span class="inp-unit">%p</span>
+            </div>
+            <div style="font-size:.72rem;color:#9ca3af;margin-top:4px;">①은 현재 ROAS + 이 값, ③은 현재 ROAS − 이 값</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 부가세 / 법인세 안내 -->
+      <div style="background:#f8f9ff;border:1px solid #e8eaf0;border-radius:10px;padding:12px 16px;margin-bottom:20px;font-size:.8rem;color:#4b5563;line-height:1.8;">
+        <span style="font-weight:700;">세금 자동 계산 기준</span><br>
+        🧾 <b>부가세</b>: 순매출의 9.09% (매출세액 10/110 — 매입세액 공제 전 개략치)<br>
+        🏦 <b>법인세</b>: 과세표준 구간별 적용 — 2억 이하 9% / 2억~200억 19% / 200억 초과 21%<br>
+        <span style="color:#9ca3af;">※ 실제 세금은 매입세액 공제·각종 비용 처리에 따라 달라집니다. 참고용 수치로만 활용하세요.</span>
+      </div>
+
+      <!-- ③ 결과 -->
+      <div id="adv-result">
+        <div class="empty-state">
+          <div class="es-icon">📣</div>
+          <p>매출과 광고비를 입력하면<br/>ROAS 및 수익 분석 결과가 표시됩니다.</p>
+        </div>
+      </div>
+
+      <!-- ④ 아카이브 저장 -->
+      <div id="adv-archive-save-section" style="display:none;margin-top:28px;">
+        <div class="sub-title">🗂️ 분석 결과 아카이브 저장</div>
+        <div style="background:#f8f9ff;border:1.5px solid #e8eaf0;border-radius:12px;padding:16px 20px;">
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr auto;gap:12px;align-items:flex-end;">
+            <div class="input-group" style="margin:0;">
+              <label>📋 저장 레이블</label>
+              <input class="inp" type="text" id="arc-label" placeholder="예: 2025년 3월" />
+            </div>
+            <div class="input-group" style="margin:0;">
+              <label>📅 기간 시작</label>
+              <input class="inp" type="date" id="arc-start" />
+            </div>
+            <div class="input-group" style="margin:0;">
+              <label>📅 기간 종료</label>
+              <input class="inp" type="date" id="arc-end" />
+            </div>
+            <button onclick="saveArchive()" style="padding:9px 20px;background:linear-gradient(135deg,#6366f1,#8b5cf6);color:#fff;border:none;border-radius:9px;font-size:.85rem;font-weight:700;cursor:pointer;white-space:nowrap;height:40px;">💾 저장</button>
+          </div>
+          <div style="margin-top:10px;">
+            <label style="font-size:.78rem;color:#6b7280;">📝 메모 (선택)</label>
+            <input class="inp" type="text" id="arc-memo" placeholder="특이사항, 이슈 등 자유 메모" style="margin-top:4px;" />
+          </div>
+        </div>
+      </div>
+
+      <!-- ⑤ 아카이브 목록 -->
+      <div style="margin-top:28px;">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
+          <div class="sub-title" style="margin:0;">📁 저장된 분석 기록</div>
+          <button onclick="loadArchive()" style="padding:6px 14px;background:#f3f4f6;border:1px solid #d1d5db;border-radius:7px;font-size:.78rem;font-weight:600;cursor:pointer;color:#374151;">🔄 새로고침</button>
+        </div>
+        <div id="arc-list">
+          <div class="empty-state" style="padding:30px 0;">
+            <div class="es-icon" style="font-size:2rem;">🗂️</div>
+            <p style="font-size:.85rem;">저장된 분석 기록이 없습니다.<br/>위에서 결과를 저장하면 여기에 표시됩니다.</p>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+</div><!-- /container -->
+<div id="toast"></div>
+
+<!-- ════════════════════════════════
+     JAVASCRIPT
+════════════════════════════════ -->
+<script>
+'use strict';
+
+/* ──────────────────────────────
+   유틸
+────────────────────────────── */
+const $  = id => document.getElementById(id);
+const fmt = n  => Math.round(n).toLocaleString('ko-KR');
+const fmtP = n => n.toFixed(1) + '%';
+
+function showToast(msg) {
+  const t = $('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 2600);
+}
+function copyLink() {
+  const url = location.href;
+  (navigator.clipboard ? navigator.clipboard.writeText(url) : Promise.resolve())
+    .then(() => showToast('✅ 링크가 복사됐습니다!'))
+    .catch(() => showToast('✅ 링크가 복사됐습니다!'));
+  if (!navigator.clipboard) {
+    const el = document.createElement('textarea');
+    el.value = url; document.body.appendChild(el); el.select();
+    document.execCommand('copy'); document.body.removeChild(el);
+  }
+}
+
+/* ──────────────────────────────
+   Supabase 연동 헬퍼
+────────────────────────────── */
+const SB = window.DNRB_CONFIG || {};
+const sbReady = () => SB.SUPABASE_URL && !SB.SUPABASE_URL.includes('YOUR-PROJECT');
+
+function sbHeaders() {
+  return {
+    'apikey': SB.SUPABASE_ANON_KEY,
+    'Authorization': 'Bearer ' + SB.SUPABASE_ANON_KEY,
+    'Content-Type': 'application/json',
+  };
+}
+
+/* 아카이브 테이블 CRUD (기존 젠스파크 tables/ API 대체) */
+async function sbList(table) {
+  if (!sbReady()) throw new Error('config.js에 Supabase 설정이 필요합니다');
+  const res = await fetch(`${SB.SUPABASE_URL}/rest/v1/${table}?select=*&order=created_at.desc&limit=50`, { headers: sbHeaders() });
+  if (!res.ok) throw new Error('조회 실패 ' + res.status);
+  return await res.json();
+}
+async function sbInsert(table, body) {
+  if (!sbReady()) throw new Error('config.js에 Supabase 설정이 필요합니다');
+  const res = await fetch(`${SB.SUPABASE_URL}/rest/v1/${table}`, {
+    method: 'POST', headers: sbHeaders(), body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error('저장 실패 ' + res.status);
+}
+async function sbDelete(table, id) {
+  if (!sbReady()) throw new Error('config.js에 Supabase 설정이 필요합니다');
+  const res = await fetch(`${SB.SUPABASE_URL}/rest/v1/${table}?id=eq.${id}`, {
+    method: 'DELETE', headers: sbHeaders(),
+  });
+  if (!res.ok) throw new Error('삭제 실패 ' + res.status);
+}
+
+/* ──────────────────────────────
+   실시간 API 연동 (Edge Functions)
+────────────────────────────── */
+function fnUrl(name, params) {
+  const qs = new URLSearchParams(params).toString();
+  return `${SB.SUPABASE_URL}/functions/v1/${name}${qs ? '?' + qs : ''}`;
+}
+
+/* 카페24 최초 연동 (OAuth 창 열기) */
+function connectCafe24() {
+  if (!sbReady()) { showToast('⚙️ config.js에 Supabase 설정을 먼저 입력하세요'); return; }
+  window.open(fnUrl('cafe24-oauth', { action: 'start' }), '_blank');
+  showToast('🔗 새 창에서 카페24 로그인 후 돌아와주세요');
+}
+
+/* 카페24 연동 상태 확인 */
+async function checkCafe24Status() {
+  const badge = $('api-status-c24');
+  if (!sbReady()) { badge.textContent = '⚙️ config.js 설정 필요'; return; }
+  try {
+    const res = await fetch(fnUrl('cafe24-oauth', { action: 'status' }), { headers: sbHeaders() });
+    const data = await res.json();
+    if (data.connected) {
+      badge.textContent = '🏪 카페24: 연동됨';
+      badge.className = 'status-badge badge-green';
+    } else {
+      badge.textContent = '🏪 카페24: 미연동';
+      badge.className = 'status-badge badge-yellow';
+    }
+  } catch { badge.textContent = '🏪 카페24: 확인 실패'; badge.className = 'status-badge badge-gray'; }
+}
+
+/* 집계 결과(bucket: {count, amount, reasons:[{reason,cnt}]})를
+   기존 CSV 파서와 동일한 row 구조로 변환 */
+function bucketToRows(bucket) {
+  const rows = [];
+  (bucket.reasons || []).forEach(r => {
+    for (let i = 0; i < r.cnt; i++) rows.push({ reason: r.reason, amt: 0 });
+  });
+  // 사유 수집이 안 된 건수만큼 패딩
+  while (rows.length < bucket.count) rows.push({ reason: '사유 미기재', amt: 0 });
+  // 사유 건수가 총 건수보다 많으면 잘라냄 (건수 = count 기준 유지)
+  rows.length = Math.min(rows.length, Math.max(bucket.count, 0)) || bucket.count;
+  // 금액은 첫 행에 몰아서 합계 유지
+  if (rows.length > 0) rows[0].amt = bucket.amount || 0;
+  return rows;
+}
+
+/* 카페24 실시간 조회 */
+async function fetchCafe24Api() {
+  if (!sbReady()) { showToast('⚙️ config.js에 Supabase 설정을 먼저 입력하세요'); return; }
+  const ds = $('crDateStart').value, de = $('crDateEnd').value;
+  if (!ds || !de) { showToast('📅 분석 기간을 먼저 선택해주세요'); return; }
+  const btn = $('btn-api-c24');
+  btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> 조회 중...';
+  try {
+    const res = await fetch(fnUrl('cafe24-claims', { start_date: ds, end_date: de }), { headers: sbHeaders() });
+    const data = await res.json();
+    if (data.error) throw new Error(data.error);
+
+    store.c24.cancelRows    = bucketToRows(data.cancel);
+    store.c24.returnRows    = bucketToRows(data.return);
+    store.c24.cancelReasons = store.c24.cancelRows.map(r => r.reason);
+    store.c24.returnReasons = store.c24.returnRows.map(r => r.reason);
+
+    $('card-c24').classList.add('active');
+    $('fname-c24').textContent = `API 연동 (${ds} ~ ${de})`;
+    showToast(`✅ 카페24 API: 취소 ${data.cancel.count}건(${fmt(data.cancel.amount)}원) / 반품 ${data.return.count}건(${fmt(data.return.amount)}원)`);
+    runAnalysis();
+  } catch (e) {
+    showToast('❌ 카페24 조회 실패: ' + e.message);
+    console.error(e);
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '<i class="fa-solid fa-cloud-arrow-down"></i> 카페24 불러오기';
+  }
+}
+
+/* 네이버 실시간 조회 */
+async function fetchNaverApi() {
+  if (!sbReady()) { showToast('⚙️ config.js에 Supabase 설정을 먼저 입력하세요'); return; }
+  const ds = $('crDateStart').value, de = $('crDateEnd').value;
+  if (!ds || !de) { showToast('📅 분석 기간을 먼저 선택해주세요'); return; }
+  const btn = $('btn-api-np');
+  btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> 조회 중... (기간이 길면 수십 초)';
+  try {
+    const res = await fetch(fnUrl('naver-claims', { start_date: ds, end_date: de }), { headers: sbHeaders() });
+    const data = await res.json();
+    if (data.error) throw new Error(data.error);
+
+    store.npCancel.rows = bucketToRows(data.cancel);
+    store.npReturn.rows = bucketToRows(data.return);
+
+    $('card-np-cancel').classList.add('active');
+    $('card-np-return').classList.add('active');
+    $('fname-np-cancel').textContent = `API 연동 (${ds} ~ ${de})`;
+    $('fname-np-return').textContent = `API 연동 (${ds} ~ ${de})`;
+    showToast(`✅ 네이버 API: 취소 ${data.cancel.count}건(${fmt(data.cancel.amount)}원) / 반품 ${data.return.count}건(${fmt(data.return.amount)}원)`);
+    runAnalysis();
+  } catch (e) {
+    showToast('❌ 네이버 조회 실패: ' + e.message);
+    console.error(e);
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '<i class="fa-solid fa-cloud-arrow-down"></i> 네이버 불러오기';
+  }
+}
+
+/* ──────────────────────────────
+   카페24 애널리틱스 (조회수·주문율)
+────────────────────────────── */
+const anState = {
+  rows: [],           // 전체 조회 결과
+  cats: [],           // 카테고리 목록 (flat)
+  catProducts: {},    // category_no → Set(product_no) 캐시
+  filterSet: null,    // 현재 카테고리 필터의 product_no Set
+};
+
+async function anGet(params) {
+  const res = await fetch(fnUrl('cafe24-analytics', params), { headers: sbHeaders() });
+  const data = await res.json();
+  if (data.error) throw new Error(data.error);
+  return data;
+}
+
+/* 카테고리 셀렉트 채우기 (페이지 로드 시 1회) */
+async function loadAnCategories() {
+  if (!sbReady()) return;
+  try {
+    const data = await anGet({ action: 'categories' });
+    anState.cats = data.categories || [];
+    const sel = $('anCategory');
+    anState.cats.forEach(c => {
+      const opt = document.createElement('option');
+      opt.value = c.category_no;
+      opt.textContent = '  '.repeat((c.category_depth || 1) - 1) + c.category_name;
+      sel.appendChild(opt);
+    });
+  } catch (e) { console.error('카테고리 로드 실패:', e); }
+}
+
+/* 선택 카테고리 + 모든 하위 카테고리 번호 */
+function anDescendants(catNo) {
+  const result = [catNo];
+  const walk = no => anState.cats
+    .filter(c => Number(c.parent_category_no) === no)
+    .forEach(c => { result.push(Number(c.category_no)); walk(Number(c.category_no)); });
+  walk(catNo);
+  return result;
+}
+
+/* 카테고리 필터 적용 (하위 카테고리 포함, 상품번호 Set 구성) */
+async function applyAnCategory() {
+  const val = $('anCategory').value;
+  if (!val) { anState.filterSet = null; renderAnalytics(); return; }
+  const catNos = anDescendants(Number(val));
+  try {
+    const sets = await Promise.all(catNos.map(async no => {
+      if (!anState.catProducts[no]) {
+        const d = await anGet({ action: 'category_products', category_no: no });
+        anState.catProducts[no] = new Set(d.product_nos || []);
+      }
+      return anState.catProducts[no];
+    }));
+    const union = new Set();
+    sets.forEach(s => s.forEach(n => union.add(n)));
+    anState.filterSet = union;
+    renderAnalytics();
+  } catch (e) { showToast('❌ 카테고리 필터 실패: ' + e.message); console.error(e); }
+}
+
+/* 조회 실행 */
+async function fetchAnalytics() {
+  if (!sbReady()) { showToast('⚙️ config.js에 Supabase 설정을 먼저 입력하세요'); return; }
+  const ds = $('anDateStart').value, de = $('anDateEnd').value;
+  if (!ds || !de) { showToast('📅 조회 기간을 먼저 선택해주세요'); return; }
+  const btn = $('btn-an-fetch');
+  btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> 조회 중...';
+  try {
+    const data = await anGet({
+      action: 'summary', start_date: ds, end_date: de,
+      device_type: $('anDevice').value,
+    });
+    anState.rows = data.rows || [];
+    showToast(`✅ ${data.product_count}개 상품 · 조회 ${fmt(data.totals.views)} / 주문 ${fmt(data.totals.order_count)}건`);
+    // 카테고리가 선택돼 있으면 필터 Set 재적용, 아니면 바로 렌더
+    if ($('anCategory').value) await applyAnCategory();
+    else { anState.filterSet = null; renderAnalytics(); }
+  } catch (e) {
+    showToast('❌ 애널리틱스 조회 실패: ' + e.message);
+    console.error(e);
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '<i class="fa-solid fa-cloud-arrow-down"></i> 조회';
+  }
+}
+
+function anFilteredRows() {
+  return anState.filterSet
+    ? anState.rows.filter(r => anState.filterSet.has(r.product_no))
+    : anState.rows;
+}
+
+function anRateBadge(rate) {
+  const [bg, fg] = rate >= 3 ? ['#dcfce7', '#15803d']
+                 : rate >= 1.5 ? ['#fef9c3', '#a16207']
+                 : ['#fee2e2', '#b91c1c'];
+  return `<span style="background:${bg};color:${fg};border-radius:6px;padding:2px 8px;font-weight:700;">${rate.toFixed(2)}%</span>`;
+}
+
+function renderAnalytics() {
+  const rows = anFilteredRows();
+  const sum = $('an-summary'), result = $('an-result'), toolbar = $('an-toolbar');
+
+  if (anState.rows.length === 0) {
+    sum.style.display = 'none'; toolbar.style.display = 'none';
+    result.innerHTML = '<div class="empty-state"><div class="es-icon">👀</div><p>조회 결과가 없습니다.</p></div>';
+    return;
+  }
+
+  // 요약 타일 (필터 반영 재계산)
+  const t = rows.reduce((a, r) => ({
+    views: a.views + r.views, oc: a.oc + r.order_count,
+    qty: a.qty + r.order_qty, amt: a.amt + r.order_amount,
+  }), { views: 0, oc: 0, qty: 0, amt: 0 });
+  const avgRate = t.views > 0 ? t.oc / t.views * 100 : 0;
+  const tile = (label, val, sub) => `
+    <div style="background:#f8f9ff;border:1.5px solid #e0e7ff;border-radius:12px;padding:16px 18px;">
+      <div style="font-size:.75rem;color:#6b7280;font-weight:600;margin-bottom:6px;">${label}</div>
+      <div style="font-size:1.35rem;font-weight:800;color:#1e1b4b;">${val}</div>
+      ${sub ? `<div style="font-size:.72rem;color:#9ca3af;margin-top:4px;">${sub}</div>` : ''}
+    </div>`;
+  sum.innerHTML =
+    tile('상품 조회수', fmt(t.views)) +
+    tile('주문 수', fmt(t.oc) + '건', '판매수량 ' + fmt(t.qty) + '개') +
+    tile('평균 주문율', avgRate.toFixed(2) + '%', '주문수 ÷ 조회수') +
+    tile('주문 금액', fmt(t.amt) + '원') +
+    tile('상품 수', fmt(rows.length) + '개');
+  sum.style.display = 'grid';
+  toolbar.style.display = 'flex';
+  $('an-filter-info').textContent = anState.filterSet
+    ? `카테고리 필터: ${$('anCategory').selectedOptions[0].textContent.trim()} (하위 포함 ${rows.length}개 상품)` : '';
+
+  // 정렬 + 테이블
+  const key = $('anSort').value;
+  const sorted = [...rows].sort((a, b) => b[key] - a[key]);
+  let html = `<div class="table-wrap"><table>
+    <thead><tr>
+      <th style="width:44px;">#</th><th style="text-align:left;">상품</th>
+      <th>조회수</th><th>주문수</th><th>판매수량</th><th>주문금액</th><th>주문율</th>
+    </tr></thead><tbody>`;
+  sorted.forEach((r, i) => {
+    html += `<tr>
+      <td style="color:#9ca3af;">${i + 1}</td>
+      <td style="text-align:left;"><span style="color:#9ca3af;font-size:.75rem;">[${r.product_no}]</span> ${escHtml(r.product_name)}</td>
+      <td>${fmt(r.views)}</td>
+      <td>${fmt(r.order_count)}</td>
+      <td>${fmt(r.order_qty)}</td>
+      <td>${fmt(r.order_amount)}원</td>
+      <td>${anRateBadge(r.rate)}</td>
+    </tr>`;
+  });
+  html += '</tbody></table></div>';
+  result.innerHTML = html;
+}
+
+function downloadAnalyticsCSV() {
+  const rows = anFilteredRows();
+  if (rows.length === 0) { showToast('다운로드할 데이터가 없습니다'); return; }
+  const key = $('anSort').value;
+  const sorted = [...rows].sort((a, b) => b[key] - a[key]);
+  const lines = ['상품번호,상품명,조회수,주문수,판매수량,주문금액,주문율(%)'];
+  sorted.forEach(r => lines.push(
+    `${r.product_no},"${(r.product_name || '').replace(/"/g, '""')}",${r.views},${r.order_count},${r.order_qty},${r.order_amount},${r.rate}`,
+  ));
+  dlCSV(lines.join('\n'), `상품_조회수_주문율_${$('anDateStart').value}_${$('anDateEnd').value}.csv`);
+}
+
+/* ──────────────────────────────
+   섹션 접기/펼치기
+────────────────────────────── */
+function toggleSection(key) {
+  const body = $('body-' + key);
+  const btn  = $('toggle-' + key);
+  const open = !body.classList.contains('collapsed');
+  if (open) {
+    body.classList.add('collapsed');
+    btn.innerHTML = '<i class="fa-solid fa-chevron-down"></i> 펼치기';
+  } else {
+    body.classList.remove('collapsed');
+    btn.innerHTML = '<i class="fa-solid fa-chevron-up"></i> 접기';
+  }
+}
+
+/* ──────────────────────────────
+   CSV 파서 (RFC4180 + 멀티라인 셀)
+────────────────────────────── */
+function splitCSVIntoLines(text) {
+  const lines = [];
+  let cur = '', inQ = false;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (ch === '"') {
+      if (inQ && text[i+1] === '"') { cur += '"'; i++; }
+      else { inQ = !inQ; cur += ch; }
+    } else if ((ch === '\n' || ch === '\r') && !inQ) {
+      if (ch === '\r' && text[i+1] === '\n') i++;
+      if (cur.trim()) lines.push(cur);
+      cur = '';
+    } else {
+      cur += ch;
+    }
+  }
+  if (cur.trim()) lines.push(cur);
+  return lines;
+}
+
+function parseCSVRow(row) {
+  const fields = [];
+  let cur = '', inQ = false;
+  for (let i = 0; i < row.length; i++) {
+    const ch = row[i];
+    if (ch === '"') {
+      if (inQ && row[i+1] === '"') { cur += '"'; i++; }
+      else inQ = !inQ;
+    } else if (ch === ',' && !inQ) {
+      fields.push(cur.trim());
+      cur = '';
+    } else cur += ch;
+  }
+  fields.push(cur.trim());
+  return fields;
+}
+
+function toNum(s) {
+  if (s === null || s === undefined || s === '') return 0;
+  const cleaned = String(s)
+    .replace(/["""'']/g, '')              // 따옴표 제거
+    .replace(/\u20A9/g, '')               // ₩ (유니코드 U+20A9) 제거
+    .replace(/\uFFE6/g, '')               // ￦ (전각 원화 U+FFE6, 엑셀 통화 서식) 제거
+    .replace(/[,원\s]/g, '')              // 쉼표·원·공백 제거
+    .replace(/[^\d.\-]/g, '')             // 숫자·점·마이너스 외 모든 문자 제거
+    .trim();
+  if (cleaned === '' || cleaned === '-' || cleaned === '.') return 0;
+  const n = parseFloat(cleaned);
+  return isFinite(n) ? n : 0;
+}
+
+function readFileAsText(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = e => {
+      const arr = new Uint8Array(e.target.result);
+      if (arr[0]===0xEF && arr[1]===0xBB && arr[2]===0xBF) {
+        return resolve(new TextDecoder('utf-8').decode(arr.slice(3)));
+      }
+      let eucScore = 0;
+      for (let i=0; i<Math.min(arr.length-1,2000); i++) {
+        if (arr[i]>=0x81 && arr[i]<=0xFE && arr[i+1]>=0x41 && arr[i+1]<=0xFE) eucScore++;
+      }
+      try { resolve(new TextDecoder(eucScore>5?'euc-kr':'utf-8').decode(arr)); }
+      catch { resolve(new TextDecoder('utf-8').decode(arr)); }
+    };
+    reader.onerror = reject;
+    reader.readAsArrayBuffer(file);
+  });
+}
+
+/* ──────────────────────────────
+   데이터 저장소
+────────────────────────────── */
+const store = {
+  c24:      { cancelRows:[], returnRows:[], cancelReasons:[], returnReasons:[] },  // Cafe24
+  npCancel: { rows:[] },                        // 네이버페이 취소
+  npReturn: { rows:[] },                        // 네이버페이 반품
+  // 취소·반품 분석 결과 (시나리오 연동용)
+  crCancelRatioRev: null,   // 총매출 대비 취소 비율 (0~100)
+  crReturnRatioRev: null,   // 총매출 대비 반품 비율 (0~100)
+  crTotalRatioRev:  null,   // 취소+반품 합산 비율 (0~100)
+  crRevenue:        0,      // 취소·반품 탭에 입력된 총매출액
+  // 판매 성과
+  costMap:  {},
+  salesData: [],
+  perfFilter: 'all',
+};
+
+/* ══════════════════════════════════════
+   [ A ] 취소&반품 CSV 파서들
+══════════════════════════════════════ */
+
+/* --- A1. Cafe24 취소&반품 완료 목록 --- */
+async function handleC24CSV(event) {
+  const file = event.target.files[0]; if (!file) return;
+  $('fname-c24').textContent = file.name;
+  try {
+    const text  = await readFileAsText(file);
+    const lines = splitCSVIntoLines(text);
+
+    // 헤더 행 찾기 (첫 번째 행)
+    const header = parseCSVRow(lines[0]);
+    /**
+     * Cafe24 취소&반품 완료 목록 열 구조 (실제 파일 기준):
+     *   A(0)  = 환불상태
+     *   B(1)  = 실제 환불금액
+     *   C(2)  = 총 실제 환불금액  ← 금액 기준 열
+     *   D(3)  = 주문 상태 (취소 완료 / 반품 완료 - 환불완료)
+     *   E(4)  = 주문번호          ← 중복 제거 / 빈 행 필터 기준
+     *   L(11) = 취소접수 구분    ← 취소 사유 기준 열
+     *   P(15) = 반품접수 구분    ← 반품 사유 기준 열
+     *
+     * ※ 헤더 키워드 매칭 우선, 실패 시 열 인덱스 하드코딩 폴백
+     */
+    // 실제 파일 열 구조 확인 결과 하드코딩 (헤더 부분매칭 오류 방지)
+    // '네이버 페이 취소접수 구분'(6)이 '취소접수 구분'보다 먼저 매칭되는 버그 제거
+    const idxOrder     = 4;   // E열: 주문번호
+    const idxStatus    = 3;   // D열: 주문 상태
+    const idxCancelRsn = 11;  // L열: 취소접수 구분
+    const idxReturnRsn = 15;  // P열: 반품접수 구분
+
+    // 금액: "총 실제 환불금액"(C열=2) 우선 / 헤더 키워드 매칭으로 보강
+    const idxAmt = (() => {
+      const byKeyword = findColIdx(header, [
+        '총 실제 환불금액', '총실제환불금액', '총환불금액',
+        '실제 환불금액', '실제환불금액',
+        '환불금액', '취소금액', '반품금액',
+        '주문금액', '결제금액', '상품금액', '금액',
+      ]);
+      if (byKeyword !== -1) return byKeyword;
+      return 2;  // 헤더 매칭 실패 시 C열(2) 하드코딩 폴백
+    })();
+
+    store.c24.cancelRows    = [];
+    store.c24.returnRows    = [];
+    store.c24.cancelReasons = [];
+    store.c24.returnReasons = [];
+
+    // 금액/건수: 주문번호 기준 중복 제거 (첫 행만 사용)
+    // 사유: 전체 품목 행 모두 집계 (중복 제거 없음)
+    const seenForAmt = new Set();
+
+    for (let i = 1; i < lines.length; i++) {
+      const raw = lines[i];
+      if (!raw || !raw.trim()) continue;
+
+      const cols = parseCSVRow(raw);
+      if (!cols || cols.length < 5) continue;
+
+      const orderId   = (cols[idxOrder]  || '').trim();
+      const statusRaw = (cols[idxStatus] || '').trim();
+      const status    = statusRaw.replace(/\s/g,'').replace(/-/g,'');
+      const amt       = idxAmt >= 0 ? toNum(cols[idxAmt]) : 0;
+
+      if (status.includes('취소') && status.includes('완료')) {
+        // 사유: 모든 품목 행에서 집계 (주문번호 중복 무관)
+        const rawRsn = (cols[idxCancelRsn] || '').trim();
+        store.c24.cancelReasons.push(normalizeReason(rawRsn));
+        // 금액/건수: 주문번호 첫 등장 행만
+        if (orderId && !seenForAmt.has(orderId)) {
+          seenForAmt.add(orderId);
+          store.c24.cancelRows.push({ reason: '', amt });
+        }
+      } else if (status.includes('반품')) {
+        const rawRsn = (cols[idxReturnRsn] || '').trim();
+        store.c24.returnReasons.push(normalizeReason(rawRsn));
+        if (orderId && !seenForAmt.has(orderId)) {
+          seenForAmt.add(orderId);
+          store.c24.returnRows.push({ reason: '', amt });
+        }
+      }
+    }
+
+    const c24CancelAmt  = store.c24.cancelRows.reduce((s,r)=>s+r.amt, 0);
+    const c24ReturnAmt  = store.c24.returnRows.reduce((s,r)=>s+r.amt, 0);
+    const amtColName    = header[idxAmt]       || `C열(${idxAmt})`;
+    const cancelRsnCol  = header[idxCancelRsn] || `L열(${idxCancelRsn})`;
+    const returnRsnCol  = header[idxReturnRsn] || `P열(${idxReturnRsn})`;
+    $('card-c24').classList.add('active');
+    showToast(`✅ Cafe24 취소 ${store.c24.cancelRows.length}건(${fmt(c24CancelAmt)}원) / 반품 ${store.c24.returnRows.length}건(${fmt(c24ReturnAmt)}원) | 취소사유열: "${cancelRsnCol}" / 반품사유열: "${returnRsnCol}"`);
+    runAnalysis();
+  } catch(e) { showToast('❌ Cafe24 CSV 오류: ' + e.message); console.error(e); }
+}
+
+/* --- A2. 네이버페이 취소완료 --- */
+async function handleNPCancelCSV(event) {
+  const file = event.target.files[0]; if (!file) return;
+  $('fname-np-cancel').textContent = file.name;
+  try {
+    const text  = await readFileAsText(file);
+    const lines = splitCSVIntoLines(text);
+    // 헤더 행 탐색: D열(3)에 '처리상태' 또는 '취소처리상태' 등 헤더 키워드가 있는 행
+    // 헤더 다음 행(headerIdx+1)부터 데이터로 처리
+    let headerIdx = 0;
+    for (let i = 0; i < Math.min(lines.length, 10); i++) {
+      const cols = parseCSVRow(lines[i]);
+      if (!cols) continue;
+      const cell = (cols[3] || '').replace(/\s/g,'');
+      // 헤더 행: 상태 컬럼에 '처리상태','취소처리상태','주문처리상태' 등 포함
+      if (cell.includes('처리상태') || cell.includes('취소상태') || cell.includes('상태')) {
+        headerIdx = i;
+        break;
+      }
+    }
+    const dataStart = headerIdx + 1;
+    console.log('[NP취소] headerIdx:', headerIdx, '| dataStart:', dataStart, '| 헤더 D열:', parseCSVRow(lines[headerIdx])?.[3]);
+
+    /**
+     * 열 위치 결정 전략:
+     * 1순위: 고정 인덱스 (Kyle이 알려준 실제 네이버페이 CSV 구조)
+     *   D열 = 인덱스 3  (취소 처리상태)
+     *   I열 = 인덱스 8  (취소사유)
+     *   AA열 = 인덱스 26 (결제금액)
+     *   AL열 = 인덱스 37 (취소금액)
+     *   AM열 = 인덱스 38 (환불예정금액)
+     * 2순위: 헤더 키워드 탐색 (헤더가 있는 경우 보조 사용)
+     */
+    const idxStatus = 3;   // D열: 취소 처리상태
+    const idxReason = 8;   // I열: 취소사유
+    const idxAA     = 26;  // AA열: 결제금액
+    const idxAL     = 37;  // AL열: 취소금액
+    const idxAM     = 38;  // AM열: 환불예정금액
+
+    store.npCancel.rows = [];
+    let totalAA = 0, totalAL = 0, totalAM = 0;
+
+    for (let i=dataStart; i<lines.length; i++) {
+      const cols = parseCSVRow(lines[i]);
+      if (!cols || cols.length < 4) continue;
+      const status = (cols[idxStatus] || '').replace(/\s/g,'');
+      if (!status.includes('취소완료') && !status.includes('직권취소완료')) continue;
+      const reason = normalizeReason(cols[idxReason] || '');
+      const amtAA  = toNum(cols.length > idxAA ? cols[idxAA] : '0');
+      const amtAL  = toNum(cols.length > idxAL ? cols[idxAL] : '0');
+      const amtAM  = toNum(cols.length > idxAM ? cols[idxAM] : '0');
+      const amt    = amtAA + amtAL + amtAM;
+      totalAA += amtAA; totalAL += amtAL; totalAM += amtAM;
+      store.npCancel.rows.push({ reason, amt });
+    }
+
+    const grandTotal = totalAA + totalAL + totalAM;
+    console.log('[NP취소] rows:', store.npCancel.rows.length, '| AA:', totalAA, 'AL:', totalAL, 'AM:', totalAM, '합계:', grandTotal);
+    console.log('[NP취소] 샘플 amt:', store.npCancel.rows.slice(0,3).map(r=>r.amt));
+    $('card-np-cancel').classList.add('active');
+    showToast(`✅ 네이버페이 취소 ${store.npCancel.rows.length}건 | AA:${fmt(totalAA)} + AL:${fmt(totalAL)} + AM:${fmt(totalAM)} = ${fmt(grandTotal)}원`);
+    runAnalysis();
+  } catch(e) { showToast('❌ 네이버페이 취소 CSV 오류: ' + e.message); console.error(e); }
+}
+
+/* --- A3. 네이버페이 반품완료 --- */
+async function handleNPReturnCSV(event) {
+  const file = event.target.files[0]; if (!file) return;
+  $('fname-np-return').textContent = file.name;
+  try {
+    const text  = await readFileAsText(file);
+    const lines = splitCSVIntoLines(text);
+    // 헤더 행 탐색
+    let headerIdx = 0;
+    for (let i = 0; i < Math.min(lines.length, 10); i++) {
+      const cols = parseCSVRow(lines[i]);
+      if (!cols) continue;
+      const cell = (cols[3] || '').replace(/\s/g,'');
+      if (cell.includes('처리상태') || cell.includes('반품상태') || cell.includes('상태')) {
+        headerIdx = i;
+        break;
+      }
+    }
+    const dataStart = headerIdx + 1;
+    console.log('[NP반품] headerIdx:', headerIdx, '| dataStart:', dataStart, '| 헤더 D열:', parseCSVRow(lines[headerIdx])?.[3]);
+
+    /**
+     * 고정 인덱스 (실제 네이버페이 반품 CSV 구조)
+     *   D열  = 인덱스 3  (반품 처리상태)
+     *   L열  = 인덱스 11 (반품사유)
+     *   O열  = 인덱스 14 (차감 금액 — 수식에서 빼는 값)
+     *   AH열 = 인덱스 33 (환불금액)
+     *   AR열 = 인덱스 43 (추가 환불금액 — 수식에서 더하는 값)
+     *   금액 수식: AH - O + AR
+     */
+    const idxStatus = 3;   // D열: 반품 처리상태
+    const idxReason = 11;  // L열: 반품사유
+    const idxAH     = 33;  // AH열: 환불금액
+    const idxO      = 14;  // O열:  차감 금액
+    const idxAR     = 43;  // AR열: 추가 환불금액
+
+    store.npReturn.rows = [];
+    let totalAH = 0, totalO = 0, totalAR = 0;
+
+    for (let i=dataStart; i<lines.length; i++) {
+      const cols = parseCSVRow(lines[i]);
+      if (!cols || cols.length < 4) continue;
+      const status = (cols[idxStatus] || '').replace(/\s/g,'');
+      if (!status.includes('반품완료')) continue;
+      const reason = normalizeReason(cols[idxReason] || '');
+      const amtAH = toNum(cols.length > idxAH ? cols[idxAH] : '0');
+      const amtO  = toNum(cols.length > idxO  ? cols[idxO]  : '0');
+      const amtAR = toNum(cols.length > idxAR ? cols[idxAR] : '0');
+      const amt   = amtAH - amtO + amtAR;
+      totalAH += amtAH; totalO += amtO; totalAR += amtAR;
+      store.npReturn.rows.push({ reason, amt });
+    }
+
+    const npReturnTotal = totalAH - totalO + totalAR;
+    console.log('[NP반품] rows:', store.npReturn.rows.length, '| AH:', totalAH, 'O:', totalO, 'AR:', totalAR, '합계:', npReturnTotal);
+    console.log('[NP반품] 샘플 amt:', store.npReturn.rows.slice(0,3).map(r=>r.amt));
+    $('card-np-return').classList.add('active');
+    showToast(`✅ 네이버페이 반품 ${store.npReturn.rows.length}건 | AH:${fmt(totalAH)} - O:${fmt(totalO)} + AR:${fmt(totalAR)} = ${fmt(npReturnTotal)}원`);
+    runAnalysis();
+  } catch(e) { showToast('❌ 네이버페이 반품 CSV 오류: ' + e.message); console.error(e); }
+}
+
+/* 헤더에서 컬럼 인덱스 탐색 */
+function findColIdx(headers, keys) {
+  for (const key of keys) {
+    const i = headers.findIndex(h => h && h.replace(/\s/g,'').includes(key.replace(/\s/g,'')));
+    if (i >= 0) return i;
+  }
+  return -1;
+}
+
+/* ══════════════════════════════════════
+   [ B ] 분석 실행
+══════════════════════════════════════ */
+function runAnalysis() {
+  const revenue = parseFloat($('totalRevenue').value) || 0;
+
+  // 취소 / 반품 합산
+  const allCancelRows = [...store.c24.cancelRows, ...store.npCancel.rows];
+  const allReturnRows = [...store.c24.returnRows, ...store.npReturn.rows];
+
+  const cancelCnt = allCancelRows.length;
+  const returnCnt = allReturnRows.length;
+  const totalCnt  = cancelCnt + returnCnt;
+
+  const cancelAmt = allCancelRows.reduce((s,r)=>s+(isFinite(r.amt)?r.amt:0), 0);
+  const returnAmt = allReturnRows.reduce((s,r)=>s+(isFinite(r.amt)?r.amt:0), 0);
+  const totalAmt  = cancelAmt + returnAmt;
+
+  // 데이터가 없으면 빈 상태 유지
+  if (cancelCnt + returnCnt === 0) {
+    $('cr-result').innerHTML = `
+      <div class="empty-state">
+        <div class="es-icon">📂</div>
+        <p>CSV 파일을 업로드하고<br />총 매출액을 입력한 뒤 <strong>분석 실행</strong>을 눌러주세요.</p>
+      </div>`;
+    return;
+  }
+
+  // 비율 계산 (건수 기반 → 금액이 있으면 금액 기반도 표시)
+  const hasAmt = (cancelAmt + returnAmt) > 0 && revenue > 0;
+  const cancelRatioCnt = totalCnt > 0 ? cancelCnt / (cancelCnt + returnCnt) * 100 : 0;
+  const returnRatioCnt = totalCnt > 0 ? returnCnt / (cancelCnt + returnCnt) * 100 : 0;
+
+  // 총매출 대비 비율 (금액)
+  const cancelRatioRev = revenue > 0 && cancelAmt > 0 ? cancelAmt / revenue * 100 : null;
+  const returnRatioRev = revenue > 0 && returnAmt > 0 ? returnAmt / revenue * 100 : null;
+  const totalRatioRev  = revenue > 0 && totalAmt  > 0 ? totalAmt  / revenue * 100 : null;
+
+  // ── 시나리오 연동용: store에 비율 저장 후 calcAdv 갱신
+  store.crCancelRatioRev = cancelRatioRev;
+  store.crReturnRatioRev = returnRatioRev;
+  store.crTotalRatioRev  = totalRatioRev;
+  store.crRevenue        = revenue;
+  // 광고 효율 탭에 데이터가 있으면 시나리오 자동 재계산
+  if (parseFloat($('adv-revenue').value) > 0) calcAdv();
+
+  // 기간 표시
+  const ds = $('crDateStart').value;
+  const de = $('crDateEnd').value;
+  const period = ds && de ? `${ds.replace(/-/g,'.')} ~ ${de.replace(/-/g,'.')}` : '기간 미선택';
+
+  // 색상 함수
+  const rColor = r => r === null ? '#6b7280' : r < 5 ? '#16a34a' : r < 10 ? '#d97706' : '#dc2626';
+  const rStatus = r => r === null ? '—' : r < 5 ? '양호' : r < 10 ? '주의' : '위험';
+
+  /* ── 사유 집계 ──
+   * 취소 사유: Cafe24 원본 전체(cancelReasons 배열) + 네이버페이 취소 rows의 reason
+   * 반품 사유: Cafe24 원본 전체(returnReasons 배열) + 네이버페이 반품 rows의 reason
+   * → 금액/건수 계산용 deduped와 분리되어 있으므로 정확한 사유 집계 가능
+   */
+  const cancelReasonList = [
+    ...store.c24.cancelReasons,
+    ...store.npCancel.rows.map(r => r.reason),
+  ];
+  const returnReasonList = [
+    ...store.c24.returnReasons,
+    ...store.npReturn.rows.map(r => r.reason),
+  ];
+  const cancelReasons = aggregateReasonList(cancelReasonList);
+  const returnReasons = aggregateReasonList(returnReasonList);
+
+  /* ── HTML 렌더링 ── */
+  let html = `
+    <!-- 기간 뱃지 -->
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:18px;flex-wrap:wrap;">
+      <span style="font-size:.8rem;font-weight:600;color:#6b7280;">📅 분석 기간</span>
+      <span style="font-size:.83rem;font-weight:700;color:#4f46e5;background:#ede9fe;padding:3px 12px;border-radius:50px;">${period}</span>
+      <span style="font-size:.8rem;color:#9ca3af;">취소 ${fmt(cancelCnt)}건 / 반품 ${fmt(returnCnt)}건</span>
+      ${revenue > 0 ? `<span style="font-size:.8rem;color:#9ca3af;">총 매출액 ${fmt(revenue)}원 기준</span>` : ''}
+    </div>
+
+    <!-- 비율 요약 카드 -->
+    <div class="ratio-cards">
+      <div class="ratio-card rc-cancel">
+        <div class="rc-label">🚫 총 매출 대비 취소완료 비율</div>
+        <div class="rc-value">${cancelRatioRev !== null ? fmtP(cancelRatioRev) : '—'}</div>
+        ${cancelRatioRev !== null ? `<div class="rc-sub">${rStatus(cancelRatioRev)}</div>` : ''}
+        <div class="rc-amt">취소 ${fmt(cancelCnt)}건${cancelAmt>0?` · ${fmt(cancelAmt)}원`:''}</div>
+      </div>
+      <div class="ratio-card rc-return">
+        <div class="rc-label">🔄 총 매출 대비 반품완료 비율</div>
+        <div class="rc-value">${returnRatioRev !== null ? fmtP(returnRatioRev) : '—'}</div>
+        ${returnRatioRev !== null ? `<div class="rc-sub">${rStatus(returnRatioRev)}</div>` : ''}
+        <div class="rc-amt">반품 ${fmt(returnCnt)}건${returnAmt>0?` · ${fmt(returnAmt)}원`:''}</div>
+      </div>
+      <div class="ratio-card rc-total">
+        <div class="rc-label">📊 총 매출 대비 취소+반품 비율</div>
+        <div class="rc-value">${totalRatioRev !== null ? fmtP(totalRatioRev) : '—'}</div>
+        ${totalRatioRev !== null ? `<div class="rc-sub">${rStatus(totalRatioRev)}</div>` : ''}
+        <div class="rc-amt">합계 ${fmt(totalCnt)}건${totalAmt>0?` · ${fmt(totalAmt)}원`:''}</div>
+      </div>
+    </div>
+  `;
+
+  // 총매출 입력 없을 때 안내
+  if (revenue <= 0) {
+    html += `<div class="info-bar"><i class="fa-solid fa-circle-info"></i> 총 매출액을 입력하면 비율(%)이 계산됩니다. 현재는 건수 기준으로 표시됩니다.</div>`;
+  }
+
+  // 건수 기준 비율 바
+  html += `
+    <div class="sub-title">취소 / 반품 비율 (건수 기준)</div>
+    <div class="ratio-progress">
+      ${rpRow('취소완료 비율', cancelCnt, cancelCnt+returnCnt, 'linear-gradient(90deg,#f59e0b,#d97706)')}
+      ${rpRow('반품완료 비율', returnCnt, cancelCnt+returnCnt, 'linear-gradient(90deg,#ef4444,#dc2626)')}
+    </div>
+  `;
+
+  // 출처별 현황
+  html += `
+  `;
+
+  // 플랫폼별 금액 각각 계산 (NaN 방어 포함)
+  const c24CancelAmt = store.c24.cancelRows.reduce((s,r)=>s+(isFinite(r.amt)?r.amt:0), 0);
+  const c24ReturnAmt = store.c24.returnRows.reduce((s,r)=>s+(isFinite(r.amt)?r.amt:0), 0);
+  const npCancelAmt  = store.npCancel.rows.reduce((s,r)=>s+(isFinite(r.amt)?r.amt:0), 0);
+  const npReturnAmt  = store.npReturn.rows.reduce((s,r)=>s+(isFinite(r.amt)?r.amt:0), 0);
+  // showAmt: totalAmt 대신 각 플랫폼 amt 직접 합산으로 판단 (totalAmt가 NaN일 경우 대비)
+  const showAmt = (c24CancelAmt + c24ReturnAmt + npCancelAmt + npReturnAmt) > 0;
+
+  html += `
+    <div class="sub-title">플랫폼별 현황</div>
+    <div class="table-wrap" style="margin-bottom:24px;">
+      <table>
+        <thead>
+          <tr>
+            <th>플랫폼</th>
+            <th>취소 건수</th>
+            <th>반품 건수</th>
+            <th>합계</th>
+            ${showAmt ? '<th>취소 금액</th><th>반품 금액</th>' : ''}
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>🏪 Cafe24</td>
+            <td>${fmt(store.c24.cancelRows.length)}</td>
+            <td>${fmt(store.c24.returnRows.length)}</td>
+            <td><strong>${fmt(store.c24.cancelRows.length + store.c24.returnRows.length)}</strong></td>
+            ${showAmt ? `<td>${c24CancelAmt > 0 ? fmt(c24CancelAmt)+'원' : '—'}</td><td>${c24ReturnAmt > 0 ? fmt(c24ReturnAmt)+'원' : '—'}</td>` : ''}
+          </tr>
+          <tr>
+            <td>🟢 네이버페이 취소</td>
+            <td>${fmt(store.npCancel.rows.length)}</td>
+            <td>—</td>
+            <td><strong>${fmt(store.npCancel.rows.length)}</strong></td>
+            ${showAmt ? `<td>${npCancelAmt > 0 ? fmt(npCancelAmt)+'원' : '—'}</td><td>—</td>` : ''}
+          </tr>
+          <tr>
+            <td>🔄 네이버페이 반품</td>
+            <td>—</td>
+            <td>${fmt(store.npReturn.rows.length)}</td>
+            <td><strong>${fmt(store.npReturn.rows.length)}</strong></td>
+            ${showAmt ? `<td>—</td><td>${npReturnAmt > 0 ? fmt(npReturnAmt)+'원' : '—'}</td>` : ''}
+          </tr>
+          <tr style="background:#f8f9ff;font-weight:700;">
+            <td>합 계</td>
+            <td>${fmt(cancelCnt)}</td>
+            <td>${fmt(returnCnt)}</td>
+            <td>${fmt(totalCnt)}</td>
+            ${showAmt ? `<td>${fmt(cancelAmt)}원</td><td>${fmt(returnAmt)}원</td>` : ''}
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  `;
+
+  // 취소/반품 사유 분석
+  const cancelReasonTotal = cancelReasonList.length;
+  const returnReasonTotal = returnReasonList.length;
+  html += `
+    <div class="sub-title">취소 · 반품 사유 분석</div>
+    <div class="reason-grid">
+      <div class="reason-panel">
+        <h3>🚫 취소 사유 순위 <span style="font-size:.78rem;color:#9ca3af;font-weight:400;">(총 ${fmt(cancelReasonTotal)}건)</span></h3>
+        ${renderReasons(cancelReasons, cancelReasonTotal, 'bar-cancel')}
+      </div>
+      <div class="reason-panel">
+        <h3>🔄 반품 사유 순위 <span style="font-size:.78rem;color:#9ca3af;font-weight:400;">(총 ${fmt(returnReasonTotal)}건)</span></h3>
+        ${renderReasons(returnReasons, returnReasonTotal, 'bar-return')}
+      </div>
+    </div>
+  `;
+
+  $('cr-result').innerHTML = html;
+
+  // 분석 완료 시 저장 패널 표시 (총매출액 있을 때만)
+  if (revenue > 0) {
+    $('cr-save-panel').style.display = 'block';
+    // 현재 분석 데이터를 store에 임시 저장 (saveCrArchive에서 사용)
+    store.crSnapshot = {
+      revenue, cancelCnt, returnCnt, cancelAmt, returnAmt,
+      cancelRatioRev, returnRatioRev, totalRatioRev,
+      period: ds && de ? { start: ds, end: de } : null
+    };
+  } else {
+    $('cr-save-panel').style.display = 'none';
+  }
+
+  // 아카이브 목록 갱신
+  loadCrArchive();
+}
+
+/* 비율 바 행 */
+function rpRow(label, val, total, color) {
+  const pct = total > 0 ? val/total*100 : 0;
+  return `
+    <div class="rp-row">
+      <div class="rp-label">${label}</div>
+      <div class="rp-bar-wrap"><div class="rp-bar-fill" style="width:${pct.toFixed(1)}%;background:${color};"></div></div>
+      <div class="rp-pct">${fmtP(pct)}</div>
+      <div class="rp-count">${fmt(val)}건</div>
+    </div>`;
+}
+
+/* 사유 집계 */
+/**
+ * 사유 정규화: 동의어 통합
+ * - "단순 변심" / "고객변심" / "단순변심" → "단순 변심"
+ */
+function normalizeReason(raw) {
+  if (!raw || raw.trim() === '') return '사유 미기재';
+  const s = raw.trim();
+  // 단순변심 계열 통합
+  if (/단순\s*변심|고객\s*변심/i.test(s)) return '단순 변심';
+  return s;
+}
+
+/* 사유 문자열 배열 → 집계 (rows 배열이 아닌 순수 문자열 배열 받음) */
+function aggregateReasonList(list) {
+  const map = {};
+  list.forEach(rsn => {
+    const key = normalizeReason(rsn || '');
+    map[key] = (map[key] || 0) + 1;
+  });
+  return Object.entries(map)
+    .map(([reason, cnt]) => ({ reason, cnt }))
+    .sort((a,b) => b.cnt - a.cnt);
+}
+
+/* 하위 호환용 — rows 배열에서 reason 뽑아서 위 함수 호출 */
+function aggregateReasons(rows) {
+  return aggregateReasonList(rows.map(r => r.reason || ''));
+}
+
+/* 사유 리스트 HTML */
+function renderReasons(reasons, total, barClass) {
+  if (!reasons || reasons.length === 0)
+    return '<div style="color:#9ca3af;font-size:.85rem;padding:12px 0;">데이터 없음</div>';
+
+  const maxCnt = reasons[0].cnt;
+  return reasons.map((r, i) => {
+    const pct = total > 0 ? r.cnt/total*100 : 0;
+    const rankClass = i===0?'rank-1':i===1?'rank-2':i===2?'rank-3':'rank-n';
+    return `
+      <div class="reason-item">
+        <div class="reason-rank ${rankClass}">${i+1}</div>
+        <div class="reason-name">${escHtml(r.reason)}</div>
+        <div class="reason-bar-wrap"><div class="reason-bar-fill ${barClass}" style="width:${maxCnt>0?r.cnt/maxCnt*100:0}%;"></div></div>
+        <div class="reason-pct">${fmtP(pct)}</div>
+        <div class="reason-cnt">${fmt(r.cnt)}건</div>
+      </div>`;
+  }).join('');
+}
+
+function escHtml(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+/* ══════════════════════════════════════
+   [ C ] 판매 성과 분석 (기존 기능 유지)
+══════════════════════════════════════ */
+
+/* 원가 정보 CSV */
+async function handleCostCSV(event) {
+  const file = event.target.files[0]; if (!file) return;
+  $('fname-cost').textContent = file.name;
+  $('card-cost').classList.add('active');
+  try {
+    const text  = await readFileAsText(file);
+    const lines = splitCSVIntoLines(text);
+    store.costMap = {};
+    let parsed = 0;
+    for (let i=0; i<lines.length; i++) {
+      const cols = parseCSVRow(lines[i]);
+      if (cols.length < 3) continue;
+      const name = cols[0]; const sc = toNum(cols[1]); const sp = toNum(cols[2]);
+      if (!name || name==='상품명') continue;
+      store.costMap[name.toLowerCase().trim()] = { supplyCost:sc, salePrice:sp };
+      parsed++;
+    }
+    showToast(`✅ 원가 정보 ${parsed}개 로드 완료`);
+    if (store.salesData.length > 0) renderPerfResult();
+  } catch(e) { showToast('❌ 원가 CSV 오류: '+e.message); }
+}
+
+/* 판매 성과 CSV */
+async function handleSalesCSV(event) {
+  const file = event.target.files[0]; if (!file) return;
+  $('fname-sales').textContent = file.name;
+  $('card-sales').classList.add('active');
+  try {
+    const text  = await readFileAsText(file);
+    const lines = splitCSVIntoLines(text);
+    if (lines.length < 2) { showToast('❌ 데이터 없음'); return; }
+
+    const header = parseCSVRow(lines[0]);
+    const idx = {
+      rank:       findColIdx(header,['순위'])           !== -1 ? findColIdx(header,['순위'])           : 0,
+      name:       findColIdx(header,['상품명'])          !== -1 ? findColIdx(header,['상품명'])          : 3,
+      option:     findColIdx(header,['옵션'])            !== -1 ? findColIdx(header,['옵션'])            : 4,
+      salePrice:  findColIdx(header,['판매가'])          !== -1 ? findColIdx(header,['판매가'])          : 5,
+      paidQty:    findColIdx(header,['결제수량'])        !== -1 ? findColIdx(header,['결제수량'])        : 7,
+      refundQty:  findColIdx(header,['환불수량','반품수량']) !== -1 ? findColIdx(header,['환불수량','반품수량']) : 8,
+      salesQty:   findColIdx(header,['판매수량','순판매']) !== -1 ? findColIdx(header,['판매수량','순판매']) : 9,
+      salesTotal: findColIdx(header,['판매합계','합계'])  !== -1 ? findColIdx(header,['판매합계','합계'])  : 10,
+    };
+
+    store.salesData = [];
+    for (let i=1; i<lines.length; i++) {
+      const cols = parseCSVRow(lines[i]);
+      if (!cols || cols.length < 4) continue;
+      const rank = cols[idx.rank] || String(i);
+      const productName = cols[idx.name] || '';
+      if (!productName) continue;
+      if (rank && isNaN(Number(String(rank).replace(/[,\s]/g,'')))) continue;
+      const option      = idx.option >= 0 ? (cols[idx.option]||'').split(/[\r\n]+/)[0].trim() : '';
+      const salePrice   = toNum(cols[idx.salePrice]);
+      const paidQty     = toNum(cols[idx.paidQty]);
+      const refundQty   = toNum(cols[idx.refundQty]);
+      const salesQty    = toNum(cols[idx.salesQty]);
+      const salesTotal  = toNum(cols[idx.salesTotal]);
+      const cancelQty   = Math.max(0, paidQty - salesQty);
+      const returnRate  = paidQty > 0 ? cancelQty/paidQty*100 : 0;
+      store.salesData.push({ rank:Number(String(rank).replace(/[,\s]/g,''))||i, productName:productName.trim(), option, salePrice, paidQty, refundQty, salesQty, salesTotal, cancelQty, returnRate });
+    }
+    store.perfFilter = 'all';
+    renderPerfResult();
+    // 판매 성과 CSV의 순매출을 광고 분석 입력창에 자동 반영
+    const autoRevenue = store.salesData.reduce((s,r) => s + r.salesTotal, 0);
+    if (autoRevenue > 0 && !$('adv-revenue').value) {
+      $('adv-revenue').value = autoRevenue;
+      calcAdv();
+    }
+    showToast(`✅ ${store.salesData.length}개 상품 데이터 로드 완료`);
+  } catch(e) { showToast('❌ 판매 성과 CSV 오류: '+e.message); console.error(e); }
+}
+
+function findCostData(productName) {
+  const key = productName.toLowerCase().trim();
+  if (store.costMap[key]) return store.costMap[key];
+  for (const [k,v] of Object.entries(store.costMap)) {
+    if (key.includes(k) || k.includes(key)) return v;
+  }
+  return null;
+}
+
+function renderPerfResult() {
+  if (store.salesData.length === 0) return;
+
+  let totalPaid=0, totalCancel=0, totalSalesQty=0, totalSalesAmt=0;
+  let wMargin=0, wCostRate=0, mapped=0;
+  let totalCancelAmt=0;  // 취소·반품 금액 (판매합계 기준 역산)
+
+  store.salesData.forEach(r => {
+    totalPaid     += r.paidQty;
+    totalCancel   += r.cancelQty;
+    totalSalesQty += r.salesQty;
+    totalSalesAmt += r.salesTotal;
+
+    // 취소·반품 금액 역산: 판매가 기준으로 취소수량만큼 환산
+    if (r.salePrice > 0 && r.cancelQty > 0) {
+      totalCancelAmt += r.salePrice * r.cancelQty;
+    }
+
+    const cd = findCostData(r.productName);
+    if (cd && cd.salePrice > 0 && r.salesQty > 0) {
+      const vatCost = cd.supplyCost * 1.1;
+      wMargin   += ((cd.salePrice - vatCost) / cd.salePrice) * 100 * r.salesQty;
+      wCostRate += (vatCost / cd.salePrice) * 100 * r.salesQty;
+      mapped++;
+    }
+  });
+
+  // 총매출 = 판매합계(순판매) + 취소·반품 금액
+  const grossSalesAmt = totalSalesAmt + totalCancelAmt;
+  // 순매출 = 판매합계(순판매)
+  const netSalesAmt   = totalSalesAmt;
+
+  const overallRR   = totalPaid > 0 ? totalCancel / totalPaid * 100 : 0;
+  const avgMargin   = totalSalesQty > 0 && mapped > 0 ? wMargin   / totalSalesQty : NaN;
+  const avgCostRate = totalSalesQty > 0 && mapped > 0 ? wCostRate / totalSalesQty : NaN;
+
+  const ds = $('perfDateStart').value;
+  const de = $('perfDateEnd').value;
+  const period = ds&&de ? `${ds.replace(/-/g,'.')} ~ ${de.replace(/-/g,'.')}` : '기간 미선택';
+
+  const filtered = perfFilterData(store.salesData, store.perfFilter);
+
+  let html = `
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:16px;flex-wrap:wrap;">
+      <span style="font-size:.8rem;font-weight:600;color:#6b7280;">📅 기간</span>
+      <span style="font-size:.83rem;font-weight:700;color:#4f46e5;background:#ede9fe;padding:3px 12px;border-radius:50px;">${period}</span>
+      <span style="font-size:.8rem;color:#9ca3af;">총 ${store.salesData.length}개 상품</span>
+    </div>
+
+    <!-- 매출 요약 바 -->
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:16px;">
+      <div style="background:#f8f9ff;border:1.5px solid #e8eaf0;border-radius:12px;padding:14px 16px;">
+        <div style="font-size:.75rem;font-weight:600;color:#6b7280;margin-bottom:5px;">💰 총 매출</div>
+        <div style="font-size:1.25rem;font-weight:800;color:#1a1a2e;">${grossSalesAmt > 0 ? fmt(grossSalesAmt) + '원' : '—'}</div>
+        <div style="font-size:.72rem;color:#9ca3af;margin-top:3px;">순판매 + 취소·반품 금액</div>
+      </div>
+      <div style="background:#fff7ed;border:1.5px solid #fed7aa;border-radius:12px;padding:14px 16px;">
+        <div style="font-size:.75rem;font-weight:600;color:#c2410c;margin-bottom:5px;">🔄 취소·반품 금액</div>
+        <div style="font-size:1.25rem;font-weight:800;color:#c2410c;">${totalCancelAmt > 0 ? '- ' + fmt(totalCancelAmt) + '원' : '—'}</div>
+        <div style="font-size:.72rem;color:#9ca3af;margin-top:3px;">${totalCancelAmt > 0 && grossSalesAmt > 0 ? '총매출 대비 ' + fmtP(totalCancelAmt/grossSalesAmt*100) : '판매가 기준 역산'}</div>
+      </div>
+      <div style="background:#f0fdf4;border:1.5px solid #bbf7d0;border-radius:12px;padding:14px 16px;">
+        <div style="font-size:.75rem;font-weight:600;color:#15803d;margin-bottom:5px;">✅ 순 매출</div>
+        <div style="font-size:1.25rem;font-weight:800;color:#15803d;">${netSalesAmt > 0 ? fmt(netSalesAmt) + '원' : '—'}</div>
+        <div style="font-size:.72rem;color:#9ca3af;margin-top:3px;">판매합계 기준 (CSV J·K열 기반)</div>
+      </div>
+    </div>
+
+    <!-- 성과 요약 카드 -->
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:18px;">
+      <div style="border-radius:13px;padding:16px;color:#fff;background:linear-gradient(135deg,#4f46e5,#7c3aed);">
+        <div style="font-size:.75rem;font-weight:600;opacity:.85;margin-bottom:4px;">🔄 전체 취소·반품률 <span style="font-size:.68rem;opacity:.7;font-weight:400;">(수량 기준)</span></div>
+        <div style="font-size:1.9rem;font-weight:800;">${fmtP(overallRR)}</div>
+        <div style="font-size:.75rem;opacity:.7;margin-top:3px;">${overallRR<10?'우수':overallRR<20?'주의':'위험'} · 취소수량 ÷ 결제수량</div>
+      </div>
+      ${!isNaN(avgMargin) ? `
+      <div style="border-radius:13px;padding:16px;color:#fff;background:linear-gradient(135deg,#0891b2,#0284c7);">
+        <div style="font-size:.75rem;font-weight:600;opacity:.85;margin-bottom:4px;">💹 전체 평균 마진율</div>
+        <div style="font-size:1.9rem;font-weight:800;">${fmtP(avgMargin)}</div>
+        <div style="font-size:.75rem;opacity:.7;margin-top:3px;">원가 매핑 ${mapped}/${store.salesData.length}개 · 공급가×1.1 기준</div>
+      </div>` : ''}
+      ${!isNaN(avgCostRate) ? `
+      <div style="border-radius:13px;padding:16px;color:#fff;background:linear-gradient(135deg,#059669,#047857);">
+        <div style="font-size:.75rem;font-weight:600;opacity:.85;margin-bottom:4px;">🏷️ 전체 평균 원가율</div>
+        <div style="font-size:1.9rem;font-weight:800;">${fmtP(avgCostRate)}</div>
+        <div style="font-size:.75rem;opacity:.7;margin-top:3px;">공급가×1.1 기준</div>
+      </div>` : ''}
+    </div>
+
+    <!-- 필터 -->
+    <div class="filter-tabs">
+      <button class="filter-tab ${store.perfFilter==='all'?'active':''}"    onclick="setPerfFilter('all')">전체 (${store.salesData.length})</button>
+      <button class="filter-tab ${store.perfFilter==='good'?'active':''}"   onclick="setPerfFilter('good')">🟢 우수</button>
+      <button class="filter-tab ${store.perfFilter==='warn'?'active':''}"   onclick="setPerfFilter('warn')">🟡 주의</button>
+      <button class="filter-tab ${store.perfFilter==='danger'?'active':''}" onclick="setPerfFilter('danger')">🔴 위험</button>
+      <button class="filter-tab ${store.perfFilter==='nodata'?'active':''}" onclick="setPerfFilter('nodata')">⚪ 수량 부족</button>
+    </div>
+    <div style="font-size:.78rem;color:#9ca3af;margin-bottom:10px;">※ 결제수량 10개 미만 상품은 상태 판정 보류 (전체 반품률에는 포함)</div>
+  `;
+
+  if (filtered.length === 0) {
+    html += `<div class="empty-state"><div class="es-icon">🔍</div><p>해당 필터 조건에 맞는 상품이 없습니다.</p></div>`;
+  } else {
+    html += `<div class="table-wrap"><table>
+      <thead><tr>
+        <th>순위</th>
+        <th>상품명</th>
+        <th>판매가</th>
+        <th>공급가<br><span style="font-size:.68rem;font-weight:400;color:#9ca3af;">VAT 제외</span></th>
+        <th>결제수량</th>
+        <th>환불수량</th>
+        <th>순판매량</th>
+        <th>판매합계</th>
+        <th>취소&amp;반품률</th>
+        <th>마진율<br><span style="font-size:.68rem;font-weight:400;color:#9ca3af;">공급가×1.1 기준</span></th>
+        <th>원가율<br><span style="font-size:.68rem;font-weight:400;color:#9ca3af;">공급가×1.1 기준</span></th>
+      </tr></thead>
+      <tbody>`;
+
+    filtered.forEach(row => {
+      const cd = findCostData(row.productName);
+      let mg='—',cr='—',sc='—';
+      if (cd && cd.salePrice > 0) {
+        const vatCost = cd.supplyCost * 1.1;  // 공급가 × 1.1 (부가세 포함 실원가)
+        const m = ((cd.salePrice - vatCost) / cd.salePrice) * 100;
+        const c = (vatCost / cd.salePrice) * 100;
+        mg = marginBadge(m); cr = costBadge(c); sc = fmt(cd.supplyCost)+'원';
+      }
+      html += `<tr>
+        <td>${row.rank}</td>
+        <td class="name-cell">${escHtml(row.productName)}${row.option?`<div><span class="option-tag">${escHtml(row.option)}</span></div>`:''}</td>
+        <td>${row.salePrice>0?fmt(row.salePrice)+'원':'—'}</td>
+        <td>${sc}</td>
+        <td>${fmt(row.paidQty)}</td><td>${fmt(row.refundQty)}</td><td>${fmt(row.salesQty)}</td>
+        <td>${row.salesTotal>0?fmt(row.salesTotal)+'원':'—'}</td>
+        <td>${returnBadge(row.returnRate,row.paidQty)}</td>
+        <td>${mg}</td><td>${cr}</td>
+      </tr>`;
+    });
+    html += '</tbody></table></div>';
+  }
+
+  $('perf-result').innerHTML = html;
+
+  // 분석 완료 시 저장 패널 표시 + 스냅샷 보관
+  $('perf-save-panel').style.display = 'block';
+  store.perfSnapshot = {
+    overallRR, avgMargin, avgCostRate,
+    totalPaid, totalCancel,
+    productCount: store.salesData.length,
+    mappedCount: mapped,
+    period: ds && de ? { start: ds, end: de } : null
+  };
+  // 저장 이름 자동 제안 (기간 있으면)
+  if (ds && !$('perf-save-label').value) {
+    $('perf-save-label').value = ds.slice(0, 7).replace('-', '년 ') + '월';
+  }
+  loadPerfArchive();
+}
+
+function returnBadge(rate, paidQty) {
+  if (paidQty < 10) return '<span class="status-badge badge-gray">수량 부족</span>';
+  if (rate < 10)  return `<span class="status-badge badge-green">🟢 우수 ${fmtP(rate)}</span>`;
+  if (rate < 20)  return `<span class="status-badge badge-yellow">🟡 주의 ${fmtP(rate)}</span>`;
+  return `<span class="status-badge badge-red">🔴 위험 ${fmtP(rate)}</span>`;
+}
+function marginBadge(r) {
+  if (isNaN(r)) return '<span class="status-badge badge-gray">—</span>';
+  if (r >= 40) return `<span class="status-badge badge-green">${fmtP(r)}</span>`;
+  if (r >= 20) return `<span class="status-badge badge-blue">${fmtP(r)}</span>`;
+  return `<span class="status-badge badge-orange">${fmtP(r)}</span>`;
+}
+function costBadge(r) {
+  if (isNaN(r)) return '<span class="status-badge badge-gray">—</span>';
+  if (r < 40)  return `<span class="status-badge badge-green">${fmtP(r)}</span>`;
+  if (r < 60)  return `<span class="status-badge badge-blue">${fmtP(r)}</span>`;
+  return `<span class="status-badge badge-orange">${fmtP(r)}</span>`;
+}
+
+function perfFilterData(data, f) {
+  switch(f) {
+    case 'good':   return data.filter(r=>r.paidQty>=10&&r.returnRate<10);
+    case 'warn':   return data.filter(r=>r.paidQty>=10&&r.returnRate>=10&&r.returnRate<20);
+    case 'danger': return data.filter(r=>r.paidQty>=10&&r.returnRate>=20);
+    case 'nodata': return data.filter(r=>r.paidQty<10);
+    default: return data;
+  }
+}
+function setPerfFilter(f) { store.perfFilter = f; renderPerfResult(); }
+
+/* ══════════════════════════════════════
+   [ D ] 샘플 CSV 다운로드
+══════════════════════════════════════ */
+function downloadSampleC24() {
+  const rows = [
+    '주문번호,주문일시,주문 상태,상품명,취소사유,결제금액',
+    'ORDER001,2025-01-05,취소 완료,프릴 블라우스,단순변심,52000',
+    'ORDER002,2025-01-06,반품 완료 - 환불 완료,가디건,사이즈 불만족,39000',
+    'ORDER002,2025-01-06,반품 완료 - 환불 완료,가디건,사이즈 불만족,39000',
+    'ORDER003,2025-01-07,취소 완료,스커트,다른 상품 구매,29000',
+    'ORDER004,2025-01-08,배송중,,—,45000',
+    'ORDER005,2025-01-09,반품 완료 - 환불 완료,팬츠,상품 불량,45000',
+    'ORDER006,2025-01-10,취소 완료,티셔츠,단순변심,35000',
+  ];
+  dlCSV(rows.join('\n'), 'cafe24_취소반품완료_샘플.csv');
+}
+function downloadSampleNPCancel() {
+  // D열=취소처리상태, I열=취소사유, AA열=결제금액, AL열=취소금액, AM열=환불예정금액
+  const header = Array(39).fill('').map((_,i) => `컬럼${String.fromCharCode(65+i)}`);
+  header[3]  = '취소 처리상태';
+  header[8]  = '취소사유';
+  header[26] = '결제금액(AA)';
+  header[37] = '취소금액(AL)';
+  header[38] = '환불예정금액(AM)';
+  const row1 = Array(39).fill('0');
+  row1[3]='취소완료'; row1[8]='단순변심'; row1[26]='52000'; row1[37]='0'; row1[38]='52000';
+  const row2 = Array(39).fill('0');
+  row2[3]='직권취소완료'; row2[8]='결제오류'; row2[26]='39000'; row2[37]='39000'; row2[38]='0';
+  const row3 = Array(39).fill('0');
+  row3[3]='취소요청중'; row3[8]='기타'; row3[26]='29000'; row3[37]='0'; row3[38]='0';
+  dlCSV([header,row1,row2,row3].map(r=>r.join(',')).join('\n'), 'naver_취소완료_샘플.csv');
+}
+function downloadSampleNPReturn() {
+  // D열=반품처리상태, L열=반품사유, AH열=환불금액
+  const header = Array(35).fill('').map((_,i) => `컬럼${String.fromCharCode(65+i)}`);
+  header[3]  = '반품 처리상태';
+  header[11] = '반품사유(L)';
+  header[33] = '환불금액(AH)';
+  const row1 = Array(35).fill('0');
+  row1[3]='반품완료'; row1[11]='사이즈 불만족'; row1[33]='52000';
+  const row2 = Array(35).fill('0');
+  row2[3]='반품완료'; row2[11]='상품 불량'; row2[33]='39000';
+  const row3 = Array(35).fill('0');
+  row3[3]='반품신청중'; row3[11]='기타'; row3[33]='29000';
+  dlCSV([header,row1,row2,row3].map(r=>r.join(',')).join('\n'), 'naver_반품완료_샘플.csv');
+}
+function downloadSampleCost() {
+  const rows = [
+    '상품명,공급가,판매가',
+    '(울15) 푸들 퍼 가디건 (3 colors),15000,39000',
+    '"프릴 스트링 블라우스 (2 colors, 빅사이즈옵션가능)",13000,52000',
+    '새틴 블라삼 스트링 스커트 (4 colors),8000,29000',
+  ];
+  dlCSV(rows.join('\n'), '원가정보_샘플.csv');
+}
+function downloadSampleSales() {
+  const rows = [
+    '순위,상품코드,상품 품목코드,상품명,옵션,판매가,재고,결제수량,환불수량,판매수량,판매합계',
+    '1,P001,P001001,(울15) 푸들 퍼 가디건 (3 colors),컬러:자콜,39000,-405,191,39,152,5928000',
+    '"2","P002","P002001","프릴 스트링 블라우스 (2 colors, 빅사이즈옵션가능)","사이즈:1사이즈(55~77)","52000","-357","145","26","119","6188000"',
+  ];
+  dlCSV(rows.join('\n'), '판매성과_샘플.csv');
+}
+function dlCSV(content, filename) {
+  const blob = new Blob(['\uFEFF'+content], {type:'text/csv;charset=utf-8;'});
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href = url; a.download = filename; a.click();
+  URL.revokeObjectURL(url);
+}
+
+/* ══════════════════════════════════════
+   [ B-1 ] 판매 성과 아카이브 기능
+══════════════════════════════════════ */
+
+let perfChartInstance = null;
+
+/** 판매 성과 결과 저장 */
+async function savePerfArchive() {
+  const snap = store.perfSnapshot;
+  if (!snap) { showToast('❌ 먼저 CSV를 업로드해 분석을 실행해주세요.'); return; }
+
+  const label = $('perf-save-label').value.trim();
+  if (!label) { showToast('❌ 저장 이름을 입력해주세요.'); return; }
+
+  const body = {
+    label,
+    period_start:  snap.period ? snap.period.start : '',
+    period_end:    snap.period ? snap.period.end   : '',
+    overall_rr:    +snap.overallRR.toFixed(2),
+    avg_margin:    isNaN(snap.avgMargin)    ? null : +snap.avgMargin.toFixed(2),
+    avg_cost_rate: isNaN(snap.avgCostRate)  ? null : +snap.avgCostRate.toFixed(2),
+    total_paid_qty:   snap.totalPaid,
+    total_cancel_qty: snap.totalCancel,
+    product_count:    snap.productCount,
+    mapped_count:     snap.mappedCount,
+    memo: $('perf-save-memo').value.trim()
+  };
+
+  try {
+    await sbInsert('perf_archive', body);
+    showToast(`✅ "${label}" 저장 완료!`);
+    $('perf-save-label').value = '';
+    $('perf-save-memo').value  = '';
+    await loadPerfArchive();
+  } catch(e) { showToast('❌ 저장 실패: ' + e.message); }
+}
+
+/** 저장 목록 불러오기 */
+async function loadPerfArchive() {
+  try {
+    const rows = await sbList('perf_archive');
+
+    if (!rows.length) {
+      $('perf-archive-list').innerHTML =
+        '<div style="color:#9ca3af;font-size:.88rem;text-align:center;padding:24px 0;">저장된 기록이 없습니다.</div>';
+      return;
+    }
+
+    const rrColor  = v => v == null ? '#6b7280' : v < 10 ? '#16a34a' : v < 20 ? '#d97706' : '#dc2626';
+    const mrgColor = v => v == null ? '#6b7280' : v >= 40 ? '#16a34a' : v >= 20 ? '#d97706' : '#dc2626';
+
+    let html = `
+      <div style="overflow-x:auto;">
+      <table style="width:100%;border-collapse:collapse;font-size:.84rem;">
+        <thead>
+          <tr style="background:#f3f4f6;">
+            <th style="padding:10px 8px;text-align:center;border-bottom:2px solid #e5e7eb;">
+              <input type="checkbox" id="perf-check-all" onchange="perfCheckAll(this)" title="전체선택" />
+            </th>
+            <th style="padding:10px 12px;text-align:left;font-weight:700;color:#374151;border-bottom:2px solid #e5e7eb;white-space:nowrap;">이름</th>
+            <th style="padding:10px 12px;text-align:left;font-weight:700;color:#374151;border-bottom:2px solid #e5e7eb;white-space:nowrap;">기간</th>
+            <th style="padding:10px 12px;text-align:right;font-weight:700;color:#374151;border-bottom:2px solid #e5e7eb;white-space:nowrap;">취소·반품률</th>
+            <th style="padding:10px 12px;text-align:right;font-weight:700;color:#374151;border-bottom:2px solid #e5e7eb;white-space:nowrap;">평균 마진율</th>
+            <th style="padding:10px 12px;text-align:right;font-weight:700;color:#374151;border-bottom:2px solid #e5e7eb;white-space:nowrap;">평균 원가율</th>
+            <th style="padding:10px 12px;text-align:right;font-weight:700;color:#374151;border-bottom:2px solid #e5e7eb;white-space:nowrap;">상품 수</th>
+            <th style="padding:10px 12px;text-align:left;font-weight:700;color:#374151;border-bottom:2px solid #e5e7eb;">메모</th>
+            <th style="padding:10px 8px;border-bottom:2px solid #e5e7eb;"></th>
+          </tr>
+        </thead>
+        <tbody>`;
+
+    rows.forEach((r, i) => {
+      const period = r.period_start && r.period_end
+        ? `${r.period_start.replace(/-/g,'.')} ~ ${r.period_end.replace(/-/g,'.')}`
+        : '기간 미설정';
+      const bg = i % 2 === 0 ? '#fff' : '#f9fafb';
+      html += `
+        <tr style="background:${bg};" onmouseover="this.style.background='#f0fdf4'" onmouseout="this.style.background='${bg}'">
+          <td style="padding:10px 8px;text-align:center;">
+            <input type="checkbox" class="perf-check" value="${r.id}" onchange="limitPerfCheck(this)" />
+          </td>
+          <td style="padding:10px 12px;font-weight:600;color:#1e1b4b;">${escHtml(r.label||'')}</td>
+          <td style="padding:10px 12px;color:#6b7280;white-space:nowrap;">${period}</td>
+          <td style="padding:10px 12px;text-align:right;font-weight:700;color:${rrColor(r.overall_rr)};">${r.overall_rr != null ? fmtP(r.overall_rr) : '—'}</td>
+          <td style="padding:10px 12px;text-align:right;font-weight:700;color:${mrgColor(r.avg_margin)};">${r.avg_margin != null ? fmtP(r.avg_margin) : '—'}</td>
+          <td style="padding:10px 12px;text-align:right;font-weight:700;color:#374151;">${r.avg_cost_rate != null ? fmtP(r.avg_cost_rate) : '—'}</td>
+          <td style="padding:10px 12px;text-align:right;color:#6b7280;">${r.product_count != null ? fmt(r.product_count)+'개' : '—'}</td>
+          <td style="padding:10px 12px;color:#6b7280;max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escHtml(r.memo||'—')}</td>
+          <td style="padding:10px 8px;text-align:center;">
+            <button onclick="deletePerfArchive('${r.id}')" style="background:#fee2e2;color:#dc2626;border:none;border-radius:6px;padding:4px 10px;font-size:.78rem;cursor:pointer;font-weight:600;">삭제</button>
+          </td>
+        </tr>`;
+    });
+
+    html += '</tbody></table></div>';
+    $('perf-archive-list').innerHTML = html;
+    store.perfArchiveRows = rows;
+  } catch(e) {
+    $('perf-archive-list').innerHTML = '<div style="color:#dc2626;padding:16px;">기록 불러오기 실패</div>';
+  }
+}
+
+function perfCheckAll(master) {
+  document.querySelectorAll('.perf-check').forEach(cb => { cb.checked = master.checked; });
+  limitPerfCheckAll();
+}
+function limitPerfCheck(cb) {
+  if ([...document.querySelectorAll('.perf-check:checked')].length > 5) {
+    cb.checked = false;
+    showToast('⚠️ 최대 5개까지 선택할 수 있습니다.');
+  }
+}
+function limitPerfCheckAll() {
+  let cnt = 0;
+  document.querySelectorAll('.perf-check').forEach(cb => {
+    if (cb.checked) { cnt++; if (cnt > 5) cb.checked = false; }
+  });
+  if (cnt > 5) showToast('⚠️ 최대 5개까지 선택됩니다.');
+}
+
+/** 선택 항목 비교 */
+function comparePerfArchive() {
+  const checked = [...document.querySelectorAll('.perf-check:checked')];
+  if (checked.length < 2) { showToast('⚠️ 비교할 항목을 2개 이상 선택해주세요.'); return; }
+  const ids  = checked.map(cb => cb.value);
+  const rows = (store.perfArchiveRows || []).filter(r => ids.includes(r.id));
+  rows.sort((a,b) => ids.indexOf(a.id) - ids.indexOf(b.id));
+  renderPerfCompare(rows);
+  $('perf-compare-result').style.display = 'block';
+  $('perf-compare-result').scrollIntoView({ behavior:'smooth', block:'start' });
+}
+
+/** 비교 차트 + 테이블 렌더링 */
+function renderPerfCompare(rows) {
+  const labels = rows.map(r => r.label || '미입력');
+
+  if (perfChartInstance) perfChartInstance.destroy();
+  const ctx = document.getElementById('perf-compare-chart').getContext('2d');
+  perfChartInstance = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [
+        {
+          label: '취소·반품률 (%)',
+          data: rows.map(r => r.overall_rr ?? 0),
+          backgroundColor: 'rgba(124,58,237,0.7)',
+          borderColor: '#7c3aed',
+          borderWidth: 2,
+          borderRadius: 6,
+          yAxisID: 'y'
+        },
+        {
+          label: '평균 마진율 (%)',
+          data: rows.map(r => r.avg_margin ?? 0),
+          backgroundColor: 'rgba(8,145,178,0.7)',
+          borderColor: '#0891b2',
+          borderWidth: 2,
+          borderRadius: 6,
+          yAxisID: 'y'
+        },
+        {
+          label: '평균 원가율 (%)',
+          data: rows.map(r => r.avg_cost_rate ?? 0),
+          backgroundColor: 'rgba(5,150,105,0.7)',
+          borderColor: '#059669',
+          borderWidth: 2,
+          borderRadius: 6,
+          yAxisID: 'y',
+          type: 'line',
+          tension: 0.35,
+          fill: false,
+          pointRadius: 5,
+          pointBackgroundColor: '#059669'
+        }
+      ]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      interaction: { mode:'index', intersect:false },
+      plugins: {
+        legend: { position:'top', labels:{ font:{ size:13 } } },
+        tooltip: { callbacks: { label: c => ` ${c.dataset.label}: ${c.parsed.y.toFixed(2)}%` } }
+      },
+      scales: {
+        y: { beginAtZero:true, ticks:{ callback: v => v+'%' }, title:{ display:true, text:'비율 (%)' } }
+      }
+    }
+  });
+
+  // 비교 테이블
+  const rrColor  = v => v == null ? '#6b7280' : v < 10 ? '#16a34a' : v < 20 ? '#d97706' : '#dc2626';
+  const mrgColor = v => v == null ? '#6b7280' : v >= 40 ? '#16a34a' : v >= 20 ? '#d97706' : '#dc2626';
+
+  const rows_html = [
+    { label:'기간', fn: r => { const p = r.period_start&&r.period_end ? `${r.period_start.replace(/-/g,'.')}~${r.period_end.replace(/-/g,'.')}` : '미설정'; return `<td style="padding:10px 14px;text-align:right;color:#6b7280;white-space:nowrap;">${p}</td>`; }, bg:'#fff' },
+    { label:'취소·반품률 (수량)', fn: r => `<td style="padding:10px 14px;text-align:right;font-weight:700;color:${rrColor(r.overall_rr)};">${r.overall_rr!=null?fmtP(r.overall_rr):'—'}</td>`, bg:'#f9fafb' },
+    { label:'전체 평균 마진율', fn: r => `<td style="padding:10px 14px;text-align:right;font-weight:700;color:${mrgColor(r.avg_margin)};">${r.avg_margin!=null?fmtP(r.avg_margin):'—'}</td>`, bg:'#fff' },
+    { label:'전체 평균 원가율', fn: r => `<td style="padding:10px 14px;text-align:right;font-weight:700;color:#374151;">${r.avg_cost_rate!=null?fmtP(r.avg_cost_rate):'—'}</td>`, bg:'#f9fafb' },
+    { label:'분석 상품 수',     fn: r => `<td style="padding:10px 14px;text-align:right;color:#6b7280;">${r.product_count!=null?fmt(r.product_count)+'개':'—'}</td>`, bg:'#fff' },
+    { label:'원가 매핑 수',     fn: r => `<td style="padding:10px 14px;text-align:right;color:#6b7280;">${r.mapped_count!=null?fmt(r.mapped_count)+'개':'—'}</td>`, bg:'#f9fafb' },
+    { label:'메모',             fn: r => `<td style="padding:10px 14px;text-align:right;color:#6b7280;">${escHtml(r.memo||'—')}</td>`, bg:'#fff' },
+  ];
+
+  let thtml = `
+    <div style="overflow-x:auto;">
+    <table style="width:100%;border-collapse:collapse;font-size:.85rem;">
+      <thead>
+        <tr style="background:#f3f4f6;">
+          <th style="padding:10px 14px;text-align:left;font-weight:700;color:#374151;border-bottom:2px solid #e5e7eb;">항목</th>
+          ${rows.map(r=>`<th style="padding:10px 14px;text-align:right;font-weight:700;color:#0891b2;border-bottom:2px solid #e5e7eb;">${escHtml(r.label)}</th>`).join('')}
+        </tr>
+      </thead>
+      <tbody>
+        ${rows_html.map(row=>`
+          <tr style="background:${row.bg};">
+            <td style="padding:10px 14px;font-weight:600;color:#374151;">${row.label}</td>
+            ${rows.map(r=>row.fn(r)).join('')}
+          </tr>`).join('')}
+      </tbody>
+    </table>
+    </div>`;
+  $('perf-compare-table').innerHTML = thtml;
+}
+
+/** 기록 삭제 */
+async function deletePerfArchive(id) {
+  if (!confirm('이 기록을 삭제할까요?')) return;
+  try {
+    await sbDelete('perf_archive', id);
+    showToast('🗑️ 삭제 완료');
+    $('perf-compare-result').style.display = 'none';
+    await loadPerfArchive();
+  } catch(e) { showToast('❌ 삭제 실패: ' + e.message); }
+}
+
+/* ══════════════════════════════════════
+   [ B-2 ] 취소·반품 아카이브 기능
+══════════════════════════════════════ */
+
+let crChartInstance = null;  // Chart 인스턴스 재사용
+
+/** 현재 분석 결과 저장 */
+async function saveCrArchive() {
+  const snap = store.crSnapshot;
+  if (!snap || !snap.revenue) {
+    showToast('❌ 먼저 분석을 실행해주세요.'); return;
+  }
+  const label = $('cr-save-label').value.trim();
+  if (!label) {
+    showToast('❌ 저장 이름을 입력해주세요.'); return;
+  }
+
+  const body = {
+    label,
+    period_start:     snap.period ? snap.period.start : '',
+    period_end:       snap.period ? snap.period.end   : '',
+    revenue:          snap.revenue,
+    cancel_cnt:       snap.cancelCnt,
+    return_cnt:       snap.returnCnt,
+    cancel_amt:       snap.cancelAmt,
+    return_amt:       snap.returnAmt,
+    cancel_ratio_rev: snap.cancelRatioRev  != null ? +snap.cancelRatioRev.toFixed(2)  : 0,
+    return_ratio_rev: snap.returnRatioRev  != null ? +snap.returnRatioRev.toFixed(2)  : 0,
+    total_ratio_rev:  snap.totalRatioRev   != null ? +snap.totalRatioRev.toFixed(2)   : 0,
+    memo:             $('cr-save-memo').value.trim()
+  };
+
+  try {
+    await sbInsert('cr_archive', body);
+    showToast(`✅ "${label}" 저장 완료!`);
+    $('cr-save-label').value = '';
+    $('cr-save-memo').value  = '';
+    await loadCrArchive();
+  } catch(e) {
+    showToast('❌ 저장 실패: ' + e.message);
+  }
+}
+
+/** 저장 기록 불러오기 및 목록 렌더링 */
+async function loadCrArchive() {
+  try {
+    const rows = await sbList('cr_archive'); // 최신순
+
+    if (rows.length === 0) {
+      $('cr-archive-list').innerHTML =
+        '<div style="color:#9ca3af;font-size:.88rem;text-align:center;padding:24px 0;">저장된 기록이 없습니다.</div>';
+      return;
+    }
+
+    let html = `
+      <div style="overflow-x:auto;">
+      <table style="width:100%;border-collapse:collapse;font-size:.84rem;">
+        <thead>
+          <tr style="background:#f3f4f6;">
+            <th style="padding:10px 8px;text-align:center;font-weight:700;color:#374151;border-bottom:2px solid #e5e7eb;white-space:nowrap;">
+              <input type="checkbox" id="cr-check-all" onchange="crCheckAll(this)" title="전체선택" />
+            </th>
+            <th style="padding:10px 12px;text-align:left;font-weight:700;color:#374151;border-bottom:2px solid #e5e7eb;white-space:nowrap;">이름</th>
+            <th style="padding:10px 12px;text-align:left;font-weight:700;color:#374151;border-bottom:2px solid #e5e7eb;white-space:nowrap;">기간</th>
+            <th style="padding:10px 12px;text-align:right;font-weight:700;color:#374151;border-bottom:2px solid #e5e7eb;white-space:nowrap;">총 매출액</th>
+            <th style="padding:10px 12px;text-align:right;font-weight:700;color:#374151;border-bottom:2px solid #e5e7eb;white-space:nowrap;">취소 비율</th>
+            <th style="padding:10px 12px;text-align:right;font-weight:700;color:#374151;border-bottom:2px solid #e5e7eb;white-space:nowrap;">반품 비율</th>
+            <th style="padding:10px 12px;text-align:right;font-weight:700;color:#374151;border-bottom:2px solid #e5e7eb;white-space:nowrap;">합산 비율</th>
+            <th style="padding:10px 12px;text-align:left;font-weight:700;color:#374151;border-bottom:2px solid #e5e7eb;white-space:nowrap;">메모</th>
+            <th style="padding:10px 8px;text-align:center;font-weight:700;color:#374151;border-bottom:2px solid #e5e7eb;"></th>
+          </tr>
+        </thead>
+        <tbody>`;
+
+    rows.forEach((r, i) => {
+      const period = r.period_start && r.period_end
+        ? `${r.period_start.replace(/-/g,'.')} ~ ${r.period_end.replace(/-/g,'.')}`
+        : '기간 미설정';
+      const ratioColor = v => v == null ? '#6b7280' : v < 5 ? '#16a34a' : v < 10 ? '#d97706' : '#dc2626';
+      const bg = i % 2 === 0 ? '#fff' : '#f9fafb';
+      html += `
+        <tr style="background:${bg}; transition:background .15s;" onmouseover="this.style.background='#eef2ff'" onmouseout="this.style.background='${bg}'">
+          <td style="padding:10px 8px;text-align:center;">
+            <input type="checkbox" class="cr-check" value="${r.id}" onchange="limitCrCheck(this)" />
+          </td>
+          <td style="padding:10px 12px;font-weight:600;color:#1e1b4b;">${escHtml(r.label || '')}</td>
+          <td style="padding:10px 12px;color:#6b7280;white-space:nowrap;">${period}</td>
+          <td style="padding:10px 12px;text-align:right;font-weight:600;">${fmt(r.revenue)}원</td>
+          <td style="padding:10px 12px;text-align:right;font-weight:700;color:${ratioColor(r.cancel_ratio_rev)};">${r.cancel_ratio_rev != null ? fmtP(r.cancel_ratio_rev) : '—'}</td>
+          <td style="padding:10px 12px;text-align:right;font-weight:700;color:${ratioColor(r.return_ratio_rev)};">${r.return_ratio_rev != null ? fmtP(r.return_ratio_rev) : '—'}</td>
+          <td style="padding:10px 12px;text-align:right;font-weight:700;color:${ratioColor(r.total_ratio_rev)};">${r.total_ratio_rev != null ? fmtP(r.total_ratio_rev) : '—'}</td>
+          <td style="padding:10px 12px;color:#6b7280;max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escHtml(r.memo || '—')}</td>
+          <td style="padding:10px 8px;text-align:center;">
+            <button onclick="deleteCrArchive('${r.id}')" style="background:#fee2e2;color:#dc2626;border:none;border-radius:6px;padding:4px 10px;font-size:.78rem;cursor:pointer;font-weight:600;">삭제</button>
+          </td>
+        </tr>`;
+    });
+
+    html += '</tbody></table></div>';
+    $('cr-archive-list').innerHTML = html;
+
+    // 저장 데이터를 메모리에도 보관 (비교용)
+    store.crArchiveRows = rows;
+  } catch(e) {
+    $('cr-archive-list').innerHTML = '<div style="color:#dc2626;padding:16px;">기록 불러오기 실패</div>';
+  }
+}
+
+/** 전체 선택/해제 */
+function crCheckAll(master) {
+  document.querySelectorAll('.cr-check').forEach(cb => {
+    cb.checked = master.checked;
+  });
+  // 5개 초과 방지
+  limitCrCheckAll();
+}
+
+/** 5개 초과 선택 방지 */
+function limitCrCheck(cb) {
+  const checked = document.querySelectorAll('.cr-check:checked');
+  if (checked.length > 5) {
+    cb.checked = false;
+    showToast('⚠️ 최대 5개까지 선택할 수 있습니다.');
+  }
+}
+
+function limitCrCheckAll() {
+  const checked = document.querySelectorAll('.cr-check:checked');
+  if (checked.length > 5) {
+    // 6번째 이후 해제
+    let cnt = 0;
+    document.querySelectorAll('.cr-check').forEach(cb => {
+      if (cb.checked) {
+        cnt++;
+        if (cnt > 5) cb.checked = false;
+      }
+    });
+    showToast('⚠️ 최대 5개까지 선택됩니다.');
+  }
+}
+
+/** 선택 항목 비교 */
+function compareCrArchive() {
+  const checked = [...document.querySelectorAll('.cr-check:checked')];
+  if (checked.length < 2) {
+    showToast('⚠️ 비교할 항목을 2개 이상 선택해주세요.'); return;
+  }
+  const ids = checked.map(cb => cb.value);
+  const rows = (store.crArchiveRows || []).filter(r => ids.includes(r.id));
+  if (!rows.length) return;
+
+  // 선택 순서 유지
+  rows.sort((a, b) => {
+    const ai = ids.indexOf(a.id), bi = ids.indexOf(b.id);
+    return ai - bi;
+  });
+
+  renderCrCompare(rows);
+  $('cr-compare-result').style.display = 'block';
+  $('cr-compare-result').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+/** 비교 결과 렌더링 (테이블 + 차트) */
+function renderCrCompare(rows) {
+  const labels = rows.map(r => r.label || '미입력');
+
+  // ── 차트 ──
+  if (crChartInstance) crChartInstance.destroy();
+  const ctx = document.getElementById('cr-compare-chart').getContext('2d');
+  crChartInstance = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [
+        {
+          label: '취소 비율 (%)',
+          data: rows.map(r => r.cancel_ratio_rev ?? 0),
+          backgroundColor: 'rgba(251,146,60,0.75)',
+          borderColor: '#f97316',
+          borderWidth: 2,
+          borderRadius: 6,
+        },
+        {
+          label: '반품 비율 (%)',
+          data: rows.map(r => r.return_ratio_rev ?? 0),
+          backgroundColor: 'rgba(239,68,68,0.75)',
+          borderColor: '#dc2626',
+          borderWidth: 2,
+          borderRadius: 6,
+        },
+        {
+          label: '합산 비율 (%)',
+          data: rows.map(r => r.total_ratio_rev ?? 0),
+          backgroundColor: 'rgba(99,102,241,0.6)',
+          borderColor: '#6366f1',
+          borderWidth: 2,
+          borderRadius: 6,
+          type: 'line',
+          tension: 0.35,
+          fill: false,
+          pointRadius: 5,
+          pointBackgroundColor: '#6366f1',
+          yAxisID: 'y',
+        }
+      ]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { position: 'top', labels: { font: { size: 13 } } },
+        tooltip: {
+          callbacks: {
+            label: ctx => ` ${ctx.dataset.label}: ${ctx.parsed.y.toFixed(2)}%`
+          }
+        }
+      },
+      scales: {
+        y: {
+          beginAtZero: true,
+          ticks: { callback: v => v + '%' },
+          title: { display: true, text: '비율 (%)' }
+        }
+      }
+    }
+  });
+
+  // ── 비교 테이블 ──
+  const ratioColor = v => v == null ? '#6b7280' : v < 5 ? '#16a34a' : v < 10 ? '#d97706' : '#dc2626';
+  let thtml = `
+    <div style="overflow-x:auto;">
+    <table style="width:100%;border-collapse:collapse;font-size:.85rem;">
+      <thead>
+        <tr style="background:#f3f4f6;">
+          <th style="padding:10px 14px;text-align:left;font-weight:700;color:#374151;border-bottom:2px solid #e5e7eb;">항목</th>
+          ${rows.map(r => `<th style="padding:10px 14px;text-align:right;font-weight:700;color:#4f46e5;border-bottom:2px solid #e5e7eb;">${escHtml(r.label)}</th>`).join('')}
+        </tr>
+      </thead>
+      <tbody>
+        <tr style="background:#fff;">
+          <td style="padding:10px 14px;font-weight:600;color:#374151;">기간</td>
+          ${rows.map(r => {
+            const p = r.period_start && r.period_end
+              ? `${r.period_start.replace(/-/g,'.')}~${r.period_end.replace(/-/g,'.')}`
+              : '미설정';
+            return `<td style="padding:10px 14px;text-align:right;color:#6b7280;white-space:nowrap;">${p}</td>`;
+          }).join('')}
+        </tr>
+        <tr style="background:#f9fafb;">
+          <td style="padding:10px 14px;font-weight:600;color:#374151;">총 매출액</td>
+          ${rows.map(r => `<td style="padding:10px 14px;text-align:right;font-weight:700;">${fmt(r.revenue)}원</td>`).join('')}
+        </tr>
+        <tr style="background:#fff;">
+          <td style="padding:10px 14px;font-weight:600;color:#374151;">취소 완료 비율</td>
+          ${rows.map(r => `<td style="padding:10px 14px;text-align:right;font-weight:700;color:${ratioColor(r.cancel_ratio_rev)};">${r.cancel_ratio_rev != null ? fmtP(r.cancel_ratio_rev) : '—'}</td>`).join('')}
+        </tr>
+        <tr style="background:#f9fafb;">
+          <td style="padding:10px 14px;font-weight:600;color:#374151;">반품 완료 비율</td>
+          ${rows.map(r => `<td style="padding:10px 14px;text-align:right;font-weight:700;color:${ratioColor(r.return_ratio_rev)};">${r.return_ratio_rev != null ? fmtP(r.return_ratio_rev) : '—'}</td>`).join('')}
+        </tr>
+        <tr style="background:#fff;">
+          <td style="padding:10px 14px;font-weight:600;color:#374151;">취소+반품 합산 비율</td>
+          ${rows.map(r => `<td style="padding:10px 14px;text-align:right;font-weight:700;color:${ratioColor(r.total_ratio_rev)};">${r.total_ratio_rev != null ? fmtP(r.total_ratio_rev) : '—'}</td>`).join('')}
+        </tr>
+        <tr style="background:#f9fafb;">
+          <td style="padding:10px 14px;font-weight:600;color:#374151;">취소 건수</td>
+          ${rows.map(r => `<td style="padding:10px 14px;text-align:right;">${fmt(r.cancel_cnt)}건</td>`).join('')}
+        </tr>
+        <tr style="background:#fff;">
+          <td style="padding:10px 14px;font-weight:600;color:#374151;">반품 건수</td>
+          ${rows.map(r => `<td style="padding:10px 14px;text-align:right;">${fmt(r.return_cnt)}건</td>`).join('')}
+        </tr>
+        <tr style="background:#f9fafb;">
+          <td style="padding:10px 14px;font-weight:600;color:#374151;">메모</td>
+          ${rows.map(r => `<td style="padding:10px 14px;text-align:right;color:#6b7280;">${escHtml(r.memo || '—')}</td>`).join('')}
+        </tr>
+      </tbody>
+    </table>
+    </div>`;
+  $('cr-compare-table').innerHTML = thtml;
+}
+
+/** 기록 삭제 */
+async function deleteCrArchive(id) {
+  if (!confirm('이 기록을 삭제할까요?')) return;
+  try {
+    await sbDelete('cr_archive', id);
+    showToast('🗑️ 삭제 완료');
+    $('cr-compare-result').style.display = 'none';
+    await loadCrArchive();
+  } catch(e) {
+    showToast('❌ 삭제 실패: ' + e.message);
+  }
+}
+
+/* ══════════════════════════════════════
+   [ D-2 ] 광고 효율 & 수익 분석
+══════════════════════════════════════ */
+
+/** 법인세 계산 (과세표준 기준) */
+function calcCorpTax(taxableIncome) {
+  if (taxableIncome <= 0) return 0;
+  if (taxableIncome <= 200_000_000)       return taxableIncome * 0.09;
+  if (taxableIncome <= 20_000_000_000)    return 200_000_000 * 0.09 + (taxableIncome - 200_000_000) * 0.19;
+  return 200_000_000 * 0.09 + (20_000_000_000 - 200_000_000) * 0.19 + (taxableIncome - 20_000_000_000) * 0.21;
+}
+
+function calcAdv() {
+  const revenue  = parseFloat($('adv-revenue').value) || 0;
+  const advCost  = parseFloat($('adv-cost').value)    || 0;
+  const rent     = parseFloat($('adv-rent').value)    || 0;
+  const labor    = parseFloat($('adv-labor').value)   || 0;
+  const etc      = parseFloat($('adv-etc').value)     || 0;
+  const months   = Math.max(1, parseFloat($('adv-months').value) || 1);
+
+  if (revenue <= 0 && advCost <= 0) {
+    $('adv-result').innerHTML = `<div class="empty-state"><div class="es-icon">📣</div><p>매출과 광고비를 입력하면<br/>ROAS 및 수익 분석 결과가 표시됩니다.</p></div>`;
+    return;
+  }
+
+  // ── 상품 공급가 합계 (판매 성과 CSV + 원가 CSV 매핑 기반)
+  // 순판매수량 × 공급가(VAT 포함 = ×1.1) 합산
+  let totalSupplyCost = 0;
+  let supplyCostMapped = 0;
+  if (store.salesData.length > 0) {
+    store.salesData.forEach(r => {
+      const cd = findCostData(r.productName);
+      if (cd && cd.supplyCost > 0 && r.salesQty > 0) {
+        totalSupplyCost += cd.supplyCost * 1.1 * r.salesQty;  // 공급가 × VAT × 판매수량
+        supplyCostMapped++;
+      }
+    });
+  }
+
+  // ── 현재 매출 대비 공급가 비율 (시나리오 스케일링용)
+  const supplyCostRatio = revenue > 0 && totalSupplyCost > 0 ? totalSupplyCost / revenue : 0;
+
+  // ── 취소·반품률 연동 (취소반품 탭 데이터 자동 연동)
+  // crTotalRatioRev: 총매출 대비 취소+반품 금액 비율 (%)
+  // 연동 시: 순매출 = 총매출 × (1 - crRate/100)
+  //          → 시나리오 "순매출 ±X" 는 총매출 기준 역산해서 실제 광고 규모 계산
+  const crRate      = store.crTotalRatioRev !== null ? store.crTotalRatioRev / 100 : null;
+  const crLinked    = crRate !== null;
+  // 순매출을 총매출로 역산: 총매출 = 순매출 ÷ (1 - crRate)
+  const grossRevenue = crLinked && crRate < 1 ? revenue / (1 - crRate) : revenue;
+
+  // ── 기본 지표
+  const roas  = advCost > 0 ? (revenue / advCost * 100) : null;
+  const roasX = advCost > 0 ? (revenue / advCost)       : null;
+
+  // ── 고정비 합계 (광고비 제외)
+  const fixedCost = rent * months + labor + etc;
+
+  // ── 현재 실적 순이익 계산 헬퍼
+  // rev = 순매출 기준으로 받음 (취소·반품 이미 제외된 값)
+  const calcNet = (rev, adv) => {
+    // supply = 공급가 × 1.1 (VAT 포함 금액)
+    const supply       = supplyCostRatio > 0 ? rev * supplyCostRatio : totalSupplyCost;
+
+    // 부가세 실납부액 = 매출세액 - 매입세액
+    //   매출세액 = rev × 10/110  (소비자한테 받은 VAT)
+    //   매입세액 = supply × 10/11 (공급업체에 낸 VAT → 환급)
+    //   supply = 공급가 × 1.1 → VAT 포함 → 매입세액 = supply - supply/1.1 = supply × (1 - 1/1.1)
+    const salesVat     = rev > 0    ? rev    * (10 / 110) : 0;  // 매출세액
+    const purchaseVat  = supply > 0 ? supply * (1 - 1 / 1.1) : 0;  // 매입세액 (환급)
+    const vatAmt       = Math.max(0, salesVat - purchaseVat);   // 실납부 부가세
+
+    // 공급가 비용은 VAT 제외 금액(순공급가)으로만 반영 (이중 차감 방지)
+    const supplyExVat  = supply / 1.1;
+
+    const preTax   = rev - adv - supplyExVat - fixedCost - vatAmt;
+    const corpTax  = calcCorpTax(Math.max(0, preTax));
+    return { supply, supplyExVat, salesVat, purchaseVat, vatAmt, preTax, corpTax, net: preTax - corpTax };
+  };
+
+  // ── 시나리오 헬퍼: 총매출 변동 → 순매출·광고비 역산
+  // crLinked 일 때: 시나리오 변동폭은 총매출 기준으로 적용
+  //   총매출이 delta만큼 변하면 → 순매출도 delta × (1-crRate) 만큼 변함
+  //   광고비는 총매출 ÷ ROAS (광고는 총매출 전체를 대상으로 집행)
+  const calcScenario = (simGrossRevDelta, simRoasPct) => {
+    const simGross  = Math.max(0, grossRevenue + simGrossRevDelta);
+    const simRev    = crLinked ? simGross * (1 - crRate) : simGross;
+    const simAdv    = simRoasPct > 0 ? simGross / (simRoasPct / 100) : 0;  // ROAS = 총매출/광고비
+    return { simRev, simAdv, simGross };
+  };
+
+  const cur = calcNet(revenue, advCost);
+
+  // ── 시나리오 3개 (새 방식)
+  // ① 총매출(또는 순매출) -delta / ROAS +roasDelta%p
+  // ② 현재 입력 데이터 기준 (기존 실적)
+  // ③ 총매출(또는 순매출) +delta / ROAS -roasDelta%p
+  //
+  // 가정:
+  //  - 공급가 비율(supplyCostRatio)은 순매출에 비례해 유지
+  //  - 고정비(월세·인건비·기타)는 변동 없음
+  //  - crLinked=true 시: 광고비 = 총매출 ÷ ROAS (취소·반품 포함 전 매출이 광고 타겟)
+  //  - crLinked=false 시: 광고비 = 순매출 ÷ ROAS (기존 방식 유지)
+
+  // ── 커스텀 변동폭 읽기
+  const scRevDelta  = Math.abs(parseFloat($('sc-rev-delta').value)  || 100_000_000);
+  const scRoasDelta = Math.abs(parseFloat($('sc-roas-delta').value) || 100);
+
+  const currentRoas = roas || 0;  // ROAS가 null이면 0으로 처리
+  const scenarioDefs = [
+    { label: `① ${crLinked?'총':'순'}매출 -${fmtShort(scRevDelta)} · ROAS +${scRoasDelta}%p`, grossDelta: -scRevDelta, simRoas: currentRoas + scRoasDelta, color: '#0284c7', bg: '#eff6ff', border: '1.5px solid #bfdbfe' },
+    { label: '② 현재 실적 기준',                                                                grossDelta:  0,          simRoas: currentRoas,               color: '#7c3aed', bg: '#f5f3ff', border: '2px solid #c4b5fd' },
+    { label: `③ ${crLinked?'총':'순'}매출 +${fmtShort(scRevDelta)} · ROAS -${scRoasDelta}%p`, grossDelta: +scRevDelta, simRoas: currentRoas - scRoasDelta, color: '#b45309', bg: '#fffbeb', border: '1.5px solid #fde68a' },
+  ];
+
+  const scenarios = scenarioDefs.map(def => {
+    const simRoasPct = Math.max(1, def.simRoas);
+    const { simRev, simAdv, simGross } = calcScenario(def.grossDelta, simRoasPct);
+    const res = calcNet(simRev, simAdv);
+    return {
+      label:        def.label,
+      roas:         simRoasPct,
+      grossRevenue: simGross,   // 총매출 (취소·반품 포함 전)
+      revenue:      simRev,     // 순매출 (취소·반품 차감 후)
+      advCost:      simAdv,
+      supply:       res.supply,
+      supplyExVat:  res.supplyExVat,
+      salesVat:     res.salesVat,
+      purchaseVat:  res.purchaseVat,
+      vatAmt:       res.vatAmt,
+      corpTax:      res.corpTax,
+      netProfit:    res.net,
+      color:        def.color,
+      bg:           def.bg,
+      border:       def.border,
+    };
+  });
+
+  // ── 렌더링용 색상
+  const profitColor  = cur.net >= 0 ? '#15803d' : '#dc2626';
+  const profitBg     = cur.net >= 0 ? '#f0fdf4' : '#fef2f2';
+  const profitBorder = cur.net >= 0 ? '#bbf7d0' : '#fecaca';
+  const roasColor    = roas === null ? '#6b7280' : roas >= 700 ? '#15803d' : roas >= 500 ? '#d97706' : '#dc2626';
+  const roasStatus   = roas === null ? '—' : roas >= 700 ? '우수' : roas >= 500 ? '보통' : '개선 필요';
+  const supplyCostNote = supplyCostMapped > 0
+    ? `${supplyCostMapped}개 상품 매핑 · ${fmt(totalSupplyCost)}원`
+    : '원가 CSV 미업로드 (0원 처리)';
+
+  // 취소·반품 연동 배지
+  const crBadge = crLinked
+    ? `<span style="display:inline-flex;align-items:center;gap:5px;font-size:.75rem;font-weight:700;background:#d1fae5;color:#065f46;border:1px solid #6ee7b7;padding:4px 12px;border-radius:50px;">🔗 취소·반품률 연동됨 (${fmtP(store.crTotalRatioRev)}) — 총매출 기준 역산 적용</span>`
+    : `<span style="display:inline-flex;align-items:center;gap:5px;font-size:.75rem;font-weight:600;background:#f3f4f6;color:#6b7280;border:1px solid #e5e7eb;padding:4px 12px;border-radius:50px;">⚪ 취소·반품률 미연동 — 취소반품 탭에서 CSV를 업로드하면 자동 적용</span>`;
+
+  let html = `
+    <!-- 취소·반품 연동 배지 -->
+    <div style="margin-bottom:14px;">${crBadge}</div>
+
+    <!-- KPI 상단 4개 -->
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:20px;">
+      <div style="background:#f8f9ff;border:1.5px solid #e8eaf0;border-radius:12px;padding:14px;">
+        <div style="font-size:.73rem;font-weight:600;color:#6b7280;margin-bottom:4px;">📣 ROAS</div>
+        <div style="font-size:1.6rem;font-weight:800;color:${roasColor};">${roas !== null ? roas.toFixed(0)+'%' : '—'}</div>
+        <div style="font-size:.72rem;color:#9ca3af;margin-top:2px;">${roasX !== null ? roasX.toFixed(2)+'배' : ''} · ${roasStatus}</div>
+      </div>
+      <div style="background:#f8f9ff;border:1.5px solid #e8eaf0;border-radius:12px;padding:14px;">
+        <div style="font-size:.73rem;font-weight:600;color:#6b7280;margin-bottom:4px;">🏷️ 상품 공급가 합계</div>
+        <div style="font-size:1.15rem;font-weight:800;color:#374151;">${fmt(totalSupplyCost)}원</div>
+        <div style="font-size:.7rem;color:#9ca3af;margin-top:2px;">${supplyCostNote}</div>
+      </div>
+      <div style="background:#fff7ed;border:1.5px solid #fed7aa;border-radius:12px;padding:14px;">
+        <div style="font-size:.73rem;font-weight:600;color:#c2410c;margin-bottom:4px;">🧾 세금 합계</div>
+        <div style="font-size:1.15rem;font-weight:800;color:#c2410c;">${fmt(cur.vatAmt + cur.corpTax)}원</div>
+        <div style="font-size:.7rem;color:#9ca3af;margin-top:2px;">부가세 ${fmt(cur.vatAmt)} + 법인세 ${fmt(cur.corpTax)}</div>
+      </div>
+      <div style="background:${profitBg};border:1.5px solid ${profitBorder};border-radius:12px;padding:14px;">
+        <div style="font-size:.73rem;font-weight:600;color:${profitColor};margin-bottom:4px;">✅ 최종 순이익</div>
+        <div style="font-size:1.15rem;font-weight:800;color:${profitColor};">${cur.net >= 0 ? '+' : ''}${fmt(cur.net)}원</div>
+        <div style="font-size:.7rem;color:#9ca3af;margin-top:2px;">세후 · 전비용 차감</div>
+      </div>
+    </div>
+
+    <!-- 비용 구조 상세 -->
+    <div class="sub-title">비용 구조 상세 (현재 실적)</div>
+    <div style="background:#f8f9ff;border:1px solid #e8eaf0;border-radius:12px;padding:16px 20px;margin-bottom:22px;">
+      ${crLinked ? costRow('🛒 총매출 (취소·반품 포함)', grossRevenue, true, '#6b7280') : ''}
+      ${crLinked ? costRow(`🔄 취소·반품 금액 (−${fmtP(store.crTotalRatioRev)})`, grossRevenue * crRate, false, '#9ca3af') : ''}
+      ${costRow('💰 순매출', revenue, true, '#15803d')}
+      ${costRow('🏷️ 상품 공급가 (VAT 제외 실비용)', cur.supplyExVat, false, '#374151')}
+      ${costRow('📣 광고비', advCost, false, '#6366f1')}
+      ${costRow('🏢 사무실 월세', rent * months, false)}
+      ${costRow('👥 인건비', labor, false)}
+      ${costRow('📦 기타 고정비', etc, false)}
+      <div style="height:1px;background:#e5e7eb;margin:8px 0;"></div>
+      ${costRow(`🧾 부가세 실납부 (매출세액 ${fmt(cur.salesVat)}원 − 매입세액환급 ${fmt(cur.purchaseVat)}원)`, cur.vatAmt, false, '#c2410c')}
+      ${costRow('🏦 법인세', cur.corpTax, false, '#c2410c')}
+      <div style="height:2px;background:#d1d5db;margin:8px 0;"></div>
+      ${costRow('✅ 최종 순이익', cur.net, true, profitColor, true)}
+    </div>
+
+    <!-- 시나리오 안내 문구 -->
+    <div class="sub-title">📊 ROAS 시나리오 분석</div>
+    <div style="background:#f8f9ff;border:1px solid #e8eaf0;border-radius:10px;padding:12px 16px;margin-bottom:14px;font-size:.8rem;color:#374151;line-height:1.8;">
+      <b>가정:</b> 공급가 비율(${fmtP(supplyCostRatio*100)})·고정비 구조는 동일하게 유지.
+      ${crLinked ? `<br><span style="color:#065f46;font-weight:700;">🔗 취소·반품률(${fmtP(store.crTotalRatioRev)}) 연동:</span> 변동폭은 <b>총매출 기준</b>으로 적용 → 순매출 = 총매출 × ${fmtP(100 - store.crTotalRatioRev)}` : ''}<br>
+      <span style="color:#0284c7;">① </span>${crLinked?'총':'순'}매출을 <b>${fmtShort(scRevDelta)} 줄이고</b> ROAS를 <b>${scRoasDelta}%p 높일 때</b> &nbsp;|&nbsp;
+      <span style="color:#7c3aed;">② </span>현재 입력 실적 그대로 &nbsp;|&nbsp;
+      <span style="color:#b45309;">③ </span>${crLinked?'총':'순'}매출을 <b>${fmtShort(scRevDelta)} 늘리고</b> ROAS를 <b>${scRoasDelta}%p 낮출 때</b>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-bottom:16px;">
+  `;
+
+  scenarios.forEach((s, idx) => {
+    const netColor  = s.netProfit >= 0 ? '#15803d' : '#dc2626';
+    const netBg     = s.netProfit >= 0 ? '#f0fdf4' : '#fef2f2';
+    const diffNet   = s.netProfit - cur.net;
+    const diffSign  = diffNet >= 0 ? '+' : '';
+    const diffColor = diffNet >= 0 ? '#15803d' : '#dc2626';
+    const revDiff   = s.revenue - revenue;
+    const revDiffTxt = revDiff === 0
+      ? '<span style="color:#7c3aed;">현재 매출 동일</span>'
+      : revDiff > 0
+        ? `<span style="color:#b45309;">순매출 +${fmt(revDiff)}원</span>`
+        : `<span style="color:#0284c7;">순매출 ${fmt(revDiff)}원</span>`;
+    const roasDiff  = s.roas - currentRoas;
+    const roasDiffTxt = roasDiff === 0
+      ? `<span style="color:#7c3aed;">ROAS ${s.roas.toFixed(0)}%</span>`
+      : roasDiff > 0
+        ? `<span style="color:#0284c7;">ROAS +${roasDiff.toFixed(0)}%p → ${s.roas.toFixed(0)}%</span>`
+        : `<span style="color:#b45309;">ROAS ${roasDiff.toFixed(0)}%p → ${s.roas.toFixed(0)}%</span>`;
+
+    html += `
+      <div style="border:${s.border};border-radius:14px;padding:18px;background:${s.bg};">
+        <div style="font-size:.88rem;font-weight:700;color:${s.color};margin-bottom:3px;">${s.label}</div>
+        <div style="font-size:.73rem;margin-bottom:2px;">${revDiffTxt}</div>
+        <div style="font-size:.73rem;margin-bottom:10px;">${roasDiffTxt}</div>
+        ${crLinked ? scRow(`총매출 (광고 대상)`, fmt(s.grossRevenue)+'원') : ''}
+        ${crLinked ? `<div style="display:flex;justify-content:space-between;padding:3px 0;font-size:.78rem;color:#9ca3af;border-bottom:1px dashed #e5e7eb;margin-bottom:4px;">
+          <span>└ 취소·반품 차감 (−${fmtP(store.crTotalRatioRev)})</span>
+          <span>−${fmt(s.grossRevenue - s.revenue)}원</span>
+        </div>` : ''}
+        ${scRow('순매출',             fmt(s.revenue)+'원')}
+        ${scRow('광고비',             fmt(s.advCost)+'원')}
+        ${scRow('상품 공급가(VAT제외)', fmt(s.supplyExVat)+'원')}
+        ${scRow('고정비',             fmt(fixedCost)+'원')}
+        ${scRow('부가세(실납부)',      fmt(s.vatAmt)+'원')}
+        ${scRow('법인세',             fmt(s.corpTax)+'원')}
+        <div style="height:1px;background:#d1d5db;margin:8px 0;"></div>
+        <div style="display:flex;justify-content:space-between;align-items:center;">
+          <span style="font-size:.82rem;font-weight:700;">순이익</span>
+          <span style="font-size:1.1rem;font-weight:800;color:${netColor};">${s.netProfit >= 0 ? '+' : ''}${fmt(s.netProfit)}원</span>
+        </div>
+        ${idx !== 1 ? `<div style="margin-top:8px;padding:7px 10px;background:${netBg};border-radius:7px;font-size:.75rem;font-weight:700;color:${diffColor};text-align:center;">
+          기존 대비 ${diffSign}${fmt(diffNet)}원
+        </div>` : `<div style="margin-top:8px;padding:7px 10px;background:#ede9fe;border-radius:7px;font-size:.75rem;font-weight:700;color:#7c3aed;text-align:center;">
+          ← 기준 실적
+        </div>`}
+      </div>`;
+  });
+
+  html += `
+    </div>
+
+    <!-- 인사이트 -->
+    <div style="background:linear-gradient(135deg,#1a1a2e,#16213e);border-radius:14px;padding:20px 24px;color:#fff;">
+      <div style="font-size:.92rem;font-weight:700;margin-bottom:14px;">💡 광고비 볼륨 확대 판단 인사이트</div>
+      ${advInsight(revenue, advCost, fixedCost, cur.supply, cur.net, roas, scenarios)}
+    </div>
+  `;
+
+  $('adv-result').innerHTML = html;
+
+  // 아카이브 저장 섹션 표시
+  $('adv-archive-save-section').style.display = 'block';
+
+  // 현재 계산값을 임시 저장 (saveArchive에서 사용)
+  window._advSnapshot = {
+    revenue, advCost, rent, labor, etc, months,
+    totalSupplyCost, roas: roas || 0,
+    vatAmt: cur.vatAmt, corpTax: cur.corpTax, netProfit: cur.net,
+    scRevDelta, scRoasDelta,
+  };
+}
+
+/** 숫자를 짧은 한글 단위로 포맷 (예: 1억, 5000만) */
+function fmtShort(n) {
+  if (n >= 100_000_000) return (n / 100_000_000).toFixed(n % 100_000_000 === 0 ? 0 : 1) + '억';
+  if (n >= 10_000)      return (n / 10_000).toFixed(n % 10_000 === 0 ? 0 : 1) + '만';
+  return fmt(n);
+}
+
+/** 분석 결과 아카이브 저장 */
+async function saveArchive() {
+  const snap = window._advSnapshot;
+  if (!snap) { showToast('먼저 분석 결과를 계산해 주세요.', 'error'); return; }
+
+  const label = $('arc-label').value.trim() || (() => {
+    const d = new Date(); return `${d.getFullYear()}년 ${d.getMonth()+1}월`;
+  })();
+  const start = $('arc-start').value;
+  const end   = $('arc-end').value;
+  const memo  = $('arc-memo').value.trim();
+
+  const body = {
+    label,
+    period_start: start,
+    period_end:   end,
+    revenue:      snap.revenue,
+    adv_cost:     snap.advCost,
+    rent:         snap.rent,
+    labor:        snap.labor,
+    etc_cost:     snap.etc,
+    months:       snap.months,
+    supply_cost:  snap.totalSupplyCost,
+    roas:         snap.roas,
+    vat_amt:      snap.vatAmt,
+    corp_tax:     snap.corpTax,
+    net_profit:   snap.netProfit,
+    scenario_rev_delta:  snap.scRevDelta,
+    scenario_roas_delta: snap.scRoasDelta,
+    memo,
+  };
+
+  try {
+    await sbInsert('adv_archive', body);
+    showToast(`✅ "${label}" 아카이브가 저장됐습니다.`);
+    $('arc-label').value = '';
+    $('arc-memo').value  = '';
+    loadArchive();
+  } catch(e) {
+    showToast('❌ 저장 중 오류가 발생했습니다.', 'error');
+  }
+}
+
+/** 아카이브 목록 불러오기 */
+async function loadArchive() {
+  const el = $('arc-list');
+  el.innerHTML = '<div style="text-align:center;padding:20px;color:#9ca3af;font-size:.85rem;">불러오는 중...</div>';
+  try {
+    const rows = await sbList('adv_archive');  // 최신순
+    if (rows.length === 0) {
+      el.innerHTML = `<div class="empty-state" style="padding:30px 0;"><div class="es-icon" style="font-size:2rem;">🗂️</div><p style="font-size:.85rem;">저장된 분석 기록이 없습니다.</p></div>`;
+      return;
+    }
+    let tbl = `
+      <div style="overflow-x:auto;">
+      <table style="width:100%;border-collapse:collapse;font-size:.82rem;">
+        <thead>
+          <tr style="background:#f1f5f9;text-align:left;">
+            <th style="padding:9px 12px;font-weight:700;color:#374151;white-space:nowrap;">레이블</th>
+            <th style="padding:9px 12px;font-weight:700;color:#374151;white-space:nowrap;">기간</th>
+            <th style="padding:9px 12px;font-weight:700;color:#374151;text-align:right;white-space:nowrap;">순매출</th>
+            <th style="padding:9px 12px;font-weight:700;color:#374151;text-align:right;white-space:nowrap;">광고비</th>
+            <th style="padding:9px 12px;font-weight:700;color:#374151;text-align:right;white-space:nowrap;">ROAS</th>
+            <th style="padding:9px 12px;font-weight:700;color:#374151;text-align:right;white-space:nowrap;">순이익</th>
+            <th style="padding:9px 12px;font-weight:700;color:#374151;white-space:nowrap;">메모</th>
+            <th style="padding:9px 12px;"></th>
+          </tr>
+        </thead>
+        <tbody>`;
+
+    rows.forEach(r => {
+      const netColor  = r.net_profit >= 0 ? '#15803d' : '#dc2626';
+      const periodTxt = r.period_start && r.period_end
+        ? `${r.period_start} ~ ${r.period_end}`
+        : r.period_start || r.period_end || '—';
+      const roasTxt   = r.roas ? r.roas.toFixed(0) + '%' : '—';
+      const savedAt   = r.created_at ? new Date(r.created_at).toLocaleDateString('ko-KR') : '';
+
+      tbl += `
+        <tr style="border-bottom:1px solid #e5e7eb;" onmouseover="this.style.background='#f9fafb'" onmouseout="this.style.background=''">
+          <td style="padding:9px 12px;font-weight:700;color:#1a1a2e;">${r.label || '—'}<div style="font-size:.7rem;color:#9ca3af;font-weight:400;">${savedAt}</div></td>
+          <td style="padding:9px 12px;color:#6b7280;white-space:nowrap;">${periodTxt}</td>
+          <td style="padding:9px 12px;text-align:right;font-weight:600;">${fmt(r.revenue)}원</td>
+          <td style="padding:9px 12px;text-align:right;font-weight:600;color:#6366f1;">${fmt(r.adv_cost)}원</td>
+          <td style="padding:9px 12px;text-align:right;font-weight:700;color:${r.roas>=700?'#15803d':r.roas>=500?'#d97706':'#dc2626'};">${roasTxt}</td>
+          <td style="padding:9px 12px;text-align:right;font-weight:800;color:${netColor};">${r.net_profit>=0?'+':''}${fmt(r.net_profit)}원</td>
+          <td style="padding:9px 12px;color:#6b7280;max-width:150px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${r.memo || '—'}</td>
+          <td style="padding:9px 12px;">
+            <button onclick="deleteArchive('${r.id}')" style="padding:4px 10px;background:#fef2f2;border:1px solid #fecaca;border-radius:6px;color:#dc2626;font-size:.75rem;cursor:pointer;">삭제</button>
+          </td>
+        </tr>`;
+    });
+
+    tbl += `</tbody></table></div>`;
+    el.innerHTML = tbl;
+  } catch(e) {
+    el.innerHTML = '<div style="color:#dc2626;font-size:.85rem;padding:16px;">불러오기 실패. 잠시 후 다시 시도해 주세요.</div>';
+  }
+}
+
+/** 아카이브 항목 삭제 */
+async function deleteArchive(id) {
+  if (!confirm('이 기록을 삭제할까요?')) return;
+  try {
+    await sbDelete('adv_archive', id);
+    showToast('🗑️ 삭제됐습니다.');
+    loadArchive();
+  } catch(e) {
+    showToast('❌ 삭제 실패', 'error');
+  }
+}
+
+/** 비용 행 HTML */
+function costRow(label, amount, isPositive, color='#374151', isBold=false) {
+  const sign = isPositive ? '+' : (amount > 0 ? '-' : '');
+  const displayAmt = isPositive ? amount : (amount > 0 ? amount : 0);
+  const amtColor = isPositive ? (color || '#15803d') : (amount > 0 ? (color || '#dc2626') : '#9ca3af');
+  return `
+    <div style="display:flex;justify-content:space-between;align-items:center;padding:5px 0;border-bottom:1px dashed #e5e7eb;">
+      <span style="font-size:.83rem;color:#6b7280;">${label}</span>
+      <span style="font-size:${isBold?'1rem':'.88rem'};font-weight:${isBold?'800':'600'};color:${amtColor};">
+        ${sign}${displayAmt > 0 ? fmt(displayAmt)+'원' : '—'}
+      </span>
+    </div>`;
+}
+
+/** 시나리오 행 HTML */
+function scRow(label, value) {
+  return `<div style="display:flex;justify-content:space-between;padding:3px 0;font-size:.8rem;">
+    <span style="color:#6b7280;">${label}</span>
+    <span style="font-weight:600;color:#374151;">${value}</span>
+  </div>`;
+}
+
+/** 광고비 볼륨 확대 인사이트 텍스트 (새 시나리오 구조용) */
+function advInsight(revenue, advCost, fixedCost, supplyCost, netProfit, roas, scenarios) {
+  if (!advCost || !revenue) return '<p style="font-size:.83rem;opacity:.7;">매출과 광고비를 입력하면 인사이트가 생성됩니다.</p>';
+
+  const lines = [];
+  lines.push(`<div style="font-size:.82rem;opacity:.9;line-height:2;">`);
+
+  // ① 시나리오 요약
+  const [s1, s2, s3] = scenarios;  // -1억/ROAS+100p, 기준, +1억/ROAS-100p
+
+  // 현재 기준(②) 대비 ① / ③ 비교
+  const diff1 = s1.netProfit - s2.netProfit;
+  const diff3 = s3.netProfit - s2.netProfit;
+
+  const arrow1 = diff1 >= 0 ? `🟢 +${fmt(diff1)}원 증가` : `🔴 ${fmt(diff1)}원 감소`;
+  const arrow3 = diff3 >= 0 ? `🟢 +${fmt(diff3)}원 증가` : `🔴 ${fmt(diff3)}원 감소`;
+
+  lines.push(`📌 <b>시나리오 비교 요약</b><br>`);
+  lines.push(`&nbsp;&nbsp;① 매출 -1억 · ROAS +100%p → 순이익 <b>${fmt(s1.netProfit)}원</b> (기준 대비 ${arrow1})<br>`);
+  lines.push(`&nbsp;&nbsp;② 현재 실적 기준 → 순이익 <b>${fmt(s2.netProfit)}원</b><br>`);
+  lines.push(`&nbsp;&nbsp;③ 매출 +1억 · ROAS -100%p → 순이익 <b>${fmt(s3.netProfit)}원</b> (기준 대비 ${arrow3})<br>`);
+
+  // ② 광고비 확대 vs 효율 개선 판단
+  lines.push(`<br>`);
+  if (diff3 > 0 && diff1 < 0) {
+    lines.push(`📈 <b>광고비 확대가 유리</b>합니다. ROAS가 ${s3.roas.toFixed(0)}%p 하락하더라도 매출 볼륨을 키우면 순이익이 <b>${fmt(diff3)}원 더 증가</b>합니다.<br>`);
+    lines.push(`&nbsp;&nbsp;→ 광고 소재·타겟 다변화를 통해 볼륨 확장을 적극 검토하세요.<br>`);
+  } else if (diff1 > 0 && diff3 < 0) {
+    lines.push(`🎯 <b>효율 개선(ROAS 상향)이 유리</b>합니다. 매출이 1억 줄어도 ROAS를 높이면 순이익이 더 증가합니다.<br>`);
+    lines.push(`&nbsp;&nbsp;→ 광고비 무작정 확대보다 소재 최적화·클릭률 개선에 집중하세요.<br>`);
+  } else if (diff3 > 0 && diff1 > 0) {
+    lines.push(`💰 두 방향 모두 현재보다 순이익이 증가합니다. 시장 확장성이 있다면 <b>볼륨 확대(③)</b>를, 운영 여력이 부족하다면 <b>효율 개선(①)</b>을 우선 택하세요.<br>`);
+  } else {
+    lines.push(`⚠️ 두 방향 모두 현재 실적 대비 순이익이 감소하는 구조입니다. 먼저 고정비 절감 또는 원가율 개선이 필요합니다.<br>`);
+  }
+
+  // ③ 적자 시나리오 경고
+  const lossScenarios = scenarios.filter(s => s.netProfit < 0);
+  if (lossScenarios.length > 0) {
+    const lossLabels = lossScenarios.map(s => s.label).join(', ');
+    lines.push(`<br>🚨 <b>적자 주의</b>: ${lossLabels} 시나리오에서 순이익이 마이너스입니다. 해당 방향으로 운영 전 비용 구조를 재검토하세요.<br>`);
+  }
+
+  lines.push('</div>');
+  return lines.join('');
+}
+
+/* ══════════════════════════════════════
+   [ E ] 초기화
+══════════════════════════════════════ */
+(function init() {
+  const now   = new Date();
+  const first = new Date(now.getFullYear(), now.getMonth(), 1);
+  const pad   = n => String(n).padStart(2,'0');
+  const fmtD  = d => `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+  $('crDateStart').value   = fmtD(first);
+  $('crDateEnd').value     = fmtD(now);
+  $('perfDateStart').value = fmtD(first);
+  $('perfDateEnd').value   = fmtD(now);
+  // 아카이브 기간 기본값도 이번달로 설정
+  $('arc-start').value = fmtD(first);
+  $('arc-end').value   = fmtD(now);
+  // 페이지 로드 시 아카이브 목록 조회
+  loadArchive();
+  // 취소·반품 아카이브 목록 조회
+  loadCrArchive();
+  // 판매 성과 아카이브 목록 조회
+  loadPerfArchive();
+  // 카페24 API 연동 상태 확인
+  checkCafe24Status();
+  // 애널리틱스 섹션: 기간 기본값 + 카테고리 목록
+  $('anDateStart').value = fmtD(first);
+  $('anDateEnd').value   = fmtD(now);
+  loadAnCategories();
+  // 카페24 OAuth 완료 후 리다이렉트로 돌아온 경우
+  if (new URLSearchParams(location.search).get('cafe24') === 'connected') {
+    showToast('✅ 카페24 연동이 완료됐습니다!');
+    history.replaceState(null, '', location.pathname);
+  }
+})();
+</script>
+</body>
+</html>
