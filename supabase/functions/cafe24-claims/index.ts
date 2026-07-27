@@ -124,25 +124,62 @@ Deno.serve(async (req) => {
     const cancel: Bucket = { count: 0, amount: 0, reasons: {}, orders: [] };
     const ret: Bucket = { count: 0, amount: 0, reasons: {}, orders: [] };
 
+    // 클레임(cancellation/return embed) 배열에서 실제 환불금액 합산
+    // — 관리자 취소/반품관리 CSV의 '총 실제 환불금액'과 동일 기준
+    const claimRefund = (claims: unknown): number => {
+      if (!Array.isArray(claims)) return 0;
+      let s = 0;
+      for (const c of claims as Record<string, unknown>[]) {
+        const ra = c.refund_amounts;
+        if (Array.isArray(ra)) {
+          for (const x of ra as Record<string, unknown>[]) s += num(x.amount);
+        }
+      }
+      return s;
+    };
+    // claim_reason_type 코드 → 관리자 화면 '구분' 라벨 (실데이터 대조로 확인)
+    const REASON_TYPE_LABEL: Record<string, string> = {
+      A: "고객변심", B: "배송지연", E: "상품불만족", G: "서비스불만족", H: "품절",
+      I: "기타", J: "배송오류", K: "상품불량", L: "배송오류", O: "고객변심",
+      P: "상품불만족", V: "상품불량",
+    };
+    const claimReason = (claims: unknown): string => {
+      if (!Array.isArray(claims)) return "";
+      for (const c of claims as Record<string, unknown>[]) {
+        // 구분 카테고리 우선 (집계 버킷이 깔끔) → 없으면 자유 입력 사유 텍스트
+        const t = String(c.claim_reason_type ?? "").trim();
+        if (t) return REASON_TYPE_LABEL[t] ?? t;
+        const txt = String(c.claim_reason ?? "").trim();
+        if (txt) return txt;
+      }
+      return "";
+    };
+
     for (const o of allOrders) {
+      // 네이버페이(주문형) 주문 제외 — 클레임이 네이버페이센터에서 관리되어
+      // 카페24 취소/반품관리에 없고, 네이버페이 CSV로 별도 반영되므로 이중집계 방지
+      const placeName = String(o.order_place_name ?? "").replace(/\s/g, "");
+      if (String(o.order_place_id ?? "") === "NCHECKOUT" || placeName.includes("네이버페이")) continue;
+
       const items = (o.items ?? []) as Record<string, unknown>[];
       // 주문 내 품목 상태로 취소/반품 판별 (C40=취소완료, R40=반품완료)
       const itemStatuses = items.map((it) => String(it.order_status ?? ""));
       const isCancel = itemStatuses.some((s) => s.startsWith("C4"));
       const isReturn = itemStatuses.some((s) => s.startsWith("R4"));
 
-      // 금액: 결제 금액 기준 (actual_refund_amount가 있으면 우선)
-      const amount =
-        num(o.actual_refund_amount) ||
-        num((o.refund_amount as unknown)) ||
-        num(o.payment_amount) ||
-        num(o.order_price_amount);
+      // 금액: 실제 환불금액 합 (취소+반품 클레임). 환불이 없으면
+      // 결제완료 건에 한해 결제금액으로 대체 (미결제 취소는 0원 처리)
+      const refunded = claimRefund(o.cancellation) + claimRefund(o.return);
+      const amount = refunded ||
+        (String(o.paid ?? "") === "T" ? num(o.payment_amount) : 0);
 
-      // 사유: 품목/클레임 개체에서 탐색
-      let reason = "";
-      for (const it of items) {
-        reason = pickReason(it);
-        if (reason) break;
+      // 사유: 클레임 개체 → 품목 → 주문 순으로 탐색
+      let reason = claimReason(o.cancellation) || claimReason(o.return);
+      if (!reason) {
+        for (const it of items) {
+          reason = pickReason(it);
+          if (reason) break;
+        }
       }
       if (!reason) reason = pickReason(o) || "사유 미기재";
 
