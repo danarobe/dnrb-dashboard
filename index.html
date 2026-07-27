@@ -1586,10 +1586,21 @@ function runAnalysis() {
   html += `
     <div class="sub-title">취소 / 반품 비율 (건수 기준)</div>
     <div class="ratio-progress">
-      ${rpRow('취소완료 비율', cancelCnt, cancelCnt+returnCnt, 'linear-gradient(90deg,#f59e0b,#d97706)')}
-      ${rpRow('반품완료 비율', returnCnt, cancelCnt+returnCnt, 'linear-gradient(90deg,#ef4444,#dc2626)')}
+      ${rpRow('취소 비율', cancelCnt, cancelCnt+returnCnt, 'linear-gradient(90deg,#f59e0b,#d97706)')}
+      ${rpRow('반품 비율', returnCnt, cancelCnt+returnCnt, 'linear-gradient(90deg,#ef4444,#dc2626)')}
     </div>
   `;
+
+  // 금액 기준 비율 바 (환불금액 데이터가 있을 때만)
+  if (cancelAmt + returnAmt > 0) {
+    html += `
+      <div class="sub-title">취소 / 반품 비율 (금액 기준)</div>
+      <div class="ratio-progress">
+        ${rpRow('취소 비율', cancelAmt, cancelAmt+returnAmt, 'linear-gradient(90deg,#f59e0b,#d97706)', '원')}
+        ${rpRow('반품 비율', returnAmt, cancelAmt+returnAmt, 'linear-gradient(90deg,#ef4444,#dc2626)', '원')}
+      </div>
+    `;
+  }
 
   // 출처별 현황
   html += `
@@ -1687,14 +1698,14 @@ function runAnalysis() {
 }
 
 /* 비율 바 행 */
-function rpRow(label, val, total, color) {
+function rpRow(label, val, total, color, unit = '건') {
   const pct = total > 0 ? val/total*100 : 0;
   return `
     <div class="rp-row">
       <div class="rp-label">${label}</div>
       <div class="rp-bar-wrap"><div class="rp-bar-fill" style="width:${pct.toFixed(1)}%;background:${color};"></div></div>
       <div class="rp-pct">${fmtP(pct)}</div>
-      <div class="rp-count">${fmt(val)}건</div>
+      <div class="rp-count">${fmt(val)}${unit}</div>
     </div>`;
 }
 
