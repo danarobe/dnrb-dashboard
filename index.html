@@ -1043,7 +1043,7 @@ async function fetchAnalytics(auto = false) {
 }
 
 /* 총 매출액 자동 조회 — 취소&반품 섹션의 분석 기간 기준
-   (카페24 애널리틱스 주문금액 합계 · 네이버 매출 미포함) */
+   (카페24 결제완료 주문 매출 · 관리자 통계 '결제합계'와 ±0.5% 내외 · 네이버 미포함) */
 async function fetchRevenue() {
   if (!sbReady()) { showToast('⚙️ config.js에 Supabase 설정을 먼저 입력하세요'); return; }
   const ds = $('crDateStart').value, de = $('crDateEnd').value;
@@ -1051,9 +1051,9 @@ async function fetchRevenue() {
   const btn = $('btn-rev-auto');
   btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> 조회 중...';
   try {
-    const data = await anGet({ action: 'summary', start_date: ds, end_date: de, device_type: 'total' });
-    $('totalRevenue').value = data.totals.order_amount;
-    showToast(`✅ 총 매출액 ${fmt(data.totals.order_amount)}원 반영 (카페24 주문금액 기준 · 네이버 미포함)`);
+    const data = await anGet({ action: 'revenue', start_date: ds, end_date: de });
+    $('totalRevenue').value = data.revenue;
+    showToast(`✅ 총 매출액 ${fmt(data.revenue)}원 · 결제완료 ${fmt(data.order_count)}건 반영 (카페24 결제 기준 · 네이버 미포함)`);
     runAnalysis();
   } catch (e) {
     showToast('❌ 매출 조회 실패: ' + e.message);

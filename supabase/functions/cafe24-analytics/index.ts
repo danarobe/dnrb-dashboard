@@ -133,6 +133,20 @@ Deno.serve(async (req) => {
       return json({ category_no: Number(catNo), product_nos: nos });
     }
 
+    // ── 기간 총 매출액 (결제완료 주문 기준 — 시간대별 매출 합산) ──
+    // 카페24 관리자 통계의 '결제합계'와 동일 시스템(애널리틱스) 데이터.
+    // 주문수는 통계와 정확히 일치하며 금액은 ±0.5% 내외 차이 가능(부분취소 반영 시점 차이).
+    if (action === "revenue") {
+      const s = url.searchParams.get("start_date");
+      const e = url.searchParams.get("end_date");
+      if (!s || !e) return json({ error: "start_date, end_date 필수 (YYYY-MM-DD)" }, 400);
+      const p = new URLSearchParams({ mall_id: MALL_ID, start_date: s, end_date: e });
+      const times = await collectData("/sales/times", "times", p, token);
+      const revenue = times.reduce((t, r) => t + num(r.order_amount), 0);
+      const orderCount = times.reduce((t, r) => t + num(r.order_count), 0);
+      return json({ period: { start: s, end: e }, revenue, order_count: orderCount });
+    }
+
     // ── 조회수 + 주문수 통합 (기본) ──
     const startDate = url.searchParams.get("start_date");
     const endDate = url.searchParams.get("end_date");
