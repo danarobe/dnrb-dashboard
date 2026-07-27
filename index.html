@@ -7,6 +7,8 @@
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.4.0/css/all.min.css" />
   <link href="https://fonts.googleapis.com/css2?family=Pretendard:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <!-- 암호화된 엑셀(.xlsx) 복호화용 — 네이버페이센터 다운로드 파일 -->
+  <script src="https://cdn.jsdelivr.net/npm/xlsx-populate@1.21.0/browser/xlsx-populate.min.js"></script>
   <script src="./config.js"></script>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -368,7 +370,13 @@
       </div>
 
       <!-- ② CSV 업로드 카드 3개 -->
-      <div class="sub-title">CSV 파일 업로드 (수동 방식)</div>
+      <div class="sub-title">파일 업로드 (수동 방식)</div>
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;background:#f0fdf4;border:1.5px solid #bbf7d0;border-radius:10px;padding:10px 16px;margin-bottom:14px;">
+        <span style="font-size:.82rem;font-weight:700;color:#166534;">🔑 네이버 파일 비밀번호</span>
+        <input type="password" id="np-pw" placeholder="암호화 엑셀 비밀번호" oninput="npSavePw()"
+               style="border:1.5px solid #d1d5db;border-radius:8px;padding:7px 12px;font-size:.85rem;outline:none;min-width:180px;" />
+        <span style="font-size:.74rem;color:#6b7280;">미리 입력해두면 네이버페이센터에서 받은 <strong>암호 걸린 엑셀(.xlsx)을 그대로 업로드</strong>해도 자동으로 열립니다 · 비밀번호는 이 브라우저에만 저장되고 서버로 전송되지 않아요</span>
+      </div>
       <div class="upload-grid" style="grid-template-columns:repeat(3,1fr);">
 
         <!-- Cafe24 취소&반품 -->
@@ -383,20 +391,20 @@
 
         <!-- 네이버페이 취소완료 -->
         <div class="upload-card" id="card-np-cancel" onclick="document.getElementById('file-np-cancel').click()">
-          <input type="file" id="file-np-cancel" accept=".csv" onchange="handleNPCancelCSV(event)" onclick="event.stopPropagation()" />
+          <input type="file" id="file-np-cancel" accept=".csv,.xlsx" onchange="handleNPCancelCSV(event)" onclick="event.stopPropagation()" />
           <div class="uc-icon">🟢</div>
           <h3>네이버페이<br />취소완료 목록</h3>
-          <p>D열: 취소완료 / 직권취소완료<br />금액: AA+AL+AM열 합산</p>
+          <p>D열: 취소완료 / 직권취소완료<br />금액: AA+AL+AM열 합산<br />암호 엑셀(.xlsx) 그대로 업로드 가능</p>
           <div class="fname" id="fname-np-cancel">네이버페이_취소관리_.csv</div>
           <button class="btn-sample" onclick="event.stopPropagation(); downloadSampleNPCancel()"><i class="fa-solid fa-download"></i> 샘플</button>
         </div>
 
         <!-- 네이버페이 반품완료 -->
         <div class="upload-card" id="card-np-return" onclick="document.getElementById('file-np-return').click()">
-          <input type="file" id="file-np-return" accept=".csv" onchange="handleNPReturnCSV(event)" onclick="event.stopPropagation()" />
+          <input type="file" id="file-np-return" accept=".csv,.xlsx" onchange="handleNPReturnCSV(event)" onclick="event.stopPropagation()" />
           <div class="uc-icon">🔄</div>
           <h3>네이버페이<br />반품완료 목록</h3>
-          <p>D열: 반품완료<br />금액: AH − O + AR열 합산</p>
+          <p>D열: 반품완료<br />금액: AH − O + AR열 합산<br />암호 엑셀(.xlsx) 그대로 업로드 가능</p>
           <div class="fname" id="fname-np-return">네이버페이_반품관리_.csv</div>
           <button class="btn-sample" onclick="event.stopPropagation(); downloadSampleNPReturn()"><i class="fa-solid fa-download"></i> 샘플</button>
         </div>
@@ -1242,6 +1250,47 @@ const store = {
   perfFilter: 'all',
 };
 
+/* ──────────────────────────────
+   암호화 엑셀(.xlsx) 지원 — 네이버페이센터 다운로드 파일
+   비밀번호는 localStorage(이 브라우저)에만 저장, 서버 전송 없음
+────────────────────────────── */
+const NP_PW_KEY = 'dnrb_np_xlsx_pw';
+function npSavePw() { localStorage.setItem(NP_PW_KEY, $('np-pw').value); }
+
+function sheetToCSV(rows) {
+  return rows.map(r => (r || []).map(v => {
+    const s = (v === undefined || v === null) ? '' : String(v);
+    return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+  }).join(',')).join('\n');
+}
+
+/* CSV는 텍스트로, xlsx(암호화 포함)는 복호화 후 CSV 텍스트로 변환해 반환 */
+async function readFileSmart(file) {
+  const buf = await file.arrayBuffer();
+  const b = new Uint8Array(buf);
+  const isCfb = b[0] === 0xD0 && b[1] === 0xCF;   // 암호화 xlsx (CFB 컨테이너)
+  const isZip = b[0] === 0x50 && b[1] === 0x4B;   // 일반 xlsx (zip)
+  if (!isCfb && !isZip) return await readFileAsText(file);
+
+  if (typeof XlsxPopulate === 'undefined') throw new Error('엑셀 라이브러리 로드 실패 — 페이지를 새로고침해주세요');
+  const pw = localStorage.getItem(NP_PW_KEY) || '';
+  if (isCfb && !pw) throw new Error('암호화된 엑셀입니다 — 위의 🔑 네이버 파일 비밀번호를 먼저 입력해주세요');
+  let wb;
+  try {
+    wb = await XlsxPopulate.fromDataAsync(buf, isCfb ? { password: pw } : undefined);
+  } catch (e) {
+    console.error(e);
+    throw new Error(isCfb ? '엑셀을 열 수 없어요 — 비밀번호가 맞는지 확인해주세요' : '엑셀 파일을 읽을 수 없습니다');
+  }
+  const used = wb.sheet(0).usedRange();
+  if (!used) throw new Error('엑셀에 데이터가 없습니다');
+  // A1 기준으로 추출 — usedRange가 A열이 비어있으면 열 인덱스가 밀리는 것 방지
+  let rows = wb.sheet(0).range('A1:' + used.endCell().address()).value();
+  if (!Array.isArray(rows)) rows = [[rows]];
+  else if (!Array.isArray(rows[0])) rows = [rows];
+  return sheetToCSV(rows);
+}
+
 /* ══════════════════════════════════════
    [ A ] 취소&반품 CSV 파서들
 ══════════════════════════════════════ */
@@ -1343,7 +1392,7 @@ async function handleNPCancelCSV(event) {
   const file = event.target.files[0]; if (!file) return;
   $('fname-np-cancel').textContent = file.name;
   try {
-    const text  = await readFileAsText(file);
+    const text  = await readFileSmart(file);
     const lines = splitCSVIntoLines(text);
     // 헤더 행 탐색: D열(3)에 '처리상태' 또는 '취소처리상태' 등 헤더 키워드가 있는 행
     // 헤더 다음 행(headerIdx+1)부터 데이터로 처리
@@ -1408,7 +1457,7 @@ async function handleNPReturnCSV(event) {
   const file = event.target.files[0]; if (!file) return;
   $('fname-np-return').textContent = file.name;
   try {
-    const text  = await readFileAsText(file);
+    const text  = await readFileSmart(file);
     const lines = splitCSVIntoLines(text);
     // 헤더 행 탐색
     let headerIdx = 0;
@@ -3144,6 +3193,8 @@ function advInsight(revenue, advCost, fixedCost, supplyCost, netProfit, roas, sc
   $('anDateStart').value = fmtD(first);
   $('anDateEnd').value   = fmtD(now);
   loadAnCategories().then(() => fetchAnalytics(true));
+  // 네이버 엑셀 비밀번호 복원 (이 브라우저에 저장된 값)
+  $('np-pw').value = localStorage.getItem(NP_PW_KEY) || '';
   // 카페24 OAuth 완료 후 리다이렉트로 돌아온 경우
   if (new URLSearchParams(location.search).get('cafe24') === 'connected') {
     showToast('✅ 카페24 연동이 완료됐습니다!');
