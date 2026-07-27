@@ -12,6 +12,8 @@
 //           반품 철회/반려는 제외
 //   - 네이버페이(주문형) 주문 제외 — 네이버페이센터 CSV로 별도 반영
 //   - 금액: 클레임의 실제(예정) 환불금액 refund_amounts 합
+//   - 혼합 주문(한 주문에 취소+반품 공존): 취소 1건 + 반품 1건으로 각각 집계,
+//     금액은 cancellation/return 클레임별로 분리 반영
 // ═══════════════════════════════════════════════
 import { handleOptions, json, getToken, saveToken } from "../_shared/util.ts";
 
@@ -174,42 +176,40 @@ Deno.serve(async (req) => {
 
       const items = (o.items ?? []) as Record<string, unknown>[];
       // 주문 내 품목 상태로 취소/반품 판별 (취소=C40 / 반품=RETURN_STATUSES)
+      // 혼합 주문(취소+반품 공존)은 양쪽에 각각 1건씩 집계하고,
+      // 금액은 각 클레임(cancellation/return)의 환불액만 분리 반영
       const itemStatuses = items.map((it) => String(it.order_status ?? ""));
       const isCancel = itemStatuses.some((s) => s.startsWith("C4"));
       const isReturn = itemStatuses.some((s) => RETURN_STATUSES.has(s));
+      const mixed = isCancel && isReturn;
 
-      // 금액: 실제 환불금액 합 (취소+반품 클레임). 환불이 없으면
-      // 결제완료 건에 한해 결제금액으로 대체 (미결제 취소는 0원 처리)
-      const refunded = claimRefund(o.cancellation) + claimRefund(o.return);
-      const amount = refunded ||
-        (String(o.paid ?? "") === "T" ? num(o.payment_amount) : 0);
+      // 단독 주문에서 클레임 환불액이 비어있을 때만 결제금액으로 대체
+      // (혼합 주문에 fallback을 쓰면 주문 전체 결제액이 양쪽에 중복 반영되므로 금지.
+      //  미결제 취소는 0원 처리)
+      const fallbackAmt = mixed ? 0 : (String(o.paid ?? "") === "T" ? num(o.payment_amount) : 0);
 
-      // 사유: 클레임 개체 → 품목 → 주문 순으로 탐색
-      let reason = claimReason(o.cancellation) || claimReason(o.return);
-      if (!reason) {
+      // 사유 fallback: 품목 → 주문 순으로 탐색
+      const itemReason = (): string => {
         for (const it of items) {
-          reason = pickReason(it);
-          if (reason) break;
+          const r = pickReason(it);
+          if (r) return r;
         }
-      }
-      if (!reason) reason = pickReason(o) || "사유 미기재";
-
-      const summary = {
-        order_id: o.order_id,
-        order_date: o.order_date,
-        amount,
-        reason,
-        type: isReturn ? "return" : "cancel",
+        return pickReason(o);
       };
 
-      if (isReturn) {
-        ret.count++; ret.amount += amount;
-        ret.reasons[reason] = (ret.reasons[reason] ?? 0) + 1;
-        ret.orders.push(summary);
-      } else if (isCancel) {
+      if (isCancel) {
+        const amount = claimRefund(o.cancellation) || fallbackAmt;
+        const reason = claimReason(o.cancellation) || itemReason() || "사유 미기재";
         cancel.count++; cancel.amount += amount;
         cancel.reasons[reason] = (cancel.reasons[reason] ?? 0) + 1;
-        cancel.orders.push(summary);
+        cancel.orders.push({ order_id: o.order_id, order_date: o.order_date, amount, reason, type: "cancel" });
+      }
+      if (isReturn) {
+        const amount = claimRefund(o.return) || fallbackAmt;
+        const reason = claimReason(o.return) || itemReason() || "사유 미기재";
+        ret.count++; ret.amount += amount;
+        ret.reasons[reason] = (ret.reasons[reason] ?? 0) + 1;
+        ret.orders.push({ order_id: o.order_id, order_date: o.order_date, amount, reason, type: "return" });
       }
     }
 
