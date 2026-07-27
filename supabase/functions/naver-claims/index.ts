@@ -17,6 +17,23 @@ const CLIENT_ID = Deno.env.get("NAVER_CLIENT_ID")!;
 const CLIENT_SECRET = Deno.env.get("NAVER_CLIENT_SECRET")!;
 const API_BASE = "https://api.commerce.naver.com/external";
 
+// ── 고정 IP 프록시 (네이버 커머스API는 등록된 IP에서만 호출 허용) ──
+// NAVER_PROXY_URL 예: http://fixie:비밀번호@ventoux.usefixie.com:80
+// Supabase Edge Function의 egress IP는 유동적이라 프록시 없이는 IP 등록이 불가능.
+// 네이버 API 호출에만 프록시를 적용한다 (Supabase REST 등 나머지는 직접 연결).
+function makeProxyClient(): Deno.HttpClient | undefined {
+  const raw = Deno.env.get("NAVER_PROXY_URL");
+  if (!raw) return undefined;
+  const u = new URL(raw);
+  const basicAuth = u.username
+    ? { username: decodeURIComponent(u.username), password: decodeURIComponent(u.password) }
+    : undefined;
+  u.username = ""; u.password = "";
+  // deno-lint-ignore no-explicit-any
+  return (Deno as any).createHttpClient({ proxy: { url: u.toString(), basicAuth } });
+}
+const PROXY_CLIENT = makeProxyClient();
+
 // ── 토큰 발급 (만료 시 재발급, api_tokens 캐시) ──
 async function getAccessToken(): Promise<string> {
   const cached = await getToken("naver");
@@ -40,7 +57,8 @@ async function getAccessToken(): Promise<string> {
       grant_type: "client_credentials",
       type: "SELF",
     }),
-  });
+    client: PROXY_CLIENT,
+  } as RequestInit);
   const body = await res.json();
   if (!res.ok) throw new Error(`네이버 토큰 발급 실패 ${res.status}: ${JSON.stringify(body)}`);
 
@@ -63,7 +81,8 @@ async function naverFetch(path: string, token: string, init: RequestInit = {}): 
       "Content-Type": "application/json",
       ...(init.headers ?? {}),
     },
-  });
+    client: PROXY_CLIENT,
+  } as RequestInit);
   const body = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(`naver ${path} → ${res.status}: ${JSON.stringify(body)}`);
   return body;
