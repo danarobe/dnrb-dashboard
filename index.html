@@ -330,6 +330,9 @@
           <input type="number" id="totalRevenue" placeholder="예: 150000000" oninput="runAnalysis()" />
           <span class="inp-unit">원</span>
         </div>
+        <button class="btn-analyze" id="btn-rev-auto" style="background:linear-gradient(135deg,#0891b2,#06b6d4);" onclick="fetchRevenue()" title="카페24 애널리틱스 주문금액 기준 (네이버 매출 미포함)">
+          <i class="fa-solid fa-wand-magic-sparkles"></i> 매출 자동
+        </button>
         <button class="btn-analyze" onclick="runAnalysis()">
           <i class="fa-solid fa-magnifying-glass-chart"></i> 분석 실행
         </button>
@@ -1013,11 +1016,11 @@ async function applyAnCategory() {
   } catch (e) { showToast('❌ 카테고리 필터 실패: ' + e.message); console.error(e); }
 }
 
-/* 조회 실행 */
-async function fetchAnalytics() {
-  if (!sbReady()) { showToast('⚙️ config.js에 Supabase 설정을 먼저 입력하세요'); return; }
+/* 조회 실행 (auto=true: 페이지 로드 시 자동 조회 — 실패해도 토스트 생략) */
+async function fetchAnalytics(auto = false) {
+  if (!sbReady()) { if (!auto) showToast('⚙️ config.js에 Supabase 설정을 먼저 입력하세요'); return; }
   const ds = $('anDateStart').value, de = $('anDateEnd').value;
-  if (!ds || !de) { showToast('📅 조회 기간을 먼저 선택해주세요'); return; }
+  if (!ds || !de) { if (!auto) showToast('📅 조회 기간을 먼저 선택해주세요'); return; }
   const btn = $('btn-an-fetch');
   btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> 조회 중...';
   try {
@@ -1026,16 +1029,38 @@ async function fetchAnalytics() {
       device_type: $('anDevice').value,
     });
     anState.rows = data.rows || [];
-    showToast(`✅ ${data.product_count}개 상품 · 조회 ${fmt(data.totals.views)} / 주문 ${fmt(data.totals.order_count)}건`);
+    if (!auto) showToast(`✅ ${data.product_count}개 상품 · 조회 ${fmt(data.totals.views)} / 주문 ${fmt(data.totals.order_count)}건`);
     // 카테고리가 선택돼 있으면 필터 Set 재적용, 아니면 바로 렌더
     if ($('anCategory').value) await applyAnCategory();
     else { anState.filterSet = null; renderAnalytics(); }
   } catch (e) {
-    showToast('❌ 애널리틱스 조회 실패: ' + e.message);
+    if (!auto) showToast('❌ 애널리틱스 조회 실패: ' + e.message);
     console.error(e);
   } finally {
     btn.disabled = false;
     btn.innerHTML = '<i class="fa-solid fa-cloud-arrow-down"></i> 조회';
+  }
+}
+
+/* 총 매출액 자동 조회 — 취소&반품 섹션의 분석 기간 기준
+   (카페24 애널리틱스 주문금액 합계 · 네이버 매출 미포함) */
+async function fetchRevenue() {
+  if (!sbReady()) { showToast('⚙️ config.js에 Supabase 설정을 먼저 입력하세요'); return; }
+  const ds = $('crDateStart').value, de = $('crDateEnd').value;
+  if (!ds || !de) { showToast('📅 분석 기간을 먼저 선택해주세요'); return; }
+  const btn = $('btn-rev-auto');
+  btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> 조회 중...';
+  try {
+    const data = await anGet({ action: 'summary', start_date: ds, end_date: de, device_type: 'total' });
+    $('totalRevenue').value = data.totals.order_amount;
+    showToast(`✅ 총 매출액 ${fmt(data.totals.order_amount)}원 반영 (카페24 주문금액 기준 · 네이버 미포함)`);
+    runAnalysis();
+  } catch (e) {
+    showToast('❌ 매출 조회 실패: ' + e.message);
+    console.error(e);
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '<i class="fa-solid fa-wand-magic-sparkles"></i> 매출 자동';
   }
 }
 
@@ -3115,10 +3140,10 @@ function advInsight(revenue, advCost, fixedCost, supplyCost, netProfit, roas, sc
   loadPerfArchive();
   // 카페24 API 연동 상태 확인
   checkCafe24Status();
-  // 애널리틱스 섹션: 기간 기본값 + 카테고리 목록
+  // 애널리틱스 섹션: 기간 기본값 + 카테고리 목록 + 이번 달 데이터 자동 조회
   $('anDateStart').value = fmtD(first);
   $('anDateEnd').value   = fmtD(now);
-  loadAnCategories();
+  loadAnCategories().then(() => fetchAnalytics(true));
   // 카페24 OAuth 완료 후 리다이렉트로 돌아온 경우
   if (new URLSearchParams(location.search).get('cafe24') === 'connected') {
     showToast('✅ 카페24 연동이 완료됐습니다!');
