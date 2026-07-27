@@ -355,6 +355,17 @@
         <span style="font-size:.75rem;color:#9ca3af;">위 '분석 기간'의 날짜 범위로 조회합니다 · CSV 업로드와 병행 가능</span>
       </div>
 
+      <!-- 카페24 불러오기 집계 기준 공지 -->
+      <div style="background:#fffbeb;border:1.5px solid #fde68a;border-radius:12px;padding:14px 18px;margin-bottom:24px;font-size:.82rem;color:#78350f;line-height:1.7;">
+        <div style="font-weight:700;margin-bottom:4px;">📌 카페24 불러오기 집계 기준</div>
+        <ul style="margin:0;padding-left:18px;">
+          <li>기간은 <strong>주문일(order_date) 기준</strong>입니다 — 환불요청일·환불완료일 기준이 아니에요. 최근 주문 중 아직 취소·반품이 진행되지 않은 건은 나중에 같은 기간을 다시 조회하면 수치가 늘어날 수 있습니다.</li>
+          <li>반품은 완료 건 외에 진행 중인 건도 포함합니다: <strong>R00(반품신청) · R10(반품접수) · R30(반품 처리중-수거전) · R34(반품 처리중-환불전) · R40(반품완료)</strong>. 반품 철회·반려 건은 제외됩니다. 취소는 <strong>C40(취소완료)</strong>만 집계합니다.</li>
+          <li>네이버페이(주문형) 주문은 제외됩니다 — 네이버페이센터 CSV로 별도 반영하세요 (이중집계 방지).</li>
+          <li>금액은 결제금액이 아닌 <strong>실제(예정) 환불금액</strong> 기준입니다.</li>
+        </ul>
+      </div>
+
       <!-- ② CSV 업로드 카드 3개 -->
       <div class="sub-title">CSV 파일 업로드 (수동 방식)</div>
       <div class="upload-grid" style="grid-template-columns:repeat(3,1fr);">

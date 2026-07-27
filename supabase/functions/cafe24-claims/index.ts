@@ -5,8 +5,13 @@
 //
 //   GET ...&raw=1  → 집계 대신 API 원본 첫 페이지 반환 (필드 매핑 디버그용)
 //
-// 카페24 주문 상태 코드:
-//   C40 = 취소 완료 / R40 = 반품 완료 (환불 완료)
+// 집계 기준 (관리자 취소/반품관리 CSV와 실측 대조로 확정):
+//   - 기간: 주문일(date_type=order_date) 기준 — 환불요청일/완료일 아님
+//   - 취소: C40(취소완료)
+//   - 반품: R00(반품신청)·R10(반품접수)·R30(처리중-수거전)·R34(처리중-환불전)·R40(반품완료)
+//           반품 철회/반려는 제외
+//   - 네이버페이(주문형) 주문 제외 — 네이버페이센터 CSV로 별도 반영
+//   - 금액: 클레임의 실제(예정) 환불금액 refund_amounts 합
 // ═══════════════════════════════════════════════
 import { handleOptions, json, getToken, saveToken } from "../_shared/util.ts";
 
@@ -100,7 +105,13 @@ Deno.serve(async (req) => {
   try {
     const token = await getAccessToken();
 
-    // 취소완료(C40) + 반품완료(R40) 주문을 페이지네이션으로 전부 수집
+    // 수집 대상 상태 (품목 order_status 기준)
+    //   취소: C40(취소완료)만
+    //   반품: R00(반품신청)·R10(반품접수)·R30(처리중-수거전)·R34(처리중-환불전)·R40(반품완료)
+    //         — 명시 목록이므로 반품 철회/반려 건은 자연히 제외됨
+    const RETURN_STATUSES = new Set(["R00", "R10", "R30", "R34", "R40"]);
+    const STATUS_FILTER = ["C40", ...RETURN_STATUSES].join(",");
+
     const LIMIT = 100;
     const allOrders: Record<string, unknown>[] = [];
     let offset = 0;
@@ -109,7 +120,7 @@ Deno.serve(async (req) => {
       const path =
         `/admin/orders?start_date=${startDate}&end_date=${endDate}` +
         `&date_type=order_date` +
-        `&order_status=C40,R40&embed=items,cancellation,return` +
+        `&order_status=${STATUS_FILTER}&embed=items,cancellation,return` +
         `&limit=${LIMIT}&offset=${offset}`;
       const body = await cafe24Get(path, token);
       const orders = (body.orders ?? []) as Record<string, unknown>[];
@@ -162,10 +173,10 @@ Deno.serve(async (req) => {
       if (String(o.order_place_id ?? "") === "NCHECKOUT" || placeName.includes("네이버페이")) continue;
 
       const items = (o.items ?? []) as Record<string, unknown>[];
-      // 주문 내 품목 상태로 취소/반품 판별 (C40=취소완료, R40=반품완료)
+      // 주문 내 품목 상태로 취소/반품 판별 (취소=C40 / 반품=RETURN_STATUSES)
       const itemStatuses = items.map((it) => String(it.order_status ?? ""));
       const isCancel = itemStatuses.some((s) => s.startsWith("C4"));
-      const isReturn = itemStatuses.some((s) => s.startsWith("R4"));
+      const isReturn = itemStatuses.some((s) => RETURN_STATUSES.has(s));
 
       // 금액: 실제 환불금액 합 (취소+반품 클레임). 환불이 없으면
       // 결제완료 건에 한해 결제금액으로 대체 (미결제 취소는 0원 처리)
