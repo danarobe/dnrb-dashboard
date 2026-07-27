@@ -105,8 +105,10 @@ Deno.serve(async (req) => {
     const allOrders: Record<string, unknown>[] = [];
     let offset = 0;
     while (offset <= 8000) {
+      // date_type=order_date: 선택한 기간은 '주문일' 기준 (취소/반품 완료일이 아님)
       const path =
         `/admin/orders?start_date=${startDate}&end_date=${endDate}` +
+        `&date_type=order_date` +
         `&order_status=C40,R40&embed=items,cancellation,return` +
         `&limit=${LIMIT}&offset=${offset}`;
       const body = await cafe24Get(path, token);
