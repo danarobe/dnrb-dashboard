@@ -146,8 +146,10 @@ Deno.serve(async (req) => {
         const params = new URLSearchParams({
           lastChangedFrom: moreFrom ?? kstISO(new Date(from)),
           lastChangedTo: kstISO(new Date(to)),
-          lastChangedType: "CLAIM_COMPLETED", // 클레임(취소/반품/교환) 완료 건
         });
+        // 기본: 클레임(취소/반품/교환) 완료 건. changed_type=ALL이면 필터 없이 전체 변경 건 (디버그용)
+        const changedType = url.searchParams.get("changed_type") ?? "CLAIM_COMPLETED";
+        if (changedType !== "ALL") params.set("lastChangedType", changedType);
         if (moreSequence) params.set("moreSequence", moreSequence);
 
         const body = await naverFetch(

@@ -345,8 +345,8 @@
         <button class="btn-analyze" id="btn-api-c24" onclick="fetchCafe24Api()">
           <i class="fa-solid fa-cloud-arrow-down"></i> 카페24 불러오기
         </button>
-        <button class="btn-analyze" id="btn-api-np" style="background:linear-gradient(135deg,#059669,#10b981);" onclick="fetchNaverApi()">
-          <i class="fa-solid fa-cloud-arrow-down"></i> 네이버 불러오기
+        <button class="btn-analyze" id="btn-api-np" style="background:#9ca3af;cursor:help;" onclick="fetchNaverApi()" title="네이버페이 주문형(카페24 결제)은 공개 API가 없어 자동 연동이 불가합니다. 네이버페이센터 CSV를 업로드해주세요.">
+          <i class="fa-solid fa-circle-info"></i> 네이버: CSV 이용
         </button>
         <div class="divider"></div>
         <button class="btn-analyze" style="background:#fff;color:#4f46e5;border:1.5px solid #c7d2fe;" onclick="connectCafe24()">
@@ -923,34 +923,11 @@ async function fetchCafe24Api() {
   }
 }
 
-/* 네이버 실시간 조회 */
+/* 네이버 실시간 조회 — 미지원 안내
+   이 쇼핑몰의 네이버 주문은 네이버페이 주문형(카페24 결제)이라 공개 API가 없다.
+   커머스API(naver-claims 함수)는 스마트스토어 전용이므로 CSV 업로드를 안내한다. */
 async function fetchNaverApi() {
-  if (!sbReady()) { showToast('⚙️ config.js에 Supabase 설정을 먼저 입력하세요'); return; }
-  const ds = $('crDateStart').value, de = $('crDateEnd').value;
-  if (!ds || !de) { showToast('📅 분석 기간을 먼저 선택해주세요'); return; }
-  const btn = $('btn-api-np');
-  btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> 조회 중... (기간이 길면 수십 초)';
-  try {
-    const res = await fetch(fnUrl('naver-claims', { start_date: ds, end_date: de }), { headers: sbHeaders() });
-    const data = await res.json();
-    if (data.error) throw new Error(data.error);
-
-    store.npCancel.rows = bucketToRows(data.cancel);
-    store.npReturn.rows = bucketToRows(data.return);
-
-    $('card-np-cancel').classList.add('active');
-    $('card-np-return').classList.add('active');
-    $('fname-np-cancel').textContent = `API 연동 (${ds} ~ ${de})`;
-    $('fname-np-return').textContent = `API 연동 (${ds} ~ ${de})`;
-    showToast(`✅ 네이버 API: 취소 ${data.cancel.count}건(${fmt(data.cancel.amount)}원) / 반품 ${data.return.count}건(${fmt(data.return.amount)}원)`);
-    runAnalysis();
-  } catch (e) {
-    showToast('❌ 네이버 조회 실패: ' + e.message);
-    console.error(e);
-  } finally {
-    btn.disabled = false;
-    btn.innerHTML = '<i class="fa-solid fa-cloud-arrow-down"></i> 네이버 불러오기';
-  }
+  showToast('ℹ️ 네이버페이(주문형)는 API 미지원 — 네이버페이센터에서 받은 CSV를 업로드해주세요');
 }
 
 /* ──────────────────────────────
