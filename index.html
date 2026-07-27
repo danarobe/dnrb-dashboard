@@ -516,12 +516,19 @@
 
       <!-- 정렬 + 결과 -->
       <div id="an-toolbar" style="display:none;align-items:center;gap:10px;margin-bottom:12px;flex-wrap:wrap;">
+        <input type="text" id="anSearch" placeholder="🔍 상품명 검색" oninput="renderAnalytics()"
+               style="border:1.5px solid #d1d5db;border-radius:8px;padding:6px 12px;font-size:.85rem;outline:none;min-width:180px;" />
+        <label style="font-size:.82rem;color:#6b7280;font-weight:600;">판매수량</label>
+        <input type="number" id="anMinQty" placeholder="0" min="0" oninput="renderAnalytics()"
+               style="border:1.5px solid #d1d5db;border-radius:8px;padding:6px 10px;font-size:.85rem;outline:none;width:80px;" />
+        <span style="font-size:.82rem;color:#6b7280;">개 이상</span>
         <label style="font-size:.82rem;color:#6b7280;font-weight:600;">정렬</label>
         <select id="anSort" onchange="renderAnalytics()" style="border:1.5px solid #d1d5db;border-radius:8px;padding:6px 10px;font-size:.85rem;">
           <option value="views">조회수순</option>
           <option value="order_count">주문수순</option>
           <option value="rate">주문율순</option>
           <option value="order_amount">매출액순</option>
+          <option value="order_qty">판매수량순</option>
         </select>
         <span id="an-filter-info" style="font-size:.78rem;color:#9ca3af;"></span>
         <button onclick="downloadAnalyticsCSV()" style="margin-left:auto;background:#f3f4f6;border:1.5px solid #d1d5db;border-radius:8px;padding:6px 14px;font-size:.82rem;cursor:pointer;font-weight:600;">
@@ -1062,9 +1069,16 @@ async function fetchRevenue() {
 }
 
 function anFilteredRows() {
-  return anState.filterSet
+  let rows = anState.filterSet
     ? anState.rows.filter(r => anState.filterSet.has(r.product_no))
     : anState.rows;
+  // 상품명 검색
+  const q = ($('anSearch').value || '').trim().toLowerCase();
+  if (q) rows = rows.filter(r => (r.product_name || '').toLowerCase().includes(q));
+  // 판매수량 N개 이상
+  const minQty = parseInt($('anMinQty').value, 10);
+  if (minQty > 0) rows = rows.filter(r => r.order_qty >= minQty);
+  return rows;
 }
 
 function anRateBadge(rate) {
@@ -1104,8 +1118,11 @@ function renderAnalytics() {
     tile('상품 수', fmt(rows.length) + '개');
   sum.style.display = 'grid';
   toolbar.style.display = 'flex';
-  $('an-filter-info').textContent = anState.filterSet
-    ? `카테고리 필터: ${$('anCategory').selectedOptions[0].textContent.trim()} (하위 포함 ${rows.length}개 상품)` : '';
+  const filterParts = [];
+  if (anState.filterSet) filterParts.push(`카테고리: ${$('anCategory').selectedOptions[0].textContent.trim()} (하위 포함)`);
+  if (($('anSearch').value || '').trim()) filterParts.push(`검색: "${$('anSearch').value.trim()}"`);
+  if (parseInt($('anMinQty').value, 10) > 0) filterParts.push(`판매수량 ${parseInt($('anMinQty').value, 10)}개 이상`);
+  $('an-filter-info').textContent = filterParts.length ? `필터 — ${filterParts.join(' · ')} → ${rows.length}개 상품` : '';
 
   // 정렬 + 테이블
   const key = $('anSort').value;
