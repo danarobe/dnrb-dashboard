@@ -761,6 +761,20 @@
     </div>
     <div class="section-body" id="body-adv">
 
+      <!-- ⓪ 실시간 API 연동 -->
+      <div class="sub-title">🔌 실시간 API 연동</div>
+      <div class="control-bar" style="margin-bottom:14px;">
+        <label><i class="fa-regular fa-calendar"></i> 조회 기간</label>
+        <input type="date" id="advDateStart" />
+        <span class="date-sep">~</span>
+        <input type="date" id="advDateEnd" />
+        <button class="btn-analyze" id="btn-api-adv" onclick="fetchAdvApi()">
+          <i class="fa-solid fa-cloud-arrow-down"></i> 카페24 불러오기
+        </button>
+        <span style="font-size:.75rem;color:#9ca3af;">순매출(결제 − 취소·반품 환불) 자동 입력 + 광고 채널별 성과 · <strong>광고비는 광고 플랫폼(메타 등)에서 확인해 직접 입력</strong></span>
+      </div>
+      <div id="adv-channels" style="display:none;margin-bottom:24px;"></div>
+
       <!-- ① 기본 데이터 입력 -->
       <div class="sub-title">기간 매출 &amp; 비용 입력</div>
       <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-bottom:20px;">
@@ -1260,6 +1274,65 @@ function downloadAnalyticsCSV() {
     `${r.product_no},"${(r.product_name || '').replace(/"/g, '""')}",${r.views},${r.order_count},${r.order_qty},${r.order_amount},${r.rate}`,
   ));
   dlCSV(lines.join('\n'), `상품_조회수_주문율_${$('anDateStart').value}_${$('anDateEnd').value}.csv`);
+}
+
+/* ──────────────────────────────
+   광고 효율 — 실시간 API 연동
+   순매출(결제매출 − 취소·반품 환불) 자동 입력 + 광고 채널별 성과.
+   광고비(집행액)는 카페24가 알 수 없는 광고 플랫폼 데이터라 수동 입력 유지.
+────────────────────────────── */
+async function fetchAdvApi() {
+  if (!sbReady()) { showToast('⚙️ config.js에 Supabase 설정을 먼저 입력하세요'); return; }
+  const ds = $('advDateStart').value, de = $('advDateEnd').value;
+  if (!ds || !de) { showToast('📅 조회 기간을 먼저 선택해주세요'); return; }
+  const btn = $('btn-api-adv');
+  btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> 조회 중... (수십 초)';
+  try {
+    const [rev, claims, ch] = await Promise.all([
+      anGet({ action: 'revenue', start_date: ds, end_date: de }),
+      fetch(fnUrl('cafe24-claims', { start_date: ds, end_date: de }), { headers: sbHeaders() }).then(r => r.json()),
+      anGet({ action: 'adchannels', start_date: ds, end_date: de }),
+    ]);
+    if (claims.error) throw new Error(claims.error);
+
+    // 순매출 = 결제매출 − 취소·반품 환불액
+    const refunds = claims.cancel.amount + claims.return.amount;
+    const net = Math.max(0, rev.revenue - refunds);
+    $('adv-revenue').value = net;
+
+    // 광고 채널별 성과 테이블
+    const chs = (ch.channels || []).filter(c => c.visit_count + c.order_count > 0);
+    const totalAmt = chs.reduce((s, c) => s + c.order_amount, 0);
+    let html = `
+      <div style="font-size:.85rem;font-weight:700;color:#1e1b4b;margin-bottom:8px;">📣 광고 채널별 성과 (${ds.replace(/-/g,'.')} ~ ${de.replace(/-/g,'.')})</div>
+      <div class="table-wrap"><table>
+        <thead><tr><th style="text-align:left;">채널 (UTM)</th><th>방문수</th><th>주문수</th><th>주문금액</th><th>구매전환율</th><th>매출 비중</th></tr></thead><tbody>`;
+    chs.forEach(c => {
+      const cvr = c.visit_count > 0 ? (c.order_count / c.visit_count * 100).toFixed(2) + '%' : '—';
+      const share = totalAmt > 0 ? (c.order_amount / totalAmt * 100).toFixed(1) + '%' : '—';
+      html += `<tr>
+        <td style="text-align:left;">${escHtml(c.ad || '(직접 유입)')}</td>
+        <td>${fmt(c.visit_count)}</td>
+        <td>${fmt(c.order_count)}</td>
+        <td>${fmt(c.order_amount)}원</td>
+        <td>${cvr}</td>
+        <td>${share}</td>
+      </tr>`;
+    });
+    html += `</tbody></table></div>
+      <div style="font-size:.72rem;color:#9ca3af;margin-top:6px;">'채널 없음/(직접 유입)'은 UTM 파라미터 없이 들어온 주문입니다 · 광고비 대비 효율(ROAS)은 아래에 광고비를 입력하면 계산됩니다</div>`;
+    $('adv-channels').innerHTML = html;
+    $('adv-channels').style.display = 'block';
+
+    calcAdv();
+    showToast(`✅ 순매출 ${fmt(net)}원 입력 (결제 ${fmt(rev.revenue)} − 환불 ${fmt(refunds)}) · 광고 채널 ${chs.length}개`);
+  } catch (e) {
+    showToast('❌ 광고 효율 조회 실패: ' + e.message);
+    console.error(e);
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '<i class="fa-solid fa-cloud-arrow-down"></i> 카페24 불러오기';
+  }
 }
 
 /* ──────────────────────────────
@@ -3466,6 +3539,9 @@ function advInsight(revenue, advCost, fixedCost, supplyCost, netProfit, roas, sc
   loadPerfArchive();
   // 카페24 API 연동 상태 확인
   checkCafe24Status();
+  // 광고 효율 API 조회 기간 기본값
+  $('advDateStart').value = fmtD(first);
+  $('advDateEnd').value   = fmtD(now);
   // 애널리틱스 섹션: 기간 기본값 + 카테고리 목록 + 이번 달 데이터 자동 조회
   $('anDateStart').value = fmtD(first);
   $('anDateEnd').value   = fmtD(now);
