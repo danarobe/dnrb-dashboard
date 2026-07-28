@@ -175,13 +175,22 @@ Deno.serve(async (req) => {
       const map = new Map<number, Row>();
       const LIMIT = 500;
       let totalQty = 0, returnQty = 0;
-      for (let offset = 0; offset <= 30000; offset += LIMIT) {
+      // 주문 단위 shipend_date는 부분배송 시 기간 밖 품목까지 포함하므로,
+      // 주문은 여유 범위로 수집한 뒤 '품목별 배송완료일(delivered_date)'로 정확히 필터
+      // (관리자 전체주문조회의 배송완료일 검색과 동일 기준 — 실측 검증 완료)
+      const day = 24 * 3600 * 1000;
+      const pad = (d: Date) => d.toISOString().slice(0, 10);
+      const fetchStart = pad(new Date(new Date(s).getTime() - 7 * day));
+      const fetchEnd = pad(new Date(Math.min(new Date(e).getTime() + 30 * day, Date.now())));
+      for (let offset = 0; offset <= 60000; offset += LIMIT) {
         const body = await apiGet(
-          `${API_BASE}/admin/orders?start_date=${s}&end_date=${e}&date_type=shipend_date` +
+          `${API_BASE}/admin/orders?start_date=${fetchStart}&end_date=${fetchEnd}&date_type=shipend_date` +
           `&embed=items&fields=order_id,items&limit=${LIMIT}&offset=${offset}`, token);
         const orders = (body.orders ?? []) as Record<string, unknown>[];
         for (const o of orders) {
           for (const it of (o.items ?? []) as Record<string, unknown>[]) {
+            const dd = String(it.delivered_date ?? "").slice(0, 10);
+            if (!dd || dd < s || dd > e) continue;
             const no = Number(it.product_no);
             if (!no) continue;
             let row = map.get(no);
@@ -204,7 +213,7 @@ Deno.serve(async (req) => {
       })).sort((a, b) => b.return_qty - a.return_qty);
       return json({
         period: { start: s, end: e },
-        basis: "shipend_date",
+        basis: "item_delivered_date",
         totals: {
           total_qty: totalQty, return_qty: returnQty,
           net_return_rate: totalQty > 0 ? +(returnQty / totalQty * 100).toFixed(2) : 0,

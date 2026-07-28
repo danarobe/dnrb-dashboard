@@ -686,13 +686,12 @@
         </button>
         <input type="text" id="perfSearch" placeholder="🔍 상품명 검색" oninput="renderPerfResult()"
                style="border:1.5px solid #d1d5db;border-radius:8px;padding:7px 12px;font-size:.85rem;outline:none;min-width:170px;" />
-        <span style="font-size:.75rem;color:#9ca3af;">주문일 기준 · 판매수량 = 주문수량 − 취소·반품완료 수량 · 마진율은 카페24 상품정보의 공급가(+부가세 10%) 기준 · CSV 업로드와 병행 가능</span>
+        <span style="font-size:.75rem;color:#9ca3af;">판매수량 = 주문수량 − 취소·반품완료 수량 · 마진율은 카페24 상품정보의 공급가(+부가세 10%) 기준</span>
       </div>
 
       <!-- 집계 기준 안내 -->
       <div style="background:#fffbeb;border:1.5px solid #fde68a;border-radius:12px;padding:12px 16px;margin-bottom:18px;font-size:.8rem;color:#78350f;line-height:1.6;">
-        ⚠️ 이 카테고리에서 조회되는 <strong>취소&반품률·환불수량은 주문일 기준</strong>이기 때문에 정확하지 않을 수 있습니다.
-        우수/주의/위험 판정은 <strong>배송완료일 기준 순반품률</strong>(반품수량 ÷ 배송완료 주문수량)로 계산됩니다.
+        ⚠️ 이 카테고리에서 조회되는 <strong>취소&반품률은 정확하지 않을 수 있습니다.</strong> 정확한 데이터는 <strong>취소&반품 메뉴</strong>를 통해 확인하세요.
       </div>
 
       <!-- 판매 성과 결과 -->
@@ -2377,7 +2376,7 @@ function renderPerfResult() {
       <div style="border-radius:13px;padding:16px;color:#fff;background:linear-gradient(135deg,#4f46e5,#7c3aed);">
         <div style="font-size:.75rem;font-weight:600;opacity:.85;margin-bottom:4px;">🔄 전체 순반품률 <span style="font-size:.68rem;opacity:.7;font-weight:400;">(배송완료일 기준)</span></div>
         <div style="font-size:1.9rem;font-weight:800;">${store.netTotals ? fmtP(store.netTotals.net_return_rate) : '—'}</div>
-        <div style="font-size:.75rem;opacity:.7;margin-top:3px;">${store.netTotals ? `${store.netTotals.net_return_rate<10?'우수':store.netTotals.net_return_rate<20?'주의':'위험'} · 반품 ${fmt(store.netTotals.return_qty)}개 ÷ 배송완료 ${fmt(store.netTotals.total_qty)}개 · 참고: 주문일 기준 취소반품률 ${fmtP(overallRR)}` : `주문일 기준 취소반품률 ${fmtP(overallRR)}`}</div>
+        <div style="font-size:.75rem;opacity:.7;margin-top:3px;">${store.netTotals ? `${store.netTotals.net_return_rate<10?'우수':store.netTotals.net_return_rate<20?'주의':'위험'} · 반품 ${fmt(store.netTotals.return_qty)}개 ÷ 배송완료 ${fmt(store.netTotals.total_qty)}개` : '카페24 불러오기 필요'}</div>
       </div>
       ${!isNaN(avgMargin) ? `
       <div style="border-radius:13px;padding:16px;color:#fff;background:linear-gradient(135deg,#0891b2,#0284c7);">
@@ -2385,12 +2384,11 @@ function renderPerfResult() {
         <div style="font-size:1.9rem;font-weight:800;">${fmtP(avgMargin)}</div>
         <div style="font-size:.75rem;opacity:.7;margin-top:3px;">원가 매핑 ${mapped}/${store.salesData.length}개 · 공급가×1.1 기준</div>
       </div>` : ''}
-      ${!isNaN(avgCostRate) ? `
-      <div style="border-radius:13px;padding:16px;color:#fff;background:linear-gradient(135deg,#059669,#047857);">
-        <div style="font-size:.75rem;font-weight:600;opacity:.85;margin-bottom:4px;">🏷️ 전체 평균 원가율</div>
-        <div style="font-size:1.9rem;font-weight:800;">${fmtP(avgCostRate)}</div>
-        <div style="font-size:.75rem;opacity:.7;margin-top:3px;">공급가×1.1 기준</div>
-      </div>` : ''}
+      <div style="border-radius:13px;padding:16px;color:#fff;background:linear-gradient(135deg,#f59e0b,#d97706);">
+        <div style="font-size:.75rem;font-weight:600;opacity:.85;margin-bottom:4px;">🔄 전체 취소·반품률 <span style="font-size:.68rem;opacity:.7;font-weight:400;">(주문일 기준·참고용)</span></div>
+        <div style="font-size:1.9rem;font-weight:800;">${fmtP(overallRR)}</div>
+        <div style="font-size:.75rem;opacity:.7;margin-top:3px;">취소수량 ÷ 결제수량 · 정확한 수치는 취소&반품 메뉴</div>
+      </div>
     </div>
 
     <!-- 필터 -->
@@ -2420,7 +2418,6 @@ function renderPerfResult() {
         <th>순반품률<br><span style="font-size:.68rem;font-weight:400;color:#9ca3af;">배송완료일 기준</span></th>
         <th>취소&amp;반품률<br><span style="font-size:.68rem;font-weight:400;color:#9ca3af;">주문일 기준·참고용</span></th>
         <th>마진율<br><span style="font-size:.68rem;font-weight:400;color:#9ca3af;">공급가×1.1 기준</span></th>
-        <th>원가율<br><span style="font-size:.68rem;font-weight:400;color:#9ca3af;">공급가×1.1 기준</span></th>
       </tr></thead>
       <tbody>`;
 
@@ -2442,7 +2439,7 @@ function renderPerfResult() {
         <td>${row.salesTotal>0?fmt(row.salesTotal)+'원':'—'}</td>
         <td>${netReturnBadge(row)}${(() => { const nr = netOf(row); return nr ? `<div style="font-size:.68rem;color:#9ca3af;margin-top:2px;">${fmt(nr.return_qty)} ÷ ${fmt(nr.total_qty)}개</div>` : ''; })()}</td>
         <td style="color:#6b7280;">${fmtP(row.returnRate)}</td>
-        <td>${mg}</td><td>${cr}</td>
+        <td>${mg}</td>
       </tr>`;
     });
     html += '</tbody></table></div>';
