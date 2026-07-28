@@ -160,6 +160,59 @@ Deno.serve(async (req) => {
       return json({ period: { start: s, end: e }, revenue, order_count: orderCount });
     }
 
+    // ── 순반품률: 배송완료일 기준 상품별 전체수량 · 반품수량 ──
+    // 기존 '순반품률 분석 대시보드 v6'와 동일 정책:
+    //   모수  = 기간(배송완료일 date_type=shipend_date) 내 모든 주문 품목 수량 합
+    //   반품 = 품목 상태 R40(반품완료-환불완료)·R30(처리중-수거전)·R34(처리중-환불전)만
+    //   순반품률 = 반품수량 ÷ 전체수량 × 100
+    if (action === "netreturns") {
+      const s = url.searchParams.get("start_date");
+      const e = url.searchParams.get("end_date");
+      if (!s || !e) return json({ error: "start_date, end_date 필수 (YYYY-MM-DD)" }, 400);
+
+      const NET_RETURN_STATUSES = new Set(["R40", "R30", "R34"]);
+      type Row = { product_no: number; product_name: string; total_qty: number; return_qty: number };
+      const map = new Map<number, Row>();
+      const LIMIT = 500;
+      let totalQty = 0, returnQty = 0;
+      for (let offset = 0; offset <= 30000; offset += LIMIT) {
+        const body = await apiGet(
+          `${API_BASE}/admin/orders?start_date=${s}&end_date=${e}&date_type=shipend_date` +
+          `&embed=items&fields=order_id,items&limit=${LIMIT}&offset=${offset}`, token);
+        const orders = (body.orders ?? []) as Record<string, unknown>[];
+        for (const o of orders) {
+          for (const it of (o.items ?? []) as Record<string, unknown>[]) {
+            const no = Number(it.product_no);
+            if (!no) continue;
+            let row = map.get(no);
+            if (!row) {
+              row = { product_no: no, product_name: String(it.product_name ?? ""), total_qty: 0, return_qty: 0 };
+              map.set(no, row);
+            }
+            const qty = num(it.quantity);
+            row.total_qty += qty; totalQty += qty;
+            if (NET_RETURN_STATUSES.has(String(it.order_status ?? ""))) {
+              row.return_qty += qty; returnQty += qty;
+            }
+          }
+        }
+        if (orders.length < LIMIT) break;
+      }
+      const rows = [...map.values()].map((r) => ({
+        ...r,
+        net_return_rate: r.total_qty > 0 ? +(r.return_qty / r.total_qty * 100).toFixed(2) : 0,
+      })).sort((a, b) => b.return_qty - a.return_qty);
+      return json({
+        period: { start: s, end: e },
+        basis: "shipend_date",
+        totals: {
+          total_qty: totalQty, return_qty: returnQty,
+          net_return_rate: totalQty > 0 ? +(returnQty / totalQty * 100).toFixed(2) : 0,
+        },
+        rows,
+      });
+    }
+
     // ── 판매 성과: 기간 판매수량 + 취소·반품완료 수량 + 판매가·공급가 ──
     // rows: [{product_no, product_name, paid_qty(주문수량), order_amount(주문금액),
     //          cancel_qty(취소·반품완료 수량), price(판매가), supply_price(공급가)}]
