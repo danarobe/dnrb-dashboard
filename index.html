@@ -802,7 +802,7 @@
           <div style="font-size:.92rem;font-weight:800;color:#4338ca;margin-bottom:10px;">🛍️ 논의 주제 — 상품팀</div>
           <div style="display:flex;gap:8px;margin-bottom:12px;">
             <input type="text" id="meet-input-product" placeholder="논의할 주제를 입력하세요"
-                   onkeydown="if(event.key==='Enter')addAdTopic('product')"
+                   onkeydown="if(event.key==='Enter'&&!event.isComposing)addAdTopic('product')"
                    style="flex:1;border:1.5px solid #d1d5db;border-radius:8px;padding:9px 12px;font-size:.86rem;outline:none;" />
             <button class="btn-analyze" style="padding:8px 16px;" onclick="addAdTopic('product')">추가</button>
           </div>
@@ -813,7 +813,7 @@
           <div style="font-size:.92rem;font-weight:800;color:#a21caf;margin-bottom:10px;">📣 논의 주제 — 광고팀</div>
           <div style="display:flex;gap:8px;margin-bottom:12px;">
             <input type="text" id="meet-input-ad" placeholder="논의할 주제를 입력하세요"
-                   onkeydown="if(event.key==='Enter')addAdTopic('ad')"
+                   onkeydown="if(event.key==='Enter'&&!event.isComposing)addAdTopic('ad')"
                    style="flex:1;border:1.5px solid #d1d5db;border-radius:8px;padding:9px 12px;font-size:.86rem;outline:none;" />
             <button class="btn-analyze" style="padding:8px 16px;background:linear-gradient(135deg,#a21caf,#c026d3);" onclick="addAdTopic('ad')">추가</button>
           </div>
