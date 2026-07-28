@@ -174,7 +174,11 @@ Deno.serve(async (req) => {
       if (!s || !e) return json({ error: "start_date, end_date 필수 (YYYY-MM-DD)" }, 400);
 
       const NET_RETURN_STATUSES = new Set(["R40", "R30", "R34"]);
-      type Row = { product_no: number; product_name: string; total_qty: number; return_qty: number };
+      type Opt = { option: string; total_qty: number; return_qty: number };
+      type Row = {
+        product_no: number; product_name: string; total_qty: number; return_qty: number;
+        opts: Map<string, Opt>;
+      };
       const map = new Map<number, Row>();
       const LIMIT = 500;
       let totalQty = 0, returnQty = 0;
@@ -198,21 +202,34 @@ Deno.serve(async (req) => {
             if (!no) continue;
             let row = map.get(no);
             if (!row) {
-              row = { product_no: no, product_name: String(it.product_name ?? ""), total_qty: 0, return_qty: 0 };
+              row = {
+                product_no: no, product_name: String(it.product_name ?? ""),
+                total_qty: 0, return_qty: 0, opts: new Map(),
+              };
               map.set(no, row);
             }
             const qty = num(it.quantity);
+            const isReturn = NET_RETURN_STATUSES.has(String(it.order_status ?? ""));
             row.total_qty += qty; totalQty += qty;
-            if (NET_RETURN_STATUSES.has(String(it.order_status ?? ""))) {
-              row.return_qty += qty; returnQty += qty;
-            }
+            if (isReturn) { row.return_qty += qty; returnQty += qty; }
+            // 옵션별 집계 (option_value 예: "컬러=아이보리, 사이즈=1사이즈")
+            const optKey = String(it.option_value ?? "").trim() || "(단일 옵션)";
+            let opt = row.opts.get(optKey);
+            if (!opt) { opt = { option: optKey, total_qty: 0, return_qty: 0 }; row.opts.set(optKey, opt); }
+            opt.total_qty += qty;
+            if (isReturn) opt.return_qty += qty;
           }
         }
         if (orders.length < LIMIT) break;
       }
       const rows = [...map.values()].map((r) => ({
-        ...r,
+        product_no: r.product_no, product_name: r.product_name,
+        total_qty: r.total_qty, return_qty: r.return_qty,
         net_return_rate: r.total_qty > 0 ? +(r.return_qty / r.total_qty * 100).toFixed(2) : 0,
+        options: [...r.opts.values()].map((o) => ({
+          ...o,
+          net_return_rate: o.total_qty > 0 ? +(o.return_qty / o.total_qty * 100).toFixed(2) : 0,
+        })).sort((a, b) => b.total_qty - a.total_qty),
       })).sort((a, b) => b.return_qty - a.return_qty);
       return json({
         period: { start: s, end: e },
