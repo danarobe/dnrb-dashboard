@@ -147,33 +147,6 @@ Deno.serve(async (req) => {
       return json({ period: { start: s, end: e }, revenue, order_count: orderCount });
     }
 
-    // ── 광고 채널별 성과: 방문수 + 주문수·주문금액 (visitpaths/ads + adsales 조인) ──
-    if (action === "adchannels") {
-      const s = url.searchParams.get("start_date");
-      const e = url.searchParams.get("end_date");
-      if (!s || !e) return json({ error: "start_date, end_date 필수 (YYYY-MM-DD)" }, 400);
-      const base = new URLSearchParams({ mall_id: MALL_ID, start_date: s, end_date: e });
-      const [visits, adsales] = await Promise.all([
-        collectData("/visitpaths/ads", "ads", base, token),
-        collectData("/visitpaths/adsales", "adsales", base, token),
-      ]);
-      type Ch = { ad: string; visit_count: number; order_count: number; order_amount: number };
-      const map = new Map<string, Ch>();
-      const chOf = (ad: string): Ch => {
-        let c = map.get(ad);
-        if (!c) { c = { ad, visit_count: 0, order_count: 0, order_amount: 0 }; map.set(ad, c); }
-        return c;
-      };
-      for (const v of visits) chOf(String(v.ad ?? "")).visit_count += num(v.visit_count);
-      for (const a of adsales) {
-        const c = chOf(String(a.ad ?? ""));
-        c.order_count += num(a.order_count);
-        c.order_amount += num(a.order_amount);
-      }
-      const channels = [...map.values()].sort((a, b) => b.order_amount - a.order_amount);
-      return json({ period: { start: s, end: e }, channels });
-    }
-
     // ── 판매 성과: 기간 판매수량 + 취소·반품완료 수량 + 판매가·공급가 ──
     // rows: [{product_no, product_name, paid_qty(주문수량), order_amount(주문금액),
     //          cancel_qty(취소·반품완료 수량), price(판매가), supply_price(공급가)}]
