@@ -401,6 +401,15 @@
         </div>
       </div>
 
+      <!-- 판매량 급증 TOP5 (최근 7일 vs 직전 7일) -->
+      <div style="background:#fff;border:1.5px solid #fdba74;border-radius:12px;padding:16px 18px;margin-bottom:14px;">
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px;">
+          <div style="font-size:.85rem;font-weight:700;color:#9a3412;">🔥 판매량 급증 TOP 5</div>
+          <span id="home-trending-period" style="font-size:.72rem;color:#9ca3af;"></span>
+        </div>
+        <div id="home-trending" style="font-size:.82rem;color:#6b7280;">—</div>
+      </div>
+
       <!-- 하단 3단: 조회수 TOP5 / 취소 사유 TOP3 / 반품 사유 TOP3 -->
       <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:14px;">
         <div style="background:#fff;border:1.5px solid #e5e7eb;border-radius:12px;padding:16px 18px;">
@@ -1352,6 +1361,76 @@ function updateHomeTrafficTile() {
     </div>`).join('') || '데이터 없음';
 }
 
+/* ── 판매량 급증 TOP 5 — 최근 7일(어제까지) vs 직전 7일 ──
+   기준: ① 이번 주 주문수량 10개 이상(노이즈 필터)
+        ② 정렬 = 평활 성장배수 (이번주+5)/(지난주+5) — 저볼륨 과대평가 방지
+        ③ 지난주 0개 → NEW 뱃지 (신상품 급등)
+   주문수량 기준(취소 미차감): 취소는 늦게 발생해 최근 주가 왜곡되는 것 방지 */
+const trendState = { loading: false, loaded: false };
+async function loadTrending(force) {
+  if (!sbReady()) return;
+  const el = $('home-trending'); if (!el) return;
+  if (trendState.loading || (trendState.loaded && !force)) return;
+  trendState.loading = true;
+  el.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i>';
+  try {
+    const day = 24 * 3600 * 1000;
+    const pad = n => String(n).padStart(2, '0');
+    const dstr = d => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+    const yest      = new Date(Date.now() - day);          // 오늘은 집계 미완 → 어제까지
+    const curStart  = new Date(yest.getTime() - 6 * day);
+    const prevEnd   = new Date(curStart.getTime() - day);
+    const prevStart = new Date(prevEnd.getTime() - 6 * day);
+
+    const [cur, prev] = await Promise.all([
+      anGet({ action: 'summary', start_date: dstr(curStart), end_date: dstr(yest) }),
+      anGet({ action: 'summary', start_date: dstr(prevStart), end_date: dstr(prevEnd) }),
+    ]);
+    const prevMap = new Map((prev.rows || []).map(r => [r.product_no, r]));
+    const MIN_QTY = 10, K = 5;
+    const top = (cur.rows || [])
+      .filter(r => r.order_qty >= MIN_QTY)
+      .map(r => {
+        const p = prevMap.get(r.product_no);
+        const prevQty = p ? p.order_qty : 0;
+        return {
+          ...r, prevQty,
+          score: (r.order_qty + K) / (prevQty + K),
+          // 전주 조회수가 50회 미만이면 증감률이 노이즈라 표시 생략
+          viewsDelta: p && p.views >= 50 ? (r.views - p.views) / p.views * 100 : null,
+        };
+      })
+      .filter(r => r.order_qty > r.prevQty)
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 5);
+
+    $('home-trending-period').textContent =
+      `${dstr(curStart).replace(/-/g, '.')} ~ ${dstr(yest).replace(/-/g, '.')} vs 직전 7일 · 주문수량 기준 · 이번 주 ${MIN_QTY}개 이상`;
+
+    el.innerHTML = top.length ? top.map((r, i) => {
+      const badge = r.prevQty === 0
+        ? '<span style="background:#ede9fe;color:#6d28d9;border-radius:6px;padding:2px 8px;font-size:.72rem;font-weight:800;">NEW</span>'
+        : `<span style="color:#dc2626;font-weight:800;">+${Math.round((r.order_qty - r.prevQty) / r.prevQty * 100)}%</span>`;
+      const views = r.viewsDelta === null ? ''
+        : `<span style="color:#9ca3af;font-size:.74rem;">조회 ${r.viewsDelta >= 0 ? '+' : ''}${r.viewsDelta.toFixed(0)}%</span>`;
+      return `<div style="display:flex;align-items:center;gap:10px;padding:6px 0;border-bottom:1px dashed #f3f4f6;flex-wrap:wrap;">
+        <span style="color:#9ca3af;width:16px;">${i + 1}</span>
+        <span style="flex:1;min-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escHtml(r.product_name)}</span>
+        <span style="font-weight:700;color:#1e1b4b;">${fmt(r.prevQty)} → ${fmt(r.order_qty)}개</span>
+        ${badge}
+        <span style="color:#6b7280;">${fmt(r.order_amount)}원</span>
+        ${views}
+      </div>`;
+    }).join('') : '급증 상품이 없습니다 (이번 주 10개 이상 판매 & 전주 대비 증가 기준)';
+    trendState.loaded = true;
+  } catch (e) {
+    el.textContent = '조회 실패: ' + e.message;
+    console.error(e);
+  } finally {
+    trendState.loading = false;
+  }
+}
+
 /* 홈 로드 — 하위 카테고리(취소반품·조회수·판매성과)에 같은 기간으로 API 조회를 전파 */
 async function loadHome(force) {
   if (!sbReady()) return;
@@ -1404,6 +1483,7 @@ async function loadHome(force) {
   }).catch(() => { $('home-margin').textContent = '—'; });
 
   await Promise.allSettled([pRev, pClaims, pTraffic, pPerf]);
+  loadTrending(true);
   runAnalysis();  // 총 매출액 반영해 취소반품 비율 재계산
   updateHomeSourceStatus(); updateHomeReasons(); updateHomeClaimsTile();
   btn.disabled = false;
@@ -3521,7 +3601,7 @@ function advInsight(revenue, advCost, fixedCost, supplyCost, netProfit, roas, sc
   // 애널리틱스 섹션: 기간 기본값 + 카테고리 목록 + 이번 달 데이터 자동 조회
   $('anDateStart').value = fmtD(first);
   $('anDateEnd').value   = fmtD(now);
-  loadAnCategories().then(() => fetchAnalytics(true)).then(() => updateHomeTrafficTile());
+  loadAnCategories().then(() => fetchAnalytics(true)).then(() => { updateHomeTrafficTile(); loadTrending(); });
   // 홈 대시보드 기간 기본값 (이번 달)
   $('homeDateStart').value = fmtD(first);
   $('homeDateEnd').value   = fmtD(now);
