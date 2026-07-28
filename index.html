@@ -346,9 +346,11 @@
 <nav class="side-menu">
   <button class="menu-item" data-menu="home" onclick="showMenu('home')">🏠 대시보드</button>
   <button class="menu-item" data-menu="cr"   onclick="showMenu('cr')">📉 취소 &amp; 반품</button>
-  <button class="menu-item" data-menu="an"   onclick="showMenu('an')">👀 조회수 &amp; 주문율</button>
+  <button class="menu-item" data-menu="an"   onclick="showMenu('an')">👀 상품 분석</button>
   <button class="menu-item" data-menu="perf" onclick="showMenu('perf')">📊 판매 성과</button>
+  <button class="menu-item" data-menu="disp" onclick="showMenu('disp')">🗂️ 카테고리별 진열</button>
   <button class="menu-item" data-menu="adv"  onclick="showMenu('adv')">📣 광고 효율</button>
+  <button class="menu-item" data-menu="meet" onclick="showMenu('meet')">📝 광고 회의록</button>
 </nav>
 
 <div class="container">
@@ -415,6 +417,13 @@
         <div style="background:#fff;border:1.5px solid #e5e7eb;border-radius:12px;padding:16px 18px;">
           <div style="font-size:.85rem;font-weight:700;color:#1e1b4b;margin-bottom:10px;">👀 조회수 TOP 10</div>
           <div id="home-top-views" style="font-size:.82rem;color:#6b7280;">—</div>
+        </div>
+        <div style="background:#fff;border:1.5px solid #bfdbfe;border-radius:12px;padding:16px 18px;">
+          <div style="display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;margin-bottom:10px;">
+            <div style="font-size:.85rem;font-weight:700;color:#1e3a8a;">🎯 주문율 TOP 10</div>
+            <span style="font-size:.7rem;color:#9ca3af;">조회 300회 · 주문 5건 이상 상품 기준</span>
+          </div>
+          <div id="home-top-rates" style="font-size:.82rem;color:#6b7280;">—</div>
         </div>
         <div style="background:#fff;border:1.5px solid #fde68a;border-radius:12px;padding:16px 18px;">
           <div style="font-size:.85rem;font-weight:700;color:#92400e;margin-bottom:10px;">🚫 취소 사유 TOP 3</div>
@@ -602,10 +611,11 @@
   ════════════════════════════════════════ -->
   <div class="section-card page-sec" id="sec-an">
     <div class="section-header" onclick="toggleSection('an')">
-      <h2><span>👀</span> 상품 조회수 &amp; 주문율 분석</h2>
+      <h2><span>👀</span> 상품 분석</h2>
       <button class="toggle-btn" id="toggle-an"><i class="fa-solid fa-chevron-up"></i> 접기</button>
     </div>
     <div class="section-body" id="body-an">
+      <div style="font-size:.85rem;color:#6b7280;margin-bottom:14px;">상품의 조회수와 주문수, 주문율을 볼 수 있습니다.</div>
 
       <!-- 조회 조건 -->
       <div class="control-bar">
@@ -757,6 +767,64 @@
         </div>
       </div>
 
+    </div>
+  </div>
+
+  <!-- ════════════════════════════════════════
+       SECTION : 카테고리별 진열 (기능 설계 예정)
+  ════════════════════════════════════════ -->
+  <div class="section-card page-sec" id="sec-disp">
+    <div class="section-header" style="cursor:default;">
+      <h2><span>🗂️</span> 카테고리별 진열</h2>
+    </div>
+    <div class="section-body">
+      <div class="empty-state">
+        <div class="es-icon">🚧</div>
+        <p>준비 중인 메뉴입니다.<br />필요한 기능을 설계한 뒤 추가될 예정입니다.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- ════════════════════════════════════════
+       SECTION : 광고 회의록
+  ════════════════════════════════════════ -->
+  <div class="section-card page-sec" id="sec-meet">
+    <div class="section-header" style="cursor:default;">
+      <h2><span>📝</span> 광고 회의록</h2>
+      <button class="toggle-btn" onclick="loadAdTopics()"><i class="fa-solid fa-rotate"></i> 새로고침</button>
+    </div>
+    <div class="section-body">
+      <div style="font-size:.85rem;color:#6b7280;margin-bottom:14px;">논의할 주제를 팀별로 기록하고 진행 상태를 관리합니다. 팀원 모두에게 실시간 공유됩니다.</div>
+
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:16px;margin-bottom:14px;">
+        <!-- 상품팀 -->
+        <div style="background:#f8f9ff;border:1.5px solid #e0e7ff;border-radius:14px;padding:16px 18px;">
+          <div style="font-size:.92rem;font-weight:800;color:#4338ca;margin-bottom:10px;">🛍️ 논의 주제 — 상품팀</div>
+          <div style="display:flex;gap:8px;margin-bottom:12px;">
+            <input type="text" id="meet-input-product" placeholder="논의할 주제를 입력하세요"
+                   onkeydown="if(event.key==='Enter')addAdTopic('product')"
+                   style="flex:1;border:1.5px solid #d1d5db;border-radius:8px;padding:9px 12px;font-size:.86rem;outline:none;" />
+            <button class="btn-analyze" style="padding:8px 16px;" onclick="addAdTopic('product')">추가</button>
+          </div>
+          <div id="meet-list-product" style="font-size:.85rem;color:#6b7280;">불러오는 중…</div>
+        </div>
+        <!-- 광고팀 -->
+        <div style="background:#fdf4ff;border:1.5px solid #f5d0fe;border-radius:14px;padding:16px 18px;">
+          <div style="font-size:.92rem;font-weight:800;color:#a21caf;margin-bottom:10px;">📣 논의 주제 — 광고팀</div>
+          <div style="display:flex;gap:8px;margin-bottom:12px;">
+            <input type="text" id="meet-input-ad" placeholder="논의할 주제를 입력하세요"
+                   onkeydown="if(event.key==='Enter')addAdTopic('ad')"
+                   style="flex:1;border:1.5px solid #d1d5db;border-radius:8px;padding:9px 12px;font-size:.86rem;outline:none;" />
+            <button class="btn-analyze" style="padding:8px 16px;background:linear-gradient(135deg,#a21caf,#c026d3);" onclick="addAdTopic('ad')">추가</button>
+          </div>
+          <div id="meet-list-ad" style="font-size:.85rem;color:#6b7280;">불러오는 중…</div>
+        </div>
+      </div>
+
+      <label style="display:inline-flex;align-items:center;gap:8px;font-size:.84rem;color:#6b7280;cursor:pointer;">
+        <input type="checkbox" id="meet-show-done" onchange="loadAdTopics()" />
+        ✅ 논의완료된 항목 보기
+      </label>
     </div>
   </div>
 
@@ -1272,9 +1340,96 @@ function downloadAnalyticsCSV() {
 }
 
 /* ──────────────────────────────
+   광고 회의록 — 팀별 논의 주제 (Supabase ad_meeting_topics)
+   논의 전(todo) → 진행중(doing) → 논의완료(done)
+   완료 항목은 기본 숨김 — '논의완료된 항목 보기' 체크 시에만 조회·표시
+────────────────────────────── */
+const MEET_STATUS = { todo: '🕐 논의 전', doing: '🔄 진행중', done: '✅ 논의완료' };
+
+async function meetRest(path, init = {}) {
+  const res = await fetch(`${SB.SUPABASE_URL}/rest/v1/${path}`, {
+    ...init, headers: { ...sbHeaders(), ...(init.headers || {}) },
+  });
+  if (!res.ok) throw new Error('회의록 요청 실패 ' + res.status);
+  const text = await res.text();
+  return text ? JSON.parse(text) : null;   // 201/204 등 빈 본문 응답 대응
+}
+
+async function loadAdTopics() {
+  if (!sbReady()) return;
+  try {
+    const showDone = $('meet-show-done').checked;
+    // 완료 항목은 데이터가 쌓여도 느려지지 않도록 체크 시에만 조회 (최근 200건)
+    const [active, done] = await Promise.all([
+      meetRest(`ad_meeting_topics?select=*&status=neq.done&order=created_at.asc`),
+      showDone ? meetRest(`ad_meeting_topics?select=*&status=eq.done&order=done_at.desc&limit=200`) : Promise.resolve([]),
+    ]);
+    const all = [...active, ...done];
+    for (const team of ['product', 'ad']) {
+      const el = $('meet-list-' + team);
+      const items = all.filter(t => t.team === team);
+      let html = '';
+      for (const st of showDone ? ['todo', 'doing', 'done'] : ['todo', 'doing']) {
+        const group = items.filter(t => t.status === st);
+        html += `<div style="font-size:.78rem;font-weight:800;color:#6b7280;margin:12px 0 4px;">${MEET_STATUS[st]} (${group.length})</div>`;
+        html += group.length ? group.map(t => `
+          <div style="display:flex;align-items:center;gap:8px;background:#fff;border:1px solid #e5e7eb;border-radius:9px;padding:8px 10px;margin-bottom:6px;flex-wrap:wrap;">
+            <span style="flex:1;min-width:140px;color:#111827;${st === 'done' ? 'text-decoration:line-through;color:#9ca3af;' : ''}">${escHtml(t.content)}</span>
+            <span style="font-size:.68rem;color:#c4c9d4;">${(t.created_at || '').slice(0, 10)}</span>
+            ${['todo', 'doing', 'done'].map(s => `
+              <button onclick="setAdTopicStatus('${t.id}', '${s}')" ${s === t.status ? 'disabled' : ''}
+                style="border:1px solid ${s === t.status ? 'transparent' : '#e5e7eb'};border-radius:6px;padding:3px 8px;font-size:.7rem;font-weight:700;cursor:${s === t.status ? 'default' : 'pointer'};
+                       background:${s === t.status ? (s === 'todo' ? '#e5e7eb' : s === 'doing' ? '#dbeafe' : '#dcfce7') : '#fff'};
+                       color:${s === t.status ? (s === 'doing' ? '#1d4ed8' : s === 'done' ? '#15803d' : '#374151') : '#9ca3af'};">
+                ${MEET_STATUS[s].slice(2)}</button>`).join('')}
+            <button onclick="deleteAdTopic('${t.id}')" title="삭제"
+              style="border:none;background:none;color:#d1d5db;font-size:.85rem;cursor:pointer;padding:2px 4px;">✕</button>
+          </div>`).join('') : '<div style="font-size:.78rem;color:#c4c9d4;margin-bottom:4px;">없음</div>';
+      }
+      el.innerHTML = html;
+    }
+  } catch (e) { showToast('❌ 회의록 불러오기 실패: ' + e.message); console.error(e); }
+}
+
+async function addAdTopic(team) {
+  const input = $('meet-input-' + team);
+  const content = input.value.trim();
+  if (!content) { showToast('논의 주제를 입력해주세요'); return; }
+  try {
+    await meetRest('ad_meeting_topics', {
+      method: 'POST',
+      headers: { Prefer: 'return=minimal' },
+      body: JSON.stringify({ team, content, status: 'todo' }),
+    });
+    input.value = '';
+    showToast('✅ 논의 주제가 추가됐습니다 (논의 전)');
+    loadAdTopics();
+  } catch (e) { showToast('❌ 추가 실패: ' + e.message); }
+}
+
+async function setAdTopicStatus(id, status) {
+  try {
+    await meetRest(`ad_meeting_topics?id=eq.${id}`, {
+      method: 'PATCH',
+      headers: { Prefer: 'return=minimal' },
+      body: JSON.stringify({ status, done_at: status === 'done' ? new Date().toISOString() : null }),
+    });
+    loadAdTopics();
+  } catch (e) { showToast('❌ 상태 변경 실패: ' + e.message); }
+}
+
+async function deleteAdTopic(id) {
+  if (!confirm('이 논의 주제를 삭제할까요?')) return;
+  try {
+    await meetRest(`ad_meeting_topics?id=eq.${id}`, { method: 'DELETE', headers: { Prefer: 'return=minimal' } });
+    loadAdTopics();
+  } catch (e) { showToast('❌ 삭제 실패: ' + e.message); }
+}
+
+/* ──────────────────────────────
    좌측 메뉴 내비게이션 + 대시보드(홈)
 ────────────────────────────── */
-const MENU_KEYS = ['home', 'cr', 'an', 'perf', 'adv'];
+const MENU_KEYS = ['home', 'cr', 'an', 'perf', 'disp', 'adv', 'meet'];
 
 function showMenu(key) {
   if (!MENU_KEYS.includes(key)) key = 'home';
@@ -1284,6 +1439,7 @@ function showMenu(key) {
   document.querySelectorAll('.menu-item').forEach(b => b.classList.toggle('active', b.dataset.menu === key));
   history.replaceState(null, '', '#' + key);
   if (key === 'home') { updateHomeSourceStatus(); updateHomeReasons(); updateHomeClaimsTile(); updateHomeTrafficTile(); }
+  if (key === 'meet') loadAdTopics();
 }
 
 const homeState = { loaded: false, loading: false };
@@ -1346,6 +1502,19 @@ function updateHomeTrafficTile() {
       <span style="color:#4f46e5;font-weight:700;">${fmt(r.views)}</span>
       <span style="color:#9ca3af;width:52px;text-align:right;">${r.rate}%</span>
     </div>`).join('') || '데이터 없음';
+
+  // 주문율 TOP 10 — 저모수 왜곡 방지: 조회 300회 이상 & 주문 5건 이상만
+  const MIN_RATE_VIEWS = 300, MIN_RATE_ORDERS = 5;
+  const topRates = anState.rows
+    .filter(r => r.views >= MIN_RATE_VIEWS && r.order_count >= MIN_RATE_ORDERS)
+    .sort((a, b) => b.rate - a.rate).slice(0, 10);
+  $('home-top-rates').innerHTML = topRates.map((r, i) =>
+    `<div style="display:flex;gap:8px;padding:4px 0;border-bottom:1px dashed #f3f4f6;">
+      <span style="color:#9ca3af;width:16px;">${i + 1}</span>
+      <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escHtml(r.product_name)}</span>
+      <span style="color:#1d4ed8;font-weight:800;">${r.rate}%</span>
+      <span style="color:#9ca3af;font-size:.74rem;">조회 ${fmt(r.views)} · 주문 ${fmt(r.order_count)}</span>
+    </div>`).join('') || '조건에 맞는 상품 없음';
 }
 
 /* ── 판매량 급증 TOP 5 — 최근 7일(어제까지) vs 직전 7일 ──
