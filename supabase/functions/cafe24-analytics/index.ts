@@ -21,13 +21,15 @@ const DATA_BASE = "https://ca-api.cafe24data.com";
 const API_VERSION = "2026-03-01";
 
 // ── 액세스 토큰 확보 (만료 임박 시 refresh) — cafe24-claims와 동일 로직 ──
-async function getAccessToken(): Promise<string> {
+// force=true: 저장된 만료시각과 무관하게 강제 재발급 (401 복구용 — 동시 갱신 경쟁으로
+// 다른 인스턴스가 새 토큰을 발급하면 기존 토큰이 무효화되어 만료시각만으론 판단 불가)
+async function getAccessToken(force = false): Promise<string> {
   const t = await getToken("cafe24");
   if (!t?.refresh_token) throw new Error("카페24 미연동: 먼저 cafe24-oauth?action=start 로 인증하세요.");
 
   const expiresAt = t.expires_at ? new Date(t.expires_at).getTime() : 0;
   const stillValid = expiresAt - Date.now() > 5 * 60 * 1000;
-  if (stillValid && t.access_token) return t.access_token;
+  if (!force && stillValid && t.access_token) return t.access_token;
 
   const basic = btoa(`${CLIENT_ID}:${CLIENT_SECRET}`);
   const res = await fetch(`${API_BASE}/oauth/token`, {
@@ -39,7 +41,13 @@ async function getAccessToken(): Promise<string> {
     body: new URLSearchParams({ grant_type: "refresh_token", refresh_token: t.refresh_token }),
   });
   const body = await res.json();
-  if (!res.ok) throw new Error(`토큰 갱신 실패 ${res.status}: ${JSON.stringify(body)} — 재인증이 필요할 수 있습니다.`);
+  if (!res.ok) {
+    // 다른 인스턴스가 먼저 갱신했을 수 있음 → 잠시 후 DB의 최신 토큰 재사용
+    await new Promise((r) => setTimeout(r, 1500));
+    const latest = await getToken("cafe24");
+    if (latest?.access_token && latest.access_token !== t.access_token) return latest.access_token;
+    throw new Error(`토큰 갱신 실패 ${res.status}: ${JSON.stringify(body)} — 재인증이 필요할 수 있습니다.`);
+  }
 
   const now = Date.now();
   await saveToken({
@@ -57,13 +65,18 @@ async function getAccessToken(): Promise<string> {
 }
 
 async function apiGet(url: string, token: string): Promise<Record<string, unknown>> {
-  const res = await fetch(url, {
+  const doFetch = (tk: string) => fetch(url, {
     headers: {
-      Authorization: `Bearer ${token}`,
+      Authorization: `Bearer ${tk}`,
       "Content-Type": "application/json",
       "X-Cafe24-Api-Version": API_VERSION,
     },
   });
+  let res = await doFetch(token);
+  if (res.status === 401) {
+    // 동시 갱신 경쟁으로 토큰이 무효화된 경우 → 강제 재발급 후 1회 재시도
+    res = await doFetch(await getAccessToken(true));
+  }
   const body = await res.json();
   if (!res.ok) throw new Error(`GET ${url.replace(/\?.*$/, "")} → ${res.status}: ${JSON.stringify(body)}`);
   return body;

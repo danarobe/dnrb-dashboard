@@ -362,45 +362,58 @@
       <button class="toggle-btn" onclick="loadHome(true)"><i class="fa-solid fa-rotate"></i> 새로고침</button>
     </div>
     <div class="section-body">
-      <div style="display:flex;align-items:center;gap:8px;margin-bottom:18px;flex-wrap:wrap;">
-        <span style="font-size:.8rem;font-weight:600;color:#6b7280;">📅 기준 기간</span>
-        <span id="home-period" style="font-size:.83rem;font-weight:700;color:#4f46e5;background:#ede9fe;padding:3px 12px;border-radius:50px;">이번 달</span>
-        <span style="font-size:.75rem;color:#9ca3af;">카페24 실시간 API 기준 · 각 카테고리의 세부 분석은 좌측 메뉴에서</span>
+      <!-- 기간 선택 + 카페24 연동 -->
+      <div class="control-bar">
+        <label><i class="fa-regular fa-calendar"></i> 기준 기간</label>
+        <input type="date" id="homeDateStart" />
+        <span class="date-sep">~</span>
+        <input type="date" id="homeDateEnd" />
+        <button class="btn-analyze" id="btn-api-home" onclick="loadHome(true)">
+          <i class="fa-solid fa-cloud-arrow-down"></i> 카페24 불러오기
+        </button>
+        <span style="font-size:.75rem;color:#9ca3af;">불러오면 <strong>취소&amp;반품 · 조회수&amp;주문율 · 판매 성과</strong> 메뉴에도 같은 기간으로 자동 반영됩니다</span>
       </div>
+
+      <!-- 데이터 수집 상태 -->
+      <div id="home-status" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:18px;"></div>
 
       <!-- KPI 타일 -->
       <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:12px;margin-bottom:20px;">
         <div style="background:#f8f9ff;border:1.5px solid #e0e7ff;border-radius:12px;padding:16px 18px;">
           <div style="font-size:.75rem;color:#6b7280;font-weight:600;margin-bottom:6px;">💰 총 매출액 (결제 기준)</div>
-          <div id="home-rev" style="font-size:1.3rem;font-weight:800;color:#1e1b4b;">불러오는 중…</div>
+          <div id="home-rev" style="font-size:1.3rem;font-weight:800;color:#1e1b4b;">—</div>
           <div id="home-rev-sub" style="font-size:.72rem;color:#9ca3af;margin-top:4px;"></div>
         </div>
         <div style="background:#fffbeb;border:1.5px solid #fde68a;border-radius:12px;padding:16px 18px;">
           <div style="font-size:.75rem;color:#6b7280;font-weight:600;margin-bottom:6px;">📉 취소 · 반품 (카페24)</div>
-          <div id="home-claims" style="font-size:1.3rem;font-weight:800;color:#92400e;">불러오는 중…</div>
+          <div id="home-claims" style="font-size:1.3rem;font-weight:800;color:#92400e;">—</div>
           <div id="home-claims-sub" style="font-size:.72rem;color:#9ca3af;margin-top:4px;"></div>
         </div>
         <div style="background:#eff6ff;border:1.5px solid #bfdbfe;border-radius:12px;padding:16px 18px;">
           <div style="font-size:.75rem;color:#6b7280;font-weight:600;margin-bottom:6px;">👀 조회수 · 주문율</div>
-          <div id="home-traffic" style="font-size:1.3rem;font-weight:800;color:#1e3a8a;">불러오는 중…</div>
+          <div id="home-traffic" style="font-size:1.3rem;font-weight:800;color:#1e3a8a;">—</div>
           <div id="home-traffic-sub" style="font-size:.72rem;color:#9ca3af;margin-top:4px;"></div>
         </div>
         <div style="background:#f0fdf4;border:1.5px solid #bbf7d0;border-radius:12px;padding:16px 18px;">
           <div style="font-size:.75rem;color:#6b7280;font-weight:600;margin-bottom:6px;">💹 판매수량 · 평균 마진율</div>
-          <div id="home-margin" style="font-size:1.3rem;font-weight:800;color:#14532d;">불러오는 중…</div>
+          <div id="home-margin" style="font-size:1.3rem;font-weight:800;color:#14532d;">—</div>
           <div id="home-margin-sub" style="font-size:.72rem;color:#9ca3af;margin-top:4px;"></div>
         </div>
       </div>
 
-      <!-- 하단 2단: 조회수 TOP5 / 취소·반품 사유 TOP -->
-      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:14px;">
+      <!-- 하단 3단: 조회수 TOP5 / 취소 사유 TOP3 / 반품 사유 TOP3 -->
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:14px;">
         <div style="background:#fff;border:1.5px solid #e5e7eb;border-radius:12px;padding:16px 18px;">
           <div style="font-size:.85rem;font-weight:700;color:#1e1b4b;margin-bottom:10px;">👀 조회수 TOP 5</div>
-          <div id="home-top-views" style="font-size:.82rem;color:#6b7280;">불러오는 중…</div>
+          <div id="home-top-views" style="font-size:.82rem;color:#6b7280;">—</div>
         </div>
-        <div style="background:#fff;border:1.5px solid #e5e7eb;border-radius:12px;padding:16px 18px;">
-          <div style="font-size:.85rem;font-weight:700;color:#1e1b4b;margin-bottom:10px;">📉 취소 · 반품 사유 TOP 3</div>
-          <div id="home-reasons" style="font-size:.82rem;color:#6b7280;">불러오는 중…</div>
+        <div style="background:#fff;border:1.5px solid #fde68a;border-radius:12px;padding:16px 18px;">
+          <div style="font-size:.85rem;font-weight:700;color:#92400e;margin-bottom:10px;">🚫 취소 사유 TOP 3</div>
+          <div id="home-cancel-reasons" style="font-size:.82rem;color:#6b7280;">—</div>
+        </div>
+        <div style="background:#fff;border:1.5px solid #fecaca;border-radius:12px;padding:16px 18px;">
+          <div style="font-size:.85rem;font-weight:700;color:#b91c1c;margin-bottom:10px;">🔄 반품 사유 TOP 3</div>
+          <div id="home-return-reasons" style="font-size:.82rem;color:#6b7280;">—</div>
         </div>
       </div>
 
@@ -1274,93 +1287,127 @@ function showMenu(key) {
   if (target) target.style.display = 'block';
   document.querySelectorAll('.menu-item').forEach(b => b.classList.toggle('active', b.dataset.menu === key));
   history.replaceState(null, '', '#' + key);
-  if (key === 'home') loadHome(false);
+  if (key === 'home') { updateHomeSourceStatus(); updateHomeReasons(); updateHomeClaimsTile(); updateHomeTrafficTile(); }
 }
 
 const homeState = { loaded: false, loading: false };
 
-/* 홈 KPI 로드 — 이번 달 1일 ~ 오늘, 타일별 독립 비동기 */
+/* 데이터 수집 상태 칩 — 카페24 API / 네이버 취소 CSV / 네이버 반품 CSV */
+function updateHomeSourceStatus() {
+  const el = $('home-status'); if (!el) return;
+  const chip = (ok, label) =>
+    `<span style="display:inline-flex;align-items:center;gap:6px;font-size:.78rem;font-weight:700;padding:6px 12px;border-radius:50px;border:1.5px solid ${ok ? '#bbf7d0' : '#e5e7eb'};background:${ok ? '#f0fdf4' : '#f9fafb'};color:${ok ? '#166534' : '#9ca3af'};">${ok ? '✅' : '⬜'} ${label}</span>`;
+  const c24 = store.c24.cancelRows.length + store.c24.returnRows.length > 0;
+  const npC = store.npCancel.rows.length > 0;
+  const npR = store.npReturn.rows.length > 0;
+  el.innerHTML = chip(c24, '카페24 (API)') + chip(npC, '네이버 취소 CSV') + chip(npR, '네이버 반품 CSV') +
+    ((c24 && npC && npR)
+      ? `<span style="font-size:.73rem;color:#166534;font-weight:700;">3개 소스 모두 수집 완료 — 취소·반품 수치가 완전합니다</span>`
+      : `<span style="font-size:.73rem;color:#9ca3af;">3개가 모두 ✅여야 취소·반품 수치가 완전합니다 · 네이버 CSV는 📉 취소&반품 메뉴에서 업로드</span>`);
+}
+
+/* 취소/반품 사유 TOP3 — 카페24 + 네이버 CSV 합산 */
+function updateHomeReasons() {
+  const render = (elId, list) => {
+    const el = $(elId); if (!el) return;
+    const top = aggregateReasonList(list).slice(0, 3);
+    el.innerHTML = top.length ? top.map((r, i) =>
+      `<div style="display:flex;gap:8px;padding:4px 0;border-bottom:1px dashed #f3f4f6;">
+        <span style="color:#9ca3af;width:16px;">${i + 1}</span>
+        <span style="flex:1;">${escHtml(r.reason)}</span>
+        <span style="font-weight:700;">${fmt(r.cnt)}건</span>
+      </div>`).join('') : '데이터 없음 — 카페24 불러오기 / CSV 업로드 필요';
+  };
+  render('home-cancel-reasons', [...store.c24.cancelReasons, ...store.npCancel.rows.map(r => r.reason)]);
+  render('home-return-reasons', [...store.c24.returnReasons, ...store.npReturn.rows.map(r => r.reason)]);
+}
+
+/* 취소·반품 KPI 타일 — 카페24 + 네이버 합산, 총매출 대비 비율 */
+function updateHomeClaimsTile() {
+  const el = $('home-claims'); if (!el) return;
+  const cnt = store.c24.cancelRows.length + store.c24.returnRows.length
+            + store.npCancel.rows.length + store.npReturn.rows.length;
+  if (cnt === 0) { el.textContent = '—'; $('home-claims-sub').textContent = '카페24 불러오기 필요'; return; }
+  const amt = [store.c24.cancelRows, store.c24.returnRows, store.npCancel.rows, store.npReturn.rows]
+    .flat().reduce((s, r) => s + (isFinite(r.amt) ? r.amt : 0), 0);
+  el.textContent = `${fmt(cnt)}건 · ${fmt(amt)}원`;
+  const rev = parseFloat($('totalRevenue').value) || 0;
+  $('home-claims-sub').textContent = (rev > 0 ? `총 매출 대비 ${(amt / rev * 100).toFixed(1)}% · ` : '') + '네이버 CSV 포함 합산';
+}
+
+/* 조회수·주문율 KPI 타일 + TOP5 — 조회수&주문율 메뉴의 조회 결과(anState) 재사용 */
+function updateHomeTrafficTile() {
+  const el = $('home-traffic'); if (!el || anState.rows.length === 0) return;
+  const t = anState.rows.reduce((a, r) => ({ v: a.v + r.views, o: a.o + r.order_count }), { v: 0, o: 0 });
+  const rate = t.v > 0 ? (t.o / t.v * 100).toFixed(2) : '0';
+  el.textContent = `${fmt(t.v)}회 · ${rate}%`;
+  $('home-traffic-sub').textContent = `주문 ${fmt(t.o)}건 / 상품 ${fmt(anState.rows.length)}개`;
+  const top = [...anState.rows].sort((a, b) => b.views - a.views).slice(0, 5);
+  $('home-top-views').innerHTML = top.map((r, i) =>
+    `<div style="display:flex;gap:8px;padding:4px 0;border-bottom:1px dashed #f3f4f6;">
+      <span style="color:#9ca3af;width:16px;">${i + 1}</span>
+      <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escHtml(r.product_name)}</span>
+      <span style="color:#4f46e5;font-weight:700;">${fmt(r.views)}</span>
+      <span style="color:#9ca3af;width:52px;text-align:right;">${r.rate}%</span>
+    </div>`).join('') || '데이터 없음';
+}
+
+/* 홈 로드 — 하위 카테고리(취소반품·조회수·판매성과)에 같은 기간으로 API 조회를 전파 */
 async function loadHome(force) {
   if (!sbReady()) return;
+  updateHomeSourceStatus(); updateHomeReasons(); updateHomeClaimsTile();
   if (homeState.loading || (homeState.loaded && !force)) return;
+
+  const ds = $('homeDateStart').value, de = $('homeDateEnd').value;
+  if (!ds || !de) { showToast('📅 기준 기간을 먼저 선택해주세요'); return; }
   homeState.loading = true;
 
-  const now = new Date();
-  const pad = n => String(n).padStart(2, '0');
-  const ds = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-01`;
-  const de = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
-  $('home-period').textContent = `${ds.replace(/-/g, '.')} ~ ${de.replace(/-/g, '.')}`;
+  // 하위 카테고리 기간 동기화
+  $('crDateStart').value = ds;   $('crDateEnd').value = de;
+  $('anDateStart').value = ds;   $('anDateEnd').value = de;
+  $('perfDateStart').value = ds; $('perfDateEnd').value = de;
+
+  const btn = $('btn-api-home');
+  btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> 불러오는 중... (수십 초)';
   const loading = '<i class="fa-solid fa-spinner fa-spin"></i>';
   ['home-rev', 'home-claims', 'home-traffic', 'home-margin'].forEach(id => { $(id).innerHTML = loading; });
-  $('home-top-views').innerHTML = loading;
-  $('home-reasons').innerHTML = loading;
 
-  let revenueVal = 0;
-
-  // ① 매출 (빠름)
+  // ① 총 매출액 — 취소&반품 메뉴의 총 매출액 입력에도 반영
   const pRev = anGet({ action: 'revenue', start_date: ds, end_date: de }).then(d => {
-    revenueVal = d.revenue;
+    $('totalRevenue').value = d.revenue;
     $('home-rev').textContent = fmt(d.revenue) + '원';
     $('home-rev-sub').textContent = `결제완료 ${fmt(d.order_count)}건 · 네이버 미포함`;
   }).catch(e => { $('home-rev').textContent = '—'; $('home-rev-sub').textContent = e.message; });
+  // 토큰 갱신 경쟁 방지: 빠른 매출 조회를 먼저 끝내 토큰을 1회만 갱신시킨 뒤 나머지 병렬 실행
+  await pRev.catch(() => {});
 
-  // ② 조회수·주문율 + TOP5
-  const pSum = anGet({ action: 'summary', start_date: ds, end_date: de }).then(d => {
-    $('home-traffic').textContent = `${fmt(d.totals.views)}회 · ${d.totals.rate}%`;
-    $('home-traffic-sub').textContent = `주문 ${fmt(d.totals.order_count)}건 / 상품 ${fmt(d.product_count)}개`;
-    $('home-top-views').innerHTML = (d.rows || []).slice(0, 5).map((r, i) =>
-      `<div style="display:flex;gap:8px;padding:4px 0;border-bottom:1px dashed #f3f4f6;">
-        <span style="color:#9ca3af;width:16px;">${i + 1}</span>
-        <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escHtml(r.product_name)}</span>
-        <span style="color:#4f46e5;font-weight:700;">${fmt(r.views)}</span>
-        <span style="color:#9ca3af;width:52px;text-align:right;">${r.rate}%</span>
-      </div>`).join('') || '데이터 없음';
-  }).catch(() => { $('home-traffic').textContent = '—'; $('home-top-views').textContent = '조회 실패'; });
+  // ② 취소·반품 — 취소&반품 메뉴의 API 조회 그대로 실행 (결과가 해당 메뉴에도 반영)
+  const pClaims = fetchCafe24Api().then(() => updateHomeClaimsTile());
 
-  // ③ 취소·반품 (느림 — 주문 전수 조회)
-  const pClaims = fetch(fnUrl('cafe24-claims', { start_date: ds, end_date: de }), { headers: sbHeaders() })
-    .then(r => r.json()).then(d => {
-      if (d.error) throw new Error(d.error);
-      const amt = d.cancel.amount + d.return.amount;
-      $('home-claims').textContent = `${fmt(d.cancel.count + d.return.count)}건 · ${fmt(amt)}원`;
-      const reasons = [];
-      (d.cancel.reasons || []).forEach(r => reasons.push({ ...r, t: '취소' }));
-      (d.return.reasons || []).forEach(r => reasons.push({ ...r, t: '반품' }));
-      reasons.sort((a, b) => b.cnt - a.cnt);
-      $('home-reasons').innerHTML = reasons.slice(0, 3).map(r =>
-        `<div style="display:flex;gap:8px;padding:4px 0;border-bottom:1px dashed #f3f4f6;">
-          <span style="background:${r.t === '취소' ? '#fef3c7' : '#fee2e2'};color:${r.t === '취소' ? '#a16207' : '#b91c1c'};border-radius:6px;padding:1px 8px;font-size:.72rem;font-weight:700;">${r.t}</span>
-          <span style="flex:1;">${escHtml(r.reason)}</span>
-          <span style="font-weight:700;">${fmt(r.cnt)}건</span>
-        </div>`).join('') || '데이터 없음';
-      return { amt };
-    }).catch(e => { $('home-claims').textContent = '—'; $('home-reasons').textContent = '조회 실패'; console.error(e); return null; });
+  // ③ 조회수·주문율 — 조회수&주문율 메뉴 조회 실행 후 타일 계산
+  const pTraffic = fetchAnalytics(true).then(() => updateHomeTrafficTile())
+    .catch(() => { $('home-traffic').textContent = '—'; });
 
-  // ①+③ 완료 후 매출 대비 비율 표기
-  Promise.allSettled([pRev, pClaims]).then(([, c]) => {
-    const claims = c.status === 'fulfilled' ? c.value : null;
-    if (claims && revenueVal > 0) {
-      $('home-claims-sub').textContent = `총 매출 대비 ${(claims.amt / revenueVal * 100).toFixed(1)}%`;
-    }
-  });
-
-  // ④ 판매수량 · 평균 마진율 (느림)
-  const pPerf = anGet({ action: 'performance', start_date: ds, end_date: de }).then(d => {
+  // ④ 판매수량·평균 마진율 — 판매 성과 메뉴 조회 실행 후 타일 계산
+  const pPerf = fetchPerfApi().then(() => {
     let qty = 0, w = 0, wQty = 0;
-    (d.rows || []).forEach(r => {
-      const sq = Math.max(0, r.paid_qty - r.cancel_qty);
-      qty += sq;
-      if (r.price > 0 && r.supply_price > 0 && sq > 0) {
-        w += (r.price - r.supply_price * 1.1) / r.price * 100 * sq;
-        wQty += sq;
+    store.salesData.forEach(r => {
+      qty += r.salesQty;
+      const cd = findCostData(r.productName);
+      if (cd && cd.salePrice > 0 && r.salesQty > 0) {
+        w += (cd.salePrice - cd.supplyCost * 1.1) / cd.salePrice * 100 * r.salesQty;
+        wQty += r.salesQty;
       }
     });
-    const margin = wQty > 0 ? (w / wQty).toFixed(1) + '%' : '—';
-    $('home-margin').textContent = `${fmt(qty)}개 · ${margin}`;
-    $('home-margin-sub').textContent = `순판매수량 기준 · 공급가×1.1 마진`;
+    $('home-margin').textContent = `${fmt(qty)}개 · ${wQty > 0 ? (w / wQty).toFixed(1) + '%' : '—'}`;
+    $('home-margin-sub').textContent = '순판매수량 기준 · 공급가×1.1 마진';
   }).catch(() => { $('home-margin').textContent = '—'; });
 
-  await Promise.allSettled([pRev, pSum, pClaims, pPerf]);
+  await Promise.allSettled([pRev, pClaims, pTraffic, pPerf]);
+  runAnalysis();  // 총 매출액 반영해 취소반품 비율 재계산
+  updateHomeSourceStatus(); updateHomeReasons(); updateHomeClaimsTile();
+  btn.disabled = false;
+  btn.innerHTML = '<i class="fa-solid fa-cloud-arrow-down"></i> 카페24 불러오기';
   homeState.loaded = true;
   homeState.loading = false;
 }
@@ -1968,6 +2015,11 @@ function runAnalysis() {
 
   // 아카이브 목록 갱신
   loadCrArchive();
+
+  // 홈 대시보드의 수집 상태·사유 TOP·취소반품 타일 동기화
+  if (typeof updateHomeSourceStatus === 'function') {
+    updateHomeSourceStatus(); updateHomeReasons(); updateHomeClaimsTile();
+  }
 }
 
 /* 비율 바 행 */
@@ -3469,7 +3521,10 @@ function advInsight(revenue, advCost, fixedCost, supplyCost, netProfit, roas, sc
   // 애널리틱스 섹션: 기간 기본값 + 카테고리 목록 + 이번 달 데이터 자동 조회
   $('anDateStart').value = fmtD(first);
   $('anDateEnd').value   = fmtD(now);
-  loadAnCategories().then(() => fetchAnalytics(true));
+  loadAnCategories().then(() => fetchAnalytics(true)).then(() => updateHomeTrafficTile());
+  // 홈 대시보드 기간 기본값 (이번 달)
+  $('homeDateStart').value = fmtD(first);
+  $('homeDateEnd').value   = fmtD(now);
   // 네이버 엑셀 비밀번호 복원 (이 브라우저에 저장된 값)
   $('np-pw').value = localStorage.getItem(NP_PW_KEY) || '';
   // 카페24 OAuth 완료 후 리다이렉트로 돌아온 경우

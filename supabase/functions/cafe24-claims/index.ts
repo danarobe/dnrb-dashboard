@@ -24,13 +24,14 @@ const API_BASE = `https://${MALL_ID}.cafe24api.com/api/v2`;
 const API_VERSION = "2026-03-01";
 
 // ── 액세스 토큰 확보 (만료 임박 시 refresh) ──
-async function getAccessToken(): Promise<string> {
+// force=true: 401 복구용 강제 재발급 (동시 갱신 경쟁 대응)
+async function getAccessToken(force = false): Promise<string> {
   const t = await getToken("cafe24");
   if (!t?.refresh_token) throw new Error("카페24 미연동: 먼저 cafe24-oauth?action=start 로 인증하세요.");
 
   const expiresAt = t.expires_at ? new Date(t.expires_at).getTime() : 0;
   const stillValid = expiresAt - Date.now() > 5 * 60 * 1000; // 5분 여유
-  if (stillValid && t.access_token) return t.access_token;
+  if (!force && stillValid && t.access_token) return t.access_token;
 
   // refresh
   const basic = btoa(`${CLIENT_ID}:${CLIENT_SECRET}`);
@@ -46,7 +47,12 @@ async function getAccessToken(): Promise<string> {
     }),
   });
   const body = await res.json();
-  if (!res.ok) throw new Error(`토큰 갱신 실패 ${res.status}: ${JSON.stringify(body)} — 재인증이 필요할 수 있습니다.`);
+  if (!res.ok) {
+    await new Promise((r) => setTimeout(r, 1500));
+    const latest = await getToken("cafe24");
+    if (latest?.access_token && latest.access_token !== t.access_token) return latest.access_token;
+    throw new Error(`토큰 갱신 실패 ${res.status}: ${JSON.stringify(body)} — 재인증이 필요할 수 있습니다.`);
+  }
 
   const now = Date.now();
   await saveToken({
@@ -64,13 +70,15 @@ async function getAccessToken(): Promise<string> {
 }
 
 async function cafe24Get(path: string, token: string): Promise<Record<string, unknown>> {
-  const res = await fetch(`${API_BASE}${path}`, {
+  const doFetch = (tk: string) => fetch(`${API_BASE}${path}`, {
     headers: {
-      Authorization: `Bearer ${token}`,
+      Authorization: `Bearer ${tk}`,
       "Content-Type": "application/json",
       "X-Cafe24-Api-Version": API_VERSION,
     },
   });
+  let res = await doFetch(token);
+  if (res.status === 401) res = await doFetch(await getAccessToken(true));
   const body = await res.json();
   if (!res.ok) throw new Error(`cafe24 GET ${path} → ${res.status}: ${JSON.stringify(body)}`);
   return body;
