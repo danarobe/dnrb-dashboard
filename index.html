@@ -412,8 +412,8 @@
         <div id="home-trending" style="font-size:.82rem;color:#6b7280;">—</div>
       </div>
 
-      <!-- 하단 3단: 조회수 TOP5 / 취소 사유 TOP3 / 반품 사유 TOP3 -->
-      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:14px;">
+      <!-- 상단: 조회수 TOP 10 / 주문율 TOP 10 (상품명 전체 표시) -->
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(420px,1fr));gap:14px;margin-bottom:14px;">
         <div style="background:#fff;border:1.5px solid #e5e7eb;border-radius:12px;padding:16px 18px;">
           <div style="font-size:.85rem;font-weight:700;color:#1e1b4b;margin-bottom:10px;">👀 조회수 TOP 10</div>
           <div id="home-top-views" style="font-size:.82rem;color:#6b7280;">—</div>
@@ -425,6 +425,9 @@
           </div>
           <div id="home-top-rates" style="font-size:.82rem;color:#6b7280;">—</div>
         </div>
+      </div>
+      <!-- 하단: 취소 사유 TOP 3 / 반품 사유 TOP 3 -->
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:14px;">
         <div style="background:#fff;border:1.5px solid #fde68a;border-radius:12px;padding:16px 18px;">
           <div style="font-size:.85rem;font-weight:700;color:#92400e;margin-bottom:10px;">🚫 취소 사유 TOP 3</div>
           <div id="home-cancel-reasons" style="font-size:.82rem;color:#6b7280;">—</div>
@@ -1498,7 +1501,7 @@ function updateHomeTrafficTile() {
   $('home-top-views').innerHTML = top.map((r, i) =>
     `<div style="display:flex;gap:8px;padding:4px 0;border-bottom:1px dashed #f3f4f6;">
       <span style="color:#9ca3af;width:16px;">${i + 1}</span>
-      <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escHtml(r.product_name)}</span>
+      <span style="flex:1;min-width:200px;">${escHtml(r.product_name)}</span>
       <span style="color:#4f46e5;font-weight:700;">${fmt(r.views)}</span>
       <span style="color:#9ca3af;width:52px;text-align:right;">${r.rate}%</span>
     </div>`).join('') || '데이터 없음';
@@ -1511,7 +1514,7 @@ function updateHomeTrafficTile() {
   $('home-top-rates').innerHTML = topRates.map((r, i) =>
     `<div style="display:flex;gap:8px;padding:4px 0;border-bottom:1px dashed #f3f4f6;">
       <span style="color:#9ca3af;width:16px;">${i + 1}</span>
-      <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escHtml(r.product_name)}</span>
+      <span style="flex:1;min-width:200px;">${escHtml(r.product_name)}</span>
       <span style="color:#1d4ed8;font-weight:800;">${r.rate}%</span>
       <span style="color:#9ca3af;font-size:.74rem;">조회 ${fmt(r.views)} · 주문 ${fmt(r.order_count)}</span>
     </div>`).join('') || '조건에 맞는 상품 없음';
