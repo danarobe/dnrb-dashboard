@@ -1163,12 +1163,21 @@ async function loadUsers() {
     const d = await authApi({ action: 'list_users', token: SESSION.token });
     $('users-list').innerHTML = `<div class="table-wrap"><table>
       <thead><tr><th>아이디</th><th>이름</th><th>역할</th><th>등록일</th><th></th></tr></thead><tbody>` +
-      d.users.map(u => `<tr>
+      d.users.map(u => {
+        const isMe = u.id === SESSION.id;
+        const roleBtn = isMe ? '<span style="font-size:.75rem;color:#9ca3af;">(본인)</span>'
+          : u.role === 'admin'
+            ? `<button onclick="setUserRole('${escHtml(u.id)}', 'staff')" style="border:1px solid #fde68a;background:#fffbeb;color:#a16207;border-radius:6px;padding:4px 12px;font-size:.78rem;cursor:pointer;font-weight:600;">직원으로 변경</button>`
+            : `<button onclick="setUserRole('${escHtml(u.id)}', 'admin')" style="border:1px solid #c7d2fe;background:#eef2ff;color:#4338ca;border-radius:6px;padding:4px 12px;font-size:.78rem;cursor:pointer;font-weight:600;">관리자로 승격</button>`;
+        const delBtn = (u.role === 'admin') ? '' :
+          `<button onclick="deleteUser('${escHtml(u.id)}')" style="border:1px solid #fecaca;background:#fff;color:#dc2626;border-radius:6px;padding:4px 12px;font-size:.78rem;cursor:pointer;font-weight:600;">삭제</button>`;
+        return `<tr>
         <td>${escHtml(u.id)}</td><td>${escHtml(u.name)}</td>
         <td>${u.role === 'admin' ? '<b style="color:#4f46e5;">관리자</b>' : '직원'}</td>
         <td>${(u.created_at || '').slice(0, 10)}</td>
-        <td>${u.role === 'admin' ? '' : `<button onclick="deleteUser('${escHtml(u.id)}')" style="border:1px solid #fecaca;background:#fff;color:#dc2626;border-radius:6px;padding:4px 12px;font-size:.78rem;cursor:pointer;font-weight:600;">삭제</button>`}</td>
-      </tr>`).join('') + '</tbody></table></div>';
+        <td style="display:flex;gap:6px;justify-content:center;">${roleBtn}${delBtn}</td>
+      </tr>`; }).join('') + '</tbody></table></div>' +
+      '<div style="font-size:.75rem;color:#9ca3af;margin-top:8px;">※ 권한 변경은 해당 직원이 <b>다시 로그인</b>해야 적용됩니다 · 관리자 계정을 삭제하려면 먼저 직원으로 변경하세요</div>';
   } catch (e) { $('users-list').textContent = '목록 조회 실패: ' + e.message; }
 }
 
@@ -1178,6 +1187,16 @@ async function addUser() {
     await authApi({ action: 'add_user', token: SESSION.token, id, name, password: pw });
     $('user-add-id').value = ''; $('user-add-name').value = ''; $('user-add-pw').value = '';
     showToast(`✅ 직원 "${name}" 계정이 추가됐습니다 (아이디: ${id})`);
+    loadUsers();
+  } catch (e) { showToast('❌ ' + e.message); }
+}
+
+async function setUserRole(id, role) {
+  const label = role === 'admin' ? '관리자로 승격' : '직원으로 변경';
+  if (!confirm(`"${id}" 계정을 ${label}할까요?`)) return;
+  try {
+    await authApi({ action: 'set_role', token: SESSION.token, id, role });
+    showToast(`✅ ${label} 완료 — 해당 직원이 다시 로그인하면 적용됩니다`);
     loadUsers();
   } catch (e) { showToast('❌ ' + e.message); }
 }

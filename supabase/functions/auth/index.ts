@@ -105,6 +105,22 @@ Deno.serve(async (req) => {
       return json({ ok: true });
     }
 
+    // 권한 변경 (직원 ↔ 관리자). 본인 권한은 변경 불가 — 마지막 관리자 잠금 방지
+    if (action === "set_role") {
+      const id = String(body.id ?? "").trim();
+      const role = String(body.role ?? "");
+      if (!["admin", "staff"].includes(role)) return json({ error: "잘못된 역할입니다" }, 400);
+      if (id === me.id) return json({ error: "본인의 권한은 변경할 수 없습니다" }, 400);
+      if (!await getUser(id)) return json({ error: "존재하지 않는 아이디입니다" }, 404);
+      const res = await usersRest(`app_users?id=eq.${encodeURIComponent(id)}`, {
+        method: "PATCH",
+        headers: { Prefer: "return=minimal" },
+        body: JSON.stringify({ role }),
+      });
+      if (!res.ok) throw new Error("권한 변경 실패 " + res.status);
+      return json({ ok: true });
+    }
+
     if (action === "delete_user") {
       const id = String(body.id ?? "").trim();
       const target = await getUser(id);
