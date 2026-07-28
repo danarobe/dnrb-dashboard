@@ -6,9 +6,9 @@
   <title>온라인 쇼핑몰 성과 분석 대시보드 by DNRB</title>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.4.0/css/all.min.css" />
   <link href="https://fonts.googleapis.com/css2?family=Pretendard:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
-  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
   <!-- 암호화된 엑셀(.xlsx) 복호화용 — 네이버페이센터 다운로드 파일 -->
-  <script src="https://cdn.jsdelivr.net/npm/xlsx-populate@1.21.0/browser/xlsx-populate.min.js"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/xlsx-populate@1.21.0/browser/xlsx-populate.min.js"></script>
   <script src="./config.js"></script>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -86,6 +86,19 @@
     .role-staff #tile-rev, .role-staff #tile-claims,
     .role-staff #box-cancel-reasons, .role-staff #box-return-reasons {
       filter: blur(7px); pointer-events: none; user-select: none;
+    }
+    /* ── 모바일 최적화 ── */
+    @media (max-width: 700px) {
+      /* 인라인 grid는 전부 1열로 (KPI 타일·TOP10·사유·회의록 등) */
+      .section-body div[style*="grid-template-columns"] { grid-template-columns: 1fr !important; }
+      .section-body { padding: 14px; }
+      .container { padding: 14px 10px 60px; }
+      .top-header { padding: 14px 14px; flex-wrap: wrap; gap: 8px; }
+      .top-header h1 { font-size: 1.02rem; }
+      .control-bar { padding: 12px; gap: 8px; }
+      .control-bar input[type="date"] { flex: 1; min-width: 120px; }
+      .section-header h2 { font-size: 1rem; }
+      #login-card { padding: 26px 22px; }
     }
     @media (max-width: 900px) {
       .layout { flex-direction: column; }
@@ -2527,80 +2540,7 @@ function escHtml(s) {
    [ C ] 판매 성과 분석 (기존 기능 유지)
 ══════════════════════════════════════ */
 
-/* 원가 정보 CSV */
-async function handleCostCSV(event) {
-  const file = event.target.files[0]; if (!file) return;
-  $('fname-cost').textContent = file.name;
-  $('card-cost').classList.add('active');
-  try {
-    const text  = await readFileAsText(file);
-    const lines = splitCSVIntoLines(text);
-    store.costMap = {};
-    let parsed = 0;
-    for (let i=0; i<lines.length; i++) {
-      const cols = parseCSVRow(lines[i]);
-      if (cols.length < 3) continue;
-      const name = cols[0]; const sc = toNum(cols[1]); const sp = toNum(cols[2]);
-      if (!name || name==='상품명') continue;
-      store.costMap[name.toLowerCase().trim()] = { supplyCost:sc, salePrice:sp };
-      parsed++;
-    }
-    showToast(`✅ 원가 정보 ${parsed}개 로드 완료`);
-    if (store.salesData.length > 0) renderPerfResult();
-  } catch(e) { showToast('❌ 원가 CSV 오류: '+e.message); }
-}
 
-/* 판매 성과 CSV */
-async function handleSalesCSV(event) {
-  const file = event.target.files[0]; if (!file) return;
-  $('fname-sales').textContent = file.name;
-  $('card-sales').classList.add('active');
-  try {
-    const text  = await readFileAsText(file);
-    const lines = splitCSVIntoLines(text);
-    if (lines.length < 2) { showToast('❌ 데이터 없음'); return; }
-
-    const header = parseCSVRow(lines[0]);
-    const idx = {
-      rank:       findColIdx(header,['순위'])           !== -1 ? findColIdx(header,['순위'])           : 0,
-      name:       findColIdx(header,['상품명'])          !== -1 ? findColIdx(header,['상품명'])          : 3,
-      option:     findColIdx(header,['옵션'])            !== -1 ? findColIdx(header,['옵션'])            : 4,
-      salePrice:  findColIdx(header,['판매가'])          !== -1 ? findColIdx(header,['판매가'])          : 5,
-      paidQty:    findColIdx(header,['결제수량'])        !== -1 ? findColIdx(header,['결제수량'])        : 7,
-      refundQty:  findColIdx(header,['환불수량','반품수량']) !== -1 ? findColIdx(header,['환불수량','반품수량']) : 8,
-      salesQty:   findColIdx(header,['판매수량','순판매']) !== -1 ? findColIdx(header,['판매수량','순판매']) : 9,
-      salesTotal: findColIdx(header,['판매합계','합계'])  !== -1 ? findColIdx(header,['판매합계','합계'])  : 10,
-    };
-
-    store.salesData = [];
-    for (let i=1; i<lines.length; i++) {
-      const cols = parseCSVRow(lines[i]);
-      if (!cols || cols.length < 4) continue;
-      const rank = cols[idx.rank] || String(i);
-      const productName = cols[idx.name] || '';
-      if (!productName) continue;
-      if (rank && isNaN(Number(String(rank).replace(/[,\s]/g,'')))) continue;
-      const option      = idx.option >= 0 ? (cols[idx.option]||'').split(/[\r\n]+/)[0].trim() : '';
-      const salePrice   = toNum(cols[idx.salePrice]);
-      const paidQty     = toNum(cols[idx.paidQty]);
-      const refundQty   = toNum(cols[idx.refundQty]);
-      const salesQty    = toNum(cols[idx.salesQty]);
-      const salesTotal  = toNum(cols[idx.salesTotal]);
-      const cancelQty   = Math.max(0, paidQty - salesQty);
-      const returnRate  = paidQty > 0 ? cancelQty/paidQty*100 : 0;
-      store.salesData.push({ rank:Number(String(rank).replace(/[,\s]/g,''))||i, productName:productName.trim(), option, salePrice, paidQty, refundQty, salesQty, salesTotal, cancelQty, returnRate });
-    }
-    store.perfFilter = 'all';
-    renderPerfResult();
-    // 판매 성과 CSV의 순매출을 광고 분석 입력창에 자동 반영
-    const autoRevenue = store.salesData.reduce((s,r) => s + r.salesTotal, 0);
-    if (autoRevenue > 0 && !$('adv-revenue').value) {
-      $('adv-revenue').value = autoRevenue;
-      calcAdv();
-    }
-    showToast(`✅ ${store.salesData.length}개 상품 데이터 로드 완료`);
-  } catch(e) { showToast('❌ 판매 성과 CSV 오류: '+e.message); console.error(e); }
-}
 
 /* 판매 성과 실시간 API 조회 — CSV(salesData/costMap)와 동일 구조로 매핑해
    renderPerfResult·필터·아카이브 기능을 그대로 재사용 */
@@ -2924,23 +2864,6 @@ function downloadSampleNPReturn() {
   const row3 = Array(35).fill('0');
   row3[3]='반품신청중'; row3[11]='기타'; row3[33]='29000';
   dlCSV([header,row1,row2,row3].map(r=>r.join(',')).join('\n'), 'naver_반품완료_샘플.csv');
-}
-function downloadSampleCost() {
-  const rows = [
-    '상품명,공급가,판매가',
-    '(울15) 푸들 퍼 가디건 (3 colors),15000,39000',
-    '"프릴 스트링 블라우스 (2 colors, 빅사이즈옵션가능)",13000,52000',
-    '새틴 블라삼 스트링 스커트 (4 colors),8000,29000',
-  ];
-  dlCSV(rows.join('\n'), '원가정보_샘플.csv');
-}
-function downloadSampleSales() {
-  const rows = [
-    '순위,상품코드,상품 품목코드,상품명,옵션,판매가,재고,결제수량,환불수량,판매수량,판매합계',
-    '1,P001,P001001,(울15) 푸들 퍼 가디건 (3 colors),컬러:자콜,39000,-405,191,39,152,5928000',
-    '"2","P002","P002001","프릴 스트링 블라우스 (2 colors, 빅사이즈옵션가능)","사이즈:1사이즈(55~77)","52000","-357","145","26","119","6188000"',
-  ];
-  dlCSV(rows.join('\n'), '판매성과_샘플.csv');
 }
 function dlCSV(content, filename) {
   const blob = new Blob(['\uFEFF'+content], {type:'text/csv;charset=utf-8;'});
