@@ -11,7 +11,7 @@
 //   조회수/주문수 — 카페24 애널리틱스 API (ca-api.cafe24data.com, scope: mall.read_analytics)
 //   카테고리     — Admin API (scope: mall.read_category)
 // ═══════════════════════════════════════════════
-import { handleOptions, json, getToken, saveToken } from "../_shared/util.ts";
+import { handleOptions, json, getToken, saveToken, verifyAuthToken } from "../_shared/util.ts";
 
 const MALL_ID = Deno.env.get("CAFE24_MALL_ID")!;
 const CLIENT_ID = Deno.env.get("CAFE24_CLIENT_ID")!;
@@ -150,6 +150,9 @@ Deno.serve(async (req) => {
     // 카페24 관리자 통계의 '결제합계'와 동일 시스템(애널리틱스) 데이터.
     // 주문수는 통계와 정확히 일치하며 금액은 ±0.5% 내외 차이 가능(부분취소 반영 시점 차이).
     if (action === "revenue") {
+      // 총 매출액은 관리자 전용 (직원은 서버 차단)
+      const authed = await verifyAuthToken(req);
+      if (!authed || authed.role !== "admin") return json({ error: "접근 권한이 없습니다" }, 403);
       const s = url.searchParams.get("start_date");
       const e = url.searchParams.get("end_date");
       if (!s || !e) return json({ error: "start_date, end_date 필수 (YYYY-MM-DD)" }, 400);

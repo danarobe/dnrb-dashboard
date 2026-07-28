@@ -14,3 +14,6 @@ verify_jwt = true
 
 [functions.cafe24-analytics]
 verify_jwt = true
+
+[functions.auth]
+verify_jwt = true

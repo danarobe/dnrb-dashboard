@@ -15,7 +15,7 @@
 //   - 혼합 주문(한 주문에 취소+반품 공존): 취소 1건 + 반품 1건으로 각각 집계,
 //     금액은 cancellation/return 클레임별로 분리 반영
 // ═══════════════════════════════════════════════
-import { handleOptions, json, getToken, saveToken } from "../_shared/util.ts";
+import { handleOptions, json, getToken, saveToken, verifyAuthToken } from "../_shared/util.ts";
 
 const MALL_ID = Deno.env.get("CAFE24_MALL_ID")!;
 const CLIENT_ID = Deno.env.get("CAFE24_CLIENT_ID")!;
@@ -105,6 +105,10 @@ function pickReason(obj: Record<string, unknown>): string {
 Deno.serve(async (req) => {
   const opt = handleOptions(req);
   if (opt) return opt;
+
+  // 취소·반품 데이터는 관리자 전용 (직원은 서버 차단)
+  const authed = await verifyAuthToken(req);
+  if (!authed || authed.role !== "admin") return json({ error: "접근 권한이 없습니다" }, 403);
 
   const url = new URL(req.url);
   const startDate = url.searchParams.get("start_date");

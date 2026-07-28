@@ -3,9 +3,44 @@
 export const CORS_HEADERS: Record<string, string> = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers":
-    "authorization, x-client-info, apikey, content-type",
+    "authorization, x-client-info, apikey, content-type, x-auth-token",
   "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
 };
+
+// ── 대시보드 사용자 인증 토큰 (HMAC-SHA256 서명, AUTH_SECRET 필요) ──
+export interface AuthUser { id: string; name: string; role: string; exp: number }
+
+async function hmacB64(data: string): Promise<string> {
+  const secret = Deno.env.get("AUTH_SECRET") ?? "";
+  const key = await crypto.subtle.importKey(
+    "raw", new TextEncoder().encode(secret),
+    { name: "HMAC", hash: "SHA-256" }, false, ["sign"],
+  );
+  const sig = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(data));
+  return btoa(String.fromCharCode(...new Uint8Array(sig)));
+}
+
+export async function signAuthToken(user: AuthUser): Promise<string> {
+  const payload = btoa(unescape(encodeURIComponent(JSON.stringify(user))));
+  return `${payload}.${await hmacB64(payload)}`;
+}
+
+export async function verifyAuthTokenString(token: string): Promise<AuthUser | null> {
+  const dot = token.lastIndexOf(".");
+  if (dot < 1) return null;
+  const payload = token.slice(0, dot), sig = token.slice(dot + 1);
+  if (await hmacB64(payload) !== sig) return null;
+  try {
+    const u = JSON.parse(decodeURIComponent(escape(atob(payload)))) as AuthUser;
+    if (!u.exp || u.exp < Date.now()) return null;
+    return u;
+  } catch { return null; }
+}
+
+export async function verifyAuthToken(req: Request): Promise<AuthUser | null> {
+  const token = req.headers.get("x-auth-token") ?? "";
+  return token ? await verifyAuthTokenString(token) : null;
+}
 
 export function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {

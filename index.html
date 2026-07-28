@@ -71,6 +71,22 @@
       border-color: transparent; box-shadow: 0 4px 14px rgba(79, 70, 229, .35);
     }
     .page-sec { display: none; }
+
+    /* ── 로그인 오버레이 ── */
+    #login-overlay {
+      position: fixed; inset: 0; z-index: 1000;
+      background: linear-gradient(135deg, #eef0f8, #e5e9f7);
+      display: flex; align-items: center; justify-content: center;
+    }
+    #login-card {
+      background: #fff; border-radius: 18px; box-shadow: 0 18px 50px rgba(30,27,75,.18);
+      padding: 36px 34px; width: 340px; max-width: calc(100vw - 40px);
+    }
+    /* ── 직원 권한: 매출·취소반품 블러 ── */
+    .role-staff #tile-rev, .role-staff #tile-claims,
+    .role-staff #box-cancel-reasons, .role-staff #box-return-reasons {
+      filter: blur(7px); pointer-events: none; user-select: none;
+    }
     @media (max-width: 900px) {
       .layout { flex-direction: column; }
       .side-menu {
@@ -335,10 +351,31 @@
 <!-- ══ 헤더 ══ -->
 <header class="top-header">
   <h1><i class="fa-solid fa-chart-line"></i> 온라인 쇼핑몰 <span>성과 분석 대시보드 by DNRB</span></h1>
-  <button class="btn-copy-link" onclick="copyLink()">
-    <i class="fa-solid fa-link"></i> 링크 복사
-  </button>
+  <div style="display:flex;align-items:center;gap:10px;">
+    <span id="user-info" style="font-size:.8rem;color:rgba(255,255,255,.85);"></span>
+    <button class="btn-copy-link" onclick="copyLink()">
+      <i class="fa-solid fa-link"></i> 링크 복사
+    </button>
+    <button class="btn-copy-link" id="btn-logout" style="display:none;" onclick="logout()">
+      <i class="fa-solid fa-right-from-bracket"></i> 로그아웃
+    </button>
+  </div>
 </header>
+
+<!-- ══ 로그인 ══ -->
+<div id="login-overlay">
+  <div id="login-card">
+    <div style="font-size:1.15rem;font-weight:800;color:#1e1b4b;margin-bottom:4px;">🔐 로그인</div>
+    <div style="font-size:.8rem;color:#9ca3af;margin-bottom:20px;">성과 분석 대시보드 by DNRB</div>
+    <input type="text" id="login-id" placeholder="아이디" autocomplete="username"
+           style="width:100%;border:1.5px solid #d1d5db;border-radius:10px;padding:12px 14px;font-size:.92rem;outline:none;margin-bottom:10px;box-sizing:border-box;" />
+    <input type="password" id="login-pw" placeholder="비밀번호" autocomplete="current-password"
+           onkeydown="if(event.key==='Enter'&&!event.isComposing)doLogin()"
+           style="width:100%;border:1.5px solid #d1d5db;border-radius:10px;padding:12px 14px;font-size:.92rem;outline:none;margin-bottom:14px;box-sizing:border-box;" />
+    <button class="btn-analyze" style="width:100%;padding:12px;font-size:.95rem;" onclick="doLogin()">로그인</button>
+    <div id="login-error" style="font-size:.8rem;color:#dc2626;margin-top:10px;min-height:18px;"></div>
+  </div>
+</div>
 
 <div class="layout">
 
@@ -351,6 +388,7 @@
   <button class="menu-item" data-menu="disp" onclick="showMenu('disp')">🗂️ 카테고리별 진열</button>
   <button class="menu-item" data-menu="adv"  onclick="showMenu('adv')">📣 광고 효율</button>
   <button class="menu-item" data-menu="meet" onclick="showMenu('meet')">📝 광고 회의록</button>
+  <button class="menu-item" data-menu="users" id="menu-users" style="display:none;" onclick="showMenu('users')">👥 직원 관리</button>
 </nav>
 
 <div class="container">
@@ -381,12 +419,12 @@
 
       <!-- KPI 타일 -->
       <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:12px;margin-bottom:20px;">
-        <div style="background:#f8f9ff;border:1.5px solid #e0e7ff;border-radius:12px;padding:16px 18px;">
+        <div id="tile-rev" style="background:#f8f9ff;border:1.5px solid #e0e7ff;border-radius:12px;padding:16px 18px;">
           <div style="font-size:.75rem;color:#6b7280;font-weight:600;margin-bottom:6px;">💰 총 매출액 (결제 기준)</div>
           <div id="home-rev" style="font-size:1.3rem;font-weight:800;color:#1e1b4b;">—</div>
           <div id="home-rev-sub" style="font-size:.72rem;color:#9ca3af;margin-top:4px;"></div>
         </div>
-        <div style="background:#fffbeb;border:1.5px solid #fde68a;border-radius:12px;padding:16px 18px;">
+        <div id="tile-claims" style="background:#fffbeb;border:1.5px solid #fde68a;border-radius:12px;padding:16px 18px;">
           <div style="font-size:.75rem;color:#6b7280;font-weight:600;margin-bottom:6px;">📉 취소 · 반품 (카페24)</div>
           <div id="home-claims" style="font-size:1.3rem;font-weight:800;color:#92400e;">—</div>
           <div id="home-claims-sub" style="font-size:.72rem;color:#9ca3af;margin-top:4px;"></div>
@@ -428,11 +466,11 @@
       </div>
       <!-- 하단: 취소 사유 TOP 3 / 반품 사유 TOP 3 -->
       <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:14px;">
-        <div style="background:#fff;border:1.5px solid #fde68a;border-radius:12px;padding:16px 18px;">
+        <div id="box-cancel-reasons" style="background:#fff;border:1.5px solid #fde68a;border-radius:12px;padding:16px 18px;">
           <div style="font-size:.85rem;font-weight:700;color:#92400e;margin-bottom:10px;">🚫 취소 사유 TOP 3</div>
           <div id="home-cancel-reasons" style="font-size:.82rem;color:#6b7280;">—</div>
         </div>
-        <div style="background:#fff;border:1.5px solid #fecaca;border-radius:12px;padding:16px 18px;">
+        <div id="box-return-reasons" style="background:#fff;border:1.5px solid #fecaca;border-radius:12px;padding:16px 18px;">
           <div style="font-size:.85rem;font-weight:700;color:#b91c1c;margin-bottom:10px;">🔄 반품 사유 TOP 3</div>
           <div id="home-return-reasons" style="font-size:.82rem;color:#6b7280;">—</div>
         </div>
@@ -832,6 +870,37 @@
   </div>
 
   <!-- ════════════════════════════════════════
+       SECTION : 직원 관리 (관리자 전용)
+  ════════════════════════════════════════ -->
+  <div class="section-card page-sec" id="sec-users">
+    <div class="section-header" style="cursor:default;">
+      <h2><span>👥</span> 직원 관리</h2>
+      <button class="toggle-btn" onclick="loadUsers()"><i class="fa-solid fa-rotate"></i> 새로고침</button>
+    </div>
+    <div class="section-body">
+      <div style="font-size:.85rem;color:#6b7280;margin-bottom:14px;">직원 계정을 추가·삭제합니다. 직원은 매출·취소반품 데이터에 접근할 수 없습니다.</div>
+
+      <div style="background:#f8f9ff;border:1.5px solid #e0e7ff;border-radius:14px;padding:16px 18px;margin-bottom:16px;">
+        <div style="font-size:.9rem;font-weight:800;color:#4338ca;margin-bottom:10px;">➕ 직원 추가</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          <input type="text" id="user-add-id" placeholder="아이디" style="border:1.5px solid #d1d5db;border-radius:8px;padding:9px 12px;font-size:.86rem;outline:none;width:140px;" />
+          <input type="text" id="user-add-name" placeholder="이름" style="border:1.5px solid #d1d5db;border-radius:8px;padding:9px 12px;font-size:.86rem;outline:none;width:120px;" />
+          <input type="password" id="user-add-pw" placeholder="비밀번호 (4자 이상)" style="border:1.5px solid #d1d5db;border-radius:8px;padding:9px 12px;font-size:.86rem;outline:none;width:160px;" />
+          <button class="btn-analyze" style="padding:8px 18px;" onclick="addUser()">추가</button>
+        </div>
+      </div>
+
+      <div id="users-list" style="font-size:.86rem;color:#6b7280;">불러오는 중…</div>
+
+      <div style="margin-top:20px;">
+        <button onclick="changeMyPassword()" style="background:#f3f4f6;border:1.5px solid #d1d5db;border-radius:8px;padding:8px 16px;font-size:.84rem;cursor:pointer;font-weight:600;">
+          🔑 내 비밀번호 변경
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ════════════════════════════════════════
        SECTION 3 : 광고 효율 & 수익 분석
   ════════════════════════════════════════ -->
   <div class="section-card page-sec" id="sec-adv">
@@ -1026,11 +1095,109 @@ const SB = window.DNRB_CONFIG || {};
 const sbReady = () => SB.SUPABASE_URL && !SB.SUPABASE_URL.includes('YOUR-PROJECT');
 
 function sbHeaders() {
-  return {
+  const h = {
     'apikey': SB.SUPABASE_ANON_KEY,
     'Authorization': 'Bearer ' + SB.SUPABASE_ANON_KEY,
     'Content-Type': 'application/json',
   };
+  // 로그인 세션 토큰 — 매출·취소반품 등 관리자 전용 API의 서버 측 검증용
+  if (typeof SESSION !== 'undefined' && SESSION?.token) h['x-auth-token'] = SESSION.token;
+  return h;
+}
+
+/* ──────────────────────────────
+   사용자 인증 (관리자/직원)
+   세션은 localStorage, 토큰은 서버(HMAC) 검증.
+   매출·취소반품 API는 서버에서도 관리자 전용으로 차단됨.
+────────────────────────────── */
+const AUTH_KEY = 'dnrb_session';
+let SESSION = null;
+
+function loadSession() {
+  try {
+    const s = JSON.parse(localStorage.getItem(AUTH_KEY));
+    if (s && s.token && s.exp > Date.now()) SESSION = s;
+  } catch {}
+}
+const isStaff = () => SESSION?.role === 'staff';
+const isAdmin = () => SESSION?.role === 'admin';
+
+async function authApi(body) {
+  const res = await fetch(fnUrl('auth', {}), {
+    method: 'POST', headers: sbHeaders(), body: JSON.stringify(body),
+  });
+  const data = await res.json();
+  if (data.error) throw new Error(data.error);
+  return data;
+}
+
+async function doLogin() {
+  const id = $('login-id').value.trim(), pw = $('login-pw').value;
+  $('login-error').textContent = '';
+  if (!id || !pw) { $('login-error').textContent = '아이디와 비밀번호를 입력해주세요'; return; }
+  try {
+    const d = await authApi({ action: 'login', id, password: pw });
+    SESSION = { token: d.token, id: d.id, name: d.name, role: d.role, exp: d.exp };
+    localStorage.setItem(AUTH_KEY, JSON.stringify(SESSION));
+    $('login-overlay').style.display = 'none';
+    bootApp();
+  } catch (e) { $('login-error').textContent = e.message; }
+}
+
+function logout() {
+  localStorage.removeItem(AUTH_KEY);
+  location.reload();
+}
+
+function applyRole() {
+  document.body.classList.toggle('role-staff', isStaff());
+  $('menu-users').style.display = isAdmin() ? '' : 'none';
+  $('user-info').textContent = SESSION ? `${SESSION.name} (${isAdmin() ? '관리자' : '직원'})` : '';
+  $('btn-logout').style.display = SESSION ? '' : 'none';
+}
+
+/* ── 직원 관리 (관리자 전용) ── */
+async function loadUsers() {
+  if (!isAdmin()) return;
+  try {
+    const d = await authApi({ action: 'list_users', token: SESSION.token });
+    $('users-list').innerHTML = `<div class="table-wrap"><table>
+      <thead><tr><th>아이디</th><th>이름</th><th>역할</th><th>등록일</th><th></th></tr></thead><tbody>` +
+      d.users.map(u => `<tr>
+        <td>${escHtml(u.id)}</td><td>${escHtml(u.name)}</td>
+        <td>${u.role === 'admin' ? '<b style="color:#4f46e5;">관리자</b>' : '직원'}</td>
+        <td>${(u.created_at || '').slice(0, 10)}</td>
+        <td>${u.role === 'admin' ? '' : `<button onclick="deleteUser('${escHtml(u.id)}')" style="border:1px solid #fecaca;background:#fff;color:#dc2626;border-radius:6px;padding:4px 12px;font-size:.78rem;cursor:pointer;font-weight:600;">삭제</button>`}</td>
+      </tr>`).join('') + '</tbody></table></div>';
+  } catch (e) { $('users-list').textContent = '목록 조회 실패: ' + e.message; }
+}
+
+async function addUser() {
+  const id = $('user-add-id').value.trim(), name = $('user-add-name').value.trim(), pw = $('user-add-pw').value;
+  try {
+    await authApi({ action: 'add_user', token: SESSION.token, id, name, password: pw });
+    $('user-add-id').value = ''; $('user-add-name').value = ''; $('user-add-pw').value = '';
+    showToast(`✅ 직원 "${name}" 계정이 추가됐습니다 (아이디: ${id})`);
+    loadUsers();
+  } catch (e) { showToast('❌ ' + e.message); }
+}
+
+async function deleteUser(id) {
+  if (!confirm(`직원 계정 "${id}"를 삭제할까요?`)) return;
+  try {
+    await authApi({ action: 'delete_user', token: SESSION.token, id });
+    showToast('✅ 삭제됐습니다');
+    loadUsers();
+  } catch (e) { showToast('❌ ' + e.message); }
+}
+
+async function changeMyPassword() {
+  const oldPw = prompt('현재 비밀번호를 입력하세요'); if (oldPw === null) return;
+  const newPw = prompt('새 비밀번호를 입력하세요 (4자 이상)'); if (newPw === null) return;
+  try {
+    await authApi({ action: 'change_password', token: SESSION.token, old_password: oldPw, new_password: newPw });
+    showToast('✅ 비밀번호가 변경됐습니다');
+  } catch (e) { showToast('❌ ' + e.message); }
 }
 
 /* 아카이브 테이블 CRUD (기존 젠스파크 tables/ API 대체) */
@@ -1105,6 +1272,7 @@ function bucketToRows(bucket) {
 
 /* 카페24 실시간 조회 */
 async function fetchCafe24Api() {
+  if (isStaff()) { showToast('⛔ 접근 권한이 없습니다'); return; }
   if (!sbReady()) { showToast('⚙️ config.js에 Supabase 설정을 먼저 입력하세요'); return; }
   const ds = $('crDateStart').value, de = $('crDateEnd').value;
   if (!ds || !de) { showToast('📅 분석 기간을 먼저 선택해주세요'); return; }
@@ -1232,6 +1400,7 @@ async function fetchAnalytics(auto = false) {
 /* 총 매출액 자동 조회 — 취소&반품 섹션의 분석 기간 기준
    (카페24 결제완료 주문 매출 · 관리자 통계 '결제합계'와 ±0.5% 내외 · 네이버 미포함) */
 async function fetchRevenue() {
+  if (isStaff()) { showToast('⛔ 접근 권한이 없습니다'); return; }
   if (!sbReady()) { showToast('⚙️ config.js에 Supabase 설정을 먼저 입력하세요'); return; }
   const ds = $('crDateStart').value, de = $('crDateEnd').value;
   if (!ds || !de) { showToast('📅 분석 기간을 먼저 선택해주세요'); return; }
@@ -1297,7 +1466,7 @@ function renderAnalytics() {
     tile('상품 조회수', fmt(t.views)) +
     tile('주문 수', fmt(t.oc) + '건', '판매수량 ' + fmt(t.qty) + '개') +
     tile('평균 주문율', avgRate.toFixed(2) + '%', '주문수 ÷ 조회수') +
-    tile('주문 금액', fmt(t.amt) + '원') +
+    (isStaff() ? '' : tile('주문 금액', fmt(t.amt) + '원')) +
     tile('상품 수', fmt(rows.length) + '개');
   sum.style.display = 'grid';
   toolbar.style.display = 'flex';
@@ -1313,7 +1482,7 @@ function renderAnalytics() {
   let html = `<div class="table-wrap"><table>
     <thead><tr>
       <th style="width:44px;">#</th><th style="text-align:left;">상품</th>
-      <th>조회수</th><th>주문수</th><th>판매수량</th><th>주문금액</th><th>주문율</th>
+      <th>조회수</th><th>주문수</th><th>판매수량</th>${isStaff() ? '' : '<th>주문금액</th>'}<th>주문율</th>
     </tr></thead><tbody>`;
   sorted.forEach((r, i) => {
     html += `<tr>
@@ -1322,7 +1491,7 @@ function renderAnalytics() {
       <td>${fmt(r.views)}</td>
       <td>${fmt(r.order_count)}</td>
       <td>${fmt(r.order_qty)}</td>
-      <td>${fmt(r.order_amount)}원</td>
+      ${isStaff() ? '' : `<td>${fmt(r.order_amount)}원</td>`}
       <td>${anRateBadge(r.rate)}</td>
     </tr>`;
   });
@@ -1335,9 +1504,12 @@ function downloadAnalyticsCSV() {
   if (rows.length === 0) { showToast('다운로드할 데이터가 없습니다'); return; }
   const key = $('anSort').value;
   const sorted = [...rows].sort((a, b) => b[key] - a[key]);
-  const lines = ['상품번호,상품명,조회수,주문수,판매수량,주문금액,주문율(%)'];
-  sorted.forEach(r => lines.push(
-    `${r.product_no},"${(r.product_name || '').replace(/"/g, '""')}",${r.views},${r.order_count},${r.order_qty},${r.order_amount},${r.rate}`,
+  const lines = [isStaff()
+    ? '상품번호,상품명,조회수,주문수,판매수량,주문율(%)'
+    : '상품번호,상품명,조회수,주문수,판매수량,주문금액,주문율(%)'];
+  sorted.forEach(r => lines.push(isStaff()
+    ? `${r.product_no},"${(r.product_name || '').replace(/"/g, '""')}",${r.views},${r.order_count},${r.order_qty},${r.rate}`
+    : `${r.product_no},"${(r.product_name || '').replace(/"/g, '""')}",${r.views},${r.order_count},${r.order_qty},${r.order_amount},${r.rate}`,
   ));
   dlCSV(lines.join('\n'), `상품_조회수_주문율_${$('anDateStart').value}_${$('anDateEnd').value}.csv`);
 }
@@ -1432,10 +1604,12 @@ async function deleteAdTopic(id) {
 /* ──────────────────────────────
    좌측 메뉴 내비게이션 + 대시보드(홈)
 ────────────────────────────── */
-const MENU_KEYS = ['home', 'cr', 'an', 'perf', 'disp', 'adv', 'meet'];
+const MENU_KEYS = ['home', 'cr', 'an', 'perf', 'disp', 'adv', 'meet', 'users'];
 
 function showMenu(key) {
   if (!MENU_KEYS.includes(key)) key = 'home';
+  if (key === 'cr' && isStaff()) { showToast('⛔ 접근 권한이 없습니다'); return; }
+  if (key === 'users' && !isAdmin()) { showToast('⛔ 접근 권한이 없습니다'); return; }
   document.querySelectorAll('.page-sec').forEach(el => { el.style.display = 'none'; });
   const target = $('sec-' + key);
   if (target) target.style.display = 'block';
@@ -1443,6 +1617,7 @@ function showMenu(key) {
   history.replaceState(null, '', '#' + key);
   if (key === 'home') { updateHomeSourceStatus(); updateHomeReasons(); updateHomeClaimsTile(); updateHomeTrafficTile(); }
   if (key === 'meet') loadAdTopics();
+  if (key === 'users') loadUsers();
 }
 
 const homeState = { loaded: false, loading: false };
@@ -1577,7 +1752,7 @@ async function loadTrending(force) {
         <span style="flex:1;min-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escHtml(r.product_name)}</span>
         <span style="font-weight:700;color:#1e1b4b;">${fmt(r.prevQty)} → ${fmt(r.order_qty)}개</span>
         ${badge}
-        <span style="color:#6b7280;">${fmt(r.order_amount)}원</span>
+        ${isStaff() ? '' : `<span style="color:#6b7280;">${fmt(r.order_amount)}원</span>`}
         ${views}
       </div>`;
     }).join('') : '급증 상품이 없습니다 (이번 주 10개 이상 판매 & 전주 대비 증가 기준)';
@@ -1610,17 +1785,19 @@ async function loadHome(force) {
   const loading = '<i class="fa-solid fa-spinner fa-spin"></i>';
   ['home-rev', 'home-claims', 'home-traffic', 'home-margin'].forEach(id => { $(id).innerHTML = loading; });
 
-  // ① 총 매출액 — 취소&반품 메뉴의 총 매출액 입력에도 반영
-  const pRev = anGet({ action: 'revenue', start_date: ds, end_date: de }).then(d => {
+  // ① 총 매출액 — 취소&반품 메뉴의 총 매출액 입력에도 반영 (직원은 생략·블러 처리)
+  const pRev = isStaff() ? Promise.resolve($('home-rev').textContent = '—')
+    : anGet({ action: 'revenue', start_date: ds, end_date: de }).then(d => {
     $('totalRevenue').value = d.revenue;
     $('home-rev').textContent = fmt(d.revenue) + '원';
     $('home-rev-sub').textContent = `결제완료 ${fmt(d.order_count)}건 · 네이버 미포함`;
-  }).catch(e => { $('home-rev').textContent = '—'; $('home-rev-sub').textContent = e.message; });
+    }).catch(e => { $('home-rev').textContent = '—'; $('home-rev-sub').textContent = e.message; });
   // 토큰 갱신 경쟁 방지: 빠른 매출 조회를 먼저 끝내 토큰을 1회만 갱신시킨 뒤 나머지 병렬 실행
   await pRev.catch(() => {});
 
-  // ② 취소·반품 — 취소&반품 메뉴의 API 조회 그대로 실행 (결과가 해당 메뉴에도 반영)
-  const pClaims = fetchCafe24Api().then(() => updateHomeClaimsTile());
+  // ② 취소·반품 — 취소&반품 메뉴의 API 조회 그대로 실행 (직원은 생략·블러 처리)
+  const pClaims = isStaff() ? Promise.resolve($('home-claims').textContent = '—')
+    : fetchCafe24Api().then(() => updateHomeClaimsTile());
 
   // ③ 조회수·주문율 — 조회수&주문율 메뉴 조회 실행 후 타일 계산
   const pTraffic = fetchAnalytics(true).then(() => updateHomeTrafficTile())
@@ -2449,9 +2626,9 @@ async function fetchPerfApi() {
     });
     store.perfFilter = 'all';
     renderPerfResult();
-    // 순매출을 광고 분석 입력창에 자동 반영 (CSV 방식과 동일)
+    // 순매출을 광고 분석 입력창에 자동 반영 (직원 제외)
     const autoRevenue = store.salesData.reduce((s, r) => s + r.salesTotal, 0);
-    if (autoRevenue > 0 && !$('adv-revenue').value) { $('adv-revenue').value = autoRevenue; calcAdv(); }
+    if (!isStaff() && autoRevenue > 0 && !$('adv-revenue').value) { $('adv-revenue').value = autoRevenue; calcAdv(); }
     const noCost = store.salesData.length - mappedCost;
     showToast(`✅ ${store.salesData.length}개 상품 로드 · 공급가 매핑 ${mappedCost}개${noCost > 0 ? ` (공급가 미입력 ${noCost}개는 마진 계산 제외)` : ''}`);
   } catch (e) {
@@ -2524,6 +2701,7 @@ function renderPerfResult() {
       <span style="font-size:.8rem;color:#9ca3af;">총 ${store.salesData.length}개 상품</span>
     </div>
 
+    ${isStaff() ? '' : `
     <!-- 매출 요약 바 -->
     <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:16px;">
       <div style="background:#f8f9ff;border:1.5px solid #e8eaf0;border-radius:12px;padding:14px 16px;">
@@ -2541,7 +2719,7 @@ function renderPerfResult() {
         <div style="font-size:1.25rem;font-weight:800;color:#15803d;">${netSalesAmt > 0 ? fmt(netSalesAmt) + '원' : '—'}</div>
         <div style="font-size:.72rem;color:#9ca3af;margin-top:3px;">판매합계 기준 (CSV J·K열 기반)</div>
       </div>
-    </div>
+    </div>`}
 
     <!-- 성과 요약 카드 -->
     <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:18px;">
@@ -2586,7 +2764,7 @@ function renderPerfResult() {
         <th>결제수량</th>
         <th>환불수량</th>
         <th>순판매량</th>
-        <th>판매합계</th>
+        ${isStaff() ? '' : '<th>판매합계</th>'}
         <th>순반품률<br><span style="font-size:.68rem;font-weight:400;color:#9ca3af;">배송완료일 기준</span></th>
         <th>취소&amp;반품률<br><span style="font-size:.68rem;font-weight:400;color:#9ca3af;">주문일 기준·참고용</span></th>
         <th>마진율<br><span style="font-size:.68rem;font-weight:400;color:#9ca3af;">공급가×1.1 기준</span></th>
@@ -2608,7 +2786,7 @@ function renderPerfResult() {
         <td>${row.salePrice>0?fmt(row.salePrice)+'원':'—'}</td>
         <td>${sc}</td>
         <td>${fmt(row.paidQty)}</td><td>${fmt(row.refundQty)}</td><td>${fmt(row.salesQty)}</td>
-        <td>${row.salesTotal>0?fmt(row.salesTotal)+'원':'—'}</td>
+        ${isStaff() ? '' : `<td>${row.salesTotal>0?fmt(row.salesTotal)+'원':'—'}</td>`}
         <td>${netReturnBadge(row)}${(() => { const nr = netOf(row); return nr ? `<div style="font-size:.68rem;color:#9ca3af;margin-top:2px;">${fmt(nr.return_qty)} ÷ ${fmt(nr.total_qty)}개</div>` : ''; })()}</td>
         <td style="color:#6b7280;">${fmtP(row.returnRate)}</td>
         <td>${mg}</td>
@@ -3760,6 +3938,21 @@ function advInsight(revenue, advCost, fixedCost, supplyCost, netProfit, roas, sc
 /* ══════════════════════════════════════
    [ E ] 초기화
 ══════════════════════════════════════ */
+/* 로그인 후 데이터 로드 시작 */
+function bootApp() {
+  applyRole();
+  loadArchive();
+  if (!isStaff()) loadCrArchive();   // 취소·반품 기록은 관리자만
+  loadPerfArchive();
+  checkCafe24Status();
+  loadAnCategories().then(() => fetchAnalytics(true)).then(() => { updateHomeTrafficTile(); loadTrending(); });
+  if (new URLSearchParams(location.search).get('cafe24') === 'connected') {
+    showToast('✅ 카페24 연동이 완료됐습니다!');
+    history.replaceState(null, '', location.pathname);
+  }
+  showMenu((location.hash || '#home').slice(1));
+}
+
 (function init() {
   const now   = new Date();
   const first = new Date(now.getFullYear(), now.getMonth(), 1);
@@ -3769,33 +3962,22 @@ function advInsight(revenue, advCost, fixedCost, supplyCost, netProfit, roas, sc
   $('crDateEnd').value     = fmtD(now);
   $('perfDateStart').value = fmtD(first);
   $('perfDateEnd').value   = fmtD(now);
-  // 아카이브 기간 기본값도 이번달로 설정
   $('arc-start').value = fmtD(first);
   $('arc-end').value   = fmtD(now);
-  // 페이지 로드 시 아카이브 목록 조회
-  loadArchive();
-  // 취소·반품 아카이브 목록 조회
-  loadCrArchive();
-  // 판매 성과 아카이브 목록 조회
-  loadPerfArchive();
-  // 카페24 API 연동 상태 확인
-  checkCafe24Status();
-  // 애널리틱스 섹션: 기간 기본값 + 카테고리 목록 + 이번 달 데이터 자동 조회
   $('anDateStart').value = fmtD(first);
   $('anDateEnd').value   = fmtD(now);
-  loadAnCategories().then(() => fetchAnalytics(true)).then(() => { updateHomeTrafficTile(); loadTrending(); });
-  // 홈 대시보드 기간 기본값 (이번 달)
   $('homeDateStart').value = fmtD(first);
   $('homeDateEnd').value   = fmtD(now);
-  // 네이버 엑셀 비밀번호 복원 (이 브라우저에 저장된 값)
   $('np-pw').value = localStorage.getItem(NP_PW_KEY) || '';
-  // 카페24 OAuth 완료 후 리다이렉트로 돌아온 경우
-  if (new URLSearchParams(location.search).get('cafe24') === 'connected') {
-    showToast('✅ 카페24 연동이 완료됐습니다!');
-    history.replaceState(null, '', location.pathname);
+
+  // 세션 확인 → 로그인 화면 또는 대시보드 시작
+  loadSession();
+  if (SESSION) {
+    $('login-overlay').style.display = 'none';
+    bootApp();
+  } else {
+    $('login-overlay').style.display = 'flex';
   }
-  // 좌측 메뉴: URL 해시(#cr 등) 복원, 기본은 대시보드
-  showMenu((location.hash || '#home').slice(1));
 })();
 </script>
 </body>
