@@ -147,6 +147,73 @@ Deno.serve(async (req) => {
       return json({ period: { start: s, end: e }, revenue, order_count: orderCount });
     }
 
+    // ── 판매 성과: 기간 판매수량 + 취소·반품완료 수량 + 판매가·공급가 ──
+    // rows: [{product_no, product_name, paid_qty(주문수량), order_amount(주문금액),
+    //          cancel_qty(취소·반품완료 수량), price(판매가), supply_price(공급가)}]
+    if (action === "performance") {
+      const s = url.searchParams.get("start_date");
+      const e = url.searchParams.get("end_date");
+      if (!s || !e) return json({ error: "start_date, end_date 필수 (YYYY-MM-DD)" }, 400);
+
+      // ① 기간 판매(주문) 수량·금액 — 애널리틱스
+      const base = new URLSearchParams({ mall_id: MALL_ID, start_date: s, end_date: e });
+      const sales = await collectData("/products/sales", "sales", base, token);
+
+      type Perf = {
+        product_no: number; product_name: string;
+        paid_qty: number; order_amount: number; cancel_qty: number;
+        price: number; supply_price: number;
+      };
+      const map = new Map<number, Perf>();
+      for (const r of sales) {
+        const no = Number(r.product_no);
+        const cur = map.get(no) ?? {
+          product_no: no, product_name: String(r.product_name ?? ""),
+          paid_qty: 0, order_amount: 0, cancel_qty: 0, price: 0, supply_price: 0,
+        };
+        cur.paid_qty += num(r.order_product_count);
+        cur.order_amount += num(r.order_amount);
+        map.set(no, cur);
+      }
+
+      // ② 취소·반품 완료 수량 — 주문 품목(C40/R40) 집계 (주문일 기준, 전 채널)
+      const LIMIT = 100;
+      for (let offset = 0; offset <= 8000; offset += LIMIT) {
+        const body = await apiGet(
+          `${API_BASE}/admin/orders?start_date=${s}&end_date=${e}&date_type=order_date` +
+          `&order_status=C40,R40&embed=items&fields=order_id,items&limit=${LIMIT}&offset=${offset}`, token);
+        const orders = (body.orders ?? []) as Record<string, unknown>[];
+        for (const o of orders) {
+          for (const it of (o.items ?? []) as Record<string, unknown>[]) {
+            const st = String(it.order_status ?? "");
+            if (st !== "C40" && st !== "R40") continue;
+            const row = map.get(Number(it.product_no));
+            if (row) row.cancel_qty += num(it.quantity);
+          }
+        }
+        if (orders.length < LIMIT) break;
+      }
+
+      // ③ 판매가·공급가 — 상품 정보 (100개씩 배치)
+      const nos = [...map.keys()];
+      for (let i = 0; i < nos.length; i += 100) {
+        const chunk = nos.slice(i, i + 100).join(",");
+        const body = await apiGet(
+          `${API_BASE}/admin/products?product_no=${chunk}` +
+          `&fields=product_no,product_name,price,supply_price&limit=100`, token);
+        for (const p of (body.products ?? []) as Record<string, unknown>[]) {
+          const row = map.get(Number(p.product_no));
+          if (!row) continue;
+          row.price = num(p.price);
+          row.supply_price = num(p.supply_price);
+          if (!row.product_name) row.product_name = String(p.product_name ?? "");
+        }
+      }
+
+      const rows = [...map.values()].sort((a, b) => b.paid_qty - a.paid_qty);
+      return json({ period: { start: s, end: e }, product_count: rows.length, rows });
+    }
+
     // ── 조회수 + 주문수 통합 (기본) ──
     const startDate = url.searchParams.get("start_date");
     const endDate = url.searchParams.get("end_date");

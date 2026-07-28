@@ -561,6 +561,11 @@
         <input type="date" id="perfDateStart" style="padding:7px 11px;border:1.5px solid #e5e7eb;border-radius:8px;font-size:.85rem;font-family:inherit;" />
         <span class="date-sep">~</span>
         <input type="date" id="perfDateEnd" style="padding:7px 11px;border:1.5px solid #e5e7eb;border-radius:8px;font-size:.85rem;font-family:inherit;" />
+        <div class="divider"></div>
+        <button class="btn-analyze" id="btn-api-perf" onclick="fetchPerfApi()">
+          <i class="fa-solid fa-cloud-arrow-down"></i> 카페24 불러오기
+        </button>
+        <span style="font-size:.75rem;color:#9ca3af;">주문일 기준 · 판매수량 = 주문수량 − 취소·반품완료 수량 · 마진율은 카페24 상품정보의 공급가(+부가세 10%) 기준 · CSV 업로드와 병행 가능</span>
       </div>
 
       <!-- 업로드 -->
@@ -1907,6 +1912,60 @@ async function handleSalesCSV(event) {
     }
     showToast(`✅ ${store.salesData.length}개 상품 데이터 로드 완료`);
   } catch(e) { showToast('❌ 판매 성과 CSV 오류: '+e.message); console.error(e); }
+}
+
+/* 판매 성과 실시간 API 조회 — CSV(salesData/costMap)와 동일 구조로 매핑해
+   renderPerfResult·필터·아카이브 기능을 그대로 재사용 */
+async function fetchPerfApi() {
+  if (!sbReady()) { showToast('⚙️ config.js에 Supabase 설정을 먼저 입력하세요'); return; }
+  const ds = $('perfDateStart').value, de = $('perfDateEnd').value;
+  if (!ds || !de) { showToast('📅 분석 기간을 먼저 선택해주세요'); return; }
+  const btn = $('btn-api-perf');
+  btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> 조회 중... (수십 초 소요)';
+  try {
+    const data = await anGet({ action: 'performance', start_date: ds, end_date: de });
+    store.costMap = {};
+    store.salesData = [];
+    let mappedCost = 0;
+    (data.rows || []).forEach((r, i) => {
+      const salesQty = Math.max(0, r.paid_qty - r.cancel_qty);
+      // 순판매금액: 주문금액을 수량 비율로 안분
+      const salesTotal = r.paid_qty > 0 ? Math.round(r.order_amount * salesQty / r.paid_qty) : 0;
+      store.salesData.push({
+        rank: i + 1,
+        productName: (r.product_name || '').trim(),
+        option: '',
+        salePrice: r.price,
+        paidQty: r.paid_qty,
+        refundQty: r.cancel_qty,
+        salesQty,
+        salesTotal,
+        cancelQty: r.cancel_qty,
+        returnRate: r.paid_qty > 0 ? r.cancel_qty / r.paid_qty * 100 : 0,
+      });
+      if (r.supply_price > 0 && r.price > 0) {
+        store.costMap[(r.product_name || '').toLowerCase().trim()] = { supplyCost: r.supply_price, salePrice: r.price };
+        mappedCost++;
+      }
+    });
+    store.perfFilter = 'all';
+    $('card-cost').classList.add('active');
+    $('card-sales').classList.add('active');
+    $('fname-cost').textContent = `API 연동 — 공급가 ${mappedCost}개 상품`;
+    $('fname-sales').textContent = `API 연동 (${ds} ~ ${de})`;
+    renderPerfResult();
+    // 순매출을 광고 분석 입력창에 자동 반영 (CSV 방식과 동일)
+    const autoRevenue = store.salesData.reduce((s, r) => s + r.salesTotal, 0);
+    if (autoRevenue > 0 && !$('adv-revenue').value) { $('adv-revenue').value = autoRevenue; calcAdv(); }
+    const noCost = store.salesData.length - mappedCost;
+    showToast(`✅ ${store.salesData.length}개 상품 로드 · 공급가 매핑 ${mappedCost}개${noCost > 0 ? ` (공급가 미입력 ${noCost}개는 마진 계산 제외)` : ''}`);
+  } catch (e) {
+    showToast('❌ 판매 성과 조회 실패: ' + e.message);
+    console.error(e);
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '<i class="fa-solid fa-cloud-arrow-down"></i> 카페24 불러오기';
+  }
 }
 
 function findCostData(productName) {
