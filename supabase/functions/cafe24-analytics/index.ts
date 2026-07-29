@@ -134,16 +134,12 @@ Deno.serve(async (req) => {
     if (action === "category_products") {
       const catNo = url.searchParams.get("category_no");
       if (!catNo) return json({ error: "category_no 필수" }, 400);
-      const LIMIT = 100;
-      const nos: number[] = [];
-      for (let offset = 0; offset <= 10000; offset += LIMIT) {
-        const body = await apiGet(
-          `${API_BASE}/admin/categories/${catNo}/products?display_group=1&limit=${LIMIT}&offset=${offset}`, token);
-        const items = (body.products ?? []) as Record<string, unknown>[];
-        nos.push(...items.map((p) => Number(p.product_no)));
-        if (items.length < LIMIT) break;
-      }
-      return json({ category_no: Number(catNo), product_nos: nos });
+      // 주의: 이 엔드포인트는 offset을 무시함 (실측) — limit만 크게 잡아 한 번에 조회
+      const body = await apiGet(
+        `${API_BASE}/admin/categories/${catNo}/products?display_group=1&limit=1000`, token);
+      const items = (body.products ?? []) as Record<string, unknown>[];
+      const nos = [...new Set(items.map((p) => Number(p.product_no)))];
+      return json({ category_no: Number(catNo), product_nos: nos, truncated: items.length >= 1000 });
     }
 
     // ── 기간 총 매출액 (결제완료 주문 기준 — 시간대별 매출 합산) ──
@@ -161,6 +157,77 @@ Deno.serve(async (req) => {
       const revenue = times.reduce((t, r) => t + num(r.order_amount), 0);
       const orderCount = times.reduce((t, r) => t + num(r.order_count), 0);
       return json({ period: { start: s, end: e }, revenue, order_count: orderCount });
+    }
+
+    // ── 진열 계산용 지표 (관리자 전용): 7일/30일 조회수·판매량 + 30일 취소반품수량 ──
+    if (action === "displaymetrics") {
+      const authed = await verifyAuthToken(req);
+      if (!authed || authed.role !== "admin") return json({ error: "접근 권한이 없습니다" }, 403);
+      const e = url.searchParams.get("end_date");
+      if (!e) return json({ error: "end_date 필수 (YYYY-MM-DD)" }, 400);
+      const day = 24 * 3600 * 1000;
+      const dstr = (t: number) => new Date(t).toISOString().slice(0, 10);
+      const endMs = new Date(e).getTime();
+      const s7 = dstr(endMs - 6 * day), s30 = dstr(endMs - 29 * day);
+
+      const range = (s: string) => new URLSearchParams({ mall_id: MALL_ID, start_date: s, end_date: e });
+      const [v7, v30, q7, q30] = await Promise.all([
+        collectData("/products/view", "view", range(s7), token),
+        collectData("/products/view", "view", range(s30), token),
+        collectData("/products/sales", "sales", range(s7), token),
+        collectData("/products/sales", "sales", range(s30), token),
+      ]);
+
+      type M = { v7: number; v30: number; q7: number; q30: number; amt7: number; amt30: number; claims30: number };
+      const map = new Map<number, M>();
+      const of = (no: number): M => {
+        let m = map.get(no);
+        if (!m) { m = { v7: 0, v30: 0, q7: 0, q30: 0, amt7: 0, amt30: 0, claims30: 0 }; map.set(no, m); }
+        return m;
+      };
+      for (const r of v7) of(Number(r.product_no)).v7 += num(r.count);
+      for (const r of v30) of(Number(r.product_no)).v30 += num(r.count);
+      for (const r of q7) { const m = of(Number(r.product_no)); m.q7 += num(r.order_product_count); m.amt7 += num(r.order_amount); }
+      for (const r of q30) { const m = of(Number(r.product_no)); m.q30 += num(r.order_product_count); m.amt30 += num(r.order_amount); }
+
+      // 30일 취소·반품 수량 (주문일 기준, 품목 C40/R40)
+      const LIMIT = 500;
+      for (let offset = 0; offset <= 30000; offset += LIMIT) {
+        const body = await apiGet(
+          `${API_BASE}/admin/orders?start_date=${s30}&end_date=${e}&date_type=order_date` +
+          `&order_status=C40,R40&embed=items&fields=order_id,items&limit=${LIMIT}&offset=${offset}`, token);
+        const orders = (body.orders ?? []) as Record<string, unknown>[];
+        for (const o of orders) {
+          for (const it of (o.items ?? []) as Record<string, unknown>[]) {
+            const st = String(it.order_status ?? "");
+            if (st !== "C40" && st !== "R40") continue;
+            of(Number(it.product_no)).claims30 += num(it.quantity);
+          }
+        }
+        if (orders.length < LIMIT) break;
+      }
+
+      const metrics: Record<string, M> = {};
+      for (const [no, m] of map) metrics[String(no)] = m;
+      return json({ period: { end: e, start7: s7, start30: s30 }, metrics });
+    }
+
+    // ── 상품 기본 정보 배치 조회 (관리자 전용): 진열 계산용 ──
+    if (action === "productinfo") {
+      const authed = await verifyAuthToken(req);
+      if (!authed || authed.role !== "admin") return json({ error: "접근 권한이 없습니다" }, 403);
+      const nosParam = url.searchParams.get("product_nos") ?? "";
+      const nos = nosParam.split(",").map((s) => Number(s)).filter((n) => n > 0);
+      if (!nos.length) return json({ error: "product_nos 필수" }, 400);
+      const out: Record<string, unknown>[] = [];
+      for (let i = 0; i < nos.length; i += 100) {
+        const chunk = nos.slice(i, i + 100).join(",");
+        const body = await apiGet(
+          `${API_BASE}/admin/products?product_no=${chunk}` +
+          `&fields=product_no,product_code,product_name,price,supply_price,created_date,sold_out,display,selling&limit=100`, token);
+        out.push(...((body.products ?? []) as Record<string, unknown>[]));
+      }
+      return json({ products: out });
     }
 
     // ── 순반품률: 배송완료일 기준 상품별 전체수량 · 반품수량 ──
