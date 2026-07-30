@@ -874,6 +874,8 @@
           <label>주력 판정: 조회수 기준 (21일) <input type="number" id="dcfg-coreviews" value="70" oninput="dispRender()" /></label>
           <label>주력 판정: 상품수 기준 <input type="number" id="dcfg-corecount" value="30" oninput="dispRender()" /></label>
           <label>트래픽 이상치 배수 <input type="number" id="dcfg-outlier" value="10" oninput="dispRender()" /></label>
+          <label>데이터부족 기준 (조회 중앙값 ×) <input type="number" step="0.05" id="dcfg-evidence" value="0.5" oninput="dispRender()" /></label>
+          <label>데이터부족: 최소 판매량 (21일) <input type="number" id="dcfg-minsales" value="10" oninput="dispRender()" /></label>
         </div>
       </details>
 
@@ -1845,7 +1847,7 @@ function dispCfg() {
     priorLoss: n('dcfg-priorloss'), priorN: n('dcfg-priorn'),
     returnCost: n('dcfg-returncost'), feeRate: n('dcfg-feerate') / 100, shipCost: n('dcfg-shipcost'),
     demoteViews: n('dcfg-demote'), coreViews: n('dcfg-coreviews'), coreCount: n('dcfg-corecount'),
-    outlierMult: n('dcfg-outlier'),
+    outlierMult: n('dcfg-outlier'), evidenceRatio: n('dcfg-evidence'), minSales: n('dcfg-minsales'),
   };
 }
 
@@ -1913,11 +1915,15 @@ function dispCompute(catNo) {
       v7, v14, v21: m.v21, q7, q14, q21: m.q21, del7: m.del7, ret7: m.ret7,
       price, supply, unitMargin, marginMissing, loss, net7, net14, net21, rm7, rm14, rm21,
       excluded: reasons.length > 0, reasons,
-      adj7: 0, adj14: 0, score: 0, outlier: false, zone: '', rank: 0, demoted: false,
+      adj7: 0, adj14: 0, score: 0, outlier: false, zone: '', rank: 0, demoted: false, seasonOut: false,
     };
   });
 
-  const passed = rows.filter(r => !r.excluded);
+  // 시즌 제외 (MD 수동 지정, 상품 단위 — 전 카테고리 공통): 통계·BEST·신상·랭킹에서 빼고 하단 배치
+  const seasonSet = dispState.seasonOut || new Set();
+  for (const r of rows) r.seasonOut = !r.excluded && seasonSet.has(r.no);
+
+  const passed = rows.filter(r => !r.excluded && !r.seasonOut);
 
   // 4-3 축소추정 — 평균은 하드필터 통과 상품만으로, K는 카테고리 평균 조회수에 비례
   const avg = t => {
@@ -1970,24 +1976,39 @@ function dispCompute(catNo) {
   const freshSet = new Set(fresh.map(r => r.no));
 
   // ③④ 나머지: 주력은 점수순 / 비주력은 현재 진열 순서 유지(MD 수동 구간)
-  const rest = passed.filter(r => !bestSet.has(r.no) && !freshSet.has(r.no));
-  if (major) rest.sort((a, b) => b.score - a.score);
+  // 데이터부족 가드(주력만): 21일 조회수 < max(50, 카테고리 중앙값 × 비율) 또는 21일 판매량 < 최소치면
+  // 점수를 신뢰하지 않고 '데이터부족' 구간으로 하강 — 소표본 요행(조회 수십 회 + 우연한 1~2건 구매)이
+  // 검증 상품 위로 오는 것 방지. 판매량 조건이 핵심(요행 상품은 판매 자체가 극소)
+  const evidenceBar = major ? Math.max(50, median * cfg.evidenceRatio) : 0;
+  let rest = passed.filter(r => !bestSet.has(r.no) && !freshSet.has(r.no));
+  let lowEv = [];
+  if (major) {
+    const weak = r => r.v21 < evidenceBar || r.q21 < cfg.minSales;
+    lowEv = rest.filter(weak).sort((a, b) => b.score - a.score);
+    rest = rest.filter(r => !weak(r));
+    rest.sort((a, b) => b.score - a.score);
+  }
+  const lowEvSet = new Set(lowEv.map(r => r.no));
+  const seasonOut = rows.filter(r => r.seasonOut).sort((a, b) => b.score - a.score);
   const excluded = rows.filter(r => r.excluded).sort((a, b) => b.score - a.score);
 
   // 최종 순서 = 카페24 업로드 파일 순서 (전체 상품 포함)
-  const order = [...best, ...fresh, ...rest, ...excluded];
+  const order = [...best, ...fresh, ...rest, ...lowEv, ...seasonOut, ...excluded];
   let pos = 0;
   for (const r of order) {
     r.rank = ++pos;
     if (bestSet.has(r.no)) r.zone = 'BEST';
     else if (freshSet.has(r.no)) r.zone = '신상';
+    else if (r.seasonOut) r.zone = '시즌제외';
     else if (r.excluded) r.zone = '제외';
+    else if (lowEvSet.has(r.no)) r.zone = '데이터부족';
     else if (!major) r.zone = '수동검토';
     else r.zone = r.rank <= cfg.rankEnd ? '랭킹' : '하위';
   }
 
   return {
     order, best, fresh, excluded, passed, major, coreN, a7, a14, median, outlierBar,
+    evidenceBar, lowEvN: lowEv.length, seasonOutN: seasonOut.length,
     marginMissingN: rows.filter(r => r.reasons.includes('마진 데이터 없음')).length,
   };
 }
@@ -1997,6 +2018,12 @@ async function dispRender() {
   if (!dispState.metrics || !catNo) return;
   try { await dispEnsureCategory(catNo); }
   catch (e) { showToast('❌ 카테고리 데이터 조회 실패: ' + e.message); return; }
+  if (!dispState.seasonOut) {
+    try {
+      const rows = await dbProxy('disp_season_out?select=product_no');
+      dispState.seasonOut = new Set((rows || []).map(r => Number(r.product_no)));
+    } catch (e) { dispState.seasonOut = new Set(); }
+  }
   const cfg = dispCfg();
   const R = dispCompute(catNo);
   dispState.order = R.order;
@@ -2017,7 +2044,9 @@ async function dispRender() {
     tile('하드 필터 제외', `${R.excluded.length}개`, Object.entries(reasonCnt).map(([k, v]) => `${k} ${v}`).join(' · ') || '없음', R.excluded.length > 0) +
     tile('마진 데이터 누락', `${R.marginMissingN}개`, '계산 제외 — 카페24에 공급가 입력 필요', R.marginMissingN > 0) +
     tile('평균 조회당마진 (7d)', R.a7.mpv.toFixed(1) + '원', `K(7d)=${R.a7.K.toFixed(1)} · K(14d)=${R.a14.K.toFixed(1)}`) +
-    tile('트래픽 이상치 기준', fmt(Math.round(R.outlierBar)) + '회 이상', `21일 조회 중앙값 ${fmt(R.median)} × ${cfg.outlierMult}`);
+    tile('트래픽 이상치 기준', fmt(Math.round(R.outlierBar)) + '회 이상', `21일 조회 중앙값 ${fmt(R.median)} × ${cfg.outlierMult}`) +
+    tile('데이터부족 하강', `${R.lowEvN}개`, R.major ? `21일 조회 ${Math.round(R.evidenceBar)}회 미만 또는 판매 ${cfg.minSales}개 미만` : '비주력 카테고리는 미적용', R.lowEvN > 0) +
+    tile('시즌 제외', `${R.seasonOutN}개`, '표에서 상품별 지정 — 전 카테고리 공통 · 시즌 바뀌면 해제', R.seasonOutN > 0);
   $('disp-summary').style.display = 'grid';
 
   const notes = ['사이즈 결품 판정 미지원 — 옵션별 품절 설정의 일괄 조회 API가 없어 제외 (재고 수량으로 대체하지 않음)'];
@@ -2030,12 +2059,12 @@ async function dispRender() {
   const snaps = JSON.parse(localStorage.getItem(DISP_SNAP_KEY) || '{}');
   const prev = snaps[catNo] ? snaps[catNo].ranks : null;
 
-  const zoneBg = { 'BEST': '#fefce8', '신상': '#eff6ff', '제외': '#fef2f2', '하위': '#fafafa', '수동검토': '#fdf4ff' };
+  const zoneBg = { 'BEST': '#fefce8', '신상': '#eff6ff', '제외': '#fef2f2', '하위': '#fafafa', '수동검토': '#fdf4ff', '데이터부족': '#f1f5f9', '시즌제외': '#ffedd5' };
   let html = `<div class="table-wrap" style="max-height:640px;overflow:auto;"><table>
     <thead><tr>
       <th>순위</th><th>구간</th><th>코드</th><th style="text-align:left;">상품명</th><th>등록일</th>
       <th>조회7d</th><th>조회14d</th><th>순판매7d</th><th>순반품률</th><th>개당마진</th>
-      <th>조정7d</th><th>조정14d</th><th>점수</th><th>배지</th><th>변동</th>
+      <th>조정7d</th><th>조정14d</th><th>점수</th><th>배지</th><th>변동</th><th>시즌</th>
     </tr></thead><tbody>`;
   for (const r of R.order) {
     const badges = [];
@@ -2058,11 +2087,35 @@ async function dispRender() {
       <td>${r.adj7.toFixed(1)}</td><td>${r.adj14.toFixed(1)}</td>
       <td style="font-weight:800;color:#1e1b4b;">${r.score.toFixed(1)}</td>
       <td style="text-align:left;">${badges.join(' ')}</td><td>${delta}</td>
+      <td>${r.excluded ? '' : r.seasonOut
+        ? `<button onclick="dispToggleSeason(${r.no})" style="border:1px solid #fdba74;background:#fff7ed;color:#c2410c;border-radius:6px;padding:2px 8px;font-size:.7rem;font-weight:700;cursor:pointer;">복원</button>`
+        : `<button onclick="dispToggleSeason(${r.no})" style="border:1px solid #e5e7eb;background:#fff;color:#9ca3af;border-radius:6px;padding:2px 8px;font-size:.7rem;cursor:pointer;">제외</button>`}</td>
     </tr>`;
   }
   html += '</tbody></table></div>';
   $('disp-result').innerHTML = html;
   $('disp-export').style.display = 'flex';
+}
+
+/* 시즌 제외 토글 — 상품 단위(전 카테고리 공통), disp_season_out 테이블에 저장 */
+async function dispToggleSeason(no) {
+  if (!dispState.seasonOut) return;
+  try {
+    if (dispState.seasonOut.has(no)) {
+      await dbProxy(`disp_season_out?product_no=eq.${no}`, { method: 'DELETE', headers: { Prefer: 'return=minimal' } });
+      dispState.seasonOut.delete(no);
+      showToast('↩️ 시즌 제외를 해제했습니다 — 다음 계산부터 정상 경쟁합니다');
+    } else {
+      const inf = dispState.info[no];
+      await dbProxy('disp_season_out', {
+        method: 'POST', headers: { Prefer: 'return=minimal' },
+        body: JSON.stringify({ product_no: no, product_name: inf ? inf.product_name : '' }),
+      });
+      dispState.seasonOut.add(no);
+      showToast('🍂 시즌 제외 — 모든 카테고리에서 하단 구간으로 내려갑니다');
+    }
+    dispRender();
+  } catch (e) { showToast('❌ ' + e.message); }
 }
 
 /* STEP 4 — 카페24 업로드용 CSV (진열순위,상품코드,상품명,진열고정 — 전체 상품) */

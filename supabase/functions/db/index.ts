@@ -18,6 +18,7 @@ const TABLE_ROLES: Record<string, string[]> = {
   adv_archive: ["admin", "staff"],
   ad_meeting_topics: ["admin", "staff"],
   ad_meeting_notes: ["admin", "staff"],
+  disp_season_out: ["admin"],   // 진열 시즌 제외 목록 (관리자 전용 메뉴)
 };
 const METHODS = new Set(["GET", "POST", "PATCH", "DELETE"]);
 
