@@ -848,7 +848,7 @@
         <select id="dispCategory" onchange="dispRender()" style="border:1.5px solid #d1d5db;border-radius:8px;padding:8px 10px;font-size:.88rem;min-width:150px;">
           <option value="">선택</option>
         </select>
-        <span style="font-size:.75rem;color:#9ca3af;">최근 7일 + 30일 데이터를 캐시하고, 설정 변경 시 재조회 없이 로컬에서 재계산합니다</span>
+        <span style="font-size:.75rem;color:#9ca3af;">최근 7일 + 21일 데이터를 캐시하고(순반품률은 기준일 3일 전부터 거슬러 7일, 배송완료일 기준), 설정 변경 시 재조회 없이 로컬에서 재계산합니다</span>
       </div>
 
       <!-- STEP 2: 설정 패널 -->
@@ -860,13 +860,13 @@
           <label>랭킹 구간 끝 순위 <input type="number" id="dcfg-rankend" value="48" oninput="dispRender()" /></label>
           <label>7일 가중치 <input type="number" step="0.05" id="dcfg-w7" value="0.7" oninput="dispRender()" /></label>
           <label>축소추정 계수 <input type="number" step="0.05" id="dcfg-shrink" value="0.3" oninput="dispRender()" /></label>
-          <label>손실률 사전평균 <input type="number" step="0.01" id="dcfg-priorloss" value="0.20" oninput="dispRender()" /></label>
-          <label>손실률 사전표본수 <input type="number" id="dcfg-priorn" value="20" oninput="dispRender()" /></label>
+          <label>순반품률 사전평균 <input type="number" step="0.01" id="dcfg-priorloss" value="0.12" oninput="dispRender()" /></label>
+          <label>순반품률 사전표본수 <input type="number" id="dcfg-priorn" value="20" oninput="dispRender()" /></label>
           <label>반품 건당 비용 (원) <input type="number" id="dcfg-returncost" value="0" oninput="dispRender()" /></label>
           <label>결제 수수료율 (%) <input type="number" step="0.1" id="dcfg-feerate" value="3" oninput="dispRender()" /></label>
           <label>포장·물류비 (건당 원) <input type="number" id="dcfg-shipcost" value="0" oninput="dispRender()" /></label>
-          <label>조기 강등 조회수 하한 <input type="number" id="dcfg-demote" value="300" oninput="dispRender()" /></label>
-          <label>주력 판정: 조회수 기준 <input type="number" id="dcfg-coreviews" value="100" oninput="dispRender()" /></label>
+          <label>조기 강등 조회수 하한 (21일) <input type="number" id="dcfg-demote" value="210" oninput="dispRender()" /></label>
+          <label>주력 판정: 조회수 기준 (21일) <input type="number" id="dcfg-coreviews" value="70" oninput="dispRender()" /></label>
           <label>주력 판정: 상품수 기준 <input type="number" id="dcfg-corecount" value="30" oninput="dispRender()" /></label>
           <label>트래픽 이상치 배수 <input type="number" id="dcfg-outlier" value="10" oninput="dispRender()" /></label>
         </div>
@@ -1840,7 +1840,7 @@ async function dispFetch() {
     dispState.metrics = d.metrics;
     dispState.period = d.period;
     dispState.members = {}; dispState.info = {};   // 기준일 변경 → 캐시 무효화
-    showToast(`✅ 지표 조회 완료 (7일 ${d.period.start7}~ · 30일 ${d.period.start30}~) — 카테고리를 선택하세요`);
+    showToast(`✅ 지표 조회 완료 (7일 ${d.period.start7}~ · 21일 ${d.period.start21}~ · 순반품률 ${d.period.loss_start}~${d.period.loss_end}) — 카테고리를 선택하세요`);
     if ($('dispCategory').value) await dispRender();
   } catch (e) { showToast('❌ 조회 실패: ' + e.message); console.error(e); }
   finally { btn.disabled = false; btn.innerHTML = '<i class="fa-solid fa-cloud-arrow-down"></i> 데이터 조회'; }
@@ -1868,18 +1868,18 @@ function dispCompute(catNo) {
 
   const rows = members.map(no => {
     const inf = dispState.info[no];
-    const m = dispState.metrics[no] || { v7: 0, v30: 0, q7: 0, q30: 0, amt7: 0, amt30: 0, claims30: 0 };
-    const v7 = m.v7, v23 = Math.max(0, m.v30 - m.v7);          // 직전 23일 = 30일 − 7일 (중복 방지)
-    const q7 = m.q7, q23 = Math.max(0, m.q30 - m.q7);
+    const m = dispState.metrics[no] || { v7: 0, v21: 0, q7: 0, q21: 0, amt7: 0, amt21: 0, del7: 0, ret7: 0 };
+    const v7 = m.v7, v14 = Math.max(0, m.v21 - m.v7);          // 직전 14일 = 21일 − 7일 (중복 방지)
+    const q7 = m.q7, q14 = Math.max(0, m.q21 - m.q7);
     const price = inf ? toNum(inf.price) : 0, supply = inf ? toNum(inf.supply_price) : 0;
     const unitMargin = price * (1 - cfg.feeRate) - supply - cfg.shipCost;
     const marginMissing = !(price > 0 && supply > 0);
-    // 4-2 보정손실률 (사전평균으로 평활, 1.0 클리핑)
-    const loss = Math.min(1, (m.claims30 + cfg.priorN * cfg.priorLoss) / (m.q30 + cfg.priorN));
-    const net7 = q7 * (1 - loss), net23 = q23 * (1 - loss), net30 = m.q30 * (1 - loss);
+    // 4-2 보정순반품률 (사전평균으로 평활, 1.0 클리핑) — '판매 성과'와 동일 기준(delivered_date, R40/R30/R34), 창 = 기준일 −9일 ~ −3일
+    const loss = Math.min(1, (m.ret7 + cfg.priorN * cfg.priorLoss) / (m.del7 + cfg.priorN));
+    const net7 = q7 * (1 - loss), net14 = q14 * (1 - loss), net21 = m.q21 * (1 - loss);
     const rm7 = marginMissing ? 0 : net7 * unitMargin - q7 * loss * cfg.returnCost;
-    const rm23 = marginMissing ? 0 : net23 * unitMargin - q23 * loss * cfg.returnCost;
-    const rm30 = marginMissing ? 0 : net30 * unitMargin - m.q30 * loss * cfg.returnCost;
+    const rm14 = marginMissing ? 0 : net14 * unitMargin - q14 * loss * cfg.returnCost;
+    const rm21 = marginMissing ? 0 : net21 * unitMargin - m.q21 * loss * cfg.returnCost;
     const ageDays = inf && inf.created_date ? (endMs - new Date(inf.created_date).getTime()) / day : 9999;
     // 4-1 하드 필터: "팔 수 없는 상태"만 — 반품률·재고수량은 절대 사용하지 않음
     const reasons = [];
@@ -1889,10 +1889,10 @@ function dispCompute(catNo) {
     return {
       no, code: inf ? inf.product_code : '', name: inf ? inf.product_name : '(정보 없음 #' + no + ')',
       created: inf ? String(inf.created_date).slice(0, 10) : '', ageDays,
-      v7, v23, v30: m.v30, q7, q23, q30: m.q30, claims30: m.claims30,
-      price, supply, unitMargin, marginMissing, loss, net7, net23, net30, rm7, rm23, rm30,
+      v7, v14, v21: m.v21, q7, q14, q21: m.q21, del7: m.del7, ret7: m.ret7,
+      price, supply, unitMargin, marginMissing, loss, net7, net14, net21, rm7, rm14, rm21,
       excluded: reasons.length > 0, reasons,
-      adj7: 0, adj23: 0, score: 0, outlier: false, zone: '', rank: 0, demoted: false,
+      adj7: 0, adj14: 0, score: 0, outlier: false, zone: '', rank: 0, demoted: false,
     };
   });
 
@@ -1907,28 +1907,28 @@ function dispCompute(catNo) {
       K: (passed.length > 0 ? sumV / passed.length : 0) * cfg.shrink,
     };
   };
-  const a7 = avg(7), a23 = avg(23);
+  const a7 = avg(7), a14 = avg(14);
   for (const r of rows) {
     r.adj7 = (r.v7 + a7.K) > 0 ? (r.rm7 + a7.K * a7.mpv) / (r.v7 + a7.K) : 0;
-    r.adj23 = (r.v23 + a23.K) > 0 ? (r.rm23 + a23.K * a23.mpv) / (r.v23 + a23.K) : 0;
-    r.score = cfg.w7 * r.adj7 + (1 - cfg.w7) * r.adj23;   // 4-4 최종 점수
+    r.adj14 = (r.v14 + a14.K) > 0 ? (r.rm14 + a14.K * a14.mpv) / (r.v14 + a14.K) : 0;
+    r.score = cfg.w7 * r.adj7 + (1 - cfg.w7) * r.adj14;   // 4-4 최종 점수
   }
 
   // 4-6 트래픽 이상치 (배지만 — 점수 개입·필터링 없음)
-  const v30s = passed.map(r => r.v30).sort((a, b) => a - b);
-  const median = v30s.length ? v30s[Math.floor(v30s.length / 2)] : 0;
+  const v21s = passed.map(r => r.v21).sort((a, b) => a - b);
+  const median = v21s.length ? v21s[Math.floor(v21s.length / 2)] : 0;
   const outlierBar = median * cfg.outlierMult;
-  if (outlierBar > 0) for (const r of passed) r.outlier = r.v30 >= outlierBar;
+  if (outlierBar > 0) for (const r of passed) r.outlier = r.v21 >= outlierBar;
 
   // 4-7 카테고리 등급 자동 판정 (매번 재판정 — 고정 금지)
-  const coreN = passed.filter(r => r.v30 >= cfg.coreViews).length;
+  const coreN = passed.filter(r => r.v21 >= cfg.coreViews).length;
   const major = coreN >= cfg.coreCount;
 
-  // 4-5 ① BEST 12: 30일 순판매량 상위 20 자격 → 그중 실현마진 상위 12 선별 (주력만)
+  // 4-5 ① BEST 12: 21일 순판매량 상위 20 자격 → 그중 실현마진 상위 12 선별 (주력만)
   let best = [];
   if (major) {
-    best = [...passed].sort((a, b) => b.net30 - a.net30).slice(0, 20)
-      .sort((a, b) => b.rm30 - a.rm30).slice(0, 12);
+    best = [...passed].sort((a, b) => b.net21 - a.net21).slice(0, 20)
+      .sort((a, b) => b.rm21 - a.rm21).slice(0, 12);
   }
   const bestSet = new Set(best.map(r => r.no));
 
@@ -1936,12 +1936,12 @@ function dispCompute(catNo) {
   let fresh = passed.filter(r => !bestSet.has(r.no) && r.ageDays <= cfg.freshDays)
     .sort((a, b) => (b.created > a.created ? 1 : -1))
     .slice(0, cfg.newMax);
-  // 조기 강등: 7일 경과 & 30일 조회수 충분 & 블록 내 점수 하위 25%
+  // 조기 강등: 7일 경과 & 21일 조회수 충분 & 블록 내 점수 하위 25%
   if (fresh.length >= 4) {
     const sorted = [...fresh].sort((a, b) => a.score - b.score);
     const bottom = new Set(sorted.slice(0, Math.ceil(fresh.length * 0.25)).map(r => r.no));
     fresh = fresh.filter(r => {
-      const demote = bottom.has(r.no) && r.ageDays >= 7 && r.v30 >= cfg.demoteViews;
+      const demote = bottom.has(r.no) && r.ageDays >= 7 && r.v21 >= cfg.demoteViews;
       if (demote) r.demoted = true;
       return !demote;
     });
@@ -1966,7 +1966,7 @@ function dispCompute(catNo) {
   }
 
   return {
-    order, best, fresh, excluded, passed, major, coreN, a7, a23, median, outlierBar,
+    order, best, fresh, excluded, passed, major, coreN, a7, a14, median, outlierBar,
     marginMissingN: rows.filter(r => r.reasons.includes('마진 데이터 없음')).length,
   };
 }
@@ -1991,12 +1991,12 @@ async function dispRender() {
   const reasonCnt = {};
   R.excluded.forEach(r => r.reasons.forEach(x => reasonCnt[x] = (reasonCnt[x] || 0) + 1));
   $('disp-summary').innerHTML =
-    tile('카테고리 등급', R.major ? '주력' : '비주력', `조회 ${cfg.coreViews}+ 상품 ${R.coreN}개 (기준 ${cfg.coreCount}개)`, !R.major) +
+    tile('카테고리 등급', R.major ? '주력' : '비주력', `21일 조회 ${cfg.coreViews}+ 상품 ${R.coreN}개 (기준 ${cfg.coreCount}개)`, !R.major) +
     tile('신상 블록', `${R.fresh.length}개`, R.fresh.length < cfg.newMax ? `최대 ${cfg.newMax}개 미만 — 억지로 채우지 않음` : '', R.fresh.length < cfg.newMax) +
     tile('하드 필터 제외', `${R.excluded.length}개`, Object.entries(reasonCnt).map(([k, v]) => `${k} ${v}`).join(' · ') || '없음', R.excluded.length > 0) +
     tile('마진 데이터 누락', `${R.marginMissingN}개`, '계산 제외 — 카페24에 공급가 입력 필요', R.marginMissingN > 0) +
-    tile('평균 조회당마진 (7d)', R.a7.mpv.toFixed(1) + '원', `K(7d)=${R.a7.K.toFixed(1)} · K(23d)=${R.a23.K.toFixed(1)}`) +
-    tile('트래픽 이상치 기준', fmt(Math.round(R.outlierBar)) + '회 이상', `30일 조회 중앙값 ${fmt(R.median)} × ${cfg.outlierMult}`);
+    tile('평균 조회당마진 (7d)', R.a7.mpv.toFixed(1) + '원', `K(7d)=${R.a7.K.toFixed(1)} · K(14d)=${R.a14.K.toFixed(1)}`) +
+    tile('트래픽 이상치 기준', fmt(Math.round(R.outlierBar)) + '회 이상', `21일 조회 중앙값 ${fmt(R.median)} × ${cfg.outlierMult}`);
   $('disp-summary').style.display = 'grid';
 
   const notes = ['사이즈 결품 판정 미지원 — 옵션별 품절 설정의 일괄 조회 API가 없어 제외 (재고 수량으로 대체하지 않음)'];
@@ -2013,8 +2013,8 @@ async function dispRender() {
   let html = `<div class="table-wrap" style="max-height:640px;overflow:auto;"><table>
     <thead><tr>
       <th>순위</th><th>구간</th><th>코드</th><th style="text-align:left;">상품명</th><th>등록일</th>
-      <th>조회7d</th><th>조회23d</th><th>순판매7d</th><th>손실률</th><th>개당마진</th>
-      <th>조정7d</th><th>조정23d</th><th>점수</th><th>배지</th><th>변동</th>
+      <th>조회7d</th><th>조회14d</th><th>순판매7d</th><th>순반품률</th><th>개당마진</th>
+      <th>조정7d</th><th>조정14d</th><th>점수</th><th>배지</th><th>변동</th>
     </tr></thead><tbody>`;
   for (const r of R.order) {
     const badges = [];
@@ -2031,10 +2031,10 @@ async function dispRender() {
       <td style="font-size:.72rem;color:#6b7280;">${escHtml(r.code)}</td>
       <td style="text-align:left;min-width:200px;">${escHtml(r.name)}</td>
       <td style="font-size:.75rem;">${r.created}</td>
-      <td>${fmt(r.v7)}</td><td>${fmt(r.v23)}</td><td>${r.net7.toFixed(1)}</td>
+      <td>${fmt(r.v7)}</td><td>${fmt(r.v14)}</td><td>${r.net7.toFixed(1)}</td>
       <td>${(r.loss * 100).toFixed(1)}%</td>
       <td>${r.marginMissing ? '—' : fmt(Math.round(r.unitMargin)) + '원'}</td>
-      <td>${r.adj7.toFixed(1)}</td><td>${r.adj23.toFixed(1)}</td>
+      <td>${r.adj7.toFixed(1)}</td><td>${r.adj14.toFixed(1)}</td>
       <td style="font-weight:800;color:#1e1b4b;">${r.score.toFixed(1)}</td>
       <td style="text-align:left;">${badges.join(' ')}</td><td>${delta}</td>
     </tr>`;

@@ -168,40 +168,51 @@ Deno.serve(async (req) => {
       const day = 24 * 3600 * 1000;
       const dstr = (t: number) => new Date(t).toISOString().slice(0, 10);
       const endMs = new Date(e).getTime();
-      const s7 = dstr(endMs - 6 * day), s30 = dstr(endMs - 29 * day);
+      // 트렌드 지표(조회·판매)는 21일 창 — 신상 회전이 빠르고 간절기 영향이 커서 30일은 과거 시즌 노이즈 포함 (상품팀 결정)
+      const s7 = dstr(endMs - 6 * day), s21 = dstr(endMs - 20 * day);
 
       const range = (s: string) => new URLSearchParams({ mall_id: MALL_ID, start_date: s, end_date: e });
-      const [v7, v30, q7, q30] = await Promise.all([
+      const [v7, v21, q7, q21] = await Promise.all([
         collectData("/products/view", "view", range(s7), token),
-        collectData("/products/view", "view", range(s30), token),
+        collectData("/products/view", "view", range(s21), token),
         collectData("/products/sales", "sales", range(s7), token),
-        collectData("/products/sales", "sales", range(s30), token),
+        collectData("/products/sales", "sales", range(s21), token),
       ]);
 
-      type M = { v7: number; v30: number; q7: number; q30: number; amt7: number; amt30: number; claims30: number };
+      type M = { v7: number; v21: number; q7: number; q21: number; amt7: number; amt21: number; del7: number; ret7: number };
       const map = new Map<number, M>();
       const of = (no: number): M => {
         let m = map.get(no);
-        if (!m) { m = { v7: 0, v30: 0, q7: 0, q30: 0, amt7: 0, amt30: 0, claims30: 0 }; map.set(no, m); }
+        if (!m) { m = { v7: 0, v21: 0, q7: 0, q21: 0, amt7: 0, amt21: 0, del7: 0, ret7: 0 }; map.set(no, m); }
         return m;
       };
       for (const r of v7) of(Number(r.product_no)).v7 += num(r.count);
-      for (const r of v30) of(Number(r.product_no)).v30 += num(r.count);
+      for (const r of v21) of(Number(r.product_no)).v21 += num(r.count);
       for (const r of q7) { const m = of(Number(r.product_no)); m.q7 += num(r.order_product_count); m.amt7 += num(r.order_amount); }
-      for (const r of q30) { const m = of(Number(r.product_no)); m.q30 += num(r.order_product_count); m.amt30 += num(r.order_amount); }
+      for (const r of q21) { const m = of(Number(r.product_no)); m.q21 += num(r.order_product_count); m.amt21 += num(r.order_amount); }
 
-      // 30일 취소·반품 수량 (주문일 기준, 품목 C40/R40)
+      // 순반품률 — '판매 성과' 메뉴와 동일 기준: 품목 delivered_date + R40/R30/R34
+      // 창은 기준일 3일 전부터 거슬러 7일 (예: 기준일 07/30 → 07/21~07/27) — 최근 3일은 반품 접수가 미확정이라 제외
+      const lossS = dstr(endMs - 9 * day), lossE = dstr(endMs - 3 * day);
+      const NET_RETURN_STATUSES = new Set(["R40", "R30", "R34"]);
+      const fetchStart = dstr(new Date(lossS).getTime() - 7 * day);
+      const fetchEnd = dstr(Math.min(new Date(lossE).getTime() + 30 * day, Date.now()));
       const LIMIT = 500;
-      for (let offset = 0; offset <= 30000; offset += LIMIT) {
+      for (let offset = 0; offset <= 60000; offset += LIMIT) {
         const body = await apiGet(
-          `${API_BASE}/admin/orders?start_date=${s30}&end_date=${e}&date_type=order_date` +
-          `&order_status=C40,R40&embed=items&fields=order_id,items&limit=${LIMIT}&offset=${offset}`, token);
+          `${API_BASE}/admin/orders?start_date=${fetchStart}&end_date=${fetchEnd}&date_type=shipend_date` +
+          `&embed=items&fields=order_id,items&limit=${LIMIT}&offset=${offset}`, token);
         const orders = (body.orders ?? []) as Record<string, unknown>[];
         for (const o of orders) {
           for (const it of (o.items ?? []) as Record<string, unknown>[]) {
-            const st = String(it.order_status ?? "");
-            if (st !== "C40" && st !== "R40") continue;
-            of(Number(it.product_no)).claims30 += num(it.quantity);
+            const dd = String(it.delivered_date ?? "").slice(0, 10);
+            if (!dd || dd < lossS || dd > lossE) continue;
+            const no = Number(it.product_no);
+            if (!no) continue;
+            const m = of(no);
+            const qty = num(it.quantity);
+            m.del7 += qty;
+            if (NET_RETURN_STATUSES.has(String(it.order_status ?? ""))) m.ret7 += qty;
           }
         }
         if (orders.length < LIMIT) break;
@@ -209,7 +220,7 @@ Deno.serve(async (req) => {
 
       const metrics: Record<string, M> = {};
       for (const [no, m] of map) metrics[String(no)] = m;
-      return json({ period: { end: e, start7: s7, start30: s30 }, metrics });
+      return json({ period: { end: e, start7: s7, start21: s21, loss_start: lossS, loss_end: lossE }, metrics });
     }
 
     // ── 상품 기본 정보 배치 조회 (관리자 전용): 진열 계산용 ──
