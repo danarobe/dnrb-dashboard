@@ -89,6 +89,11 @@
     .role-staff #box-cancel-reasons, .role-staff #box-return-reasons {
       filter: blur(7px); pointer-events: none; user-select: none;
     }
+    /* ── CS팀 권한: 판매 성과의 전사 합계 지표 블러 + 기록 저장/비교 숨김 ── */
+    .role-cs .cs-blur {
+      filter: blur(8px); pointer-events: none; user-select: none;
+    }
+    .role-cs #perf-save-panel, .role-cs #perf-archive-section { display: none !important; }
     /* ── 모바일 최적화 ── */
     @media (max-width: 700px) {
       /* 인라인 grid는 전부 1열로 (KPI 타일·TOP10·사유·회의록 등) */
@@ -1203,6 +1208,7 @@ function loadSession() {
 }
 const isStaff = () => SESSION?.role === 'staff';
 const isAdmin = () => SESSION?.role === 'admin';
+const isCS    = () => SESSION?.role === 'cs';
 
 async function authApi(body) {
   const res = await fetch(fnUrl('auth', {}), {
@@ -1233,8 +1239,13 @@ function logout() {
 
 function applyRole() {
   document.body.classList.toggle('role-staff', isStaff());
+  document.body.classList.toggle('role-cs', isCS());
+  // CS팀은 판매 성과 메뉴만 노출
+  document.querySelectorAll('.menu-item').forEach(b => {
+    b.style.display = isCS() && b.dataset.menu !== 'perf' ? 'none' : '';
+  });
   $('menu-users').style.display = isAdmin() ? '' : 'none';
-  $('user-info').textContent = SESSION ? `${SESSION.name} (${isAdmin() ? '관리자' : '직원'})` : '';
+  $('user-info').textContent = SESSION ? `${SESSION.name} (${isAdmin() ? '관리자' : isCS() ? 'CS팀' : '직원'})` : '';
   $('btn-logout').style.display = SESSION ? '' : 'none';
 }
 
@@ -1248,18 +1259,20 @@ async function loadUsers() {
       d.users.map(u => {
         const isMe = u.id === SESSION.id;
         const roleBtn = isMe ? '<span style="font-size:.75rem;color:#9ca3af;">(본인)</span>'
-          : u.role === 'admin'
-            ? `<button onclick="setUserRole('${escHtml(u.id)}', 'staff')" style="border:1px solid #fde68a;background:#fffbeb;color:#a16207;border-radius:6px;padding:4px 12px;font-size:.78rem;cursor:pointer;font-weight:600;">직원으로 변경</button>`
-            : `<button onclick="setUserRole('${escHtml(u.id)}', 'admin')" style="border:1px solid #c7d2fe;background:#eef2ff;color:#4338ca;border-radius:6px;padding:4px 12px;font-size:.78rem;cursor:pointer;font-weight:600;">관리자로 승격</button>`;
+          : `<select onchange="setUserRole('${escHtml(u.id)}', this.value)" style="border:1px solid #d1d5db;border-radius:6px;padding:4px 8px;font-size:.78rem;cursor:pointer;font-weight:600;color:#374151;">
+              <option value="admin" ${u.role === 'admin' ? 'selected' : ''}>관리자</option>
+              <option value="staff" ${u.role === 'staff' ? 'selected' : ''}>직원</option>
+              <option value="cs" ${u.role === 'cs' ? 'selected' : ''}>CS팀</option>
+            </select>`;
         const delBtn = (u.role === 'admin') ? '' :
           `<button onclick="deleteUser('${escHtml(u.id)}')" style="border:1px solid #fecaca;background:#fff;color:#dc2626;border-radius:6px;padding:4px 12px;font-size:.78rem;cursor:pointer;font-weight:600;">삭제</button>`;
         return `<tr>
         <td>${escHtml(u.id)}</td><td>${escHtml(u.name)}</td>
-        <td>${u.role === 'admin' ? '<b style="color:#4f46e5;">관리자</b>' : '직원'}</td>
+        <td>${u.role === 'admin' ? '<b style="color:#4f46e5;">관리자</b>' : u.role === 'cs' ? '<b style="color:#0891b2;">CS팀</b>' : '직원'}</td>
         <td>${(u.created_at || '').slice(0, 10)}</td>
         <td style="display:flex;gap:6px;justify-content:center;">${roleBtn}${delBtn}</td>
       </tr>`; }).join('') + '</tbody></table></div>' +
-      '<div style="font-size:.75rem;color:#9ca3af;margin-top:8px;">※ 권한 변경은 해당 직원이 <b>다시 로그인</b>해야 적용됩니다 · 관리자 계정을 삭제하려면 먼저 직원으로 변경하세요</div>';
+      '<div style="font-size:.75rem;color:#9ca3af;margin-top:8px;">※ 권한 변경은 해당 직원이 <b>다시 로그인</b>해야 적용됩니다 · CS팀은 판매 성과 메뉴만 보이며 금액·마진 지표는 가려집니다 · 관리자 계정을 삭제하려면 먼저 직원으로 변경하세요</div>';
   } catch (e) { $('users-list').textContent = '목록 조회 실패: ' + e.message; }
 }
 
@@ -1274,13 +1287,13 @@ async function addUser() {
 }
 
 async function setUserRole(id, role) {
-  const label = role === 'admin' ? '관리자로 승격' : '직원으로 변경';
-  if (!confirm(`"${id}" 계정을 ${label}할까요?`)) return;
+  const label = { admin: '관리자로 변경', staff: '직원으로 변경', cs: 'CS팀으로 변경' }[role] || '역할 변경';
+  if (!confirm(`"${id}" 계정을 ${label}할까요?`)) { loadUsers(); return; }
   try {
     await authApi({ action: 'set_role', token: SESSION.token, id, role });
     showToast(`✅ ${label} 완료 — 해당 직원이 다시 로그인하면 적용됩니다`);
     loadUsers();
-  } catch (e) { showToast('❌ ' + e.message); }
+  } catch (e) { showToast('❌ ' + e.message); loadUsers(); }
 }
 
 async function deleteUser(id) {
@@ -2084,6 +2097,7 @@ const MENU_KEYS = ['home', 'cr', 'an', 'perf', 'disp', 'adv', 'meet', 'users'];
 
 function showMenu(key) {
   if (!MENU_KEYS.includes(key)) key = 'home';
+  if (isCS()) key = 'perf';   // CS팀은 판매 성과만 접근 가능
   if (key === 'cr' && isStaff()) { showToast('⛔ 접근 권한이 없습니다'); return; }
   if (key === 'users' && !isAdmin()) { showToast('⛔ 접근 권한이 없습니다'); return; }
   if (key === 'disp' && !isAdmin()) { showToast('⛔ 접근 권한이 없습니다'); return; }
@@ -3034,9 +3048,9 @@ async function fetchPerfApi() {
     });
     store.perfFilter = 'all';
     renderPerfResult();
-    // 순매출을 광고 분석 입력창에 자동 반영 (직원 제외)
+    // 순매출을 광고 분석 입력창에 자동 반영 (직원·CS팀 제외)
     const autoRevenue = store.salesData.reduce((s, r) => s + r.salesTotal, 0);
-    if (!isStaff() && autoRevenue > 0 && !$('adv-revenue').value) { $('adv-revenue').value = autoRevenue; calcAdv(); }
+    if (!isStaff() && !isCS() && autoRevenue > 0 && !$('adv-revenue').value) { $('adv-revenue').value = autoRevenue; calcAdv(); }
     const noCost = store.salesData.length - mappedCost;
     showToast(`✅ ${store.salesData.length}개 상품 로드 · 공급가 매핑 ${mappedCost}개${noCost > 0 ? ` (공급가 미입력 ${noCost}개는 마진 계산 제외)` : ''}`);
   } catch (e) {
@@ -3110,8 +3124,8 @@ function renderPerfResult() {
     </div>
 
     ${isStaff() ? '' : `
-    <!-- 매출 요약 바 -->
-    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:16px;">
+    <!-- 매출 요약 바 (CS팀은 블러) -->
+    <div class="cs-blur" style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:16px;">
       <div style="background:#f8f9ff;border:1.5px solid #e8eaf0;border-radius:12px;padding:14px 16px;">
         <div style="font-size:.75rem;font-weight:600;color:#6b7280;margin-bottom:5px;">💰 총 매출</div>
         <div style="font-size:1.25rem;font-weight:800;color:#1a1a2e;">${grossSalesAmt > 0 ? fmt(grossSalesAmt) + '원' : '—'}</div>
@@ -3129,8 +3143,8 @@ function renderPerfResult() {
       </div>
     </div>`}
 
-    <!-- 성과 요약 카드 -->
-    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:18px;">
+    <!-- 성과 요약 카드 (전사 합계 — CS팀은 블러) -->
+    <div class="cs-blur" style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:18px;">
       <div style="border-radius:13px;padding:16px;color:#fff;background:linear-gradient(135deg,#4f46e5,#7c3aed);">
         <div style="font-size:.75rem;font-weight:600;opacity:.85;margin-bottom:4px;">🔄 전체 순반품률 <span style="font-size:.68rem;opacity:.7;font-weight:400;">(배송완료일 기준)</span></div>
         <div style="font-size:1.9rem;font-weight:800;">${store.netTotals ? fmtP(store.netTotals.net_return_rate) : '—'}</div>
@@ -3172,10 +3186,10 @@ function renderPerfResult() {
         <th>결제수량</th>
         <th>환불수량</th>
         <th>순판매량</th>
-        ${isStaff() ? '' : '<th>판매합계</th>'}
+        ${isStaff() || isCS() ? '' : '<th>판매합계</th>'}
         <th>순반품률<br><span style="font-size:.68rem;font-weight:400;color:#9ca3af;">배송완료일 기준</span></th>
         <th>취소&amp;반품률<br><span style="font-size:.68rem;font-weight:400;color:#9ca3af;">주문일 기준·참고용</span></th>
-        <th>마진율<br><span style="font-size:.68rem;font-weight:400;color:#9ca3af;">공급가×1.1 기준</span></th>
+        ${isCS() ? '' : '<th>마진율<br><span style="font-size:.68rem;font-weight:400;color:#9ca3af;">공급가×1.1 기준</span></th>'}
       </tr></thead>
       <tbody>`;
 
@@ -3194,7 +3208,7 @@ function renderPerfResult() {
         <td>${row.salePrice>0?fmt(row.salePrice)+'원':'—'}</td>
         <td>${sc}</td>
         <td>${fmt(row.paidQty)}</td><td>${fmt(row.refundQty)}</td><td>${fmt(row.salesQty)}</td>
-        ${isStaff() ? '' : `<td>${row.salesTotal>0?fmt(row.salesTotal)+'원':'—'}</td>`}
+        ${isStaff() || isCS() ? '' : `<td>${row.salesTotal>0?fmt(row.salesTotal)+'원':'—'}</td>`}
         <td>${netReturnBadge(row)}${(() => {
           const nr = netOf(row);
           if (!nr) return '';
@@ -3206,7 +3220,7 @@ function renderPerfResult() {
           return cell;
         })()}</td>
         <td style="color:#6b7280;">${fmtP(row.returnRate)}</td>
-        <td>${mg}</td>
+        ${isCS() ? '' : `<td>${mg}</td>`}
       </tr>`;
       // 옵션별 순반품률 접이식 상세 행 (기본 숨김 — 버튼 클릭 시 표시)
       const nrRow = netOf(row);
@@ -3220,7 +3234,7 @@ function renderPerfResult() {
           </div>`;
         }).join('');
         html += `<tr id="nr-opt-${row.productNo}" style="display:none;">
-          <td colspan="${isStaff() ? 10 : 11}" style="background:#f8f9ff;text-align:left;padding:10px 18px;font-size:.8rem;color:#374151;">
+          <td colspan="${isCS() ? 9 : isStaff() ? 10 : 11}" style="background:#f8f9ff;text-align:left;padding:10px 18px;font-size:.8rem;color:#374151;">
             <div style="font-weight:700;color:#4338ca;margin-bottom:4px;">옵션별 순반품률 <span style="font-weight:400;color:#9ca3af;font-size:.72rem;">(⚠ = 배송완료 10개 미만, 참고용)</span></div>
             ${optHtml}
           </td>
@@ -4369,11 +4383,11 @@ function advInsight(revenue, advCost, fixedCost, supplyCost, netProfit, roas, sc
 /* 로그인 후 데이터 로드 시작 */
 function bootApp() {
   applyRole();
-  loadArchive();
-  if (!isStaff()) loadCrArchive();   // 취소·반품 기록은 관리자만
-  loadPerfArchive();
+  if (!isCS()) loadArchive();        // 광고 기록 — CS팀 제외
+  if (isAdmin()) loadCrArchive();    // 취소·반품 기록은 관리자만
+  if (!isCS()) loadPerfArchive();    // 판매 성과 기록(순매출·마진 집계 포함) — CS팀 제외
   checkCafe24Status();
-  loadAnCategories().then(() => fetchAnalytics(true)).then(() => { updateHomeTrafficTile(); loadTrending(); });
+  if (!isCS()) loadAnCategories().then(() => fetchAnalytics(true)).then(() => { updateHomeTrafficTile(); loadTrending(); });
   if (new URLSearchParams(location.search).get('cafe24') === 'connected') {
     showToast('✅ 카페24 연동이 완료됐습니다!');
     history.replaceState(null, '', location.pathname);
