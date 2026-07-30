@@ -113,6 +113,10 @@ Deno.serve(async (req) => {
   const action = url.searchParams.get("action") ?? "summary";
 
   try {
+    // 외부 차단: 전 액션 로그인 필수 — 서명·만료 + DB 실계정 확인 (역할은 DB 현재값)
+    const authed = await verifyAuthToken(req);
+    if (!authed) return json({ error: "로그인이 필요합니다" }, 401);
+
     const token = await getAccessToken();
 
     // ── 카테고리 목록 ──
@@ -147,8 +151,7 @@ Deno.serve(async (req) => {
     // 주문수는 통계와 정확히 일치하며 금액은 ±0.5% 내외 차이 가능(부분취소 반영 시점 차이).
     if (action === "revenue") {
       // 총 매출액은 관리자 전용 (직원은 서버 차단)
-      const authed = await verifyAuthToken(req);
-      if (!authed || authed.role !== "admin") return json({ error: "접근 권한이 없습니다" }, 403);
+      if (authed.role !== "admin") return json({ error: "접근 권한이 없습니다" }, 403);
       const s = url.searchParams.get("start_date");
       const e = url.searchParams.get("end_date");
       if (!s || !e) return json({ error: "start_date, end_date 필수 (YYYY-MM-DD)" }, 400);
@@ -161,8 +164,7 @@ Deno.serve(async (req) => {
 
     // ── 진열 계산용 지표 (관리자 전용): 7일/30일 조회수·판매량 + 30일 취소반품수량 ──
     if (action === "displaymetrics") {
-      const authed = await verifyAuthToken(req);
-      if (!authed || authed.role !== "admin") return json({ error: "접근 권한이 없습니다" }, 403);
+      if (authed.role !== "admin") return json({ error: "접근 권한이 없습니다" }, 403);
       const e = url.searchParams.get("end_date");
       if (!e) return json({ error: "end_date 필수 (YYYY-MM-DD)" }, 400);
       const day = 24 * 3600 * 1000;
@@ -225,8 +227,7 @@ Deno.serve(async (req) => {
 
     // ── 상품 기본 정보 배치 조회 (관리자 전용): 진열 계산용 ──
     if (action === "productinfo") {
-      const authed = await verifyAuthToken(req);
-      if (!authed || authed.role !== "admin") return json({ error: "접근 권한이 없습니다" }, 403);
+      if (authed.role !== "admin") return json({ error: "접근 권한이 없습니다" }, 403);
       const nosParam = url.searchParams.get("product_nos") ?? "";
       const nos = nosParam.split(",").map((s) => Number(s)).filter((n) => n > 0);
       if (!nos.length) return json({ error: "product_nos 필수" }, 400);
@@ -384,6 +385,8 @@ Deno.serve(async (req) => {
       }
 
       const rows = [...map.values()].sort((a, b) => b.paid_qty - a.paid_qty);
+      // 주문금액(판매합계)은 관리자만 — 직원·CS는 UI에서도 숨김/블러 처리되는 값이라 서버에서 0으로 제거
+      if (authed.role !== "admin") for (const r of rows) r.order_amount = 0;
       return json({ period: { start: s, end: e }, product_count: rows.length, rows });
     }
 

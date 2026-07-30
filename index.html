@@ -1314,26 +1314,35 @@ async function changeMyPassword() {
   } catch (e) { showToast('❌ ' + e.message); }
 }
 
-/* 아카이브 테이블 CRUD (기존 젠스파크 tables/ API 대체) */
-async function sbList(table) {
+/* 아카이브·회의록 테이블 접근 — db 프록시 함수 경유 (anon 직접 접근은 차단됨) */
+async function dbProxy(path, init = {}) {
   if (!sbReady()) throw new Error('config.js에 Supabase 설정이 필요합니다');
-  const res = await fetch(`${SB.SUPABASE_URL}/rest/v1/${table}?select=*&order=created_at.desc&limit=50`, { headers: sbHeaders() });
-  if (!res.ok) throw new Error('조회 실패 ' + res.status);
-  return await res.json();
+  const res = await fetch(`${SB.SUPABASE_URL}/functions/v1/db`, {
+    method: 'POST',
+    headers: sbHeaders(),
+    body: JSON.stringify({
+      path,
+      method: init.method || 'GET',
+      body: init.body != null ? JSON.parse(init.body) : undefined,
+      prefer: (init.headers || {}).Prefer,
+    }),
+  });
+  const text = await res.text();
+  if (!res.ok) {
+    let msg = String(res.status);
+    try { msg = JSON.parse(text).error || JSON.parse(text).message || msg; } catch {}
+    throw new Error(msg);
+  }
+  return text ? JSON.parse(text) : null;
+}
+async function sbList(table) {
+  return await dbProxy(`${table}?select=*&order=created_at.desc&limit=50`) || [];
 }
 async function sbInsert(table, body) {
-  if (!sbReady()) throw new Error('config.js에 Supabase 설정이 필요합니다');
-  const res = await fetch(`${SB.SUPABASE_URL}/rest/v1/${table}`, {
-    method: 'POST', headers: sbHeaders(), body: JSON.stringify(body),
-  });
-  if (!res.ok) throw new Error('저장 실패 ' + res.status);
+  await dbProxy(table, { method: 'POST', body: JSON.stringify(body) });
 }
 async function sbDelete(table, id) {
-  if (!sbReady()) throw new Error('config.js에 Supabase 설정이 필요합니다');
-  const res = await fetch(`${SB.SUPABASE_URL}/rest/v1/${table}?id=eq.${id}`, {
-    method: 'DELETE', headers: sbHeaders(),
-  });
-  if (!res.ok) throw new Error('삭제 실패 ' + res.status);
+  await dbProxy(`${table}?id=eq.${id}`, { method: 'DELETE' });
 }
 
 /* ──────────────────────────────
@@ -1638,12 +1647,11 @@ function downloadAnalyticsCSV() {
 const MEET_STATUS = { todo: '🕐 논의 전', doing: '🔄 진행중', done: '✅ 논의완료' };
 
 async function meetRest(path, init = {}) {
-  const res = await fetch(`${SB.SUPABASE_URL}/rest/v1/${path}`, {
-    ...init, headers: { ...sbHeaders(), ...(init.headers || {}) },
-  });
-  if (!res.ok) throw new Error('회의록 요청 실패 ' + res.status);
-  const text = await res.text();
-  return text ? JSON.parse(text) : null;   // 201/204 등 빈 본문 응답 대응
+  try {
+    return await dbProxy(path, init);
+  } catch (e) {
+    throw new Error('회의록 요청 실패: ' + e.message);
+  }
 }
 
 async function loadAdTopics() {

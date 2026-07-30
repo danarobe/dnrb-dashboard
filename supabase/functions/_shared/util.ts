@@ -37,9 +37,17 @@ export async function verifyAuthTokenString(token: string): Promise<AuthUser | n
   } catch { return null; }
 }
 
+// 서명·만료 검증 후 DB에서 계정 존재를 재확인 — 삭제된 계정의 토큰은 즉시 무효,
+// 역할은 토큰이 아닌 DB의 현재 값을 사용 (권한 변경 즉시 반영)
 export async function verifyAuthToken(req: Request): Promise<AuthUser | null> {
   const token = req.headers.get("x-auth-token") ?? "";
-  return token ? await verifyAuthTokenString(token) : null;
+  const u = token ? await verifyAuthTokenString(token) : null;
+  if (!u) return null;
+  const res = await rest(`app_users?id=eq.${encodeURIComponent(u.id)}&select=id,name,role`);
+  if (!res.ok) return null;
+  const row = (await res.json())[0];
+  if (!row) return null;
+  return { ...u, name: String(row.name), role: String(row.role) };
 }
 
 export function json(body: unknown, status = 200): Response {

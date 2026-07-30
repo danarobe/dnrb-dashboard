@@ -1,0 +1,73 @@
+// ═══════════════════════════════════════════════
+// 아카이브·회의록 테이블 접근 프록시
+//   POST { path, method, body?, prefer? }
+//   → 로그인 토큰 검증(DB 실계정 확인) 후 service_role로 PostgREST 대행
+//
+// 테이블 anon 정책을 제거하고 이 함수로만 접근한다 (외부 직접 접근 차단).
+// path는 PostgREST 경로 그대로 (예: "cr_archive?select=*&order=created_at.desc")
+// ═══════════════════════════════════════════════
+import { handleOptions, json, verifyAuthToken, CORS_HEADERS } from "../_shared/util.ts";
+
+const SB_URL = Deno.env.get("SUPABASE_URL")!;
+const SB_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+
+// 테이블별 접근 가능 역할 (회의 보드용 topics는 이 대시보드 소관이 아니므로 미포함)
+const TABLE_ROLES: Record<string, string[]> = {
+  cr_archive: ["admin"],
+  perf_archive: ["admin", "staff"],
+  adv_archive: ["admin", "staff"],
+  ad_meeting_topics: ["admin", "staff"],
+  ad_meeting_notes: ["admin", "staff"],
+};
+const METHODS = new Set(["GET", "POST", "PATCH", "DELETE"]);
+
+Deno.serve(async (req) => {
+  const opt = handleOptions(req);
+  if (opt) return opt;
+
+  const me = await verifyAuthToken(req);
+  if (!me) return json({ error: "로그인이 필요합니다" }, 401);
+
+  try {
+    const { path, method, body, prefer } = await req.json().catch(() => ({}));
+    const p = String(path ?? "");
+    const m = String(method ?? "GET").toUpperCase();
+    const table = p.split("?")[0];
+    if (!METHODS.has(m)) return json({ error: "잘못된 요청" }, 400);
+    if (!/^[a-z_]+$/.test(table) || !TABLE_ROLES[table]) return json({ error: "허용되지 않은 테이블" }, 403);
+    if (!TABLE_ROLES[table].includes(me.role)) return json({ error: "접근 권한이 없습니다" }, 403);
+
+    // 회의 기록은 본인 것만 수정·삭제 가능 (클라이언트와 동일 규칙을 서버에서 강제)
+    if (table === "ad_meeting_notes") {
+      if (m === "PATCH" || m === "DELETE") {
+        const qs = new URLSearchParams(p.split("?")[1] ?? "");
+        if (qs.get("author_id") !== `eq.${me.id}`) return json({ error: "본인 기록만 수정할 수 있습니다" }, 403);
+      }
+      if (m === "POST" && body && String((body as Record<string, unknown>).author_id) !== me.id) {
+        return json({ error: "작성자 정보가 올바르지 않습니다" }, 400);
+      }
+    }
+
+    const headers: Record<string, string> = {
+      apikey: SB_KEY,
+      Authorization: `Bearer ${SB_KEY}`,
+      "Content-Type": "application/json",
+    };
+    if (prefer) headers["Prefer"] = String(prefer);
+    const upstream = await fetch(`${SB_URL}/rest/v1/${p}`, {
+      method: m,
+      headers,
+      body: m === "GET" ? undefined : (body !== undefined ? JSON.stringify(body) : undefined),
+    });
+    const text = await upstream.text();
+    if (upstream.status === 204 || !text) {
+      return new Response(null, { status: upstream.status === 204 ? 204 : upstream.status, headers: CORS_HEADERS });
+    }
+    return new Response(text, {
+      status: upstream.status,
+      headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
+    });
+  } catch (e) {
+    return json({ error: String(e) }, 500);
+  }
+});

@@ -60,8 +60,12 @@ Deno.serve(async (req) => {
     }
 
     // ── 이하 액션은 로그인 토큰 필요 ──
+    // 서명 검증 후 DB에서 계정 존재·현재 역할 재확인 (삭제된 계정 토큰 즉시 무효화)
     const me = await verifyAuthTokenString(String(body.token ?? ""));
     if (!me) return json({ error: "로그인이 필요합니다" }, 401);
+    const meRow = await getUser(me.id);
+    if (!meRow) return json({ error: "로그인이 필요합니다" }, 401);
+    me.role = String(meRow.role);
 
     if (action === "change_password") {
       const user = await getUser(me.id);

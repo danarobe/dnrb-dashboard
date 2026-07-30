@@ -11,7 +11,7 @@
 // 필요 환경변수: NAVER_CLIENT_ID, NAVER_CLIENT_SECRET
 // ═══════════════════════════════════════════════
 import bcrypt from "npm:bcryptjs@2.4.3";
-import { handleOptions, json, getToken, saveToken } from "../_shared/util.ts";
+import { handleOptions, json, getToken, saveToken, verifyAuthToken } from "../_shared/util.ts";
 
 const CLIENT_ID = Deno.env.get("NAVER_CLIENT_ID")!;
 const CLIENT_SECRET = Deno.env.get("NAVER_CLIENT_SECRET")!;
@@ -118,6 +118,10 @@ function deepPick(obj: unknown, keys: string[]): string {
 Deno.serve(async (req) => {
   const opt = handleOptions(req);
   if (opt) return opt;
+
+  // 취소&반품 메뉴는 관리자 전용 — 서버에서도 차단
+  const authed = await verifyAuthToken(req);
+  if (!authed || authed.role !== "admin") return json({ error: "접근 권한이 없습니다" }, 403);
 
   const url = new URL(req.url);
   const startDate = url.searchParams.get("start_date");

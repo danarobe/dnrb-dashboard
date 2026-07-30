@@ -17,3 +17,7 @@ verify_jwt = true
 
 [functions.auth]
 verify_jwt = true
+
+# 아카이브·회의록 테이블 프록시 (anon 정책 제거 후 유일한 접근 경로)
+[functions.db]
+verify_jwt = true
