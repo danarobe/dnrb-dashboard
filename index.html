@@ -2062,9 +2062,14 @@ async function dispRender() {
   const zoneBg = { 'BEST': '#fefce8', '신상': '#eff6ff', '제외': '#fef2f2', '하위': '#fafafa', '수동검토': '#fdf4ff', '데이터부족': '#f1f5f9', '시즌제외': '#ffedd5' };
   let html = `<div class="table-wrap" style="max-height:640px;overflow:auto;"><table>
     <thead><tr>
-      <th>순위</th><th>구간</th><th>코드</th><th style="text-align:left;">상품명</th><th>등록일</th>
-      <th>조회7d</th><th>조회14d</th><th>순판매7d</th><th>순반품률</th><th>개당마진</th>
-      <th>조정7d</th><th>조정14d</th><th>점수</th><th>배지</th><th>변동</th><th>시즌</th>
+      <th>순위</th><th>구간</th><th style="text-align:left;">상품명</th><th>등록일</th>
+      <th>조회<br><span style="font-size:.68rem;font-weight:400;color:#9ca3af;">7d</span></th>
+      <th>조회<br><span style="font-size:.68rem;font-weight:400;color:#9ca3af;">14d</span></th>
+      <th>순판매<br><span style="font-size:.68rem;font-weight:400;color:#9ca3af;">7d</span></th>
+      <th>순반품률</th>
+      <th>조정<br><span style="font-size:.68rem;font-weight:400;color:#9ca3af;">7d</span></th>
+      <th>조정<br><span style="font-size:.68rem;font-weight:400;color:#9ca3af;">14d</span></th>
+      <th>점수</th><th>배지</th><th>변동</th><th>시즌</th><th>코드</th>
     </tr></thead><tbody>`;
   for (const r of R.order) {
     const badges = [];
@@ -2078,18 +2083,17 @@ async function dispRender() {
     }
     html += `<tr style="background:${zoneBg[r.zone] || '#fff'};">
       <td>${r.rank}</td><td style="font-size:.72rem;font-weight:700;">${r.zone}</td>
-      <td style="font-size:.72rem;color:#6b7280;">${escHtml(r.code)}</td>
       <td style="text-align:left;min-width:200px;">${escHtml(r.name)}</td>
       <td style="font-size:.75rem;">${r.created}</td>
       <td>${fmt(r.v7)}</td><td>${fmt(r.v14)}</td><td>${r.net7.toFixed(1)}</td>
       <td>${(r.loss * 100).toFixed(1)}%</td>
-      <td>${r.marginMissing ? '—' : fmt(Math.round(r.unitMargin)) + '원'}</td>
       <td>${r.adj7.toFixed(1)}</td><td>${r.adj14.toFixed(1)}</td>
       <td style="font-weight:800;color:#1e1b4b;">${r.score.toFixed(1)}</td>
       <td style="text-align:left;">${badges.join(' ')}</td><td>${delta}</td>
       <td>${r.excluded ? '' : r.seasonOut
         ? `<button onclick="dispToggleSeason(${r.no})" style="border:1px solid #fdba74;background:#fff7ed;color:#c2410c;border-radius:6px;padding:2px 8px;font-size:.7rem;font-weight:700;cursor:pointer;">복원</button>`
         : `<button onclick="dispToggleSeason(${r.no})" style="border:1px solid #e5e7eb;background:#fff;color:#9ca3af;border-radius:6px;padding:2px 8px;font-size:.7rem;cursor:pointer;">제외</button>`}</td>
+      <td style="font-size:.72rem;color:#6b7280;">${escHtml(r.code)}</td>
     </tr>`;
   }
   html += '</tbody></table></div>';
