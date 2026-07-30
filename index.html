@@ -865,7 +865,7 @@
           <label>랭킹 구간 끝 순위 <input type="number" id="dcfg-rankend" value="48" oninput="dispRender()" /></label>
           <label>7일 가중치 <input type="number" step="0.05" id="dcfg-w7" value="0.7" oninput="dispRender()" /></label>
           <label>축소추정 계수 <input type="number" step="0.05" id="dcfg-shrink" value="0.3" oninput="dispRender()" /></label>
-          <label>순반품률 사전평균 <input type="number" step="0.01" id="dcfg-priorloss" value="0.12" oninput="dispRender()" /></label>
+          <label>순반품률 사전평균 (비우면 자동=전사 평균) <input type="number" step="0.01" id="dcfg-priorloss" value="" placeholder="자동" oninput="dispRender()" /></label>
           <label>순반품률 사전표본수 <input type="number" id="dcfg-priorn" value="20" oninput="dispRender()" /></label>
           <label>반품 건당 비용 (원) <input type="number" id="dcfg-returncost" value="2000" oninput="dispRender()" /></label>
           <label>결제 수수료율 (%) <input type="number" step="0.1" id="dcfg-feerate" value="3" oninput="dispRender()" /></label>
@@ -1889,6 +1889,11 @@ function dispCompute(catNo) {
   const day = 24 * 3600 * 1000;
   const members = dispState.members[catNo] || [];
 
+  // 사전평균 자동 계산: 조회 시점의 전사 순반품률(Σ반품 ÷ Σ배송완료) — 설정에 값을 넣으면 그 값이 우선
+  let sumDel = 0, sumRet = 0;
+  for (const m of Object.values(dispState.metrics)) { sumDel += m.del7 || 0; sumRet += m.ret7 || 0; }
+  const priorLoss = cfg.priorLoss > 0 ? cfg.priorLoss : (sumDel > 0 ? sumRet / sumDel : 0.12);
+
   const rows = members.map(no => {
     const inf = dispState.info[no];
     const m = dispState.metrics[no] || { v7: 0, v21: 0, q7: 0, q21: 0, amt7: 0, amt21: 0, del7: 0, ret7: 0 };
@@ -1898,7 +1903,7 @@ function dispCompute(catNo) {
     const unitMargin = price * (1 - cfg.feeRate) - supply - cfg.shipCost;
     const marginMissing = !(price > 0 && supply > 0);
     // 4-2 보정순반품률 (사전평균으로 평활, 1.0 클리핑) — '판매 성과'와 동일 기준(delivered_date, R40/R30/R34), 창 = 기준일 −9일 ~ −3일
-    const loss = Math.min(1, (m.ret7 + cfg.priorN * cfg.priorLoss) / (m.del7 + cfg.priorN));
+    const loss = Math.min(1, (m.ret7 + cfg.priorN * priorLoss) / (m.del7 + cfg.priorN));
     const net7 = q7 * (1 - loss), net14 = q14 * (1 - loss), net21 = m.q21 * (1 - loss);
     const rm7 = marginMissing ? 0 : net7 * unitMargin - q7 * loss * cfg.returnCost;
     const rm14 = marginMissing ? 0 : net14 * unitMargin - q14 * loss * cfg.returnCost;
@@ -2009,6 +2014,7 @@ function dispCompute(catNo) {
   return {
     order, best, fresh, excluded, passed, major, coreN, a7, a14, median, outlierBar,
     evidenceBar, lowEvN: lowEv.length, seasonOutN: seasonOut.length,
+    priorLoss, priorAuto: !(cfg.priorLoss > 0),
     marginMissingN: rows.filter(r => r.reasons.includes('마진 데이터 없음')).length,
   };
 }
@@ -2043,7 +2049,7 @@ async function dispRender() {
     tile('신상 블록', `${R.fresh.length}개`, R.fresh.length < cfg.newMax ? `최대 ${cfg.newMax}개 미만 — 억지로 채우지 않음` : '', R.fresh.length < cfg.newMax) +
     tile('하드 필터 제외', `${R.excluded.length}개`, Object.entries(reasonCnt).map(([k, v]) => `${k} ${v}`).join(' · ') || '없음', R.excluded.length > 0) +
     tile('마진 데이터 누락', `${R.marginMissingN}개`, '계산 제외 — 카페24에 공급가 입력 필요', R.marginMissingN > 0) +
-    tile('평균 조회당마진 (7d)', R.a7.mpv.toFixed(1) + '원', `K(7d)=${R.a7.K.toFixed(1)} · K(14d)=${R.a14.K.toFixed(1)}`) +
+    tile('평균 조회당마진 (7d)', R.a7.mpv.toFixed(1) + '원', `K(7d)=${R.a7.K.toFixed(1)} · K(14d)=${R.a14.K.toFixed(1)} · 반품 사전평균 ${(R.priorLoss * 100).toFixed(1)}%${R.priorAuto ? '(전사 자동)' : '(수동)'}`) +
     tile('트래픽 이상치 기준', fmt(Math.round(R.outlierBar)) + '회 이상', `21일 조회 중앙값 ${fmt(R.median)} × ${cfg.outlierMult}`) +
     tile('데이터부족 하강', `${R.lowEvN}개`, R.major ? `21일 조회 ${Math.round(R.evidenceBar)}회 미만 또는 판매 ${cfg.minSales}개 미만` : '비주력 카테고리는 미적용', R.lowEvN > 0) +
     tile('시즌 제외', `${R.seasonOutN}개`, '표에서 상품별 지정 — 전 카테고리 공통 · 시즌 바뀌면 해제', R.seasonOutN > 0);
