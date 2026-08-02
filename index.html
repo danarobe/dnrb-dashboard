@@ -406,6 +406,7 @@
   <button class="menu-item" data-menu="an"   onclick="showMenu('an')">👀 상품 분석</button>
   <button class="menu-item" data-menu="perf" onclick="showMenu('perf')">📊 판매 성과</button>
   <button class="menu-item" data-menu="disp" onclick="showMenu('disp')">🗂️ 카테고리별 진열</button>
+  <button class="menu-item" data-menu="stock" id="menu-stock" onclick="showMenu('stock')">📦 셀메이트 재고 대조</button>
   <button class="menu-item" data-menu="adv"  onclick="showMenu('adv')">📣 광고 효율</button>
   <button class="menu-item" data-menu="meet" onclick="showMenu('meet')">📝 광고 회의록</button>
   <button class="menu-item" data-menu="users" id="menu-users" style="display:none;" onclick="showMenu('users')">👥 직원 관리</button>
@@ -902,6 +903,75 @@
   </div>
 
   <!-- ════════════════════════════════════════
+       SECTION : 셀메이트 재고 대조 (관리자 전용)
+  ════════════════════════════════════════ -->
+  <div class="section-card page-sec" id="sec-stock">
+    <div class="section-header" style="cursor:default;">
+      <h2><span>📦</span> 셀메이트 재고 대조</h2>
+    </div>
+    <div class="section-body">
+      <div style="font-size:.85rem;color:#6b7280;margin-bottom:14px;">셀메이트에서 받은 재고 목록과 카페24 결제 데이터를 대조해 <strong>안 팔리는 재고</strong>와 <strong>잘 나가는 상품</strong>을 찾습니다.</div>
+
+      <!-- STEP 1: CSV 업로드 -->
+      <div class="upload-grid" style="grid-template-columns:1fr;margin-bottom:16px;">
+        <div class="upload-card" id="card-sm" onclick="document.getElementById('file-sm').click()">
+          <input type="file" id="file-sm" accept=".csv" onchange="handleSellmateCSV(event)" onclick="event.stopPropagation()" />
+          <div class="uc-icon">📦</div>
+          <h3>셀메이트 상품 목록 CSV</h3>
+          <p>I열 상품명 · R열 옵션명 · T열 재고수량<br />헤더 행은 자동으로 찾습니다 (엑셀에서 CSV로 저장)</p>
+          <div class="fname" id="fname-sm">셀메이트_상품목록.csv</div>
+        </div>
+      </div>
+
+      <!-- STEP 2: 기간 + 조회 -->
+      <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:14px;">
+        <label style="font-size:.83rem;font-weight:700;color:#4b5563;"><i class="fa-regular fa-calendar"></i> 결제 기간</label>
+        <input type="date" id="stockDateStart" style="padding:7px 11px;border:1.5px solid #e5e7eb;border-radius:8px;font-size:.85rem;font-family:inherit;" />
+        <span class="date-sep">~</span>
+        <input type="date" id="stockDateEnd" style="padding:7px 11px;border:1.5px solid #e5e7eb;border-radius:8px;font-size:.85rem;font-family:inherit;" />
+        <button class="btn-analyze" id="btn-stock-fetch" onclick="fetchStockCompare()">
+          <i class="fa-solid fa-cloud-arrow-down"></i> 대조 실행
+        </button>
+        <span style="font-size:.75rem;color:#9ca3af;">카페24 <strong>결제일 기준</strong>으로 품목별 결제수량을 집계합니다</span>
+      </div>
+
+      <!-- STEP 3: 필터 -->
+      <div style="display:flex;align-items:center;gap:18px;flex-wrap:wrap;background:#f8f9ff;border:1.5px solid #e0e7ff;border-radius:12px;padding:12px 16px;margin-bottom:16px;font-size:.83rem;color:#374151;">
+        <span style="font-weight:700;color:#4338ca;">🔎 필터</span>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;">
+          <input type="checkbox" id="stk-f-zero" onchange="renderStockResult()" /> 결제 0건만
+        </label>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;">
+          <input type="checkbox" id="stk-f-lte" onchange="renderStockResult()" /> 결제
+          <input type="number" id="stk-lte" value="3" min="0" onchange="renderStockResult()" oninput="renderStockResult()"
+                 style="width:64px;border:1.5px solid #d1d5db;border-radius:6px;padding:4px 8px;font-size:.83rem;" /> 개 이하
+        </label>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;">
+          <input type="checkbox" id="stk-f-gte" onchange="renderStockResult()" /> 결제
+          <input type="number" id="stk-gte" value="10" min="0" onchange="renderStockResult()" oninput="renderStockResult()"
+                 style="width:64px;border:1.5px solid #d1d5db;border-radius:6px;padding:4px 8px;font-size:.83rem;" /> 개 이상
+        </label>
+        <input type="text" id="stk-search" placeholder="🔍 상품명 검색" oninput="renderStockResult()"
+               style="border:1.5px solid #d1d5db;border-radius:8px;padding:6px 12px;font-size:.83rem;outline:none;min-width:160px;" />
+        <span style="font-size:.74rem;color:#9ca3af;">체크한 조건 중 <strong>하나라도</strong> 맞으면 표시 · 모두 해제하면 전체</span>
+      </div>
+
+      <!-- STEP 4: 요약 + 결과 -->
+      <div id="stock-summary" style="display:none;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-bottom:14px;"></div>
+      <div id="stock-result">
+        <div class="empty-state">
+          <div class="es-icon">📦</div>
+          <p>셀메이트 CSV를 업로드하고 기간을 선택한 뒤 <strong>대조 실행</strong>을 눌러주세요.</p>
+        </div>
+      </div>
+      <div id="stock-export" style="display:none;margin-top:14px;gap:10px;align-items:center;flex-wrap:wrap;">
+        <button class="btn-analyze" onclick="stockExportCSV()"><i class="fa-solid fa-download"></i> 결과 CSV 다운로드</button>
+        <span style="font-size:.75rem;color:#9ca3af;">현재 필터가 적용된 목록이 그대로 저장됩니다</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ════════════════════════════════════════
        SECTION : 광고 회의록
   ════════════════════════════════════════ -->
   <div class="section-card page-sec" id="sec-meet">
@@ -1249,7 +1319,9 @@ function applyRole() {
   document.querySelectorAll('.menu-item').forEach(b => {
     b.style.display = isCS() && b.dataset.menu !== 'perf' ? 'none' : '';
   });
+  // 관리자 전용 메뉴는 버튼 자체를 숨김 (진열은 기존 동작 유지 — 관리자만 쓰는 메뉴)
   $('menu-users').style.display = isAdmin() ? '' : 'none';
+  $('menu-stock').style.display = isAdmin() && !isCS() ? '' : 'none';
   $('user-info').textContent = SESSION ? `${SESSION.name} (${isAdmin() ? '관리자' : isCS() ? 'CS팀' : '직원'})` : '';
   $('btn-logout').style.display = SESSION ? '' : 'none';
 }
@@ -2210,16 +2282,241 @@ function dispSaveSnapshot() {
 }
 
 /* ──────────────────────────────
+   셀메이트 재고 대조 (관리자 전용)
+   셀메이트 CSV(I=상품명, R=옵션명, T=재고) ↔ 카페24 결제일 기준 품목별 결제수량
+────────────────────────────── */
+const stockState = { sellmate: [], rows: [], period: null, c24Only: 0 };
+
+/* 표기 차이 흡수용 정규화 — 공백·특수문자 제거, 영문 소문자화 */
+function stkNorm(s) {
+  return String(s || '').replace(/[^0-9a-zA-Z가-힣]/g, '').toLowerCase();
+}
+
+/* 옵션을 '값 토큰 배열'로 변환 — 옵션이 2개 이상일 때 정확히 대조하기 위함
+     셀메이트: "연청, L"                     → ['l', '연청']
+     카페24  : "컬러=연청, 사이즈=L"          → ['l', '연청']   (키 이름 제거)
+   순서가 달라도 되도록 정렬해서 반환 (문자열로 합치면 "1사이즈" ↔ "1사이즈(55~77)"처럼
+   중간에 차이가 생길 때 부분 일치가 깨지므로 토큰 단위로 비교한다) */
+function stkOptTokens(s) {
+  return String(s || '')
+    .split(/[,/|]/)
+    .map(part => {
+      const cut = Math.max(part.lastIndexOf('='), part.lastIndexOf(':'));
+      return stkNorm(cut >= 0 ? part.slice(cut + 1) : part);
+    })
+    .filter(Boolean)
+    .sort();
+}
+
+const stkSameOpt = (a, b) => a.length === b.length && a.every((t, i) => t === b[i]);
+
+/* 느슨한 옵션 비교 — 토큰 수가 같고, 각 토큰이 서로 포함 관계면 같은 옵션으로 본다
+   (예: "1사이즈" ↔ "1사이즈 (55~77)"). 토큰끼리 1:1로 짝지어 과다 매칭을 막는다. */
+function stkLooseOpt(a, b) {
+  if (a.length !== b.length || !a.length) return false;
+  const pool = [...b];
+  return a.every(t => {
+    const i = pool.findIndex(u => u === t || u.includes(t) || t.includes(u));
+    if (i < 0) return false;
+    pool.splice(i, 1);
+    return true;
+  });
+}
+
+/* 셀메이트 CSV 업로드 — I열(8) 상품명, R열(17) 옵션명, T열(19) 재고수량 */
+async function handleSellmateCSV(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+  try {
+    const text = await readFileAsText(file);
+    const lines = text.split(/\r?\n/).filter(l => l.trim());
+    if (!lines.length) throw new Error('빈 파일입니다');
+
+    // 헤더 행 자동 감지 — 상품명/옵션/재고 키워드가 2개 이상 있는 첫 행
+    let headerIdx = -1;
+    for (let i = 0; i < Math.min(lines.length, 30); i++) {
+      const cells = parseCSVRow(lines[i]).join(' ');
+      const hits = ['상품명', '옵션', '재고'].filter(k => cells.includes(k)).length;
+      if (hits >= 2) { headerIdx = i; break; }
+    }
+    if (headerIdx < 0) headerIdx = 0;   // 못 찾으면 첫 행을 헤더로 간주
+
+    const rows = [];
+    let skipped = 0;
+    for (let i = headerIdx + 1; i < lines.length; i++) {
+      const c = parseCSVRow(lines[i]);
+      const name = (c[8] || '').trim();        // I열
+      const option = (c[17] || '').trim();     // R열
+      if (!name) { skipped++; continue; }
+      rows.push({ name, option, stock: toNum(c[19]) });   // T열
+    }
+    if (!rows.length) throw new Error('상품 행을 찾지 못했습니다 (I열=상품명 확인)');
+
+    stockState.sellmate = rows;
+    $('fname-sm').textContent = `${file.name} — ${fmt(rows.length)}행`;
+    $('card-sm').classList.add('active');
+    showToast(`✅ 셀메이트 ${fmt(rows.length)}행 로드 (헤더 ${headerIdx + 1}행)${skipped ? ` · 상품명 없는 ${skipped}행 제외` : ''} — 기간을 선택하고 대조 실행하세요`);
+  } catch (err) {
+    showToast('❌ CSV 읽기 실패: ' + err.message);
+  }
+}
+
+/* 카페24 결제 데이터 조회 + 매칭 */
+async function fetchStockCompare() {
+  if (!isAdmin()) { showToast('⛔ 접근 권한이 없습니다'); return; }
+  if (!stockState.sellmate.length) { showToast('📦 셀메이트 CSV를 먼저 업로드해주세요'); return; }
+  const s = $('stockDateStart').value, e = $('stockDateEnd').value;
+  if (!s || !e) { showToast('📅 결제 기간을 선택해주세요'); return; }
+
+  const btn = $('btn-stock-fetch');
+  btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> 대조 중... (수십 초)';
+  try {
+    const d = await anGet({ action: 'paiditems', start_date: s, end_date: e });
+    stockState.period = d.period;
+
+    // ① 기간 내 결제된 품목을 상품명 기준으로 묶어 후보 인덱스 구성
+    const byName = new Map();
+    for (const it of (d.items || [])) {
+      const key = stkNorm(it.product_name);
+      if (!byName.has(key)) byName.set(key, []);
+      byName.get(key).push({ ...it, opt: stkOptTokens(it.option_value) });
+    }
+    // ② 카페24 전체 상품명 — 기간 내 결제가 0건이어도 '상품은 존재'함을 판정하기 위함
+    const knownNames = new Set((d.products || []).map(p => stkNorm(p.product_name)));
+
+    const usedKeys = new Set();
+    stockState.rows = stockState.sellmate.map(r => {
+      const nName = stkNorm(r.name);
+      const cands = byName.get(nName) || [];
+      const opt = stkOptTokens(r.option);
+      let hits = [], status = '';
+      if (cands.length) {
+        if (!opt.length && cands.length === 1 && !cands[0].opt.length) {
+          hits = cands; status = '매칭됨';            // 양쪽 다 옵션 없음(단일 상품)
+        } else {
+          hits = cands.filter(c => stkSameOpt(c.opt, opt));
+          if (hits.length) status = '매칭됨';
+          else {
+            hits = cands.filter(c => stkLooseOpt(c.opt, opt));
+            if (hits.length) status = '표기차이';
+          }
+        }
+      }
+      // 결제 이력이 없어도 카페24에 상품이 존재하면 '결제 0건'(= 안 팔린 재고)으로 판정.
+      // 상품 자체가 없을 때만 '미매칭' — 사양의 "0건 판매와 미매칭 구분" 요구사항.
+      if (!hits.length) status = knownNames.has(nName) ? '결제 0건' : '미매칭';
+      hits.forEach(h => usedKeys.add(`${h.product_no}|${h.option_value}`));
+      return {
+        name: r.name, option: r.option, stock: r.stock,
+        paidQty: hits.reduce((t, h) => t + h.paid_qty, 0),
+        matched: status !== '미매칭', status,
+        reason: status === '미매칭' ? '카페24에 없는 상품명'
+              : status === '결제 0건' && cands.length ? '상품은 팔렸으나 이 옵션은 0건' : '',
+      };
+    });
+    stockState.c24Only = (d.items || []).filter(it => !usedKeys.has(`${it.product_no}|${it.option_value}`)).length;
+
+    renderStockResult();
+    showToast(`✅ 대조 완료 — 카페24 주문 ${fmt(d.order_count)}건 / 품목 ${fmt(d.item_count)}종`);
+  } catch (err) {
+    showToast('❌ 대조 실패: ' + err.message);
+  } finally {
+    btn.disabled = false; btn.innerHTML = '<i class="fa-solid fa-cloud-arrow-down"></i> 대조 실행';
+  }
+}
+
+/* 필터 적용 — 체크된 조건 중 하나라도 만족하면 표시 (미매칭은 수량 조건에서 제외) */
+function stockFiltered() {
+  const zero = $('stk-f-zero').checked, useLte = $('stk-f-lte').checked, useGte = $('stk-f-gte').checked;
+  const lte = toNum($('stk-lte').value), gte = toNum($('stk-gte').value);
+  const q = ($('stk-search').value || '').trim().toLowerCase();
+  let rows = stockState.rows;
+  if (zero || useLte || useGte) {
+    rows = rows.filter(r => r.matched && (
+      (zero && r.paidQty === 0) ||
+      (useLte && r.paidQty <= lte) ||
+      (useGte && r.paidQty >= gte)
+    ));
+  }
+  if (q) rows = rows.filter(r => r.name.toLowerCase().includes(q) || r.option.toLowerCase().includes(q));
+  return rows;
+}
+
+function renderStockResult() {
+  if (!stockState.rows.length) return;
+  const rows = stockFiltered();
+  const all = stockState.rows;
+  const matched = all.filter(r => r.matched);
+  const unmatched = all.filter(r => !r.matched);
+  const zeroN = matched.filter(r => r.paidQty === 0).length;
+  const deadStock = matched.filter(r => r.paidQty === 0).reduce((t, r) => t + r.stock, 0);
+
+  const tile = (label, val, sub, warn) => `
+    <div style="background:${warn ? '#fef2f2' : '#f8f9ff'};border:1.5px solid ${warn ? '#fecaca' : '#e0e7ff'};border-radius:12px;padding:12px 14px;">
+      <div style="font-size:.72rem;color:#6b7280;font-weight:600;margin-bottom:4px;">${label}</div>
+      <div style="font-size:1.05rem;font-weight:800;color:${warn ? '#b91c1c' : '#1e1b4b'};">${val}</div>
+      ${sub ? `<div style="font-size:.7rem;color:#9ca3af;margin-top:3px;">${sub}</div>` : ''}
+    </div>`;
+  $('stock-summary').innerHTML =
+    tile('셀메이트 품목', fmt(all.length) + '개', `대조 성공 ${fmt(matched.length)} · 미매칭 ${fmt(unmatched.length)}`) +
+    tile('기간 내 결제 0건', fmt(zeroN) + '개', '카페24에 있으나 이 기간 판매 없음', zeroN > 0) +
+    tile('0건 품목 재고 합계', fmt(deadStock) + '개', '팔리지 않고 쌓인 수량') +
+    tile('미매칭', fmt(unmatched.length) + '개', '카페24에 없는 상품명 — 판매 0건과 다름', unmatched.length > 0) +
+    tile('카페24에만 있음', fmt(stockState.c24Only) + '종', '셀메이트 목록에 없는 판매 품목');
+  $('stock-summary').style.display = 'grid';
+
+  const badge = (r) => {
+    const c = { '매칭됨': ['#f0fdf4', '#166534'], '표기차이': ['#fffbeb', '#92400e'],
+                '결제 0건': ['#eef2ff', '#4338ca'], '미매칭': ['#fef2f2', '#b91c1c'] }[r.status];
+    return `<span style="background:${c[0]};color:${c[1]};border-radius:5px;padding:2px 8px;font-size:.72rem;font-weight:700;">${r.status}</span>` +
+      (r.reason ? `<div style="font-size:.68rem;color:#9ca3af;margin-top:2px;">${r.reason}</div>` : '');
+  };
+  if (!rows.length) {
+    $('stock-result').innerHTML = `<div class="empty-state"><div class="es-icon">🔍</div><p>조건에 맞는 품목이 없습니다.</p></div>`;
+  } else {
+    let html = `<div style="font-size:.8rem;color:#6b7280;margin-bottom:8px;">${fmt(rows.length)}개 표시 중 (전체 ${fmt(all.length)}개) · 결제 기간 ${stockState.period.start} ~ ${stockState.period.end}</div>
+      <div class="table-wrap" style="max-height:620px;overflow:auto;"><table>
+      <thead><tr>
+        <th style="text-align:left;">상품명</th><th style="text-align:left;">옵션명</th>
+        <th>셀메이트 재고</th><th>기간 내 결제수량</th><th>매칭상태</th>
+      </tr></thead><tbody>`;
+    for (const r of rows) {
+      html += `<tr${r.matched && r.paidQty === 0 ? ' style="background:#fffbfb;"' : ''}>
+        <td style="text-align:left;min-width:200px;">${escHtml(r.name)}</td>
+        <td style="text-align:left;font-size:.8rem;color:#6b7280;">${escHtml(r.option) || '—'}</td>
+        <td>${fmt(r.stock)}</td>
+        <td style="font-weight:800;color:${!r.matched ? '#9ca3af' : r.paidQty === 0 ? '#b91c1c' : '#1e1b4b'};">${r.matched ? fmt(r.paidQty) : '—'}</td>
+        <td>${badge(r)}</td>
+      </tr>`;
+    }
+    $('stock-result').innerHTML = html + '</tbody></table></div>';
+  }
+  $('stock-export').style.display = 'flex';
+}
+
+function stockExportCSV() {
+  const rows = stockFiltered();
+  if (!rows.length) { showToast('내보낼 항목이 없습니다'); return; }
+  const q = v => `"${String(v).replace(/"/g, '""')}"`;
+  const lines = ['상품명,옵션명,셀메이트재고,기간내결제수량,매칭상태,비고'];
+  rows.forEach(r => lines.push([q(r.name), q(r.option), r.stock, r.matched ? r.paidQty : '', r.status, q(r.reason)].join(',')));
+  dlCSV(lines.join('\r\n'), `셀메이트_재고대조_${stockState.period.start}_${stockState.period.end}.csv`);
+  showToast(`✅ ${fmt(rows.length)}개 항목 다운로드`);
+}
+
+/* ──────────────────────────────
    좌측 메뉴 내비게이션 + 대시보드(홈)
 ────────────────────────────── */
-const MENU_KEYS = ['home', 'cr', 'an', 'perf', 'disp', 'adv', 'meet', 'users'];
+const MENU_KEYS = ['home', 'cr', 'an', 'perf', 'disp', 'stock', 'adv', 'meet', 'users'];
 
 function showMenu(key) {
   if (!MENU_KEYS.includes(key)) key = 'home';
   if (isCS()) key = 'perf';   // CS팀은 판매 성과만 접근 가능
-  if (key === 'cr' && isStaff()) { showToast('⛔ 접근 권한이 없습니다'); return; }
-  if (key === 'users' && !isAdmin()) { showToast('⛔ 접근 권한이 없습니다'); return; }
-  if (key === 'disp' && !isAdmin()) { showToast('⛔ 접근 권한이 없습니다'); return; }
+  // 권한 없는 메뉴는 홈으로 되돌린다 — 여기서 return하면 URL에 #stock 등을 달고 들어온
+  // 권한 없는 사용자에게 아무 섹션도 표시되지 않아 화면이 비어버림
+  const denied = (key === 'cr' && isStaff())
+    || (['users', 'disp', 'stock'].includes(key) && !isAdmin());
+  if (denied) { showToast('⛔ 접근 권한이 없습니다'); key = 'home'; }
   document.querySelectorAll('.page-sec').forEach(el => { el.style.display = 'none'; });
   const target = $('sec-' + key);
   if (target) target.style.display = 'block';
@@ -4530,6 +4827,8 @@ function bootApp() {
   $('homeDateStart').value = fmtD(first);
   $('homeDateEnd').value   = fmtD(now);
   $('dispDate').value = fmtD(now);
+  $('stockDateStart').value = fmtD(first);
+  $('stockDateEnd').value   = fmtD(now);
   $('np-pw').value = localStorage.getItem(NP_PW_KEY) || '';
 
   // 세션 확인 → 로그인 화면 또는 대시보드 시작

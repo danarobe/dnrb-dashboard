@@ -321,6 +321,77 @@ Deno.serve(async (req) => {
       });
     }
 
+    // ── 셀메이트 재고 대조용: 기간 내 품목별 결제수량 (관리자 전용) ──
+    // 결제일 기준으로 주문을 수집해 product_no + option_value 단위로 수량 합산.
+    // 주의: 카페24 date_type의 결제일 값은 payment_date가 아니라 `pay_date` (다른 값은 422 반환).
+    // items: [{product_no, product_name, option_value, paid_qty}]
+    if (action === "paiditems") {
+      if (authed.role !== "admin") return json({ error: "접근 권한이 없습니다" }, 403);
+      const s = url.searchParams.get("start_date");
+      const e = url.searchParams.get("end_date");
+      if (!s || !e) return json({ error: "start_date, end_date 필수 (YYYY-MM-DD)" }, 400);
+
+      type Item = {
+        product_no: number; product_name: string; option_value: string;
+        paid_qty: number; canceled_qty: number;
+      };
+      const map = new Map<string, Item>();
+      // 취소·반품으로 되돌아간 수량은 별도 집계 (결제수량 자체는 그대로 유지)
+      const CANCELED = new Set(["C40", "R40", "R30", "R34"]);
+      const LIMIT = 500;
+      let orderCount = 0;
+      for (let offset = 0; offset <= 60000; offset += LIMIT) {
+        const body = await apiGet(
+          `${API_BASE}/admin/orders?start_date=${s}&end_date=${e}&date_type=pay_date` +
+          `&embed=items&fields=order_id,items&limit=${LIMIT}&offset=${offset}`, token);
+        const orders = (body.orders ?? []) as Record<string, unknown>[];
+        orderCount += orders.length;
+        for (const o of orders) {
+          for (const it of (o.items ?? []) as Record<string, unknown>[]) {
+            const no = Number(it.product_no);
+            if (!no) continue;
+            const opt = String(it.option_value ?? "").trim();
+            const key = `${no}|${opt}`;
+            let row = map.get(key);
+            if (!row) {
+              row = {
+                product_no: no, product_name: String(it.product_name ?? ""),
+                option_value: opt, paid_qty: 0, canceled_qty: 0,
+              };
+              map.set(key, row);
+            }
+            const qty = num(it.quantity);
+            row.paid_qty += qty;
+            if (CANCELED.has(String(it.order_status ?? ""))) row.canceled_qty += qty;
+          }
+        }
+        if (orders.length < LIMIT) break;
+      }
+
+      // 전체 상품명 목록 — 기간 내 결제가 0건인 상품도 "카페24에 존재함"을 판정하려면 필요.
+      // (이게 없으면 판매 0건 재고가 '미매칭'과 구분되지 않음)
+      // 주의: /admin/products는 limit 최대 100 (초과 시 422), offset은 정상 동작
+      const products: { product_no: number; product_name: string }[] = [];
+      const PLIMIT = 100;
+      for (let offset = 0; offset <= 20000; offset += PLIMIT) {
+        const body = await apiGet(
+          `${API_BASE}/admin/products?limit=${PLIMIT}&offset=${offset}&fields=product_no,product_name`, token);
+        const ps = (body.products ?? []) as Record<string, unknown>[];
+        for (const p of ps) {
+          products.push({ product_no: Number(p.product_no), product_name: String(p.product_name ?? "") });
+        }
+        if (ps.length < PLIMIT) break;
+      }
+
+      const items = [...map.values()].sort((a, b) => b.paid_qty - a.paid_qty);
+      return json({
+        period: { start: s, end: e },
+        order_count: orderCount, item_count: items.length,
+        product_count: products.length,
+        items, products,
+      });
+    }
+
     // ── 판매 성과: 기간 판매수량 + 취소·반품완료 수량 + 판매가·공급가 ──
     // rows: [{product_no, product_name, paid_qty(주문수량), order_amount(주문금액),
     //          cancel_qty(취소·반품완료 수량), price(판매가), supply_price(공급가)}]
