@@ -434,6 +434,9 @@
         <span style="font-size:.75rem;color:#9ca3af;">불러오면 <strong>취소&amp;반품 · 조회수&amp;주문율 · 판매 성과</strong> 메뉴에도 같은 기간으로 자동 반영됩니다</span>
       </div>
 
+      <!-- 카페24 연동 상태 + 최초/재연동 -->
+      <div id="home-c24" style="display:none;align-items:center;gap:12px;flex-wrap:wrap;border-radius:12px;padding:12px 16px;margin-bottom:14px;"></div>
+
       <!-- 데이터 수집 상태 -->
       <div id="home-status" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:18px;"></div>
 
@@ -1355,28 +1358,73 @@ function fnUrl(name, params) {
   return `${SB.SUPABASE_URL}/functions/v1/${name}${qs ? '?' + qs : ''}`;
 }
 
-/* 카페24 최초 연동 (OAuth 창 열기) */
+/* 카페24 최초 연동 (OAuth 창 열기) — 카페24 관리자 계정이 필요하므로 관리자 전용 */
 function connectCafe24() {
+  if (!isAdmin()) { showToast('⛔ 카페24 연동은 관리자만 가능합니다'); return; }
   if (!sbReady()) { showToast('⚙️ config.js에 Supabase 설정을 먼저 입력하세요'); return; }
   window.open(fnUrl('cafe24-oauth', { action: 'start' }), '_blank');
-  showToast('🔗 새 창에서 카페24 로그인 후 돌아와주세요');
+  showToast('🔗 새 창에서 카페24 로그인 후 돌아와주세요 — 완료되면 이 페이지를 새로고침하세요');
 }
 
-/* 카페24 연동 상태 확인 */
+/* 카페24 연동 상태 확인 — 취소&반품 배지 + 홈 안내 카드를 함께 갱신 */
 async function checkCafe24Status() {
   const badge = $('api-status-c24');
-  if (!sbReady()) { badge.textContent = '⚙️ config.js 설정 필요'; return; }
+  const home = $('home-c24');
+
+  // tone: ok(정상) / warn(만료 임박·미연동) / bad(확인 불가)
+  const paintHome = (tone, title, sub, btnLabel) => {
+    if (!home) return;
+    const c = {
+      ok:   { bg: '#f0fdf4', line: '#bbf7d0', ink: '#166534' },
+      warn: { bg: '#fffbeb', line: '#fde68a', ink: '#92400e' },
+      bad:  { bg: '#f9fafb', line: '#e5e7eb', ink: '#6b7280' },
+    }[tone];
+    home.style.display = 'flex';
+    home.style.background = c.bg;
+    home.style.border = `1.5px solid ${c.line}`;
+    home.innerHTML =
+      `<div style="flex:1;min-width:200px;">
+         <div style="font-size:.85rem;font-weight:700;color:${c.ink};">${title}</div>
+         ${sub ? `<div style="font-size:.74rem;color:#9ca3af;margin-top:2px;">${sub}</div>` : ''}
+       </div>` +
+      (btnLabel && isAdmin()
+        ? `<button class="btn-analyze" style="background:${tone === 'ok' ? '#fff' : '#4f46e5'};color:${tone === 'ok' ? '#4f46e5' : '#fff'};border:1.5px solid ${tone === 'ok' ? '#c7d2fe' : 'transparent'};" onclick="connectCafe24()">
+             <i class="fa-solid fa-link"></i> ${btnLabel}
+           </button>`
+        : '');
+  };
+
+  if (!sbReady()) {
+    if (badge) { badge.textContent = '⚙️ config.js 설정 필요'; badge.className = 'status-badge badge-gray'; }
+    paintHome('bad', '⚙️ 설정이 필요합니다', 'config.js에 Supabase 설정을 입력하세요', '');
+    return;
+  }
   try {
     const res = await fetch(fnUrl('cafe24-oauth', { action: 'status' }), { headers: sbHeaders() });
     const data = await res.json();
     if (data.connected) {
-      badge.textContent = '🏪 카페24: 연동됨';
-      badge.className = 'status-badge badge-green';
+      if (badge) { badge.textContent = '🏪 카페24: 연동됨'; badge.className = 'status-badge badge-green'; }
+      // 갱신 토큰은 2주마다 만료 — 3일 전부터 미리 알림
+      const exp = data.refresh_expires_at ? new Date(data.refresh_expires_at) : null;
+      const days = exp ? Math.ceil((exp - Date.now()) / 86400000) : null;
+      const expTxt = exp ? `${exp.getMonth() + 1}월 ${exp.getDate()}일까지 유효` : '';
+      if (days !== null && days <= 3) {
+        paintHome('warn', `⚠️ 카페24 연동이 ${days <= 0 ? '오늘' : days + '일 후'} 만료됩니다`,
+          `만료되면 데이터를 불러올 수 없어요 — 미리 다시 연동해주세요 (${expTxt})`, '지금 다시 연동');
+      } else {
+        paintHome('ok', '🏪 카페24 연동됨', `데이터를 불러올 수 있습니다 · 연동 ${expTxt}`, '다시 연동');
+      }
     } else {
-      badge.textContent = '🏪 카페24: 미연동';
-      badge.className = 'status-badge badge-yellow';
+      if (badge) { badge.textContent = '🏪 카페24: 미연동'; badge.className = 'status-badge badge-yellow'; }
+      paintHome('warn', '🔌 카페24가 연동되지 않았습니다',
+        isAdmin() ? '연동해야 매출·취소반품·판매 성과 데이터를 불러올 수 있습니다'
+                  : '관리자에게 카페24 연동을 요청해주세요', '카페24 연동하기');
     }
-  } catch { badge.textContent = '🏪 카페24: 확인 실패'; badge.className = 'status-badge badge-gray'; }
+  } catch {
+    if (badge) { badge.textContent = '🏪 카페24: 확인 실패'; badge.className = 'status-badge badge-gray'; }
+    paintHome('bad', '🏪 카페24 연동 상태를 확인하지 못했습니다',
+      '네트워크 문제일 수 있어요 — 새로고침해도 같으면 다시 연동해보세요', '카페24 연동하기');
+  }
 }
 
 /* 집계 결과(bucket: {count, amount, reasons:[{reason,cnt}]})를
@@ -2177,7 +2225,7 @@ function showMenu(key) {
   if (target) target.style.display = 'block';
   document.querySelectorAll('.menu-item').forEach(b => b.classList.toggle('active', b.dataset.menu === key));
   history.replaceState(null, '', '#' + key);
-  if (key === 'home') { updateHomeSourceStatus(); updateHomeReasons(); updateHomeClaimsTile(); updateHomeTrafficTile(); }
+  if (key === 'home') { checkCafe24Status(); updateHomeSourceStatus(); updateHomeReasons(); updateHomeClaimsTile(); updateHomeTrafficTile(); }
   if (key === 'meet') {
     loadAdTopics(); loadMeetNotes();
     if (!$('note-date').value) $('note-date').value = new Date().toISOString().slice(0, 10);
