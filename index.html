@@ -342,6 +342,8 @@
     .badge-orange { background:#ffedd5; color:#c2410c; }
 
     /* 필터 탭 */
+    /* 안정재고 편성: 표 헤더 행 고정 (표 내부 스크롤 시) */
+    #sec-stable .table-wrap thead th { position:sticky; top:0; background:#f8f9ff; z-index:2; }
     .filter-tabs { display:flex; gap:7px; margin-bottom:12px; flex-wrap:wrap; }
     .filter-tab {
       padding:6px 15px; border-radius:50px; border:1.5px solid #e5e7eb;
@@ -1012,9 +1014,17 @@
       </div>
 
       <!-- 필터 -->
+      <div class="filter-tabs" id="stb-tabs" style="margin-bottom:10px;">
+        <button class="filter-tab active" data-f="all" onclick="setStableFilter('all')">전체</button>
+        <button class="filter-tab" data-f="changed" onclick="setStableFilter('changed')">🌸 변경 필요</button>
+        <button class="filter-tab" data-f="up" onclick="setStableFilter('up')">🔺 늘릴 상품</button>
+        <button class="filter-tab" data-f="down" onclick="setStableFilter('down')">🔻 줄일 상품</button>
+      </div>
       <div style="display:flex;align-items:center;gap:18px;flex-wrap:wrap;margin-bottom:14px;font-size:.83rem;color:#374151;">
-        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-weight:700;">
-          <input type="checkbox" id="stb-f-changed" onchange="renderStableResult()" /> 🌸 변경 필요만 보기
+        <label style="display:flex;align-items:center;gap:6px;font-weight:700;">
+          차이 <input type="number" id="stb-mindiff" value="" min="0" placeholder="0" oninput="renderStableResult()"
+               style="width:64px;border:1.5px solid #d1d5db;border-radius:6px;padding:5px 8px;font-size:.83rem;" /> 개 이상만
+          <span style="font-weight:400;color:#9ca3af;font-size:.74rem;">— 예: 2 입력 시 기존 8 → 추천 9·7은 숨기고 10·6부터 표시</span>
         </label>
         <input type="text" id="stb-search" placeholder="🔍 상품명 검색" oninput="renderStableResult()"
                style="border:1.5px solid #d1d5db;border-radius:8px;padding:6px 12px;font-size:.83rem;outline:none;min-width:160px;" />
@@ -2598,7 +2608,13 @@ function stockExportCSV() {
    안정재고 편성 (관리자 전용)
    기존 '안정재고 편성 도우미' HTML 도구를 이식 — 카페24 CSV 업로드를 paiditems API로 대체
 ────────────────────────────── */
-const stableState = { cell: [], main: [], newItems: [], period: null, days: 0 };
+const stableState = { cell: [], main: [], newItems: [], period: null, days: 0, filter: 'all' };
+
+function setStableFilter(f) {
+  stableState.filter = f;
+  document.querySelectorAll('#stb-tabs .filter-tab').forEach(b => b.classList.toggle('active', b.dataset.f === f));
+  renderStableResult();
+}
 
 function stableSyncDays() {
   const s = $('stableDateStart').value, e = $('stableDateEnd').value;
@@ -2734,7 +2750,13 @@ async function fetchStableCompare() {
 
 function stableFiltered() {
   let rows = stableState.main;
-  if ($('stb-f-changed').checked) rows = rows.filter(r => r.changed);
+  const f = stableState.filter;
+  if (f === 'changed') rows = rows.filter(r => r.changed);
+  else if (f === 'up') rows = rows.filter(r => r.rec !== null && r.rec > r.stable);
+  else if (f === 'down') rows = rows.filter(r => r.rec !== null && r.rec < r.stable);
+  // 차이 N개 이상만 — 예: 2면 |추천−기존| ≥ 2인 행만 (미매칭은 차이 계산 불가라 제외)
+  const minDiff = toNum($('stb-mindiff').value);
+  if (minDiff > 0) rows = rows.filter(r => r.rec !== null && Math.abs(r.rec - r.stable) >= minDiff);
   const q = ($('stb-search').value || '').trim().toLowerCase();
   if (q) rows = rows.filter(r => r.name.toLowerCase().includes(q) || r.option.toLowerCase().includes(q));
   return rows;
@@ -2756,7 +2778,7 @@ function renderStableResult() {
   $('stable-summary').innerHTML =
     tile('기간', `${stableState.days}일`, `${stableState.period.start} ~ ${stableState.period.end}`) +
     tile('분석 대상', fmt(all.length) + '행', '셀메이트 안정재고 목록') +
-    tile('🌸 변경 필요', fmt(changedN) + '행', '기존 ≠ 추천 안정재고', changedN > 0) +
+    tile('🌸 변경 필요', fmt(changedN) + '행', `🔺 늘릴 ${fmt(all.filter(r => r.rec !== null && r.rec > r.stable).length)} · 🔻 줄일 ${fmt(all.filter(r => r.rec !== null && r.rec < r.stable).length)}`, changedN > 0) +
     tile('🌕 신규 편성 필요', fmt(stableState.newItems.length) + '행', '안정재고 미등록 + 추천 1 이상', stableState.newItems.length > 0) +
     tile('미매칭', fmt(unmatchedN) + '행', '카페24에 없는 상품명 — 추천 계산 제외', unmatchedN > 0);
   $('stable-summary').style.display = 'grid';
