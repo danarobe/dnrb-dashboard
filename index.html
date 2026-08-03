@@ -404,7 +404,7 @@
 <!-- ══ 좌측 메뉴 ══ -->
 <nav class="side-menu">
   <button class="menu-item" data-menu="home" onclick="showMenu('home')">🏠 대시보드</button>
-  <button class="menu-item" data-menu="cr"   onclick="showMenu('cr')">📉 취소 &amp; 반품</button>
+  <button class="menu-item" data-menu="cr"   id="menu-cr" onclick="showMenu('cr')">📉 취소 &amp; 반품</button>
   <button class="menu-item" data-menu="an"   onclick="showMenu('an')">👀 상품 분석</button>
   <button class="menu-item" data-menu="perf" onclick="showMenu('perf')">📊 판매 성과</button>
   <button class="menu-item" data-menu="disp" id="menu-disp" onclick="showMenu('disp')">🗂️ 카테고리별 진열</button>
@@ -1404,6 +1404,7 @@ function applyRole() {
   });
   // 관리자 전용 메뉴는 버튼 자체를 숨김
   $('menu-users').style.display = isAdmin() ? '' : 'none';
+  $('menu-cr').style.display = isAdmin() && !isCS() ? '' : 'none';
   $('menu-disp').style.display = isAdmin() && !isCS() ? '' : 'none';
   $('menu-stock').style.display = isAdmin() && !isCS() ? '' : 'none';
   $('menu-stable').style.display = isAdmin() && !isCS() ? '' : 'none';
