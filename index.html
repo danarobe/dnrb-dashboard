@@ -1899,6 +1899,8 @@ async function loadAdTopics() {
 }
 
 /* ── 회의 기록: 계정별 작성 → 공유 시 전원 표시 ── */
+const meetOpenComments = new Set();   // 새로고침 후에도 열려 있을 댓글 영역
+
 async function loadMeetNotes() {
   if (!sbReady() || !SESSION) return;
   const el = $('meet-notes'); if (!el) return;
@@ -1908,6 +1910,21 @@ async function loadMeetNotes() {
       `ad_meeting_notes?select=*&or=(shared.eq.true,author_id.eq.${encodeURIComponent(SESSION.id)})` +
       `&order=meeting_date.desc,created_at.asc&limit=300`);
     if (!rows.length) { el.innerHTML = '<div style="color:#c4c9d4;">아직 회의 기록이 없습니다.</div>'; return; }
+
+    // 공유 글의 댓글·좋아요 일괄 조회
+    const sharedIds = rows.filter(n => n.shared).map(n => n.id);
+    let comments = [], likes = [];
+    if (sharedIds.length) {
+      const idList = sharedIds.join(',');
+      [comments, likes] = await Promise.all([
+        meetRest(`ad_note_comments?note_id=in.(${idList})&order=created_at.asc`),
+        meetRest(`ad_note_likes?note_id=in.(${idList})`),
+      ]);
+    }
+    const cByNote = {}, lByNote = {};
+    (comments || []).forEach(c => (cByNote[c.note_id] = cByNote[c.note_id] || []).push(c));
+    (likes || []).forEach(l => (lByNote[l.note_id] = lByNote[l.note_id] || []).push(l));
+
     // 회의 일자별 그룹
     const byDate = {};
     rows.forEach(n => (byDate[n.meeting_date] = byDate[n.meeting_date] || []).push(n));
@@ -1921,6 +1938,40 @@ async function loadMeetNotes() {
           <button onclick="toggleShareNote('${n.id}', ${!n.shared})" style="border:1px solid ${n.shared ? '#fde68a' : '#bbf7d0'};background:${n.shared ? '#fffbeb' : '#f0fdf4'};color:${n.shared ? '#a16207' : '#15803d'};border-radius:6px;padding:3px 10px;font-size:.74rem;cursor:pointer;font-weight:700;">${n.shared ? '공유 해제' : '🔗 공유'}</button>
           <button onclick="editMeetNote('${n.id}')" style="border:1px solid #e5e7eb;background:#fff;color:#6b7280;border-radius:6px;padding:3px 10px;font-size:.74rem;cursor:pointer;">수정</button>
           <button onclick="deleteMeetNote('${n.id}')" style="border:none;background:none;color:#d1d5db;font-size:.8rem;cursor:pointer;">✕</button>` : '';
+
+        // 공유 글에만 좋아요·댓글 (비공개 글은 나만 보므로 의미 없음)
+        let social = '';
+        if (n.shared) {
+          const ls = lByNote[n.id] || [];
+          const cs = cByNote[n.id] || [];
+          const iLiked = ls.some(l => l.user_id === SESSION.id);
+          const likerNames = ls.map(l => l.user_name || l.user_id).join(', ');
+          const open = meetOpenComments.has(n.id);
+          const commentRows = cs.map(c => `
+            <div style="display:flex;gap:8px;align-items:baseline;padding:5px 0;border-bottom:1px dashed #f3f4f6;">
+              <b style="font-size:.76rem;color:#4338ca;white-space:nowrap;">${escHtml(c.author_name)}</b>
+              <span style="flex:1;font-size:.8rem;color:#374151;white-space:pre-wrap;">${escHtml(c.content)}</span>
+              <span style="font-size:.66rem;color:#c4c9d4;white-space:nowrap;">${(c.created_at || '').slice(5, 16).replace('T', ' ')}</span>
+              ${c.author_id === SESSION.id ? `<button onclick="deleteNoteComment('${c.id}', '${n.id}')" style="border:none;background:none;color:#d1d5db;font-size:.72rem;cursor:pointer;">✕</button>` : ''}
+            </div>`).join('');
+          social = `
+          <div style="display:flex;gap:8px;align-items:center;margin-top:8px;padding-top:8px;border-top:1px solid #f3f4f6;">
+            <button onclick="toggleNoteLike('${n.id}', ${iLiked})" title="${escHtml(likerNames)}"
+              style="border:1px solid ${iLiked ? '#fecdd3' : '#e5e7eb'};background:${iLiked ? '#fff1f2' : '#fff'};color:${iLiked ? '#e11d48' : '#6b7280'};border-radius:50px;padding:3px 12px;font-size:.76rem;cursor:pointer;font-weight:700;">
+              ${iLiked ? '❤️' : '🤍'} ${ls.length || ''}</button>
+            <button onclick="toggleNoteComments('${n.id}')"
+              style="border:1px solid #e5e7eb;background:#fff;color:#6b7280;border-radius:50px;padding:3px 12px;font-size:.76rem;cursor:pointer;font-weight:700;">💬 댓글 ${cs.length || ''}</button>
+          </div>
+          <div id="note-cm-${n.id}" style="display:${open ? 'block' : 'none'};margin-top:6px;background:#f8f9ff;border-radius:8px;padding:8px 12px;">
+            ${commentRows || '<div style="font-size:.76rem;color:#c4c9d4;padding:2px 0;">첫 댓글을 남겨보세요</div>'}
+            <div style="display:flex;gap:6px;margin-top:8px;">
+              <input id="note-cm-input-${n.id}" type="text" placeholder="댓글 입력..." onkeydown="if(event.key==='Enter')addNoteComment('${n.id}')"
+                style="flex:1;border:1.5px solid #d1d5db;border-radius:8px;padding:6px 10px;font-size:.8rem;outline:none;" />
+              <button onclick="addNoteComment('${n.id}')" class="btn-analyze" style="padding:5px 14px;font-size:.76rem;">등록</button>
+            </div>
+          </div>`;
+        }
+
         return `<div id="note-card-${n.id}" style="background:#fff;border:1px solid ${n.shared ? '#e5e7eb' : '#fde68a'};border-radius:10px;padding:10px 14px;margin-bottom:8px;">
           <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px;">
             <b style="color:#1e1b4b;font-size:.82rem;">${escHtml(n.author_name)}</b>${badge}
@@ -1928,6 +1979,7 @@ async function loadMeetNotes() {
             <span style="margin-left:auto;display:flex;gap:6px;">${btns}</span>
           </div>
           <div id="note-body-${n.id}" style="white-space:pre-wrap;color:#374151;line-height:1.6;">${escHtml(n.content)}</div>
+          ${social}
         </div>`;
       }).join('');
       return `<div style="margin-bottom:16px;">
@@ -1935,6 +1987,56 @@ async function loadMeetNotes() {
     }).join('');
     el.dataset.raw = JSON.stringify(Object.fromEntries(rows.map(n => [n.id, n.content])));
   } catch (e) { el.textContent = '회의 기록 조회 실패: ' + e.message; console.error(e); }
+}
+
+/* ── 공유 회의 기록: 좋아요·댓글 ── */
+function toggleNoteComments(noteId) {
+  const box = $('note-cm-' + noteId); if (!box) return;
+  const open = box.style.display === 'none';
+  box.style.display = open ? 'block' : 'none';
+  if (open) { meetOpenComments.add(noteId); const inp = $('note-cm-input-' + noteId); if (inp) inp.focus(); }
+  else meetOpenComments.delete(noteId);
+}
+
+async function toggleNoteLike(noteId, liked) {
+  try {
+    if (liked) {
+      await meetRest(`ad_note_likes?note_id=eq.${noteId}&user_id=eq.${encodeURIComponent(SESSION.id)}`, {
+        method: 'DELETE', headers: { Prefer: 'return=minimal' },
+      });
+    } else {
+      await meetRest('ad_note_likes', {
+        method: 'POST', headers: { Prefer: 'return=minimal' },
+        body: JSON.stringify({ note_id: noteId, user_id: SESSION.id, user_name: SESSION.name }),
+      });
+    }
+    loadMeetNotes();
+  } catch (e) { showToast('❌ ' + e.message); }
+}
+
+async function addNoteComment(noteId) {
+  const inp = $('note-cm-input-' + noteId);
+  const content = (inp?.value || '').trim();
+  if (!content) { showToast('댓글 내용을 입력해주세요'); return; }
+  try {
+    await meetRest('ad_note_comments', {
+      method: 'POST', headers: { Prefer: 'return=minimal' },
+      body: JSON.stringify({ note_id: noteId, content, author_id: SESSION.id, author_name: SESSION.name }),
+    });
+    meetOpenComments.add(noteId);
+    loadMeetNotes();
+  } catch (e) { showToast('❌ 댓글 등록 실패: ' + e.message); }
+}
+
+async function deleteNoteComment(commentId, noteId) {
+  if (!confirm('이 댓글을 삭제할까요?')) return;
+  try {
+    await meetRest(`ad_note_comments?id=eq.${commentId}&author_id=eq.${encodeURIComponent(SESSION.id)}`, {
+      method: 'DELETE', headers: { Prefer: 'return=minimal' },
+    });
+    meetOpenComments.add(noteId);
+    loadMeetNotes();
+  } catch (e) { showToast('❌ 삭제 실패: ' + e.message); }
 }
 
 async function addMeetNote(share) {

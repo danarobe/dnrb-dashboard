@@ -18,7 +18,15 @@ const TABLE_ROLES: Record<string, string[]> = {
   adv_archive: ["admin", "staff"],
   ad_meeting_topics: ["admin", "staff"],
   ad_meeting_notes: ["admin", "staff"],
+  ad_note_comments: ["admin", "staff"],   // 공유 회의 기록 댓글
+  ad_note_likes: ["admin", "staff"],      // 공유 회의 기록 좋아요
   disp_season_out: ["admin"],   // 진열 시즌 제외 목록 (관리자 전용 메뉴)
+};
+// 본인 것만 쓰기·수정·삭제 가능한 테이블과 작성자 컬럼 (클라이언트 규칙을 서버에서 강제)
+const AUTHOR_FIELDS: Record<string, string> = {
+  ad_meeting_notes: "author_id",
+  ad_note_comments: "author_id",
+  ad_note_likes: "user_id",
 };
 const METHODS = new Set(["GET", "POST", "PATCH", "DELETE"]);
 
@@ -38,13 +46,13 @@ Deno.serve(async (req) => {
     if (!/^[a-z_]+$/.test(table) || !TABLE_ROLES[table]) return json({ error: "허용되지 않은 테이블" }, 403);
     if (!TABLE_ROLES[table].includes(me.role)) return json({ error: "접근 권한이 없습니다" }, 403);
 
-    // 회의 기록은 본인 것만 수정·삭제 가능 (클라이언트와 동일 규칙을 서버에서 강제)
-    if (table === "ad_meeting_notes") {
+    const authorField = AUTHOR_FIELDS[table];
+    if (authorField) {
       if (m === "PATCH" || m === "DELETE") {
         const qs = new URLSearchParams(p.split("?")[1] ?? "");
-        if (qs.get("author_id") !== `eq.${me.id}`) return json({ error: "본인 기록만 수정할 수 있습니다" }, 403);
+        if (qs.get(authorField) !== `eq.${me.id}`) return json({ error: "본인 것만 수정·삭제할 수 있습니다" }, 403);
       }
-      if (m === "POST" && body && String((body as Record<string, unknown>).author_id) !== me.id) {
+      if (m === "POST" && body && String((body as Record<string, unknown>)[authorField]) !== me.id) {
         return json({ error: "작성자 정보가 올바르지 않습니다" }, 400);
       }
     }
