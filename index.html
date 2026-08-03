@@ -407,7 +407,7 @@
   <button class="menu-item" data-menu="cr"   onclick="showMenu('cr')">📉 취소 &amp; 반품</button>
   <button class="menu-item" data-menu="an"   onclick="showMenu('an')">👀 상품 분석</button>
   <button class="menu-item" data-menu="perf" onclick="showMenu('perf')">📊 판매 성과</button>
-  <button class="menu-item" data-menu="disp" onclick="showMenu('disp')">🗂️ 카테고리별 진열</button>
+  <button class="menu-item" data-menu="disp" id="menu-disp" onclick="showMenu('disp')">🗂️ 카테고리별 진열</button>
   <button class="menu-item" data-menu="stock" id="menu-stock" onclick="showMenu('stock')">📦 셀메이트 재고 대조</button>
   <button class="menu-item" data-menu="stable" id="menu-stable" onclick="showMenu('stable')">🧮 안정재고 편성</button>
   <button class="menu-item" data-menu="adv"  onclick="showMenu('adv')">📣 광고 효율</button>
@@ -1402,8 +1402,9 @@ function applyRole() {
   document.querySelectorAll('.menu-item').forEach(b => {
     b.style.display = isCS() && b.dataset.menu !== 'perf' ? 'none' : '';
   });
-  // 관리자 전용 메뉴는 버튼 자체를 숨김 (진열은 기존 동작 유지 — 관리자만 쓰는 메뉴)
+  // 관리자 전용 메뉴는 버튼 자체를 숨김
   $('menu-users').style.display = isAdmin() ? '' : 'none';
+  $('menu-disp').style.display = isAdmin() && !isCS() ? '' : 'none';
   $('menu-stock').style.display = isAdmin() && !isCS() ? '' : 'none';
   $('menu-stable').style.display = isAdmin() && !isCS() ? '' : 'none';
   $('user-info').textContent = SESSION ? `${SESSION.name} (${isAdmin() ? '관리자' : isCS() ? 'CS팀' : '직원'})` : '';
