@@ -407,6 +407,7 @@
   <button class="menu-item" data-menu="perf" onclick="showMenu('perf')">📊 판매 성과</button>
   <button class="menu-item" data-menu="disp" onclick="showMenu('disp')">🗂️ 카테고리별 진열</button>
   <button class="menu-item" data-menu="stock" id="menu-stock" onclick="showMenu('stock')">📦 셀메이트 재고 대조</button>
+  <button class="menu-item" data-menu="stable" id="menu-stable" onclick="showMenu('stable')">🧮 안정재고 편성</button>
   <button class="menu-item" data-menu="adv"  onclick="showMenu('adv')">📣 광고 효율</button>
   <button class="menu-item" data-menu="meet" onclick="showMenu('meet')">📝 광고 회의록</button>
   <button class="menu-item" data-menu="users" id="menu-users" style="display:none;" onclick="showMenu('users')">👥 직원 관리</button>
@@ -972,6 +973,78 @@
   </div>
 
   <!-- ════════════════════════════════════════
+       SECTION : 안정재고 편성 (관리자 전용)
+  ════════════════════════════════════════ -->
+  <div class="section-card page-sec" id="sec-stable">
+    <div class="section-header" style="cursor:default;">
+      <h2><span>🧮</span> 안정재고 편성</h2>
+    </div>
+    <div class="section-body">
+      <div style="font-size:.85rem;color:#6b7280;margin-bottom:14px;">기간 내 결제수량으로 1일 평균 판매량을 계산해 <strong>추천 안정재고</strong>를 산출하고, 셀메이트의 기존 안정재고와 대조합니다. 카페24 판매 데이터는 <strong>API로 자동 조회</strong>되므로 셀메이트 파일만 올리면 돼요.</div>
+
+      <!-- STEP 1: 셀메이트 안정재고 CSV -->
+      <div class="upload-grid" style="grid-template-columns:1fr;margin-bottom:16px;">
+        <div class="upload-card" id="card-stb" onclick="document.getElementById('file-stb').click()">
+          <input type="file" id="file-stb" accept=".csv" onchange="handleStableCSV(event)" onclick="event.stopPropagation()" />
+          <div class="uc-icon">🧮</div>
+          <h3>셀메이트 안정재고 CSV</h3>
+          <p>재고관리 &gt; 안정재고있는상품만표시 &gt; 엑셀 다운로드 &gt; <strong>안정재고 양식</strong><br />(stk_stockList로 시작하는 파일 · 헤더명으로 자동 인식)</p>
+          <div class="fname" id="fname-stb">stk_stockList_....csv</div>
+        </div>
+      </div>
+
+      <!-- STEP 2: 기간 -->
+      <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:14px;">
+        <label style="font-size:.83rem;font-weight:700;color:#4b5563;"><i class="fa-regular fa-calendar"></i> 판매 집계 기간</label>
+        <input type="date" id="stableDateStart" onchange="stableSyncDays()" style="padding:7px 11px;border:1.5px solid #e5e7eb;border-radius:8px;font-size:.85rem;font-family:inherit;" />
+        <span class="date-sep">~</span>
+        <input type="date" id="stableDateEnd" onchange="stableSyncDays()" style="padding:7px 11px;border:1.5px solid #e5e7eb;border-radius:8px;font-size:.85rem;font-family:inherit;" />
+        <span style="font-size:.83rem;color:#4b5563;font-weight:700;">기간 <span id="stable-days">3</span>일</span>
+        <button class="btn-analyze" id="btn-stable-fetch" onclick="fetchStableCompare()">
+          <i class="fa-solid fa-calculator"></i> 분석 실행
+        </button>
+        <span style="font-size:.75rem;color:#9ca3af;">카페24 <strong>결제일 기준</strong> 결제수량 ÷ 기간 일수 = 1일 평균</span>
+      </div>
+
+      <!-- 계산 규칙 -->
+      <div style="background:#fffbeb;border:1.5px solid #fde68a;border-radius:12px;padding:12px 16px;margin-bottom:16px;font-size:.8rem;color:#78350f;line-height:1.6;">
+        <strong>📐 추천 안정재고 규칙</strong> — 1일 평균이 <strong>1.0 미만: 0개</strong> · <strong>1.0~2.99: 평균×3</strong> · <strong>3.0~4.99: 평균×4</strong> · <strong>5.0 이상: 평균×5</strong> (소수점 내림) · 기존 도구와 동일한 규칙입니다
+      </div>
+
+      <!-- 필터 -->
+      <div style="display:flex;align-items:center;gap:18px;flex-wrap:wrap;margin-bottom:14px;font-size:.83rem;color:#374151;">
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-weight:700;">
+          <input type="checkbox" id="stb-f-changed" onchange="renderStableResult()" /> 🌸 변경 필요만 보기
+        </label>
+        <input type="text" id="stb-search" placeholder="🔍 상품명 검색" oninput="renderStableResult()"
+               style="border:1.5px solid #d1d5db;border-radius:8px;padding:6px 12px;font-size:.83rem;outline:none;min-width:160px;" />
+      </div>
+
+      <!-- 요약 + 결과 -->
+      <div id="stable-summary" style="display:none;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin-bottom:14px;"></div>
+      <div id="stable-result">
+        <div class="empty-state">
+          <div class="es-icon">🧮</div>
+          <p>셀메이트 안정재고 CSV를 업로드하고 <strong>분석 실행</strong>을 눌러주세요.</p>
+        </div>
+      </div>
+
+      <!-- 신규 편성 -->
+      <div id="stable-new-wrap" style="display:none;margin-top:24px;">
+        <h3 style="font-size:1rem;font-weight:800;margin:0 0 6px;">🌕 신규 안정재고 편성 필요</h3>
+        <div style="font-size:.78rem;color:#9ca3af;margin-bottom:10px;">셀메이트 안정재고 목록에는 없지만, 판매량 기준 추천 안정재고가 1 이상인 품목입니다.</div>
+        <div id="stable-new"></div>
+      </div>
+
+      <div id="stable-export" style="display:none;margin-top:16px;gap:10px;align-items:center;flex-wrap:wrap;">
+        <button class="btn-analyze" onclick="stableExportMainCSV()"><i class="fa-solid fa-download"></i> 안정재고 분석 CSV</button>
+        <button onclick="stableExportNewCSV()" style="background:#fffbeb;border:1.5px solid #fde68a;border-radius:8px;padding:9px 16px;font-size:.85rem;cursor:pointer;font-weight:600;color:#92400e;">🌕 신규 편성 CSV</button>
+        <span style="font-size:.75rem;color:#9ca3af;">분석 CSV는 현재 필터가 적용된 목록 기준입니다</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ════════════════════════════════════════
        SECTION : 광고 회의록
   ════════════════════════════════════════ -->
   <div class="section-card page-sec" id="sec-meet">
@@ -1322,6 +1395,7 @@ function applyRole() {
   // 관리자 전용 메뉴는 버튼 자체를 숨김 (진열은 기존 동작 유지 — 관리자만 쓰는 메뉴)
   $('menu-users').style.display = isAdmin() ? '' : 'none';
   $('menu-stock').style.display = isAdmin() && !isCS() ? '' : 'none';
+  $('menu-stable').style.display = isAdmin() && !isCS() ? '' : 'none';
   $('user-info').textContent = SESSION ? `${SESSION.name} (${isAdmin() ? '관리자' : isCS() ? 'CS팀' : '직원'})` : '';
   $('btn-logout').style.display = SESSION ? '' : 'none';
 }
@@ -2505,9 +2579,254 @@ function stockExportCSV() {
 }
 
 /* ──────────────────────────────
+   안정재고 편성 (관리자 전용)
+   기존 '안정재고 편성 도우미' HTML 도구를 이식 — 카페24 CSV 업로드를 paiditems API로 대체
+────────────────────────────── */
+const stableState = { cell: [], main: [], newItems: [], period: null, days: 0 };
+
+function stableSyncDays() {
+  const s = $('stableDateStart').value, e = $('stableDateEnd').value;
+  if (!s || !e) return;
+  const diff = Math.floor((new Date(e) - new Date(s)) / 86400000) + 1;
+  $('stable-days').textContent = diff > 0 ? diff : '—';
+}
+
+/* 기존 도구와 동일한 추천 규칙 (3.0은 ×4 구간) */
+function calcStableRec(avgDaily) {
+  if (avgDaily < 1) return 0;
+  if (avgDaily < 3) return Math.floor(avgDaily * 3);
+  if (avgDaily < 5) return Math.floor(avgDaily * 4);
+  return Math.floor(avgDaily * 5);
+}
+
+/* 셀메이트 옵션명 → 값 토큰 ('단일상품'류는 옵션 없음 취급) */
+function stableOptTokens(raw) {
+  const t = String(raw || '').trim();
+  if (!t || ['단일상품', '-', '없음'].includes(t)) return [];
+  return stkOptTokens(t);
+}
+
+/* 셀메이트 안정재고 CSV — 헤더명(상품명/옵션명/안정재고)으로 열 자동 인식 */
+async function handleStableCSV(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+  try {
+    const text = await readFileAsText(file);
+    const lines = text.split(/\r?\n/).filter(l => l.trim());
+    let headerIdx = -1, col = {};
+    for (let i = 0; i < Math.min(lines.length, 30); i++) {
+      const cells = parseCSVRow(lines[i]);
+      const idx = {
+        name: cells.findIndex(c => c.replace(/\s/g, '') === '상품명'),
+        option: cells.findIndex(c => c.replace(/\s/g, '') === '옵션명'),
+        stable: cells.findIndex(c => c.replace(/\s/g, '') === '안정재고'),
+        regDate: cells.findIndex(c => c.replace(/\s/g, '') === '상품등록일자'),
+      };
+      if (idx.name >= 0 && idx.option >= 0 && idx.stable >= 0) { headerIdx = i; col = idx; break; }
+    }
+    if (headerIdx < 0) throw new Error('헤더(상품명·옵션명·안정재고)를 찾지 못했습니다 — 셀메이트 "안정재고" 양식인지 확인해주세요');
+
+    const rows = [];
+    for (let i = headerIdx + 1; i < lines.length; i++) {
+      const c = parseCSVRow(lines[i]);
+      const name = (c[col.name] || '').trim();
+      if (!name) continue;
+      rows.push({
+        name, option: (c[col.option] || '').trim(),
+        stable: toNum(c[col.stable]),
+        regDate: col.regDate >= 0 ? (c[col.regDate] || '').trim() : '',
+      });
+    }
+    if (!rows.length) throw new Error('상품 행이 없습니다');
+
+    stableState.cell = rows;
+    $('fname-stb').textContent = `${file.name} — ${fmt(rows.length)}행`;
+    $('card-stb').classList.add('active');
+    showToast(`✅ 셀메이트 안정재고 ${fmt(rows.length)}행 로드 — 기간을 확인하고 분석 실행하세요`);
+  } catch (err) {
+    showToast('❌ CSV 읽기 실패: ' + err.message);
+  }
+}
+
+async function fetchStableCompare() {
+  if (!isAdmin()) { showToast('⛔ 접근 권한이 없습니다'); return; }
+  if (!stableState.cell.length) { showToast('🧮 셀메이트 안정재고 CSV를 먼저 업로드해주세요'); return; }
+  const s = $('stableDateStart').value, e = $('stableDateEnd').value;
+  if (!s || !e) { showToast('📅 기간을 선택해주세요'); return; }
+  const days = Math.floor((new Date(e) - new Date(s)) / 86400000) + 1;
+  if (days < 1) { showToast('📅 종료일이 시작일보다 빠릅니다'); return; }
+
+  const btn = $('btn-stable-fetch');
+  btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> 분석 중... (수십 초)';
+  try {
+    const d = await anGet({ action: 'paiditems', start_date: s, end_date: e });
+    stableState.period = d.period;
+    stableState.days = days;
+
+    // 카페24 품목: 이름 인덱스 + 평균/추천 계산
+    const byName = new Map();
+    for (const it of (d.items || [])) {
+      const key = stkNorm(it.product_name);
+      if (!byName.has(key)) byName.set(key, []);
+      const avg = it.paid_qty / days;
+      byName.get(key).push({ ...it, opt: stkOptTokens(it.option_value), avg, rec: calcStableRec(avg) });
+    }
+    const knownNames = new Set((d.products || []).map(p => stkNorm(p.product_name)));
+
+    const usedKeys = new Set();
+    stableState.main = stableState.cell.map(r => {
+      const nName = stkNorm(r.name);
+      const cands = byName.get(nName) || [];
+      const opt = stableOptTokens(r.option);
+      let hits = [], status = '';
+      if (cands.length) {
+        if (!opt.length && cands.length === 1 && !cands[0].opt.length) { hits = cands; status = '매칭됨'; }
+        else {
+          hits = cands.filter(c => stkSameOpt(c.opt, opt));
+          if (hits.length) status = '매칭됨';
+          else { hits = cands.filter(c => stkLooseOpt(c.opt, opt)); if (hits.length) status = '표기차이'; }
+        }
+      }
+      if (!hits.length) status = knownNames.has(nName) ? '결제 0건' : '미매칭';
+      hits.forEach(h => usedKeys.add(`${h.product_no}|${h.option_value}`));
+      const paidQty = hits.reduce((t, h) => t + h.paid_qty, 0);
+      const avg = paidQty / days;
+      const matched = status !== '미매칭';
+      const rec = matched ? calcStableRec(avg) : null;   // 미매칭은 추천 불가 (데이터 없음 ≠ 판매 0)
+      return {
+        name: r.name, option: r.option, regDate: r.regDate, stable: r.stable,
+        paidQty, avg, rec, status, matched,
+        changed: matched && rec !== r.stable,
+      };
+    }).sort((a, b) => a.name !== b.name ? a.name.localeCompare(b.name, 'ko') : a.option.localeCompare(b.option, 'ko'));
+
+    // 신규 편성: 셀메이트 안정재고 목록에 안 잡혔고 추천 ≥ 1인 판매 품목
+    stableState.newItems = (d.items || [])
+      .filter(it => !usedKeys.has(`${it.product_no}|${it.option_value}`))
+      .map(it => ({ ...it, avg: it.paid_qty / days, rec: calcStableRec(it.paid_qty / days) }))
+      .filter(it => it.rec >= 1)
+      .sort((a, b) => b.rec - a.rec || b.paid_qty - a.paid_qty);
+
+    renderStableResult();
+    showToast(`✅ 분석 완료 — 카페24 주문 ${fmt(d.order_count)}건 기준`);
+  } catch (err) {
+    showToast('❌ 분석 실패: ' + err.message);
+  } finally {
+    btn.disabled = false; btn.innerHTML = '<i class="fa-solid fa-calculator"></i> 분석 실행';
+  }
+}
+
+function stableFiltered() {
+  let rows = stableState.main;
+  if ($('stb-f-changed').checked) rows = rows.filter(r => r.changed);
+  const q = ($('stb-search').value || '').trim().toLowerCase();
+  if (q) rows = rows.filter(r => r.name.toLowerCase().includes(q) || r.option.toLowerCase().includes(q));
+  return rows;
+}
+
+function renderStableResult() {
+  if (!stableState.main.length) return;
+  const all = stableState.main;
+  const rows = stableFiltered();
+  const changedN = all.filter(r => r.changed).length;
+  const unmatchedN = all.filter(r => !r.matched).length;
+
+  const tile = (label, val, sub, warn) => `
+    <div style="background:${warn ? '#fef2f2' : '#f8f9ff'};border:1.5px solid ${warn ? '#fecaca' : '#e0e7ff'};border-radius:12px;padding:12px 14px;">
+      <div style="font-size:.72rem;color:#6b7280;font-weight:600;margin-bottom:4px;">${label}</div>
+      <div style="font-size:1.05rem;font-weight:800;color:${warn ? '#b91c1c' : '#1e1b4b'};">${val}</div>
+      ${sub ? `<div style="font-size:.7rem;color:#9ca3af;margin-top:3px;">${sub}</div>` : ''}
+    </div>`;
+  $('stable-summary').innerHTML =
+    tile('기간', `${stableState.days}일`, `${stableState.period.start} ~ ${stableState.period.end}`) +
+    tile('분석 대상', fmt(all.length) + '행', '셀메이트 안정재고 목록') +
+    tile('🌸 변경 필요', fmt(changedN) + '행', '기존 ≠ 추천 안정재고', changedN > 0) +
+    tile('🌕 신규 편성 필요', fmt(stableState.newItems.length) + '행', '안정재고 미등록 + 추천 1 이상', stableState.newItems.length > 0) +
+    tile('미매칭', fmt(unmatchedN) + '행', '카페24에 없는 상품명 — 추천 계산 제외', unmatchedN > 0);
+  $('stable-summary').style.display = 'grid';
+
+  const chip = s => {
+    const c = { '매칭됨': ['#f0fdf4', '#166534'], '표기차이': ['#fffbeb', '#92400e'],
+                '결제 0건': ['#eef2ff', '#4338ca'], '미매칭': ['#fef2f2', '#b91c1c'] }[s];
+    return `<span style="background:${c[0]};color:${c[1]};border-radius:5px;padding:2px 8px;font-size:.72rem;font-weight:700;">${s}</span>`;
+  };
+
+  if (!rows.length) {
+    $('stable-result').innerHTML = `<div class="empty-state"><div class="es-icon">🔍</div><p>조건에 맞는 행이 없습니다.</p></div>`;
+  } else {
+    let html = `<div style="font-size:.8rem;color:#6b7280;margin-bottom:8px;">${fmt(rows.length)}행 표시 중 (전체 ${fmt(all.length)}행) · 🌸 분홍 = 변경 필요</div>
+      <div class="table-wrap" style="max-height:620px;overflow:auto;"><table>
+      <thead><tr>
+        <th style="text-align:left;">상품명</th><th style="text-align:left;">옵션명</th>
+        <th>기존<br><span style="font-size:.68rem;font-weight:400;color:#9ca3af;">안정재고</span></th>
+        <th>추천<br><span style="font-size:.68rem;font-weight:400;color:#9ca3af;">안정재고</span></th>
+        <th>차이</th>
+        <th>1일 평균<br><span style="font-size:.68rem;font-weight:400;color:#9ca3af;">결제수량</span></th>
+        <th>상태</th>
+      </tr></thead><tbody>`;
+    for (const r of rows) {
+      const diff = r.rec === null ? null : r.rec - r.stable;
+      html += `<tr${r.changed ? ' style="background:#fdf0f6;"' : ''}>
+        <td style="text-align:left;min-width:200px;">${escHtml(r.name)}</td>
+        <td style="text-align:left;font-size:.8rem;color:#6b7280;">${escHtml(r.option) || '—'}</td>
+        <td>${fmt(r.stable)}</td>
+        <td style="font-weight:800;">${r.rec === null ? '—' : fmt(r.rec)}</td>
+        <td style="font-weight:700;color:${diff > 0 ? '#dc2626' : diff < 0 ? '#2563eb' : '#9ca3af'};">${diff === null ? '—' : diff > 0 ? '+' + diff : diff}</td>
+        <td>${r.avg.toFixed(1)}</td>
+        <td>${chip(r.status)}${r.changed ? ' <span style="background:#ffe3ef;color:#b93167;border-radius:5px;padding:2px 8px;font-size:.72rem;font-weight:700;">변경 필요</span>' : ''}</td>
+      </tr>`;
+    }
+    $('stable-result').innerHTML = html + '</tbody></table></div>';
+  }
+
+  // 신규 편성 표 (노랑)
+  if (stableState.newItems.length) {
+    let html = `<div class="table-wrap" style="max-height:420px;overflow:auto;"><table>
+      <thead><tr>
+        <th style="text-align:left;">상품명</th><th style="text-align:left;">옵션</th>
+        <th>기간 결제수량</th><th>1일 평균</th><th>추천 안정재고</th>
+      </tr></thead><tbody>`;
+    for (const it of stableState.newItems) {
+      html += `<tr style="background:#fffbe8;">
+        <td style="text-align:left;min-width:200px;">${escHtml(it.product_name)}</td>
+        <td style="text-align:left;font-size:.8rem;color:#6b7280;">${escHtml(it.option_value) || '—'}</td>
+        <td>${fmt(it.paid_qty)}</td><td>${it.avg.toFixed(1)}</td>
+        <td style="font-weight:800;">${fmt(it.rec)}</td>
+      </tr>`;
+    }
+    $('stable-new').innerHTML = html + '</tbody></table></div>';
+    $('stable-new-wrap').style.display = 'block';
+  } else {
+    $('stable-new-wrap').style.display = 'none';
+  }
+  $('stable-export').style.display = 'flex';
+}
+
+function stableExportMainCSV() {
+  const rows = stableFiltered();
+  if (!rows.length) { showToast('내보낼 항목이 없습니다'); return; }
+  const q = v => `"${String(v).replace(/"/g, '""')}"`;
+  const lines = ['상품명,옵션명,기존안정재고,추천안정재고,차이,1일평균판매수량,상태'];
+  rows.forEach(r => lines.push([q(r.name), q(r.option), r.stable, r.rec === null ? '' : r.rec,
+    r.rec === null ? '' : r.rec - r.stable, r.avg.toFixed(1), r.changed ? '변경 필요' : r.status].join(',')));
+  dlCSV(lines.join('\r\n'), `안정재고_분석_${stableState.period.start}_${stableState.period.end}.csv`);
+  showToast(`✅ ${fmt(rows.length)}행 다운로드`);
+}
+
+function stableExportNewCSV() {
+  const rows = stableState.newItems;
+  if (!rows.length) { showToast('신규 편성 필요 항목이 없습니다'); return; }
+  const q = v => `"${String(v).replace(/"/g, '""')}"`;
+  const lines = ['상품명,옵션명,기간총결제수량,1일평균판매수량,추천안정재고'];
+  rows.forEach(it => lines.push([q(it.product_name), q(it.option_value), it.paid_qty, it.avg.toFixed(1), it.rec].join(',')));
+  dlCSV(lines.join('\r\n'), `안정재고_신규편성_${stableState.period.start}_${stableState.period.end}.csv`);
+  showToast(`✅ ${fmt(rows.length)}행 다운로드`);
+}
+
+/* ──────────────────────────────
    좌측 메뉴 내비게이션 + 대시보드(홈)
 ────────────────────────────── */
-const MENU_KEYS = ['home', 'cr', 'an', 'perf', 'disp', 'stock', 'adv', 'meet', 'users'];
+const MENU_KEYS = ['home', 'cr', 'an', 'perf', 'disp', 'stock', 'stable', 'adv', 'meet', 'users'];
 
 function showMenu(key) {
   if (!MENU_KEYS.includes(key)) key = 'home';
@@ -2515,7 +2834,7 @@ function showMenu(key) {
   // 권한 없는 메뉴는 홈으로 되돌린다 — 여기서 return하면 URL에 #stock 등을 달고 들어온
   // 권한 없는 사용자에게 아무 섹션도 표시되지 않아 화면이 비어버림
   const denied = (key === 'cr' && isStaff())
-    || (['users', 'disp', 'stock'].includes(key) && !isAdmin());
+    || (['users', 'disp', 'stock', 'stable'].includes(key) && !isAdmin());
   if (denied) { showToast('⛔ 접근 권한이 없습니다'); key = 'home'; }
   document.querySelectorAll('.page-sec').forEach(el => { el.style.display = 'none'; });
   const target = $('sec-' + key);
@@ -4829,6 +5148,9 @@ function bootApp() {
   $('dispDate').value = fmtD(now);
   $('stockDateStart').value = fmtD(first);
   $('stockDateEnd').value   = fmtD(now);
+  $('stableDateStart').value = fmtD(new Date(now.getFullYear(), now.getMonth(), now.getDate() - 2));  // 기본 최근 3일
+  $('stableDateEnd').value   = fmtD(now);
+  stableSyncDays();
   $('np-pw').value = localStorage.getItem(NP_PW_KEY) || '';
 
   // 세션 확인 → 로그인 화면 또는 대시보드 시작
