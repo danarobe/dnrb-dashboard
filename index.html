@@ -2415,16 +2415,32 @@ async function handleSellmateCSV(e) {
     }
     if (headerIdx < 0) headerIdx = 0;   // 못 찾으면 첫 행을 헤더로 간주
 
+    // 열 위치는 헤더명으로 찾는다 — 셀메이트 양식마다 열 배치가 달라서
+    // (상품 목록 양식: I/R/T열, 안정재고 양식: C/D열+현재재고) 고정 위치로 읽으면
+    // 다른 양식 업로드 시 판매단가 같은 엉뚱한 열이 상품명으로 잡힘. 못 찾으면 I/R/T로 폴백
+    const hdr = parseCSVRow(lines[headerIdx]).map(c => c.replace(/\s/g, ''));
+    const pick = (names, fallback) => {
+      for (const n of names) { const i = hdr.indexOf(n); if (i >= 0) return i; }
+      return fallback;
+    };
+    const iName = pick(['상품명'], 8);
+    const iOpt = pick(['옵션명', '옵션'], 17);
+    const iStock = pick(['재고수량', '현재재고'], 19);
+
     const rows = [];
-    let skipped = 0;
+    let skipped = 0, numericNames = 0;
     for (let i = headerIdx + 1; i < lines.length; i++) {
       const c = parseCSVRow(lines[i]);
-      const name = (c[8] || '').trim();        // I열
-      const option = (c[17] || '').trim();     // R열
+      const name = (c[iName] || '').trim();
+      const option = (c[iOpt] || '').trim();
       if (!name) { skipped++; continue; }
-      rows.push({ name, option, stock: toNum(c[19]) });   // T열
+      if (/^[\d,.\s]+$/.test(name)) numericNames++;
+      rows.push({ name, option, stock: toNum(c[iStock]) });
     }
-    if (!rows.length) throw new Error('상품 행을 찾지 못했습니다 (I열=상품명 확인)');
+    if (!rows.length) throw new Error('상품 행을 찾지 못했습니다 (상품명 열 확인)');
+    if (numericNames > rows.length * 0.3) {
+      throw new Error('상품명 자리에 숫자가 많습니다 — 파일 양식이 다른 것 같아요. 셀메이트 양식을 확인해주세요');
+    }
 
     stockState.sellmate = rows;
     $('fname-sm').textContent = `${file.name} — ${fmt(rows.length)}행`;
@@ -5148,8 +5164,9 @@ function bootApp() {
   $('dispDate').value = fmtD(now);
   $('stockDateStart').value = fmtD(first);
   $('stockDateEnd').value   = fmtD(now);
-  $('stableDateStart').value = fmtD(new Date(now.getFullYear(), now.getMonth(), now.getDate() - 2));  // 기본 최근 3일
-  $('stableDateEnd').value   = fmtD(now);
+  // 기본 = 어제까지 최근 7일 (오늘은 진행 중이라 포함하면 1일 평균이 낮게 잡힘)
+  $('stableDateStart').value = fmtD(new Date(now.getFullYear(), now.getMonth(), now.getDate() - 7));
+  $('stableDateEnd').value   = fmtD(new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1));
   stableSyncDays();
   $('np-pw').value = localStorage.getItem(NP_PW_KEY) || '';
 
