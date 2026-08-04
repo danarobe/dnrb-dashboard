@@ -410,7 +410,7 @@
   <button class="menu-item" data-menu="disp" id="menu-disp" onclick="showMenu('disp')">🗂️ 카테고리별 진열</button>
   <button class="menu-item" data-menu="stock" id="menu-stock" onclick="showMenu('stock')">📦 셀메이트 재고 대조</button>
   <button class="menu-item" data-menu="stable" id="menu-stable" onclick="showMenu('stable')">🧮 안정재고 편성</button>
-  <button class="menu-item" data-menu="adv"  onclick="showMenu('adv')">📣 광고 효율</button>
+  <button class="menu-item" data-menu="adv"  id="menu-adv" onclick="showMenu('adv')">📣 광고 효율</button>
   <button class="menu-item" data-menu="meet" onclick="showMenu('meet')">📝 광고 회의록</button>
   <button class="menu-item" data-menu="users" id="menu-users" style="display:none;" onclick="showMenu('users')">👥 직원 관리</button>
 </nav>
@@ -1150,7 +1150,7 @@
   ════════════════════════════════════════ -->
   <div class="section-card page-sec" id="sec-adv">
     <div class="section-header" onclick="toggleSection('adv')">
-      <h2><span>📣</span> 광고 효율 &amp; 수익 분석</h2>
+      <h2><span>📣</span> 광고 효율 (Meta 광고관리자)</h2>
       <button class="toggle-btn" id="toggle-adv"><i class="fa-solid fa-chevron-up"></i> 접기</button>
     </div>
     <div class="section-body" id="body-adv">
@@ -1186,145 +1186,6 @@
         </div>
       </div>
 
-      <!-- ① 기본 데이터 입력 -->
-      <div class="sub-title">기간 매출 &amp; 비용 입력 (수동)</div>
-      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-bottom:20px;">
-
-        <div class="input-group">
-          <label>📅 분석 기간 매출 (순매출)</label>
-          <div class="inp-unit-row">
-            <input class="inp" type="number" id="adv-revenue" placeholder="판매 성과 CSV 순매출" oninput="calcAdv()" />
-            <span class="inp-unit">원</span>
-          </div>
-          <div style="font-size:.73rem;color:#9ca3af;margin-top:4px;">판매 성과 분석 업로드 시 자동 반영</div>
-        </div>
-
-        <div class="input-group">
-          <label>📣 광고비 (해당 기간 집행액)</label>
-          <div class="inp-unit-row">
-            <input class="inp" type="number" id="adv-cost" placeholder="예: 30000000" oninput="calcAdv()" />
-            <span class="inp-unit">원</span>
-          </div>
-        </div>
-
-        <div class="input-group">
-          <label>🏢 사무실 월세 (월)</label>
-          <div class="inp-unit-row">
-            <input class="inp" type="number" id="adv-rent" placeholder="예: 1500000" oninput="calcAdv()" />
-            <span class="inp-unit">원</span>
-          </div>
-        </div>
-
-        <div class="input-group">
-          <label>👥 인건비 합계 (해당 기간)</label>
-          <div class="inp-unit-row">
-            <input class="inp" type="number" id="adv-labor" placeholder="예: 5000000" oninput="calcAdv()" />
-            <span class="inp-unit">원</span>
-          </div>
-        </div>
-
-        <div class="input-group">
-          <label>📦 기타 고정비 (택배·포장 등 제외)</label>
-          <div class="inp-unit-row">
-            <input class="inp" type="number" id="adv-etc" placeholder="예: 500000" oninput="calcAdv()" />
-            <span class="inp-unit">원</span>
-          </div>
-        </div>
-
-        <div class="input-group">
-          <label>📊 분석 기간 (개월 수)</label>
-          <div class="inp-unit-row">
-            <input class="inp" type="number" id="adv-months" placeholder="예: 1" value="1" min="1" max="12" oninput="calcAdv()" />
-            <span class="inp-unit">개월</span>
-          </div>
-          <div style="font-size:.73rem;color:#9ca3af;margin-top:4px;">월세·인건비 자동 × 개월수 적용</div>
-        </div>
-
-      </div>
-
-      <!-- ② 시나리오 커스텀 입력 -->
-      <div class="sub-title">📊 시나리오 분석 변동폭 설정</div>
-      <div style="background:#f8f9ff;border:1.5px solid #e8eaf0;border-radius:12px;padding:16px 20px;margin-bottom:16px;">
-        <div style="font-size:.78rem;color:#6b7280;margin-bottom:12px;line-height:1.7;">
-          시나리오 ① (효율 개선)과 ③ (볼륨 확대)의 변동폭을 직접 설정하세요.<br>
-          <span style="color:#0284c7;">① 현재 대비 순매출 <b>감소</b> + ROAS <b>상승</b></span> &nbsp;|&nbsp;
-          <span style="color:#b45309;">③ 현재 대비 순매출 <b>증가</b> + ROAS <b>하락</b></span>
-        </div>
-        <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:14px;">
-          <div class="input-group">
-            <label>📉 매출 변동폭 (1억 = 100,000,000)</label>
-            <div class="inp-unit-row">
-              <input class="inp" type="number" id="sc-rev-delta" value="100000000" placeholder="예: 100000000" oninput="calcAdv()" />
-              <span class="inp-unit">원</span>
-            </div>
-            <div style="font-size:.72rem;color:#9ca3af;margin-top:4px;">①은 이 금액만큼 감소, ③은 이 금액만큼 증가</div>
-          </div>
-          <div class="input-group">
-            <label>📈 ROAS 변동폭</label>
-            <div class="inp-unit-row">
-              <input class="inp" type="number" id="sc-roas-delta" value="100" placeholder="예: 100" oninput="calcAdv()" />
-              <span class="inp-unit">%p</span>
-            </div>
-            <div style="font-size:.72rem;color:#9ca3af;margin-top:4px;">①은 현재 ROAS + 이 값, ③은 현재 ROAS − 이 값</div>
-          </div>
-        </div>
-      </div>
-
-      <!-- 부가세 / 법인세 안내 -->
-      <div style="background:#f8f9ff;border:1px solid #e8eaf0;border-radius:10px;padding:12px 16px;margin-bottom:20px;font-size:.8rem;color:#4b5563;line-height:1.8;">
-        <span style="font-weight:700;">세금 자동 계산 기준</span><br>
-        🧾 <b>부가세</b>: 순매출의 9.09% (매출세액 10/110 — 매입세액 공제 전 개략치)<br>
-        🏦 <b>법인세</b>: 과세표준 구간별 적용 — 2억 이하 9% / 2억~200억 19% / 200억 초과 21%<br>
-        <span style="color:#9ca3af;">※ 실제 세금은 매입세액 공제·각종 비용 처리에 따라 달라집니다. 참고용 수치로만 활용하세요.</span>
-      </div>
-
-      <!-- ③ 결과 -->
-      <div id="adv-result">
-        <div class="empty-state">
-          <div class="es-icon">📣</div>
-          <p>매출과 광고비를 입력하면<br/>ROAS 및 수익 분석 결과가 표시됩니다.</p>
-        </div>
-      </div>
-
-      <!-- ④ 아카이브 저장 -->
-      <div id="adv-archive-save-section" style="display:none;margin-top:28px;">
-        <div class="sub-title">🗂️ 분석 결과 아카이브 저장</div>
-        <div style="background:#f8f9ff;border:1.5px solid #e8eaf0;border-radius:12px;padding:16px 20px;">
-          <div style="display:grid;grid-template-columns:1fr 1fr 1fr auto;gap:12px;align-items:flex-end;">
-            <div class="input-group" style="margin:0;">
-              <label>📋 저장 레이블</label>
-              <input class="inp" type="text" id="arc-label" placeholder="예: 2025년 3월" />
-            </div>
-            <div class="input-group" style="margin:0;">
-              <label>📅 기간 시작</label>
-              <input class="inp" type="date" id="arc-start" />
-            </div>
-            <div class="input-group" style="margin:0;">
-              <label>📅 기간 종료</label>
-              <input class="inp" type="date" id="arc-end" />
-            </div>
-            <button onclick="saveArchive()" style="padding:9px 20px;background:linear-gradient(135deg,#6366f1,#8b5cf6);color:#fff;border:none;border-radius:9px;font-size:.85rem;font-weight:700;cursor:pointer;white-space:nowrap;height:40px;">💾 저장</button>
-          </div>
-          <div style="margin-top:10px;">
-            <label style="font-size:.78rem;color:#6b7280;">📝 메모 (선택)</label>
-            <input class="inp" type="text" id="arc-memo" placeholder="특이사항, 이슈 등 자유 메모" style="margin-top:4px;" />
-          </div>
-        </div>
-      </div>
-
-      <!-- ⑤ 아카이브 목록 -->
-      <div style="margin-top:28px;">
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
-          <div class="sub-title" style="margin:0;">📁 저장된 분석 기록</div>
-          <button onclick="loadArchive()" style="padding:6px 14px;background:#f3f4f6;border:1px solid #d1d5db;border-radius:7px;font-size:.78rem;font-weight:600;cursor:pointer;color:#374151;">🔄 새로고침</button>
-        </div>
-        <div id="arc-list">
-          <div class="empty-state" style="padding:30px 0;">
-            <div class="es-icon" style="font-size:2rem;">🗂️</div>
-            <p style="font-size:.85rem;">저장된 분석 기록이 없습니다.<br/>위에서 결과를 저장하면 여기에 표시됩니다.</p>
-          </div>
-        </div>
-      </div>
 
     </div>
   </div>
@@ -1439,6 +1300,7 @@ function applyRole() {
   $('menu-disp').style.display = isAdmin() && !isCS() ? '' : 'none';
   $('menu-stock').style.display = isAdmin() && !isCS() ? '' : 'none';
   $('menu-stable').style.display = isAdmin() && !isCS() ? '' : 'none';
+  $('menu-adv').style.display = isAdmin() && !isCS() ? '' : 'none';
   // Meta 광고 성과 패널 — 광고비·ROAS로 매출 역산이 가능해 관리자 전용
   const mp = $('meta-panel'); if (mp) mp.style.display = isAdmin() ? 'block' : 'none';
   $('user-info').textContent = SESSION ? `${SESSION.name} (${isAdmin() ? '관리자' : isCS() ? 'CS팀' : '직원'})` : '';
@@ -3115,7 +2977,7 @@ function showMenu(key) {
   // 권한 없는 메뉴는 홈으로 되돌린다 — 여기서 return하면 URL에 #stock 등을 달고 들어온
   // 권한 없는 사용자에게 아무 섹션도 표시되지 않아 화면이 비어버림
   const denied = (key === 'cr' && isStaff())
-    || (['users', 'disp', 'stock', 'stable'].includes(key) && !isAdmin());
+    || (['users', 'disp', 'stock', 'stable', 'adv'].includes(key) && !isAdmin());
   if (denied) { showToast('⛔ 접근 권한이 없습니다'); key = 'home'; }
   document.querySelectorAll('.page-sec').forEach(el => { el.style.display = 'none'; });
   const target = $('sec-' + key);
@@ -3758,13 +3620,11 @@ function runAnalysis() {
   const returnRatioRev = revenue > 0 && returnAmt > 0 ? returnAmt / revenue * 100 : null;
   const totalRatioRev  = revenue > 0 && totalAmt  > 0 ? totalAmt  / revenue * 100 : null;
 
-  // ── 시나리오 연동용: store에 비율 저장 후 calcAdv 갱신
+  // ── 홈 동기화용: store에 비율 저장
   store.crCancelRatioRev = cancelRatioRev;
   store.crReturnRatioRev = returnRatioRev;
   store.crTotalRatioRev  = totalRatioRev;
   store.crRevenue        = revenue;
-  // 광고 효율 탭에 데이터가 있으면 시나리오 자동 재계산
-  if (parseFloat($('adv-revenue').value) > 0) calcAdv();
 
   // 기간 표시
   const ds = $('crDateStart').value;
@@ -4064,9 +3924,6 @@ async function fetchPerfApi() {
     });
     store.perfFilter = 'all';
     renderPerfResult();
-    // 순매출을 광고 분석 입력창에 자동 반영 (직원·CS팀 제외)
-    const autoRevenue = store.salesData.reduce((s, r) => s + r.salesTotal, 0);
-    if (!isStaff() && !isCS() && autoRevenue > 0 && !$('adv-revenue').value) { $('adv-revenue').value = autoRevenue; calcAdv(); }
     const noCost = store.salesData.length - mappedCost;
     showToast(`✅ ${store.salesData.length}개 상품 로드 · 공급가 매핑 ${mappedCost}개${noCost > 0 ? ` (공급가 미입력 ${noCost}개는 마진 계산 제외)` : ''}`);
   } catch (e) {
@@ -4923,483 +4780,11 @@ async function deleteCrArchive(id) {
 }
 
 /* ══════════════════════════════════════
-   [ D-2 ] 광고 효율 & 수익 분석
-══════════════════════════════════════ */
-
-/** 법인세 계산 (과세표준 기준) */
-function calcCorpTax(taxableIncome) {
-  if (taxableIncome <= 0) return 0;
-  if (taxableIncome <= 200_000_000)       return taxableIncome * 0.09;
-  if (taxableIncome <= 20_000_000_000)    return 200_000_000 * 0.09 + (taxableIncome - 200_000_000) * 0.19;
-  return 200_000_000 * 0.09 + (20_000_000_000 - 200_000_000) * 0.19 + (taxableIncome - 20_000_000_000) * 0.21;
-}
-
-function calcAdv() {
-  const revenue  = parseFloat($('adv-revenue').value) || 0;
-  const advCost  = parseFloat($('adv-cost').value)    || 0;
-  const rent     = parseFloat($('adv-rent').value)    || 0;
-  const labor    = parseFloat($('adv-labor').value)   || 0;
-  const etc      = parseFloat($('adv-etc').value)     || 0;
-  const months   = Math.max(1, parseFloat($('adv-months').value) || 1);
-
-  if (revenue <= 0 && advCost <= 0) {
-    $('adv-result').innerHTML = `<div class="empty-state"><div class="es-icon">📣</div><p>매출과 광고비를 입력하면<br/>ROAS 및 수익 분석 결과가 표시됩니다.</p></div>`;
-    return;
-  }
-
-  // ── 상품 공급가 합계 (판매 성과 CSV + 원가 CSV 매핑 기반)
-  // 순판매수량 × 공급가(VAT 포함 = ×1.1) 합산
-  let totalSupplyCost = 0;
-  let supplyCostMapped = 0;
-  if (store.salesData.length > 0) {
-    store.salesData.forEach(r => {
-      const cd = findCostData(r.productName);
-      if (cd && cd.supplyCost > 0 && r.salesQty > 0) {
-        totalSupplyCost += cd.supplyCost * 1.1 * r.salesQty;  // 공급가 × VAT × 판매수량
-        supplyCostMapped++;
-      }
-    });
-  }
-
-  // ── 현재 매출 대비 공급가 비율 (시나리오 스케일링용)
-  const supplyCostRatio = revenue > 0 && totalSupplyCost > 0 ? totalSupplyCost / revenue : 0;
-
-  // ── 취소·반품률 연동 (취소반품 탭 데이터 자동 연동)
-  // crTotalRatioRev: 총매출 대비 취소+반품 금액 비율 (%)
-  // 연동 시: 순매출 = 총매출 × (1 - crRate/100)
-  //          → 시나리오 "순매출 ±X" 는 총매출 기준 역산해서 실제 광고 규모 계산
-  const crRate      = store.crTotalRatioRev !== null ? store.crTotalRatioRev / 100 : null;
-  const crLinked    = crRate !== null;
-  // 순매출을 총매출로 역산: 총매출 = 순매출 ÷ (1 - crRate)
-  const grossRevenue = crLinked && crRate < 1 ? revenue / (1 - crRate) : revenue;
-
-  // ── 기본 지표
-  const roas  = advCost > 0 ? (revenue / advCost * 100) : null;
-  const roasX = advCost > 0 ? (revenue / advCost)       : null;
-
-  // ── 고정비 합계 (광고비 제외)
-  const fixedCost = rent * months + labor + etc;
-
-  // ── 현재 실적 순이익 계산 헬퍼
-  // rev = 순매출 기준으로 받음 (취소·반품 이미 제외된 값)
-  const calcNet = (rev, adv) => {
-    // supply = 공급가 × 1.1 (VAT 포함 금액)
-    const supply       = supplyCostRatio > 0 ? rev * supplyCostRatio : totalSupplyCost;
-
-    // 부가세 실납부액 = 매출세액 - 매입세액
-    //   매출세액 = rev × 10/110  (소비자한테 받은 VAT)
-    //   매입세액 = supply × 10/11 (공급업체에 낸 VAT → 환급)
-    //   supply = 공급가 × 1.1 → VAT 포함 → 매입세액 = supply - supply/1.1 = supply × (1 - 1/1.1)
-    const salesVat     = rev > 0    ? rev    * (10 / 110) : 0;  // 매출세액
-    const purchaseVat  = supply > 0 ? supply * (1 - 1 / 1.1) : 0;  // 매입세액 (환급)
-    const vatAmt       = Math.max(0, salesVat - purchaseVat);   // 실납부 부가세
-
-    // 공급가 비용은 VAT 제외 금액(순공급가)으로만 반영 (이중 차감 방지)
-    const supplyExVat  = supply / 1.1;
-
-    const preTax   = rev - adv - supplyExVat - fixedCost - vatAmt;
-    const corpTax  = calcCorpTax(Math.max(0, preTax));
-    return { supply, supplyExVat, salesVat, purchaseVat, vatAmt, preTax, corpTax, net: preTax - corpTax };
-  };
-
-  // ── 시나리오 헬퍼: 총매출 변동 → 순매출·광고비 역산
-  // crLinked 일 때: 시나리오 변동폭은 총매출 기준으로 적용
-  //   총매출이 delta만큼 변하면 → 순매출도 delta × (1-crRate) 만큼 변함
-  //   광고비는 총매출 ÷ ROAS (광고는 총매출 전체를 대상으로 집행)
-  const calcScenario = (simGrossRevDelta, simRoasPct) => {
-    const simGross  = Math.max(0, grossRevenue + simGrossRevDelta);
-    const simRev    = crLinked ? simGross * (1 - crRate) : simGross;
-    const simAdv    = simRoasPct > 0 ? simGross / (simRoasPct / 100) : 0;  // ROAS = 총매출/광고비
-    return { simRev, simAdv, simGross };
-  };
-
-  const cur = calcNet(revenue, advCost);
-
-  // ── 시나리오 3개 (새 방식)
-  // ① 총매출(또는 순매출) -delta / ROAS +roasDelta%p
-  // ② 현재 입력 데이터 기준 (기존 실적)
-  // ③ 총매출(또는 순매출) +delta / ROAS -roasDelta%p
-  //
-  // 가정:
-  //  - 공급가 비율(supplyCostRatio)은 순매출에 비례해 유지
-  //  - 고정비(월세·인건비·기타)는 변동 없음
-  //  - crLinked=true 시: 광고비 = 총매출 ÷ ROAS (취소·반품 포함 전 매출이 광고 타겟)
-  //  - crLinked=false 시: 광고비 = 순매출 ÷ ROAS (기존 방식 유지)
-
-  // ── 커스텀 변동폭 읽기
-  const scRevDelta  = Math.abs(parseFloat($('sc-rev-delta').value)  || 100_000_000);
-  const scRoasDelta = Math.abs(parseFloat($('sc-roas-delta').value) || 100);
-
-  const currentRoas = roas || 0;  // ROAS가 null이면 0으로 처리
-  const scenarioDefs = [
-    { label: `① ${crLinked?'총':'순'}매출 -${fmtShort(scRevDelta)} · ROAS +${scRoasDelta}%p`, grossDelta: -scRevDelta, simRoas: currentRoas + scRoasDelta, color: '#0284c7', bg: '#eff6ff', border: '1.5px solid #bfdbfe' },
-    { label: '② 현재 실적 기준',                                                                grossDelta:  0,          simRoas: currentRoas,               color: '#7c3aed', bg: '#f5f3ff', border: '2px solid #c4b5fd' },
-    { label: `③ ${crLinked?'총':'순'}매출 +${fmtShort(scRevDelta)} · ROAS -${scRoasDelta}%p`, grossDelta: +scRevDelta, simRoas: currentRoas - scRoasDelta, color: '#b45309', bg: '#fffbeb', border: '1.5px solid #fde68a' },
-  ];
-
-  const scenarios = scenarioDefs.map(def => {
-    const simRoasPct = Math.max(1, def.simRoas);
-    const { simRev, simAdv, simGross } = calcScenario(def.grossDelta, simRoasPct);
-    const res = calcNet(simRev, simAdv);
-    return {
-      label:        def.label,
-      roas:         simRoasPct,
-      grossRevenue: simGross,   // 총매출 (취소·반품 포함 전)
-      revenue:      simRev,     // 순매출 (취소·반품 차감 후)
-      advCost:      simAdv,
-      supply:       res.supply,
-      supplyExVat:  res.supplyExVat,
-      salesVat:     res.salesVat,
-      purchaseVat:  res.purchaseVat,
-      vatAmt:       res.vatAmt,
-      corpTax:      res.corpTax,
-      netProfit:    res.net,
-      color:        def.color,
-      bg:           def.bg,
-      border:       def.border,
-    };
-  });
-
-  // ── 렌더링용 색상
-  const profitColor  = cur.net >= 0 ? '#15803d' : '#dc2626';
-  const profitBg     = cur.net >= 0 ? '#f0fdf4' : '#fef2f2';
-  const profitBorder = cur.net >= 0 ? '#bbf7d0' : '#fecaca';
-  const roasColor    = roas === null ? '#6b7280' : roas >= 700 ? '#15803d' : roas >= 500 ? '#d97706' : '#dc2626';
-  const roasStatus   = roas === null ? '—' : roas >= 700 ? '우수' : roas >= 500 ? '보통' : '개선 필요';
-  const supplyCostNote = supplyCostMapped > 0
-    ? `${supplyCostMapped}개 상품 매핑 · ${fmt(totalSupplyCost)}원`
-    : '원가 CSV 미업로드 (0원 처리)';
-
-  // 취소·반품 연동 배지
-  const crBadge = crLinked
-    ? `<span style="display:inline-flex;align-items:center;gap:5px;font-size:.75rem;font-weight:700;background:#d1fae5;color:#065f46;border:1px solid #6ee7b7;padding:4px 12px;border-radius:50px;">🔗 취소·반품률 연동됨 (${fmtP(store.crTotalRatioRev)}) — 총매출 기준 역산 적용</span>`
-    : `<span style="display:inline-flex;align-items:center;gap:5px;font-size:.75rem;font-weight:600;background:#f3f4f6;color:#6b7280;border:1px solid #e5e7eb;padding:4px 12px;border-radius:50px;">⚪ 취소·반품률 미연동 — 취소반품 탭에서 CSV를 업로드하면 자동 적용</span>`;
-
-  let html = `
-    <!-- 취소·반품 연동 배지 -->
-    <div style="margin-bottom:14px;">${crBadge}</div>
-
-    <!-- KPI 상단 4개 -->
-    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:20px;">
-      <div style="background:#f8f9ff;border:1.5px solid #e8eaf0;border-radius:12px;padding:14px;">
-        <div style="font-size:.73rem;font-weight:600;color:#6b7280;margin-bottom:4px;">📣 ROAS</div>
-        <div style="font-size:1.6rem;font-weight:800;color:${roasColor};">${roas !== null ? roas.toFixed(0)+'%' : '—'}</div>
-        <div style="font-size:.72rem;color:#9ca3af;margin-top:2px;">${roasX !== null ? roasX.toFixed(2)+'배' : ''} · ${roasStatus}</div>
-      </div>
-      <div style="background:#f8f9ff;border:1.5px solid #e8eaf0;border-radius:12px;padding:14px;">
-        <div style="font-size:.73rem;font-weight:600;color:#6b7280;margin-bottom:4px;">🏷️ 상품 공급가 합계</div>
-        <div style="font-size:1.15rem;font-weight:800;color:#374151;">${fmt(totalSupplyCost)}원</div>
-        <div style="font-size:.7rem;color:#9ca3af;margin-top:2px;">${supplyCostNote}</div>
-      </div>
-      <div style="background:#fff7ed;border:1.5px solid #fed7aa;border-radius:12px;padding:14px;">
-        <div style="font-size:.73rem;font-weight:600;color:#c2410c;margin-bottom:4px;">🧾 세금 합계</div>
-        <div style="font-size:1.15rem;font-weight:800;color:#c2410c;">${fmt(cur.vatAmt + cur.corpTax)}원</div>
-        <div style="font-size:.7rem;color:#9ca3af;margin-top:2px;">부가세 ${fmt(cur.vatAmt)} + 법인세 ${fmt(cur.corpTax)}</div>
-      </div>
-      <div style="background:${profitBg};border:1.5px solid ${profitBorder};border-radius:12px;padding:14px;">
-        <div style="font-size:.73rem;font-weight:600;color:${profitColor};margin-bottom:4px;">✅ 최종 순이익</div>
-        <div style="font-size:1.15rem;font-weight:800;color:${profitColor};">${cur.net >= 0 ? '+' : ''}${fmt(cur.net)}원</div>
-        <div style="font-size:.7rem;color:#9ca3af;margin-top:2px;">세후 · 전비용 차감</div>
-      </div>
-    </div>
-
-    <!-- 비용 구조 상세 -->
-    <div class="sub-title">비용 구조 상세 (현재 실적)</div>
-    <div style="background:#f8f9ff;border:1px solid #e8eaf0;border-radius:12px;padding:16px 20px;margin-bottom:22px;">
-      ${crLinked ? costRow('🛒 총매출 (취소·반품 포함)', grossRevenue, true, '#6b7280') : ''}
-      ${crLinked ? costRow(`🔄 취소·반품 금액 (−${fmtP(store.crTotalRatioRev)})`, grossRevenue * crRate, false, '#9ca3af') : ''}
-      ${costRow('💰 순매출', revenue, true, '#15803d')}
-      ${costRow('🏷️ 상품 공급가 (VAT 제외 실비용)', cur.supplyExVat, false, '#374151')}
-      ${costRow('📣 광고비', advCost, false, '#6366f1')}
-      ${costRow('🏢 사무실 월세', rent * months, false)}
-      ${costRow('👥 인건비', labor, false)}
-      ${costRow('📦 기타 고정비', etc, false)}
-      <div style="height:1px;background:#e5e7eb;margin:8px 0;"></div>
-      ${costRow(`🧾 부가세 실납부 (매출세액 ${fmt(cur.salesVat)}원 − 매입세액환급 ${fmt(cur.purchaseVat)}원)`, cur.vatAmt, false, '#c2410c')}
-      ${costRow('🏦 법인세', cur.corpTax, false, '#c2410c')}
-      <div style="height:2px;background:#d1d5db;margin:8px 0;"></div>
-      ${costRow('✅ 최종 순이익', cur.net, true, profitColor, true)}
-    </div>
-
-    <!-- 시나리오 안내 문구 -->
-    <div class="sub-title">📊 ROAS 시나리오 분석</div>
-    <div style="background:#f8f9ff;border:1px solid #e8eaf0;border-radius:10px;padding:12px 16px;margin-bottom:14px;font-size:.8rem;color:#374151;line-height:1.8;">
-      <b>가정:</b> 공급가 비율(${fmtP(supplyCostRatio*100)})·고정비 구조는 동일하게 유지.
-      ${crLinked ? `<br><span style="color:#065f46;font-weight:700;">🔗 취소·반품률(${fmtP(store.crTotalRatioRev)}) 연동:</span> 변동폭은 <b>총매출 기준</b>으로 적용 → 순매출 = 총매출 × ${fmtP(100 - store.crTotalRatioRev)}` : ''}<br>
-      <span style="color:#0284c7;">① </span>${crLinked?'총':'순'}매출을 <b>${fmtShort(scRevDelta)} 줄이고</b> ROAS를 <b>${scRoasDelta}%p 높일 때</b> &nbsp;|&nbsp;
-      <span style="color:#7c3aed;">② </span>현재 입력 실적 그대로 &nbsp;|&nbsp;
-      <span style="color:#b45309;">③ </span>${crLinked?'총':'순'}매출을 <b>${fmtShort(scRevDelta)} 늘리고</b> ROAS를 <b>${scRoasDelta}%p 낮출 때</b>
-    </div>
-    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-bottom:16px;">
-  `;
-
-  scenarios.forEach((s, idx) => {
-    const netColor  = s.netProfit >= 0 ? '#15803d' : '#dc2626';
-    const netBg     = s.netProfit >= 0 ? '#f0fdf4' : '#fef2f2';
-    const diffNet   = s.netProfit - cur.net;
-    const diffSign  = diffNet >= 0 ? '+' : '';
-    const diffColor = diffNet >= 0 ? '#15803d' : '#dc2626';
-    const revDiff   = s.revenue - revenue;
-    const revDiffTxt = revDiff === 0
-      ? '<span style="color:#7c3aed;">현재 매출 동일</span>'
-      : revDiff > 0
-        ? `<span style="color:#b45309;">순매출 +${fmt(revDiff)}원</span>`
-        : `<span style="color:#0284c7;">순매출 ${fmt(revDiff)}원</span>`;
-    const roasDiff  = s.roas - currentRoas;
-    const roasDiffTxt = roasDiff === 0
-      ? `<span style="color:#7c3aed;">ROAS ${s.roas.toFixed(0)}%</span>`
-      : roasDiff > 0
-        ? `<span style="color:#0284c7;">ROAS +${roasDiff.toFixed(0)}%p → ${s.roas.toFixed(0)}%</span>`
-        : `<span style="color:#b45309;">ROAS ${roasDiff.toFixed(0)}%p → ${s.roas.toFixed(0)}%</span>`;
-
-    html += `
-      <div style="border:${s.border};border-radius:14px;padding:18px;background:${s.bg};">
-        <div style="font-size:.88rem;font-weight:700;color:${s.color};margin-bottom:3px;">${s.label}</div>
-        <div style="font-size:.73rem;margin-bottom:2px;">${revDiffTxt}</div>
-        <div style="font-size:.73rem;margin-bottom:10px;">${roasDiffTxt}</div>
-        ${crLinked ? scRow(`총매출 (광고 대상)`, fmt(s.grossRevenue)+'원') : ''}
-        ${crLinked ? `<div style="display:flex;justify-content:space-between;padding:3px 0;font-size:.78rem;color:#9ca3af;border-bottom:1px dashed #e5e7eb;margin-bottom:4px;">
-          <span>└ 취소·반품 차감 (−${fmtP(store.crTotalRatioRev)})</span>
-          <span>−${fmt(s.grossRevenue - s.revenue)}원</span>
-        </div>` : ''}
-        ${scRow('순매출',             fmt(s.revenue)+'원')}
-        ${scRow('광고비',             fmt(s.advCost)+'원')}
-        ${scRow('상품 공급가(VAT제외)', fmt(s.supplyExVat)+'원')}
-        ${scRow('고정비',             fmt(fixedCost)+'원')}
-        ${scRow('부가세(실납부)',      fmt(s.vatAmt)+'원')}
-        ${scRow('법인세',             fmt(s.corpTax)+'원')}
-        <div style="height:1px;background:#d1d5db;margin:8px 0;"></div>
-        <div style="display:flex;justify-content:space-between;align-items:center;">
-          <span style="font-size:.82rem;font-weight:700;">순이익</span>
-          <span style="font-size:1.1rem;font-weight:800;color:${netColor};">${s.netProfit >= 0 ? '+' : ''}${fmt(s.netProfit)}원</span>
-        </div>
-        ${idx !== 1 ? `<div style="margin-top:8px;padding:7px 10px;background:${netBg};border-radius:7px;font-size:.75rem;font-weight:700;color:${diffColor};text-align:center;">
-          기존 대비 ${diffSign}${fmt(diffNet)}원
-        </div>` : `<div style="margin-top:8px;padding:7px 10px;background:#ede9fe;border-radius:7px;font-size:.75rem;font-weight:700;color:#7c3aed;text-align:center;">
-          ← 기준 실적
-        </div>`}
-      </div>`;
-  });
-
-  html += `
-    </div>
-
-    <!-- 인사이트 -->
-    <div style="background:linear-gradient(135deg,#1a1a2e,#16213e);border-radius:14px;padding:20px 24px;color:#fff;">
-      <div style="font-size:.92rem;font-weight:700;margin-bottom:14px;">💡 광고비 볼륨 확대 판단 인사이트</div>
-      ${advInsight(revenue, advCost, fixedCost, cur.supply, cur.net, roas, scenarios)}
-    </div>
-  `;
-
-  $('adv-result').innerHTML = html;
-
-  // 아카이브 저장 섹션 표시
-  $('adv-archive-save-section').style.display = 'block';
-
-  // 현재 계산값을 임시 저장 (saveArchive에서 사용)
-  window._advSnapshot = {
-    revenue, advCost, rent, labor, etc, months,
-    totalSupplyCost, roas: roas || 0,
-    vatAmt: cur.vatAmt, corpTax: cur.corpTax, netProfit: cur.net,
-    scRevDelta, scRoasDelta,
-  };
-}
-
-/** 숫자를 짧은 한글 단위로 포맷 (예: 1억, 5000만) */
-function fmtShort(n) {
-  if (n >= 100_000_000) return (n / 100_000_000).toFixed(n % 100_000_000 === 0 ? 0 : 1) + '억';
-  if (n >= 10_000)      return (n / 10_000).toFixed(n % 10_000 === 0 ? 0 : 1) + '만';
-  return fmt(n);
-}
-
-/** 분석 결과 아카이브 저장 */
-async function saveArchive() {
-  const snap = window._advSnapshot;
-  if (!snap) { showToast('먼저 분석 결과를 계산해 주세요.', 'error'); return; }
-
-  const label = $('arc-label').value.trim() || (() => {
-    const d = new Date(); return `${d.getFullYear()}년 ${d.getMonth()+1}월`;
-  })();
-  const start = $('arc-start').value;
-  const end   = $('arc-end').value;
-  const memo  = $('arc-memo').value.trim();
-
-  const body = {
-    label,
-    period_start: start,
-    period_end:   end,
-    revenue:      snap.revenue,
-    adv_cost:     snap.advCost,
-    rent:         snap.rent,
-    labor:        snap.labor,
-    etc_cost:     snap.etc,
-    months:       snap.months,
-    supply_cost:  snap.totalSupplyCost,
-    roas:         snap.roas,
-    vat_amt:      snap.vatAmt,
-    corp_tax:     snap.corpTax,
-    net_profit:   snap.netProfit,
-    scenario_rev_delta:  snap.scRevDelta,
-    scenario_roas_delta: snap.scRoasDelta,
-    memo,
-  };
-
-  try {
-    await sbInsert('adv_archive', body);
-    showToast(`✅ "${label}" 아카이브가 저장됐습니다.`);
-    $('arc-label').value = '';
-    $('arc-memo').value  = '';
-    loadArchive();
-  } catch(e) {
-    showToast('❌ 저장 중 오류가 발생했습니다.', 'error');
-  }
-}
-
-/** 아카이브 목록 불러오기 */
-async function loadArchive() {
-  const el = $('arc-list');
-  el.innerHTML = '<div style="text-align:center;padding:20px;color:#9ca3af;font-size:.85rem;">불러오는 중...</div>';
-  try {
-    const rows = await sbList('adv_archive');  // 최신순
-    if (rows.length === 0) {
-      el.innerHTML = `<div class="empty-state" style="padding:30px 0;"><div class="es-icon" style="font-size:2rem;">🗂️</div><p style="font-size:.85rem;">저장된 분석 기록이 없습니다.</p></div>`;
-      return;
-    }
-    let tbl = `
-      <div style="overflow-x:auto;">
-      <table style="width:100%;border-collapse:collapse;font-size:.82rem;">
-        <thead>
-          <tr style="background:#f1f5f9;text-align:left;">
-            <th style="padding:9px 12px;font-weight:700;color:#374151;white-space:nowrap;">레이블</th>
-            <th style="padding:9px 12px;font-weight:700;color:#374151;white-space:nowrap;">기간</th>
-            <th style="padding:9px 12px;font-weight:700;color:#374151;text-align:right;white-space:nowrap;">순매출</th>
-            <th style="padding:9px 12px;font-weight:700;color:#374151;text-align:right;white-space:nowrap;">광고비</th>
-            <th style="padding:9px 12px;font-weight:700;color:#374151;text-align:right;white-space:nowrap;">ROAS</th>
-            <th style="padding:9px 12px;font-weight:700;color:#374151;text-align:right;white-space:nowrap;">순이익</th>
-            <th style="padding:9px 12px;font-weight:700;color:#374151;white-space:nowrap;">메모</th>
-            <th style="padding:9px 12px;"></th>
-          </tr>
-        </thead>
-        <tbody>`;
-
-    rows.forEach(r => {
-      const netColor  = r.net_profit >= 0 ? '#15803d' : '#dc2626';
-      const periodTxt = r.period_start && r.period_end
-        ? `${r.period_start} ~ ${r.period_end}`
-        : r.period_start || r.period_end || '—';
-      const roasTxt   = r.roas ? r.roas.toFixed(0) + '%' : '—';
-      const savedAt   = r.created_at ? new Date(r.created_at).toLocaleDateString('ko-KR') : '';
-
-      tbl += `
-        <tr style="border-bottom:1px solid #e5e7eb;" onmouseover="this.style.background='#f9fafb'" onmouseout="this.style.background=''">
-          <td style="padding:9px 12px;font-weight:700;color:#1a1a2e;">${r.label || '—'}<div style="font-size:.7rem;color:#9ca3af;font-weight:400;">${savedAt}</div></td>
-          <td style="padding:9px 12px;color:#6b7280;white-space:nowrap;">${periodTxt}</td>
-          <td style="padding:9px 12px;text-align:right;font-weight:600;">${fmt(r.revenue)}원</td>
-          <td style="padding:9px 12px;text-align:right;font-weight:600;color:#6366f1;">${fmt(r.adv_cost)}원</td>
-          <td style="padding:9px 12px;text-align:right;font-weight:700;color:${r.roas>=700?'#15803d':r.roas>=500?'#d97706':'#dc2626'};">${roasTxt}</td>
-          <td style="padding:9px 12px;text-align:right;font-weight:800;color:${netColor};">${r.net_profit>=0?'+':''}${fmt(r.net_profit)}원</td>
-          <td style="padding:9px 12px;color:#6b7280;max-width:150px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${r.memo || '—'}</td>
-          <td style="padding:9px 12px;">
-            <button onclick="deleteArchive('${r.id}')" style="padding:4px 10px;background:#fef2f2;border:1px solid #fecaca;border-radius:6px;color:#dc2626;font-size:.75rem;cursor:pointer;">삭제</button>
-          </td>
-        </tr>`;
-    });
-
-    tbl += `</tbody></table></div>`;
-    el.innerHTML = tbl;
-  } catch(e) {
-    el.innerHTML = '<div style="color:#dc2626;font-size:.85rem;padding:16px;">불러오기 실패. 잠시 후 다시 시도해 주세요.</div>';
-  }
-}
-
-/** 아카이브 항목 삭제 */
-async function deleteArchive(id) {
-  if (!confirm('이 기록을 삭제할까요?')) return;
-  try {
-    await sbDelete('adv_archive', id);
-    showToast('🗑️ 삭제됐습니다.');
-    loadArchive();
-  } catch(e) {
-    showToast('❌ 삭제 실패', 'error');
-  }
-}
-
-/** 비용 행 HTML */
-function costRow(label, amount, isPositive, color='#374151', isBold=false) {
-  const sign = isPositive ? '+' : (amount > 0 ? '-' : '');
-  const displayAmt = isPositive ? amount : (amount > 0 ? amount : 0);
-  const amtColor = isPositive ? (color || '#15803d') : (amount > 0 ? (color || '#dc2626') : '#9ca3af');
-  return `
-    <div style="display:flex;justify-content:space-between;align-items:center;padding:5px 0;border-bottom:1px dashed #e5e7eb;">
-      <span style="font-size:.83rem;color:#6b7280;">${label}</span>
-      <span style="font-size:${isBold?'1rem':'.88rem'};font-weight:${isBold?'800':'600'};color:${amtColor};">
-        ${sign}${displayAmt > 0 ? fmt(displayAmt)+'원' : '—'}
-      </span>
-    </div>`;
-}
-
-/** 시나리오 행 HTML */
-function scRow(label, value) {
-  return `<div style="display:flex;justify-content:space-between;padding:3px 0;font-size:.8rem;">
-    <span style="color:#6b7280;">${label}</span>
-    <span style="font-weight:600;color:#374151;">${value}</span>
-  </div>`;
-}
-
-/** 광고비 볼륨 확대 인사이트 텍스트 (새 시나리오 구조용) */
-function advInsight(revenue, advCost, fixedCost, supplyCost, netProfit, roas, scenarios) {
-  if (!advCost || !revenue) return '<p style="font-size:.83rem;opacity:.7;">매출과 광고비를 입력하면 인사이트가 생성됩니다.</p>';
-
-  const lines = [];
-  lines.push(`<div style="font-size:.82rem;opacity:.9;line-height:2;">`);
-
-  // ① 시나리오 요약
-  const [s1, s2, s3] = scenarios;  // -1억/ROAS+100p, 기준, +1억/ROAS-100p
-
-  // 현재 기준(②) 대비 ① / ③ 비교
-  const diff1 = s1.netProfit - s2.netProfit;
-  const diff3 = s3.netProfit - s2.netProfit;
-
-  const arrow1 = diff1 >= 0 ? `🟢 +${fmt(diff1)}원 증가` : `🔴 ${fmt(diff1)}원 감소`;
-  const arrow3 = diff3 >= 0 ? `🟢 +${fmt(diff3)}원 증가` : `🔴 ${fmt(diff3)}원 감소`;
-
-  lines.push(`📌 <b>시나리오 비교 요약</b><br>`);
-  lines.push(`&nbsp;&nbsp;① 매출 -1억 · ROAS +100%p → 순이익 <b>${fmt(s1.netProfit)}원</b> (기준 대비 ${arrow1})<br>`);
-  lines.push(`&nbsp;&nbsp;② 현재 실적 기준 → 순이익 <b>${fmt(s2.netProfit)}원</b><br>`);
-  lines.push(`&nbsp;&nbsp;③ 매출 +1억 · ROAS -100%p → 순이익 <b>${fmt(s3.netProfit)}원</b> (기준 대비 ${arrow3})<br>`);
-
-  // ② 광고비 확대 vs 효율 개선 판단
-  lines.push(`<br>`);
-  if (diff3 > 0 && diff1 < 0) {
-    lines.push(`📈 <b>광고비 확대가 유리</b>합니다. ROAS가 ${s3.roas.toFixed(0)}%p 하락하더라도 매출 볼륨을 키우면 순이익이 <b>${fmt(diff3)}원 더 증가</b>합니다.<br>`);
-    lines.push(`&nbsp;&nbsp;→ 광고 소재·타겟 다변화를 통해 볼륨 확장을 적극 검토하세요.<br>`);
-  } else if (diff1 > 0 && diff3 < 0) {
-    lines.push(`🎯 <b>효율 개선(ROAS 상향)이 유리</b>합니다. 매출이 1억 줄어도 ROAS를 높이면 순이익이 더 증가합니다.<br>`);
-    lines.push(`&nbsp;&nbsp;→ 광고비 무작정 확대보다 소재 최적화·클릭률 개선에 집중하세요.<br>`);
-  } else if (diff3 > 0 && diff1 > 0) {
-    lines.push(`💰 두 방향 모두 현재보다 순이익이 증가합니다. 시장 확장성이 있다면 <b>볼륨 확대(③)</b>를, 운영 여력이 부족하다면 <b>효율 개선(①)</b>을 우선 택하세요.<br>`);
-  } else {
-    lines.push(`⚠️ 두 방향 모두 현재 실적 대비 순이익이 감소하는 구조입니다. 먼저 고정비 절감 또는 원가율 개선이 필요합니다.<br>`);
-  }
-
-  // ③ 적자 시나리오 경고
-  const lossScenarios = scenarios.filter(s => s.netProfit < 0);
-  if (lossScenarios.length > 0) {
-    const lossLabels = lossScenarios.map(s => s.label).join(', ');
-    lines.push(`<br>🚨 <b>적자 주의</b>: ${lossLabels} 시나리오에서 순이익이 마이너스입니다. 해당 방향으로 운영 전 비용 구조를 재검토하세요.<br>`);
-  }
-
-  lines.push('</div>');
-  return lines.join('');
-}
-
-/* ══════════════════════════════════════
    [ E ] 초기화
 ══════════════════════════════════════ */
 /* 로그인 후 데이터 로드 시작 */
 function bootApp() {
   applyRole();
-  if (!isCS()) loadArchive();        // 광고 기록 — CS팀 제외
   if (isAdmin()) loadCrArchive();    // 취소·반품 기록은 관리자만
   if (!isCS()) loadPerfArchive();    // 판매 성과 기록(순매출·마진 집계 포함) — CS팀 제외
   checkCafe24Status();
@@ -5420,8 +4805,6 @@ function bootApp() {
   $('crDateEnd').value     = fmtD(now);
   $('perfDateStart').value = fmtD(first);
   $('perfDateEnd').value   = fmtD(now);
-  $('arc-start').value = fmtD(first);
-  $('arc-end').value   = fmtD(now);
   $('anDateStart').value = fmtD(first);
   $('anDateEnd').value   = fmtD(now);
   $('homeDateStart').value = fmtD(first);
