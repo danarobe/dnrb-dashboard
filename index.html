@@ -1155,8 +1155,39 @@
     </div>
     <div class="section-body" id="body-adv">
 
+      <!-- ⓪ Meta 광고 성과 (관리자 전용, API 연동) -->
+      <div id="meta-panel" style="display:none;margin-bottom:28px;">
+        <div class="sub-title">📱 Meta 광고 성과 (광고관리자 API)</div>
+        <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:14px;">
+          <label style="font-size:.83rem;font-weight:700;color:#4b5563;"><i class="fa-regular fa-calendar"></i> 기간</label>
+          <input type="date" id="metaDateStart" style="padding:7px 11px;border:1.5px solid #e5e7eb;border-radius:8px;font-size:.85rem;font-family:inherit;" />
+          <span class="date-sep">~</span>
+          <input type="date" id="metaDateEnd" style="padding:7px 11px;border:1.5px solid #e5e7eb;border-radius:8px;font-size:.85rem;font-family:inherit;" />
+          <button class="btn-analyze" id="btn-meta-fetch" onclick="fetchMetaAds()">
+            <i class="fa-solid fa-cloud-arrow-down"></i> Meta 불러오기
+          </button>
+          <span style="font-size:.75rem;color:#9ca3af;">광고비·전환값은 Meta 광고관리자, 총 매출은 카페24 결제 기준</span>
+        </div>
+        <div id="meta-status" style="display:none;background:#fffbeb;border:1.5px solid #fde68a;border-radius:12px;padding:14px 18px;margin-bottom:14px;font-size:.83rem;color:#78350f;line-height:1.7;"></div>
+        <div id="meta-summary" style="display:none;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-bottom:16px;"></div>
+        <div id="meta-topads"></div>
+      </div>
+
+      <!-- 소재 미리보기 모달 -->
+      <div id="meta-preview-modal" onclick="if(event.target===this)this.style.display='none'"
+           style="display:none;position:fixed;inset:0;background:rgba(15,23,42,.55);z-index:200;align-items:center;justify-content:center;padding:20px;">
+        <div style="background:#fff;border-radius:16px;max-width:420px;width:100%;max-height:88vh;overflow:auto;padding:16px;">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">
+            <b id="meta-preview-title" style="font-size:.85rem;color:#1e1b4b;flex:1;word-break:break-all;"></b>
+            <button onclick="document.getElementById('meta-preview-modal').style.display='none'"
+                    style="border:none;background:#f3f4f6;border-radius:8px;padding:4px 10px;font-size:.9rem;cursor:pointer;">✕</button>
+          </div>
+          <div id="meta-preview-body" style="text-align:center;min-height:200px;"></div>
+        </div>
+      </div>
+
       <!-- ① 기본 데이터 입력 -->
-      <div class="sub-title">기간 매출 &amp; 비용 입력</div>
+      <div class="sub-title">기간 매출 &amp; 비용 입력 (수동)</div>
       <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-bottom:20px;">
 
         <div class="input-group">
@@ -1408,6 +1439,8 @@ function applyRole() {
   $('menu-disp').style.display = isAdmin() && !isCS() ? '' : 'none';
   $('menu-stock').style.display = isAdmin() && !isCS() ? '' : 'none';
   $('menu-stable').style.display = isAdmin() && !isCS() ? '' : 'none';
+  // Meta 광고 성과 패널 — 광고비·ROAS로 매출 역산이 가능해 관리자 전용
+  const mp = $('meta-panel'); if (mp) mp.style.display = isAdmin() ? 'block' : 'none';
   $('user-info').textContent = SESSION ? `${SESSION.name} (${isAdmin() ? '관리자' : isCS() ? 'CS팀' : '직원'})` : '';
   $('btn-logout').style.display = SESSION ? '' : 'none';
 }
@@ -2963,6 +2996,112 @@ function stableExportNewCSV() {
   rows.forEach(it => lines.push([q(it.product_name), q(it.option_value), it.paid_qty, it.avg.toFixed(1), it.rec].join(',')));
   dlCSV(lines.join('\r\n'), `안정재고_신규편성_${stableState.period.start}_${stableState.period.end}.csv`);
   showToast(`✅ ${fmt(rows.length)}행 다운로드`);
+}
+
+/* ──────────────────────────────
+   Meta 광고 성과 (관리자 전용) — meta-ads Edge Function
+────────────────────────────── */
+async function metaGet(params) {
+  const res = await fetch(fnUrl('meta-ads', params), { headers: sbHeaders() });
+  const data = await res.json();
+  if (data.error && data.error !== 'not_connected') throw new Error(data.error);
+  return data;
+}
+
+async function fetchMetaAds() {
+  if (!isAdmin()) { showToast('⛔ 접근 권한이 없습니다'); return; }
+  const s = $('metaDateStart').value, e = $('metaDateEnd').value;
+  if (!s || !e) { showToast('📅 기간을 선택해주세요'); return; }
+  const btn = $('btn-meta-fetch');
+  btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> 불러오는 중...';
+  try {
+    const [sum, top, rev] = await Promise.all([
+      metaGet({ action: 'summary', start_date: s, end_date: e }),
+      metaGet({ action: 'topads', start_date: s, end_date: e }),
+      anGet({ action: 'revenue', start_date: s, end_date: e }).catch(() => null),
+    ]);
+
+    // 미연동 상태 → 설정 안내
+    if (sum.error === 'not_connected') {
+      $('meta-status').innerHTML = `<b>🔌 Meta 광고관리자가 아직 연동되지 않았습니다.</b><br />
+        연동에는 Meta 비즈니스 설정의 <b>시스템 사용자 액세스 토큰</b>(ads_read 권한)과 <b>광고 계정 ID</b>가 필요해요.
+        발급 방법은 개발 담당에게 문의해주세요 — 토큰을 서버에 등록하면 이 화면에 자동으로 데이터가 표시됩니다.`;
+      $('meta-status').style.display = 'block';
+      $('meta-summary').style.display = 'none';
+      $('meta-topads').innerHTML = '';
+      return;
+    }
+    $('meta-status').style.display = 'none';
+
+    const revenue = rev ? rev.revenue : null;
+    const cafeRoas = revenue !== null && sum.spend > 0 ? revenue / sum.spend : null;
+    const tile = (label, val, sub) => `
+      <div style="background:#f8f9ff;border:1.5px solid #e0e7ff;border-radius:12px;padding:12px 14px;">
+        <div style="font-size:.72rem;color:#6b7280;font-weight:600;margin-bottom:4px;">${label}</div>
+        <div style="font-size:1.1rem;font-weight:800;color:#1e1b4b;">${val}</div>
+        ${sub ? `<div style="font-size:.7rem;color:#9ca3af;margin-top:3px;">${sub}</div>` : ''}
+      </div>`;
+    $('meta-summary').innerHTML =
+      tile('💸 광고비 지출', fmt(Math.round(sum.spend)) + '원', `Meta 광고관리자 · ${s} ~ ${e}`) +
+      tile('🛒 구매 전환값', fmt(Math.round(sum.purchase_value)) + '원', `구매 ${fmt(sum.purchases)}건 (Meta 기여 기준)`) +
+      tile('💰 총 매출 (카페24)', revenue !== null ? fmt(revenue) + '원' : '—', '결제 기준 · 대시보드와 동일') +
+      tile('📈 ROAS (Meta)', sum.meta_roas ? sum.meta_roas.toFixed(2) : '—', '구매 전환값 ÷ 광고비') +
+      tile('📊 ROAS (카페24)', cafeRoas !== null ? cafeRoas.toFixed(2) : '—', '총 매출(결제) ÷ Meta 광고비');
+    $('meta-summary').style.display = 'grid';
+
+    // 소재 TOP 10
+    const ads = top.ads || [];
+    if (!ads.length) {
+      $('meta-topads').innerHTML = '<div class="empty-state"><div class="es-icon">📱</div><p>기간 내 지출된 광고가 없습니다.</p></div>';
+    } else {
+      let html = `<div style="font-size:.8rem;color:#6b7280;margin-bottom:8px;">💡 지출 상위 10개 소재 · <b>행을 클릭하면 소재(이미지·영상)를 볼 수 있어요</b></div>
+        <div class="table-wrap"><table>
+        <thead><tr>
+          <th>순위</th><th style="text-align:left;">광고명</th><th>지출 금액</th>
+          <th>구매당 비용</th><th>구매 전환</th><th>구매 전환값</th><th>구매 ROAS</th><th>빈도</th>
+        </tr></thead><tbody>`;
+      ads.forEach((a, i) => {
+        html += `<tr onclick="showMetaPreview('${a.ad_id}')" style="cursor:pointer;">
+          <td>${i + 1}</td>
+          <td style="text-align:left;min-width:220px;color:#4338ca;font-weight:600;">${escHtml(a.ad_name)}</td>
+          <td style="font-weight:700;">${fmt(Math.round(a.spend))}원</td>
+          <td>${a.cost_per_purchase ? fmt(Math.round(a.cost_per_purchase)) + '원' : '—'}</td>
+          <td>${fmt(a.purchases)}건</td>
+          <td>${fmt(Math.round(a.purchase_value))}원</td>
+          <td style="font-weight:800;color:${a.roas >= 1 ? '#15803d' : '#b91c1c'};">${a.roas.toFixed(2)}</td>
+          <td>${a.frequency.toFixed(2)}</td>
+        </tr>`;
+      });
+      $('meta-topads').innerHTML = html + '</tbody></table></div>';
+    }
+    showToast('✅ Meta 광고 성과를 불러왔습니다');
+  } catch (err) {
+    showToast('❌ Meta 조회 실패: ' + err.message);
+  } finally {
+    btn.disabled = false; btn.innerHTML = '<i class="fa-solid fa-cloud-arrow-down"></i> Meta 불러오기';
+  }
+}
+
+async function showMetaPreview(adId) {
+  const modal = $('meta-preview-modal');
+  modal.style.display = 'flex';
+  $('meta-preview-title').textContent = '불러오는 중...';
+  $('meta-preview-body').innerHTML = '<div style="padding:40px;color:#9ca3af;"><i class="fa-solid fa-spinner fa-spin"></i></div>';
+  try {
+    const d = await metaGet({ action: 'preview', ad_id: adId });
+    $('meta-preview-title').textContent = d.name || adId;
+    if (d.iframe) {
+      $('meta-preview-body').innerHTML = d.iframe;   // Meta가 주는 공식 미리보기 iframe (영상 재생 포함)
+      const ifr = $('meta-preview-body').querySelector('iframe');
+      if (ifr) { ifr.style.maxWidth = '100%'; ifr.style.border = 'none'; }
+    } else if (d.thumbnail) {
+      $('meta-preview-body').innerHTML = `<img src="${escHtml(d.thumbnail)}" style="max-width:100%;border-radius:10px;" />`;
+    } else {
+      $('meta-preview-body').innerHTML = '<div style="padding:30px;color:#9ca3af;">미리보기를 가져오지 못했습니다</div>';
+    }
+  } catch (err) {
+    $('meta-preview-body').innerHTML = `<div style="padding:30px;color:#b91c1c;font-size:.85rem;">${escHtml(err.message)}</div>`;
+  }
 }
 
 /* ──────────────────────────────
@@ -5294,6 +5433,8 @@ function bootApp() {
   $('stableDateStart').value = fmtD(new Date(now.getFullYear(), now.getMonth(), now.getDate() - 7));
   $('stableDateEnd').value   = fmtD(new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1));
   stableSyncDays();
+  $('metaDateStart').value = fmtD(new Date(now.getFullYear(), now.getMonth(), now.getDate() - 7));
+  $('metaDateEnd').value   = fmtD(new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1));
   $('np-pw').value = localStorage.getItem(NP_PW_KEY) || '';
 
   // 세션 확인 → 로그인 화면 또는 대시보드 시작
