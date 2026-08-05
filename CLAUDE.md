@@ -127,7 +127,8 @@ AUTHOR_FIELDS(notes/comments=author_id, likes=user_id): POST는 본인 id 필수
 
 ### 광고 효율 (#adv, 관리자+MD)
 - Meta 광고관리자 API. summary(광고비/구매전환값/구매수/Meta ROAS) + 카페24 ROAS(결제매출÷광고비) 5타일. 소재 **TOP 20**(행 클릭 → 미리보기 iframe + 기간별 지출·ROAS 이중축 차트).
-- 구매 액션은 **omni_purchase**→purchase→fb_pixel_purchase 폴백(이 몰은 omni_purchase). adstats date_preset(today/yesterday/last_7d/14d/30d, 7일+는 어제까지).
+- 구매 액션은 **omni_purchase**→purchase→fb_pixel_purchase 폴백(이 몰은 omni_purchase).
+- **adstats 기간 7종**(소재 클릭 시 모달): 오늘 / 어제 / 최근3일 / 최근7일 / **이전7일** / 최근14일 / 최근30일. 앞 6개는 date_preset(today/yesterday/last_3d/last_7d/last_14d/last_30d, 오늘 외에는 어제까지). **'이전 7일'은 Meta에 프리셋이 없어 time_range로 직접 조회** — 기준일은 last_7d 응답의 `date_start`에서 −7d~−1d 역산(광고계정 시간대 그대로라 어긋나지 않음), last_7d가 빈 응답이면 Asia/Seoul 오늘−7d로 폴백. 응답 stats에 `start`/`end` 포함 → 타일 tooltip·차트 tooltip에 실제 날짜 표시. 검증(2026-08-05, 6개 소재): **이전7일 + 최근7일 = 최근14일** 정확히 일치.
 - **Meta 연동 = 시스템 사용자 방식**(개인계정 잠금 문제 회피). 시스템사용자 dnrb-dashboard(비즈니스 Onniverse), 앱 DNRB-Dashboard(1005085742525912), 무기한 ads_read 토큰. 기존 수동 입력/시나리오/세금/아카이브 UI는 삭제됨(adv_archive 데이터는 보존, e89ef28 이전 커밋에서 복원 가능).
 
 ### 순익 시나리오 (#profit, 관리자)

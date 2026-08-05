@@ -2,6 +2,7 @@
 // Meta(페이스북·인스타그램) 광고관리자 연동 함수 — 관리자 전용
 //   GET ?action=summary&start_date&end_date → 기간 광고비·구매전환값·구매수·meta ROAS
 //   GET ?action=topads&start_date&end_date  → 지출 상위 10개 소재 (광고명/지출/구매당비용/구매수/전환값/ROAS/빈도)
+//   GET ?action=adstats&ad_id=...           → 소재 기간별 지출·ROAS (오늘/어제/최근3일/최근7일/이전7일/최근14일/최근30일)
 //   GET ?action=preview&ad_id=...           → 소재 미리보기(iframe HTML) + 썸네일
 //
 // 필요 secrets: META_ACCESS_TOKEN (비즈니스 설정 > 시스템 사용자 토큰, ads_read 권한),
@@ -34,6 +35,18 @@ const num = (v: unknown) => {
   const n = parseFloat(String(v ?? "0"));
   return isFinite(n) ? n : 0;
 };
+
+// 광고계정 시간대(한국) 기준 오늘 — Meta의 date_preset도 계정 시간대로 계산되므로 UTC를 쓰면 하루 어긋난다
+function seoulToday(): string {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Seoul" }).format(new Date());
+}
+
+// YYYY-MM-DD ± 일수 (UTC 정오 기준이라 서머타임·경계 영향 없음)
+function addDays(ymd: string, d: number): string {
+  const t = new Date(`${ymd}T12:00:00Z`);
+  t.setUTCDate(t.getUTCDate() + d);
+  return t.toISOString().slice(0, 10);
+}
 
 // actions/action_values 배열에서 구매 항목 추출 (픽셀 설정에 따라 purchase 또는 omni_purchase)
 function pickPurchase(arr: unknown): number {
@@ -107,22 +120,51 @@ Deno.serve(async (req) => {
       return json({ period: { start: s, end: e }, ads });
     }
 
-    // 소재별 기간 통계 — 오늘/어제/최근7일/최근14일/최근30일의 지출·ROAS
+    // 소재별 기간 통계 — 오늘/어제/최근3일/최근7일/이전7일/최근14일/최근30일의 지출·ROAS
     // (last_7d 등 date_preset은 오늘을 제외하고 어제까지 집계 — Meta 표준)
+    // '이전 7일' = 최근 7일 바로 앞 7일. Meta에 해당 프리셋이 없어 time_range로 직접 지정하며,
+    // 기준일은 last_7d 응답의 date_start(광고계정 시간대 기준)에서 역산 — 응답이 비면 Asia/Seoul로 폴백.
     if (action === "adstats") {
       const adId = url.searchParams.get("ad_id");
       if (!adId) return json({ error: "ad_id 필수" }, 400);
-      const presets = ["today", "yesterday", "last_7d", "last_14d", "last_30d"];
+      const FIELDS = "spend,purchase_roas,action_values,date_start,date_stop";
+      const presets = ["today", "yesterday", "last_3d", "last_7d", "last_14d", "last_30d"];
       const results = await Promise.all(presets.map((p) =>
-        graphGet(`${adId}/insights`, { date_preset: p, fields: "spend,purchase_roas,action_values" }, c.token)
+        graphGet(`${adId}/insights`, { date_preset: p, fields: FIELDS }, c.token)
           .catch(() => ({ data: [] }))));
-      const stats = presets.map((p, i) => {
-        const r = (((results[i] as Record<string, unknown>).data ?? []) as Record<string, unknown>[])[0] ?? {};
+      const rowOf = (r: unknown) =>
+        ((((r ?? {}) as Record<string, unknown>).data ?? []) as Record<string, unknown>[])[0] ?? {};
+
+      const last7Start = String(rowOf(results[presets.indexOf("last_7d")]).date_start ?? "") ||
+        addDays(seoulToday(), -7);
+      const prevRange = { since: addDays(last7Start, -7), until: addDays(last7Start, -1) };
+      const prevBody = await graphGet(`${adId}/insights`, {
+        time_range: JSON.stringify(prevRange),
+        fields: FIELDS,
+      }, c.token).catch(() => ({ data: [] }));
+
+      const toStat = (preset: string, r: Record<string, unknown>) => {
         const spend = num(r.spend);
         const roasArr = (r.purchase_roas ?? []) as { value?: unknown }[];
         const pv = pickPurchase(r.action_values);
-        return { preset: p, spend, roas: roasArr.length ? num(roasArr[0].value) : (spend > 0 ? pv / spend : 0) };
-      });
+        return {
+          preset,
+          spend,
+          roas: roasArr.length ? num(roasArr[0].value) : (spend > 0 ? pv / spend : 0),
+          start: String(r.date_start ?? ""),
+          end: String(r.date_stop ?? ""),
+        };
+      };
+      const byPreset: Record<string, ReturnType<typeof toStat>> = {};
+      presets.forEach((p, i) => { byPreset[p] = toStat(p, rowOf(results[i])); });
+      // 지출이 0이면 Meta가 빈 응답을 주므로 날짜는 우리가 계산한 범위로 채운다
+      const prevStat = { ...toStat("prev_7d", rowOf(prevBody)), start: prevRange.since, end: prevRange.until };
+
+      // 표시 순서: 오늘 → 어제 → 최근3일 → 최근7일 → 이전7일 → 최근14일 → 최근30일
+      const stats = [
+        byPreset.today, byPreset.yesterday, byPreset.last_3d, byPreset.last_7d,
+        prevStat, byPreset.last_14d, byPreset.last_30d,
+      ];
       return json({ ad_id: adId, stats });
     }
 
