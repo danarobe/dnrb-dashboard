@@ -94,6 +94,8 @@
       filter: blur(8px); pointer-events: none; user-select: none;
     }
     .role-cs #perf-save-panel, .role-cs #perf-archive-section { display: none !important; }
+    /* ── MD(직원) 권한: Meta 패널의 광고비·전환값·총매출 블러 ── */
+    .role-staff .meta-blur { filter: blur(8px); pointer-events: none; user-select: none; }
     /* ── 모바일 최적화 ── */
     @media (max-width: 700px) {
       /* 인라인 grid는 전부 1열로 (KPI 타일·TOP10·사유·회의록 등) */
@@ -1102,10 +1104,12 @@
           <label>👥 인건비
             <button onclick="event.preventDefault();fetchLaborFromWM()" style="margin-left:6px;border:1px solid #c7d2fe;background:#eef2ff;color:#4338ca;border-radius:6px;padding:2px 8px;font-size:.68rem;font-weight:700;cursor:pointer;">근무관리에서 불러오기</button>
             <input type="number" id="pf-labor" oninput="profitSaveCosts();renderProfit()" style="width:100%;margin-top:3px;border:1.5px solid #d1d5db;border-radius:8px;padding:7px 10px;" /></label>
-          <label>🧳 사입삼촌 비용<input type="number" id="pf-buying" oninput="profitSaveCosts();renderProfit()" style="width:100%;margin-top:3px;border:1.5px solid #d1d5db;border-radius:8px;padding:7px 10px;" /></label>
-          <label>🏢 사무실 월세<input type="number" id="pf-rent" oninput="profitSaveCosts();renderProfit()" style="width:100%;margin-top:3px;border:1.5px solid #d1d5db;border-radius:8px;padding:7px 10px;" /></label>
-          <label>🧾 관리비<input type="number" id="pf-mgmt" oninput="profitSaveCosts();renderProfit()" style="width:100%;margin-top:3px;border:1.5px solid #d1d5db;border-radius:8px;padding:7px 10px;" /></label>
-          <label>📦 기타 비용 (구독·청소·회식 등)<input type="number" id="pf-etc" oninput="profitSaveCosts();renderProfit()" style="width:100%;margin-top:3px;border:1.5px solid #d1d5db;border-radius:8px;padding:7px 10px;" /></label>
+          <label>🧳 사입삼촌 비용 <span style="color:#9333ea;font-weight:400;">(부가세 포함)</span><input type="number" id="pf-buying" oninput="profitSaveCosts();renderProfit()" style="width:100%;margin-top:3px;border:1.5px solid #d1d5db;border-radius:8px;padding:7px 10px;" /></label>
+          <label>🏢 사무실 월세 <span style="color:#9333ea;font-weight:400;">(부가세 포함)</span><input type="number" id="pf-rent" oninput="profitSaveCosts();renderProfit()" style="width:100%;margin-top:3px;border:1.5px solid #d1d5db;border-radius:8px;padding:7px 10px;" /></label>
+          <label>🧾 관리비 <span style="color:#9333ea;font-weight:400;">(부가세 포함)</span><input type="number" id="pf-mgmt" oninput="profitSaveCosts();renderProfit()" style="width:100%;margin-top:3px;border:1.5px solid #d1d5db;border-radius:8px;padding:7px 10px;" /></label>
+          <label>🚚 택배비<input type="number" id="pf-ship" oninput="profitSaveCosts();renderProfit()" style="width:100%;margin-top:3px;border:1.5px solid #d1d5db;border-radius:8px;padding:7px 10px;" /></label>
+          <label>📦 기타 비용 <span style="color:#9333ea;font-weight:400;">(부가세 포함 — 청소 등)</span><input type="number" id="pf-etcvat" oninput="profitSaveCosts();renderProfit()" style="width:100%;margin-top:3px;border:1.5px solid #d1d5db;border-radius:8px;padding:7px 10px;" /></label>
+          <label>📦 기타 비용 <span style="color:#9ca3af;font-weight:400;">(부가세 미포함)</span><input type="number" id="pf-etcnovat" oninput="profitSaveCosts();renderProfit()" style="width:100%;margin-top:3px;border:1.5px solid #d1d5db;border-radius:8px;padding:7px 10px;" /></label>
         </div>
       </div>
 
@@ -1116,8 +1120,27 @@
       <div id="pf-matrix" style="margin-top:20px;"></div>
       <div id="pf-detail" style="margin-top:14px;"></div>
 
+      <!-- 기록 저장 -->
+      <div id="pf-save" style="display:none;margin-top:20px;background:#f0fdf4;border:1.5px solid #bbf7d0;border-radius:12px;padding:14px 16px;">
+        <div style="font-size:.8rem;font-weight:800;color:#15803d;margin-bottom:8px;">💾 이 기간 순이익 기록 저장</div>
+        <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;">
+          <input type="text" id="pf-arc-label" placeholder="라벨 (예: 8월 1주차)" style="border:1.5px solid #d1d5db;border-radius:8px;padding:7px 12px;font-size:.83rem;min-width:150px;" />
+          <input type="text" id="pf-arc-memo" placeholder="메모 (선택)" style="flex:1;border:1.5px solid #d1d5db;border-radius:8px;padding:7px 12px;font-size:.83rem;min-width:180px;" />
+          <button onclick="saveProfitArchive()" style="background:#059669;color:#fff;border:none;border-radius:8px;padding:8px 18px;font-size:.85rem;font-weight:700;cursor:pointer;">저장</button>
+        </div>
+      </div>
+
+      <!-- 저장된 기록 -->
+      <div style="margin-top:20px;">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;">
+          <div style="font-size:.8rem;font-weight:800;color:#4338ca;">📁 저장된 순이익 기록</div>
+          <button onclick="loadProfitArchive()" style="border:1px solid #d1d5db;background:#f3f4f6;border-radius:7px;padding:4px 12px;font-size:.74rem;cursor:pointer;font-weight:600;">🔄 새로고침</button>
+        </div>
+        <div id="pf-arc-list" style="font-size:.85rem;color:#9ca3af;">아직 저장된 기록이 없습니다.</div>
+      </div>
+
       <div style="background:#fffbeb;border:1.5px solid #fde68a;border-radius:10px;padding:10px 14px;margin-top:16px;font-size:.76rem;color:#78350f;line-height:1.7;">
-        ⚠️ <strong>세금은 참고용 개략치</strong>예요 — 부가세 = (매출이익 − 광고비)의 10/110 (상품 사입·광고비 매입세액 공제 가정), 법인세 = 과세표준 구간세율(2억 이하 9% / 2억~200억 19% / 200억 초과 21%, 연 기준 구간을 기간 손익에 그대로 적용). 실제 세액은 매입세액 공제·손금 처리에 따라 달라집니다.
+        ⚠️ <strong>세금은 참고용 개략치</strong>예요 — 부가세 = 매출세액(순매출×10/110) − 매입세액(상품 공급가액×10% + 광고비×10% + 부가세 포함 경비×10/110). 상품 원가의 공급가는 부가세 미포함으로 기입돼 있어 마진율(공급가×1.1 기준)에서 역산해 세액을 분리합니다. 인건비·택배비(면세)·기타(미포함)는 매입세액 공제가 없어요. 법인세 = 과세표준 구간세율(2억 이하 9% / 2억~200억 19% / 초과 21%, 연 기준 구간을 기간 손익에 그대로 적용).
       </div>
     </div>
   </div>
@@ -1371,11 +1394,11 @@ function applyRole() {
   $('menu-disp').style.display = isAdmin() && !isCS() ? '' : 'none';
   $('menu-stock').style.display = isAdmin() && !isCS() ? '' : 'none';
   $('menu-stable').style.display = isAdmin() && !isCS() ? '' : 'none';
-  $('menu-adv').style.display = isAdmin() && !isCS() ? '' : 'none';
+  $('menu-adv').style.display = (isAdmin() || isStaff()) && !isCS() ? '' : 'none';   // MD도 광고 효율 접근
   $('menu-profit').style.display = isAdmin() && !isCS() ? '' : 'none';
-  // Meta 광고 성과 패널 — 광고비·ROAS로 매출 역산이 가능해 관리자 전용
-  const mp = $('meta-panel'); if (mp) mp.style.display = isAdmin() ? 'block' : 'none';
-  $('user-info').textContent = SESSION ? `${SESSION.name} (${isAdmin() ? '관리자' : isCS() ? 'CS팀' : '직원'})` : '';
+  // Meta 광고 성과 패널 — 관리자 + MD (MD는 광고비·전환값·총매출 블러)
+  const mp = $('meta-panel'); if (mp) mp.style.display = (isAdmin() || isStaff()) && !isCS() ? 'block' : 'none';
+  $('user-info').textContent = SESSION ? `${SESSION.name} (${isAdmin() ? '관리자' : isCS() ? 'CS팀' : 'MD'})` : '';
   $('btn-logout').style.display = SESSION ? '' : 'none';
 }
 
@@ -1391,18 +1414,18 @@ async function loadUsers() {
         const roleBtn = isMe ? '<span style="font-size:.75rem;color:#9ca3af;">(본인)</span>'
           : `<select onchange="setUserRole('${escHtml(u.id)}', this.value)" style="border:1px solid #d1d5db;border-radius:6px;padding:4px 8px;font-size:.78rem;cursor:pointer;font-weight:600;color:#374151;">
               <option value="admin" ${u.role === 'admin' ? 'selected' : ''}>관리자</option>
-              <option value="staff" ${u.role === 'staff' ? 'selected' : ''}>직원</option>
+              <option value="staff" ${u.role === 'staff' ? 'selected' : ''}>MD</option>
               <option value="cs" ${u.role === 'cs' ? 'selected' : ''}>CS팀</option>
             </select>`;
         const delBtn = (u.role === 'admin') ? '' :
           `<button onclick="deleteUser('${escHtml(u.id)}')" style="border:1px solid #fecaca;background:#fff;color:#dc2626;border-radius:6px;padding:4px 12px;font-size:.78rem;cursor:pointer;font-weight:600;">삭제</button>`;
         return `<tr>
         <td>${escHtml(u.id)}</td><td>${escHtml(u.name)}</td>
-        <td>${u.role === 'admin' ? '<b style="color:#4f46e5;">관리자</b>' : u.role === 'cs' ? '<b style="color:#0891b2;">CS팀</b>' : '직원'}</td>
+        <td>${u.role === 'admin' ? '<b style="color:#4f46e5;">관리자</b>' : u.role === 'cs' ? '<b style="color:#0891b2;">CS팀</b>' : 'MD'}</td>
         <td>${(u.created_at || '').slice(0, 10)}</td>
         <td style="display:flex;gap:6px;justify-content:center;">${roleBtn}${delBtn}</td>
       </tr>`; }).join('') + '</tbody></table></div>' +
-      '<div style="font-size:.75rem;color:#9ca3af;margin-top:8px;">※ 권한 변경은 해당 직원이 <b>다시 로그인</b>해야 적용됩니다 · CS팀은 판매 성과 메뉴만 보이며 금액·마진 지표는 가려집니다 · 관리자 계정을 삭제하려면 먼저 직원으로 변경하세요</div>';
+      '<div style="font-size:.75rem;color:#9ca3af;margin-top:8px;">※ 권한 변경은 해당 팀원이 <b>다시 로그인</b>해야 적용됩니다 · MD는 광고 효율의 광고비·전환값·총매출이 가려집니다 · CS팀은 판매 성과 메뉴만 보입니다 · 관리자 계정을 삭제하려면 먼저 MD로 변경하세요</div>';
   } catch (e) { $('users-list').textContent = '목록 조회 실패: ' + e.message; }
 }
 
@@ -1411,13 +1434,13 @@ async function addUser() {
   try {
     await authApi({ action: 'add_user', token: SESSION.token, id, name, password: pw });
     $('user-add-id').value = ''; $('user-add-name').value = ''; $('user-add-pw').value = '';
-    showToast(`✅ 직원 "${name}" 계정이 추가됐습니다 (아이디: ${id})`);
+    showToast(`✅ MD "${name}" 계정이 추가됐습니다 (아이디: ${id})`);
     loadUsers();
   } catch (e) { showToast('❌ ' + e.message); }
 }
 
 async function setUserRole(id, role) {
-  const label = { admin: '관리자로 변경', staff: '직원으로 변경', cs: 'CS팀으로 변경' }[role] || '역할 변경';
+  const label = { admin: '관리자로 변경', staff: 'MD로 변경', cs: 'CS팀으로 변경' }[role] || '역할 변경';
   if (!confirm(`"${id}" 계정을 ${label}할까요?`)) { loadUsers(); return; }
   try {
     await authApi({ action: 'set_role', token: SESSION.token, id, role });
@@ -1427,7 +1450,7 @@ async function setUserRole(id, role) {
 }
 
 async function deleteUser(id) {
-  if (!confirm(`직원 계정 "${id}"를 삭제할까요?`)) return;
+  if (!confirm(`계정 "${id}"를 삭제할까요?`)) return;
   try {
     await authApi({ action: 'delete_user', token: SESSION.token, id });
     showToast('✅ 삭제됐습니다');
@@ -2943,7 +2966,7 @@ async function metaGet(params) {
 }
 
 async function fetchMetaAds() {
-  if (!isAdmin()) { showToast('⛔ 접근 권한이 없습니다'); return; }
+  if (!isAdmin() && !isStaff()) { showToast('⛔ 접근 권한이 없습니다'); return; }
   const s = $('metaDateStart').value, e = $('metaDateEnd').value;
   if (!s || !e) { showToast('📅 기간을 선택해주세요'); return; }
   const btn = $('btn-meta-fetch');
@@ -2971,16 +2994,16 @@ async function fetchMetaAds() {
 
     const revenue = rev ? rev.revenue : null;
     const cafeRoas = revenue !== null && sum.spend > 0 ? revenue / sum.spend : null;
-    const tile = (label, val, sub) => `
-      <div style="background:#f8f9ff;border:1.5px solid #e0e7ff;border-radius:12px;padding:12px 14px;">
+    const tile = (label, val, sub, blur) => `
+      <div class="${blur ? 'meta-blur' : ''}" style="background:#f8f9ff;border:1.5px solid #e0e7ff;border-radius:12px;padding:12px 14px;">
         <div style="font-size:.72rem;color:#6b7280;font-weight:600;margin-bottom:4px;">${label}</div>
         <div style="font-size:1.1rem;font-weight:800;color:#1e1b4b;">${val}</div>
         ${sub ? `<div style="font-size:.7rem;color:#9ca3af;margin-top:3px;">${sub}</div>` : ''}
       </div>`;
     $('meta-summary').innerHTML =
-      tile('💸 광고비 지출', fmt(Math.round(sum.spend)) + '원', `Meta 광고관리자 · ${s} ~ ${e}`) +
-      tile('🛒 구매 전환값', fmt(Math.round(sum.purchase_value)) + '원', `구매 ${fmt(sum.purchases)}건 (Meta 기여 기준)`) +
-      tile('💰 총 매출 (카페24)', revenue !== null ? fmt(revenue) + '원' : '—', '결제 기준 · 대시보드와 동일') +
+      tile('💸 광고비 지출', fmt(Math.round(sum.spend)) + '원', `Meta 광고관리자 · ${s} ~ ${e}`, true) +
+      tile('🛒 구매 전환값', fmt(Math.round(sum.purchase_value)) + '원', `구매 ${fmt(sum.purchases)}건 (Meta 기여 기준)`, true) +
+      tile('💰 총 매출 (카페24)', revenue !== null ? fmt(revenue) + '원' : '—', '결제 기준 · 대시보드와 동일', true) +
       tile('📈 ROAS (Meta)', sum.meta_roas ? sum.meta_roas.toFixed(2) : '—', '구매 전환값 ÷ 광고비') +
       tile('📊 ROAS (카페24)', cafeRoas !== null ? cafeRoas.toFixed(2) : '—', '총 매출(결제) ÷ Meta 광고비');
     $('meta-summary').style.display = 'grid';
@@ -3111,7 +3134,8 @@ function pfCorpTax(base) {
 
 function pfCosts() {
   return { labor: toNum($('pf-labor').value), buying: toNum($('pf-buying').value),
-           rent: toNum($('pf-rent').value), mgmt: toNum($('pf-mgmt').value), etc: toNum($('pf-etc').value) };
+           rent: toNum($('pf-rent').value), mgmt: toNum($('pf-mgmt').value),
+           ship: toNum($('pf-ship').value), etcVat: toNum($('pf-etcvat').value), etcNoVat: toNum($('pf-etcnovat').value) };
 }
 function profitSaveCosts() { localStorage.setItem(PF_COST_KEY, JSON.stringify(pfCosts())); }
 function profitLoadCosts() {
@@ -3121,19 +3145,32 @@ function profitLoadCosts() {
     if (c.buying) $('pf-buying').value = c.buying;
     if (c.rent) $('pf-rent').value = c.rent;
     if (c.mgmt) $('pf-mgmt').value = c.mgmt;
-    if (c.etc) $('pf-etc').value = c.etc;
+    if (c.ship) $('pf-ship').value = c.ship;
+    if (c.etcVat) $('pf-etcvat').value = c.etcVat;
+    if (c.etcNoVat) $('pf-etcnovat').value = c.etcNoVat;
   } catch {}
 }
 
-/* 핵심 계산 — rev·ad·비용은 원 단위, cr·margin은 % */
+/* 핵심 계산 — rev·ad·비용은 원 단위, cr·margin은 %
+   부가세 = 매출세액 − 매입세액:
+   · 매출세액 = 순매출 × 10/110 (판매가는 부가세 포함)
+   · 상품 매입세액 = 원가 × 10/110 — 마진율이 공급가(부가세 미포함)×1.1 기준이라
+     P&L의 원가는 부가세 포함 금액이므로 10/110로 세액 분리 (= 공급가액 × 10%)
+   · Meta 광고비는 부가세 별도 청구 → 광고비 × 10%
+   · 부가세 포함 경비(사입삼촌·월세·관리비·기타포함) = 금액 × 10/110
+   · 인건비·택배비(면세)·기타(미포함)는 매입세액 없음 */
 function pfCalc(rev, crPct, marginPct, ad, costs) {
   const netR = rev * (1 - crPct / 100);                 // 순매출 (취소·반품 차감)
   const gp = netR * (marginPct / 100);                  // 매출이익
-  const fixedSum = costs.labor + costs.buying + costs.rent + costs.mgmt + costs.etc;
+  const cogs = netR - gp;                               // 상품 원가 (부가세 포함 기준)
+  const fixedSum = costs.labor + costs.buying + costs.rent + costs.mgmt + costs.ship + costs.etcVat + costs.etcNoVat;
   const pretax = gp - ad - fixedSum;                    // 세전이익
-  const vat = Math.max(0, (gp - ad) * 10 / 110);        // 부가세 개략 (원가·광고비 매입세액 공제 가정)
+  const salesVat = netR * 10 / 110;
+  const purchaseVat = cogs * 10 / 110 + ad * 0.1
+    + (costs.buying + costs.rent + costs.mgmt + costs.etcVat) * 10 / 110;
+  const vat = Math.max(0, salesVat - purchaseVat);
   const corp = pfCorpTax(pretax);                       // 법인세
-  return { netR, gp, fixedSum, pretax, vat, corp, net: pretax - vat - corp };
+  return { netR, gp, cogs, fixedSum, pretax, salesVat, purchaseVat, vat, corp, net: pretax - vat - corp };
 }
 
 
@@ -3295,10 +3332,12 @@ function renderProfit() {
         ${row('(−) 인건비', '−' + won(costs.labor), '', { color: '#b45309' })}
         ${row('(−) 사입삼촌 비용', '−' + won(costs.buying), '', { color: '#6b7280' })}
         ${row('(−) 사무실 월세', '−' + won(costs.rent), '', { color: '#6b7280' })}
-        ${row('(−) 관리비', '−' + won(costs.mgmt), '', { color: '#6b7280' })}
-        ${row('(−) 기타 비용', '−' + won(costs.etc), '', { color: '#6b7280' })}
+        ${row('(−) 관리비', '−' + won(costs.mgmt), '부가세 포함', { color: '#6b7280' })}
+        ${row('(−) 택배비', '−' + won(costs.ship), '', { color: '#6b7280' })}
+        ${row('(−) 기타 (부가세 포함)', '−' + won(costs.etcVat), '', { color: '#6b7280' })}
+        ${row('(−) 기타 (부가세 미포함)', '−' + won(costs.etcNoVat), '', { color: '#6b7280' })}
         ${row('세전이익', won(d.pretax), '', { strong: true, color: d.pretax >= 0 ? '#1e1b4b' : '#b91c1c' })}
-        ${row('(−) 부가세 (자동)', '−' + won(d.vat), '(매출이익−광고비)의 10/110', { color: '#9333ea' })}
+        ${row('(−) 부가세 (자동)', '−' + won(d.vat), `매출세액 ${fmtEok(d.salesVat)} − 매입세액 ${fmtEok(d.purchaseVat)}`, { color: '#9333ea' })}
         ${row('(−) 법인세 (자동)', '−' + won(d.corp), '구간세율', { color: '#9333ea' })}
         ${row('최종 순이익', won(d.net), '', { strong: true, color: netColor })}
       </div>
@@ -3321,12 +3360,96 @@ function renderProfit() {
           </div>
         </div>
         <div style="background:#f8f9ff;border:1.5px solid #e0e7ff;border-radius:12px;padding:12px 14px;font-size:.76rem;color:#6b7280;line-height:1.7;">
-          손익분기 광고비: <b style="color:#1e1b4b;">${won(Math.max(0, d.gp - d.fixedSum - d.vat))}</b><br />지금 구조에서 광고비가 이보다 커지면 적자예요 (세금 개략 반영)
+          손익분기 광고비: <b style="color:#1e1b4b;">${won(pfBreakevenAd(cur, costs))}</b><br />지금 구조에서 광고비가 이보다 커지면 적자예요 (세금 반영)
         </div>
       </div>
     </div>`;
   renderProfitMatrix(cur, costs);
   renderProfitDetail(cur, costs);
+  $('pf-save').style.display = 'block';
+}
+
+/* 순이익이 0이 되는 광고비 — 이분 탐색 (부가세·법인세 반영) */
+function pfBreakevenAd(cur, costs) {
+  let lo = 0, hi = Math.max(cur.rev, cur.ad * 3, 1);
+  for (let i = 0; i < 40; i++) {
+    const mid = (lo + hi) / 2;
+    if (pfCalc(cur.rev, cur.crPct, cur.margin, mid, costs).net >= 0) lo = mid; else hi = mid;
+  }
+  return Math.round(lo);
+}
+
+/* ── 순이익 기록 저장/관리 (profit_archive) ── */
+let pfArcRows = [];
+
+async function saveProfitArchive() {
+  const cur = pfCurrent();
+  if (cur.rev <= 0) { showToast('먼저 데이터를 수집/입력해주세요'); return; }
+  const costs = pfCosts();
+  const d = pfCalc(cur.rev, cur.crPct, cur.margin, cur.ad, costs);
+  const s = $('pfDateStart').value, e = $('pfDateEnd').value;
+  try {
+    await dbProxy('profit_archive', {
+      method: 'POST', headers: { Prefer: 'return=minimal' },
+      body: JSON.stringify({
+        period_start: s, period_end: e,
+        label: $('pf-arc-label').value.trim() || `${s} ~ ${e}`,
+        memo: $('pf-arc-memo').value.trim(),
+        inputs: { rev: cur.rev, claims: cur.claimsAmt, margin: cur.margin, ad: cur.ad, costs },
+        result: { pretax: Math.round(d.pretax), vat: Math.round(d.vat), corp: Math.round(d.corp), net: Math.round(d.net) },
+      }),
+    });
+    $('pf-arc-label').value = ''; $('pf-arc-memo').value = '';
+    showToast('✅ 순이익 기록이 저장됐습니다');
+    loadProfitArchive();
+  } catch (e2) { showToast('❌ 저장 실패: ' + e2.message); }
+}
+
+async function loadProfitArchive() {
+  const el = $('pf-arc-list'); if (!el) return;
+  try {
+    pfArcRows = await dbProxy('profit_archive?select=*&order=created_at.desc&limit=50') || [];
+    if (!pfArcRows.length) { el.innerHTML = '<span style="color:#9ca3af;">아직 저장된 기록이 없습니다.</span>'; return; }
+    el.innerHTML = `<div class="table-wrap"><table>
+      <thead><tr><th style="text-align:left;">라벨</th><th>기간</th><th>매출</th><th>순이익 (세후)</th><th>순이익률</th><th>저장일</th><th></th></tr></thead><tbody>` +
+      pfArcRows.map(r => {
+        const net = r.result?.net || 0, rev = r.inputs?.rev || 0;
+        return `<tr>
+          <td style="text-align:left;font-weight:600;">${escHtml(r.label || '')}${r.memo ? `<div style="font-size:.7rem;color:#9ca3af;font-weight:400;">${escHtml(r.memo)}</div>` : ''}</td>
+          <td style="font-size:.78rem;">${r.period_start} ~ ${r.period_end}</td>
+          <td>${fmt(rev)}원</td>
+          <td style="font-weight:800;color:${net >= 0 ? '#15803d' : '#b91c1c'};">${fmt(net)}원</td>
+          <td>${rev > 0 ? (net / rev * 100).toFixed(1) + '%' : '—'}</td>
+          <td style="font-size:.75rem;color:#9ca3af;">${(r.created_at || '').slice(0, 10)}</td>
+          <td style="white-space:nowrap;">
+            <button onclick="applyProfitArchive('${r.id}')" style="border:1px solid #c7d2fe;background:#eef2ff;color:#4338ca;border-radius:6px;padding:3px 10px;font-size:.74rem;cursor:pointer;font-weight:600;">불러오기</button>
+            <button onclick="deleteProfitArchive('${r.id}')" style="border:1px solid #fecaca;background:#fff;color:#dc2626;border-radius:6px;padding:3px 10px;font-size:.74rem;cursor:pointer;">삭제</button>
+          </td>
+        </tr>`;
+      }).join('') + '</tbody></table></div>';
+  } catch (e) { el.innerHTML = '<span style="color:#b91c1c;">기록 조회 실패: ' + escHtml(e.message) + '</span>'; }
+}
+
+function applyProfitArchive(id) {
+  const r = pfArcRows.find(x => x.id === id); if (!r) return;
+  $('pfDateStart').value = r.period_start; $('pfDateEnd').value = r.period_end;
+  const i = r.inputs || {};
+  $('pf-rev').value = i.rev || ''; $('pf-claims').value = i.claims || '';
+  $('pf-margin').value = i.margin || ''; $('pf-ad').value = i.ad || '';
+  const c = i.costs || {};
+  $('pf-labor').value = c.labor || ''; $('pf-buying').value = c.buying || '';
+  $('pf-rent').value = c.rent || ''; $('pf-mgmt').value = c.mgmt || '';
+  $('pf-ship').value = c.ship || ''; $('pf-etcvat').value = c.etcVat || ''; $('pf-etcnovat').value = c.etcNoVat || '';
+  renderProfit();
+  showToast(`📂 "${r.label}" 기록을 불러왔습니다`);
+}
+
+async function deleteProfitArchive(id) {
+  if (!confirm('이 기록을 삭제할까요?')) return;
+  try {
+    await dbProxy(`profit_archive?id=eq.${id}`, { method: 'DELETE', headers: { Prefer: 'return=minimal' } });
+    loadProfitArchive();
+  } catch (e) { showToast('❌ 삭제 실패: ' + e.message); }
 }
 
 function renderProfitMatrix(cur, costs) {
@@ -3411,7 +3534,7 @@ function showMenu(key) {
   // 권한 없는 메뉴는 홈으로 되돌린다 — 여기서 return하면 URL에 #stock 등을 달고 들어온
   // 권한 없는 사용자에게 아무 섹션도 표시되지 않아 화면이 비어버림
   const denied = (key === 'cr' && isStaff())
-    || (['users', 'disp', 'stock', 'stable', 'adv', 'profit'].includes(key) && !isAdmin());
+    || (['users', 'disp', 'stock', 'stable', 'profit'].includes(key) && !isAdmin());
   if (denied) { showToast('⛔ 접근 권한이 없습니다'); key = 'home'; }
   document.querySelectorAll('.page-sec').forEach(el => { el.style.display = 'none'; });
   const target = $('sec-' + key);
@@ -3425,6 +3548,7 @@ function showMenu(key) {
     $('note-author').textContent = SESSION ? SESSION.name : '';
   }
   if (key === 'users') loadUsers();
+  if (key === 'profit' && isAdmin()) loadProfitArchive();
 }
 
 const homeState = { loaded: false, loading: false };
@@ -3586,8 +3710,8 @@ async function loadHome(force) {
   if (!ownPeriod('cr'))   { $('crDateStart').value = ds;   $('crDateEnd').value = de; }
   if (!ownPeriod('an'))   { $('anDateStart').value = ds;   $('anDateEnd').value = de; }
   if (!ownPeriod('perf')) { $('perfDateStart').value = ds; $('perfDateEnd').value = de; }
+  if ((isAdmin() || isStaff()) && !ownPeriod('adv')) { $('metaDateStart').value = ds; $('metaDateEnd').value = de; }
   if (isAdmin()) {
-    if (!ownPeriod('adv'))    { $('metaDateStart').value = ds;  $('metaDateEnd').value = de; }
     if (!ownPeriod('profit')) { $('pfDateStart').value = ds;    $('pfDateEnd').value = de; }
     if (!ownPeriod('stock'))  { $('stockDateStart').value = ds; $('stockDateEnd').value = de; }
   }
@@ -3636,7 +3760,7 @@ async function loadHome(force) {
   await Promise.allSettled([pRev, pClaims, pTraffic, pPerf]);
 
   // ⑤ Meta 광고 + 순익 시나리오 자동 기입 (관리자만 · 별도 기간 체크 시 생략)
-  if (isAdmin() && !ownPeriod('adv')) await fetchMetaAds().catch(() => {});
+  if ((isAdmin() || isStaff()) && !ownPeriod('adv')) await fetchMetaAds().catch(() => {});
   if (isAdmin() && !ownPeriod('profit')) fillProfitFromStores(ds, de);
 
   loadTrending(true);

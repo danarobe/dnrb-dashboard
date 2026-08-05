@@ -49,9 +49,9 @@ Deno.serve(async (req) => {
   const opt = handleOptions(req);
   if (opt) return opt;
 
-  // 광고비·ROAS는 매출 역산이 가능하므로 관리자 전용
+  // 관리자 + MD(staff) 허용 — MD는 UI에서 광고비·전환값·총매출 블러 (CS는 차단)
   const authed = await verifyAuthToken(req);
-  if (!authed || authed.role !== "admin") return json({ error: "접근 권한이 없습니다" }, 403);
+  if (!authed || !["admin", "staff"].includes(authed.role)) return json({ error: "접근 권한이 없습니다" }, 403);
 
   const c = creds();
   if (!c) return json({ error: "not_connected", message: "Meta 연동이 설정되지 않았습니다 (META_ACCESS_TOKEN / META_AD_ACCOUNT_ID)" }, 200);
