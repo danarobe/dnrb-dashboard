@@ -1089,7 +1089,9 @@
       <div style="background:#f8f9ff;border:1.5px solid #e0e7ff;border-radius:12px;padding:12px 16px;margin-bottom:14px;">
         <div style="font-size:.8rem;font-weight:700;color:#4338ca;margin-bottom:10px;">✏️ 기간 비용 입력 <span style="font-weight:400;color:#9ca3af;font-size:.72rem;">— 입력값은 이 브라우저에 저장돼 다음에도 유지됩니다</span></div>
         <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;font-size:.78rem;color:#374151;">
-          <label>👥 인건비 (근무관리 참조)<input type="number" id="pf-labor" oninput="profitSaveCosts();renderProfit()" style="width:100%;margin-top:3px;border:1.5px solid #d1d5db;border-radius:8px;padding:7px 10px;" /></label>
+          <label>👥 인건비
+            <button onclick="event.preventDefault();fetchLaborFromWM()" style="margin-left:6px;border:1px solid #c7d2fe;background:#eef2ff;color:#4338ca;border-radius:6px;padding:2px 8px;font-size:.68rem;font-weight:700;cursor:pointer;">근무관리에서 불러오기</button>
+            <input type="number" id="pf-labor" oninput="profitSaveCosts();renderProfit()" style="width:100%;margin-top:3px;border:1.5px solid #d1d5db;border-radius:8px;padding:7px 10px;" /></label>
           <label>🧳 사입삼촌 비용<input type="number" id="pf-buying" oninput="profitSaveCosts();renderProfit()" style="width:100%;margin-top:3px;border:1.5px solid #d1d5db;border-radius:8px;padding:7px 10px;" /></label>
           <label>🏢 사무실 월세<input type="number" id="pf-rent" oninput="profitSaveCosts();renderProfit()" style="width:100%;margin-top:3px;border:1.5px solid #d1d5db;border-radius:8px;padding:7px 10px;" /></label>
           <label>🧾 관리비<input type="number" id="pf-mgmt" oninput="profitSaveCosts();renderProfit()" style="width:100%;margin-top:3px;border:1.5px solid #d1d5db;border-radius:8px;padding:7px 10px;" /></label>
@@ -3118,6 +3120,34 @@ function pfCalc(rev, crPct, marginPct, ad, costs) {
   const vat = Math.max(0, (gp - ad) * 10 / 110);        // 부가세 개략 (원가·광고비 매입세액 공제 가정)
   const corp = pfCorpTax(pretax);                       // 법인세
   return { netR, gp, fixedSum, pretax, vat, corp, net: pretax - vat - corp };
+}
+
+
+/* 근무관리 시스템(로컬 서버 :3001) 인건비 자동 수집 — 근무관리가 켜진 컴퓨터에서만 동작
+   기간에 걸친 달의 월 급여 합계를 가져온다 (정규직=월급 고정, 알바=해당 월 실근무 기준) */
+async function fetchLaborFromWM() {
+  const s = $('pfDateStart').value, e = $('pfDateEnd').value;
+  if (!s || !e) { showToast('📅 기간을 먼저 선택해주세요'); return; }
+  const months = [];
+  let d = new Date(s.slice(0, 7) + '-01T00:00:00');
+  const end = new Date(e.slice(0, 7) + '-01T00:00:00');
+  while (d <= end) { months.push([d.getFullYear(), d.getMonth() + 1]); d = new Date(d.getFullYear(), d.getMonth() + 1, 1); }
+  try {
+    let total = 0, empN = 0;
+    for (const [y, m] of months) {
+      const res = await fetch(`http://localhost:3001/api/salary/all?year=${y}&month=${m}`);
+      if (!res.ok) throw new Error('응답 오류 ' + res.status);
+      const rows = await res.json();
+      total += rows.reduce((t, r) => t + (r.totalPay || 0), 0);
+      empN = rows.length;
+    }
+    $('pf-labor').value = Math.round(total);
+    profitSaveCosts(); renderProfit();
+    const ymTxt = months.map(([y, m]) => y + '-' + String(m).padStart(2, '0')).join(', ');
+    showToast(`✅ 근무관리 인건비 ${fmt(Math.round(total))}원 반영 (직원 ${empN}명 · ${ymTxt} 월 급여 합계 — 기간이 월 일부라면 조정하세요)`);
+  } catch {
+    showToast('❌ 근무관리 서버에 연결할 수 없어요 — 근무관리가 실행 중인 컴퓨터(개발 맥북·매장 PC)에서 시도하거나 직접 입력해주세요');
+  }
 }
 
 async function fetchProfitData() {
