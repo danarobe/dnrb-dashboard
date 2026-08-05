@@ -3068,16 +3068,19 @@ async function showMetaPreview(adId) {
   });
 
   metaGet({ action: 'adstats', ad_id: adId }).then(d => {
-    const LABELS = { today: '오늘', yesterday: '어제', last_7d: '최근 7일', last_14d: '최근 14일', last_30d: '최근 30일' };
-    const stats = d.stats || [];
+    const LABELS = { today: '오늘', yesterday: '어제', last_3d: '최근 3일', last_7d: '최근 7일',
+                     prev_7d: '이전 7일', last_14d: '최근 14일', last_30d: '최근 30일' };
+    const stats = (d.stats || []).filter(Boolean);
     if (!stats.length) { $('meta-preview-stats').innerHTML = ''; return; }
+    /* 타일에 마우스를 올리면 실제 집계 날짜 범위를 보여준다 ('이전 7일'이 어디인지 확인용) */
+    const range = s => s.start && s.end ? `${s.start} ~ ${s.end}` : '';
     $('meta-preview-stats').innerHTML = `
       <div style="border-top:1px solid #f3f4f6;padding-top:10px;">
-        <div style="font-size:.78rem;font-weight:800;color:#4338ca;margin-bottom:6px;">📊 기간별 지출·구매 ROAS <span style="font-weight:400;color:#9ca3af;font-size:.68rem;">(7·14·30일은 어제까지 기준)</span></div>
+        <div style="font-size:.78rem;font-weight:800;color:#4338ca;margin-bottom:6px;">📊 기간별 지출·구매 ROAS <span style="font-weight:400;color:#9ca3af;font-size:.68rem;">(오늘 외에는 어제까지 기준 · 이전 7일 = 최근 7일의 직전 7일)</span></div>
         <div style="height:190px;"><canvas id="meta-stats-canvas"></canvas></div>
-        <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:4px;margin-top:8px;text-align:center;">
-          ${stats.map(s => `<div style="background:#f8f9ff;border-radius:8px;padding:6px 2px;">
-            <div style="font-size:.62rem;color:#9ca3af;">${LABELS[s.preset]}</div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(52px,1fr));gap:4px;margin-top:8px;text-align:center;">
+          ${stats.map(s => `<div title="${escHtml(range(s))}" style="background:${s.preset === 'prev_7d' ? '#fff7ed' : '#f8f9ff'};border-radius:8px;padding:6px 2px;">
+            <div style="font-size:.62rem;color:#9ca3af;">${LABELS[s.preset] || s.preset}</div>
             <div style="font-size:.72rem;font-weight:800;color:#1e1b4b;">${fmt(Math.round(s.spend / 10000))}만</div>
             <div style="font-size:.66rem;font-weight:700;color:${s.roas >= 1 ? '#15803d' : '#b91c1c'};">${s.roas.toFixed(2)}</div>
           </div>`).join('')}
@@ -3086,7 +3089,7 @@ async function showMetaPreview(adId) {
     if (typeof Chart === 'undefined') return;
     metaStatsChart = new Chart($('meta-stats-canvas'), {
       data: {
-        labels: stats.map(s => LABELS[s.preset]),
+        labels: stats.map(s => LABELS[s.preset] || s.preset),
         datasets: [
           { type: 'bar', label: '지출 (만원)', data: stats.map(s => Math.round(s.spend / 10000)),
             backgroundColor: 'rgba(99,102,241,0.55)', borderRadius: 6, yAxisID: 'y' },
@@ -3096,7 +3099,11 @@ async function showMetaPreview(adId) {
       },
       options: {
         responsive: true, maintainAspectRatio: false,
-        plugins: { legend: { labels: { font: { size: 11 } } } },
+        plugins: {
+          legend: { labels: { font: { size: 11 } } },
+          /* 툴팁 제목에 실제 집계 날짜를 함께 표시 */
+          tooltip: { callbacks: { afterTitle: it => range(stats[it[0].dataIndex]) } },
+        },
         scales: {
           y: { position: 'left', title: { display: true, text: '지출 (만원)', font: { size: 10 } } },
           y1: { position: 'right', grid: { drawOnChartArea: false }, title: { display: true, text: 'ROAS', font: { size: 10 } } },
