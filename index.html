@@ -3158,9 +3158,13 @@ function loadOwnPeriod() {
 function fillProfitFromStores(ds, de) {
   if (!isAdmin()) return;
   $('pf-rev').value = toNum($('totalRevenue').value) || '';
-  // 취소·반품 금액: 카페24 API 수집분 (순익 자동수집 버튼과 동일 기준 — 네이버 CSV 제외)
-  const claimsAmt = [...store.c24.cancelRows, ...store.c24.returnRows].reduce((t, r) => t + (r.amt || 0), 0);
-  if (claimsAmt > 0) $('pf-claims').value = Math.round(claimsAmt);
+  // 취소·반품 금액: 취소&반품 메뉴 합계와 동일 — 카페24 API + 네이버페이 CSV 합산
+  // (취소&반품 메뉴가 다른 기간을 보고 있으면 잘못된 값이 들어가므로 기간 일치 시에만)
+  if ($('crDateStart').value === ds && $('crDateEnd').value === de) {
+    const claimsAmt = [...store.c24.cancelRows, ...store.c24.returnRows, ...store.npCancel.rows, ...store.npReturn.rows]
+      .reduce((t, r) => t + (isFinite(r.amt) ? r.amt : 0), 0);
+    if (claimsAmt > 0) $('pf-claims').value = Math.round(claimsAmt);
+  }
   // 마진율: 판매 성과 수집분 가중평균 (홈 타일과 동일 계산)
   let w = 0, wQty = 0;
   store.salesData.forEach(r => {
@@ -3219,7 +3223,17 @@ async function fetchProfitData() {
     const errs = [rev, claims, perf, meta].filter(x => x && x.__err).map(x => x.__err);
 
     if (rev && !rev.__err) $('pf-rev').value = rev.revenue;
-    if (claims && !claims.__err && claims.cancel) $('pf-claims').value = Math.round((claims.cancel.amount || 0) + (claims.return.amount || 0));
+    if (claims && !claims.__err && claims.cancel) {
+      let claimsAmt = (claims.cancel.amount || 0) + (claims.return.amount || 0);
+      // 취소&반품 메뉴에 같은 기간의 네이버페이 CSV가 업로드되어 있으면 합산 (메뉴 합계와 동일해짐)
+      let npIncluded = false;
+      if ($('crDateStart').value === s && $('crDateEnd').value === e) {
+        const npAmt = [...store.npCancel.rows, ...store.npReturn.rows].reduce((t, r) => t + (isFinite(r.amt) ? r.amt : 0), 0);
+        if (npAmt > 0) { claimsAmt += npAmt; npIncluded = true; }
+      }
+      $('pf-claims').value = Math.round(claimsAmt);
+      if (!npIncluded) showToast('ℹ️ 취소반품 금액은 카페24 기준이에요 — 네이버 분까지 합치려면 취소&반품 메뉴에서 같은 기간으로 네이버 CSV를 업로드한 뒤 다시 수집하세요');
+    }
     if (perf && !perf.__err && perf.rows) {
       // 판매 성과 메뉴와 동일: 공급가×1.1 기준 마진율을 판매수량 가중평균
       let wm = 0, wq = 0;
