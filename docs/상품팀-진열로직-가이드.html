@@ -1,0 +1,171 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>카테고리별 진열 로직 가이드 — 상품팀용</title>
+<style>
+  :root {
+    --bg: #fbfbfd;
+    --surface: #ffffff;
+    --ink: #23263a;
+    --ink-soft: #5c6172;
+    --ink-faint: #9498a8;
+    --accent: #4f46e5;
+    --accent-soft: #eef0ff;
+    --line: #e6e7ef;
+    --code-bg: #f3f4fa;
+    --z-best: #fdf6d8;   --z-best-ink: #8a6d00;
+    --z-new: #e3efff;    --z-new-ink: #1d4ed8;
+    --z-rank: #eceef4;   --z-rank-ink: #3f4557;
+    --z-low: #e8edf3;    --z-low-ink: #52606f;
+    --z-season: #ffe8d1; --z-season-ink: #b45309;
+    --z-out: #fde3e3;    --z-out-ink: #b91c1c;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font-family: "Apple SD Gothic Neo", "Pretendard", "Malgun Gothic", "Noto Sans KR", sans-serif;
+    line-height: 1.75; font-size: 16px;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 760px; margin: 0 auto; padding: 56px 24px 96px; }
+  .eyebrow { font-size: .78rem; font-weight: 700; letter-spacing: .14em; color: var(--accent); text-transform: uppercase; margin: 0 0 10px; }
+  h1 { font-size: 1.9rem; font-weight: 800; letter-spacing: -.02em; line-height: 1.3; margin: 0 0 10px; text-wrap: balance; }
+  .lede { color: var(--ink-soft); font-size: 1.02rem; margin: 0 0 8px; }
+  .meta { color: var(--ink-faint); font-size: .82rem; margin: 0; }
+  h2 { font-size: 1.28rem; font-weight: 800; letter-spacing: -.01em; margin: 64px 0 16px; padding-top: 28px; border-top: 1px solid var(--line); text-wrap: balance; }
+  h2 .no { color: var(--accent); margin-right: 8px; font-variant-numeric: tabular-nums; }
+  h3 { font-size: 1.02rem; font-weight: 800; margin: 30px 0 8px; }
+  p { margin: 0 0 14px; }
+  strong { font-weight: 800; }
+  em { font-style: normal; font-weight: 700; color: var(--accent); }
+  ul, ol { margin: 0 0 14px; padding-left: 22px; }
+  li { margin-bottom: 6px; }
+  .callout { background: var(--accent-soft); border-radius: 12px; padding: 16px 20px; margin: 18px 0; font-size: .95rem; }
+  .callout b { color: var(--accent); }
+  .stepflow { display: flex; flex-direction: column; gap: 0; margin: 22px 0; }
+  .step { display: grid; grid-template-columns: 44px 1fr; gap: 14px; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 16px 18px; }
+  .step + .step { margin-top: 10px; }
+  .step-n { width: 32px; height: 32px; border-radius: 50%; background: var(--accent); color: #fff; display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: .95rem; margin-top: 2px; }
+  .step h4 { margin: 2px 0 4px; font-size: .98rem; font-weight: 800; }
+  .step p { margin: 0; font-size: .92rem; color: var(--ink-soft); }
+  .formula { background: var(--code-bg); border-radius: 10px; padding: 12px 16px; margin: 12px 0; font-size: .9rem; font-weight: 700; overflow-x: auto; white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .table-scroll { overflow-x: auto; margin: 18px 0; }
+  table { border-collapse: collapse; width: 100%; font-size: .9rem; }
+  th { text-align: left; font-size: .78rem; letter-spacing: .04em; color: var(--ink-faint); font-weight: 700; padding: 8px 12px; border-bottom: 2px solid var(--line); white-space: nowrap; }
+  td { padding: 10px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  td.num { font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .chip { display: inline-block; padding: 2px 10px; border-radius: 6px; font-size: .8rem; font-weight: 800; white-space: nowrap; }
+  .chip.best   { background: var(--z-best);   color: var(--z-best-ink); }
+  .chip.new    { background: var(--z-new);    color: var(--z-new-ink); }
+  .chip.rank   { background: var(--z-rank);   color: var(--z-rank-ink); }
+  .chip.low    { background: var(--z-low);    color: var(--z-low-ink); }
+  .chip.season { background: var(--z-season); color: var(--z-season-ink); }
+  .chip.out    { background: var(--z-out);    color: var(--z-out-ink); }
+  .qa { margin: 18px 0; }
+  .qa dt { font-weight: 800; margin-top: 18px; }
+  .qa dt::before { content: "Q. "; color: var(--accent); }
+  .qa dd { margin: 6px 0 0 0; color: var(--ink-soft); font-size: .95rem; }
+  .qa dd::before { content: "A. "; font-weight: 800; color: var(--ink); }
+  .footnote { color: var(--ink-faint); font-size: .82rem; margin-top: 8px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <p class="eyebrow">DNRB 성과 분석 대시보드</p>
+  <h1>카테고리별 진열, 어떻게 순서가 정해지나요?</h1>
+  <p class="lede">매주 진열 순서를 자동 계산하는 로직을 상품팀 눈높이에서 정리한 문서입니다. 계산 결과는 <strong>검토 후 수동 업로드</strong>가 원칙이며, 카페24에 자동 반영되지 않습니다.</p>
+  <p class="meta">2026년 7월 30일 기준 · 대시보드 &gt; 카테고리별 진열 메뉴</p>
+
+  <h2><span class="no">1</span>핵심 아이디어 — "이 자리를 누구에게 줄까?"</h2>
+  <p>카테고리 페이지의 좋은 자리는 한정된 <strong>노출 기회</strong>입니다. 손님이 상품을 한 번 클릭해서 볼 때마다 우리는 기회를 하나 쓰는 셈이죠. 그래서 이 시스템은 상품마다 이렇게 묻습니다:</p>
+  <div class="callout"><b>"손님이 이 상품을 1번 볼 때, 평균적으로 얼마의 마진이 남는가?"</b><br>이 값이 바로 표의 <strong>점수</strong>입니다. 점수 620 = 조회 1회당 620원의 마진을 기대할 수 있다는 뜻이에요.</div>
+  <p>많이 팔려도 마진이 얇거나 반품이 잦으면 점수가 낮아지고, 판매량이 적당해도 조회 대비 알차게 팔리면 점수가 높아집니다. 즉 <em>"조회수를 매출로 잘 바꾸는 상품"</em>에게 좋은 자리를 주는 구조예요.</p>
+
+  <h2><span class="no">2</span>어떤 기간의 데이터를 보나요?</h2>
+  <p>상품팀 의견을 반영해 <strong>최근 21일</strong>만 봅니다. 신상이 주 20개씩 올라오고 간절기엔 한 달 전 데이터가 다른 시즌을 반영하기 때문에, 30일은 노이즈라고 판단했어요.</p>
+  <ul>
+    <li><strong>최근 7일</strong> — 지금의 흐름. 점수에 <strong>70%</strong> 반영</li>
+    <li><strong>그 앞의 14일</strong> — 반짝인지 꾸준한지 확인하는 기준선. <strong>30%</strong> 반영</li>
+    <li><strong>순반품률</strong> — 판매 성과 메뉴와 동일한 기준(배송완료일, 반품 진행+완료 포함). 단, 최근 3일은 반품 접수가 아직 안 끝났으므로 빼고 <strong>기준일 3일 전부터 거슬러 7일</strong>을 봅니다. 예: 기준일이 7/30이면 7/21~7/27</li>
+  </ul>
+
+  <h2><span class="no">3</span>점수는 4단계로 계산됩니다</h2>
+  <div class="stepflow">
+    <div class="step"><div class="step-n">1</div><div>
+      <h4>순반품률 보정 — "반품 0건 ≠ 반품률 0%"</h4>
+      <p>판매가 적은 상품은 우연에 휘둘립니다(2벌 팔고 1벌 반품 = 50%?). 그래서 모든 상품에 "가상의 배송완료 20건, 그중 <strong>조회 시점의 전사 평균 반품률</strong>만큼 반품"을 깔고 시작해, 실제 판매가 쌓일수록 그 상품의 진짜 반품률로 수렴시킵니다. 전사 평균은 계산할 때마다 자동으로 산출되며(2026년 7월 말 기준 약 11~12%), 신상이라 반품 이력이 없어도 이 평균으로 간주되므로 유리해지지 않아요.</p>
+    </div></div>
+    <div class="step"><div class="step-n">2</div><div>
+      <h4>실현마진 — 실제로 남는 돈</h4>
+      <p>판매가에서 결제 수수료 3%, 공급가(부가세 포함), 포장·물류비 900원을 빼서 1벌당 마진을 구하고, 반품될 몫(순반품률)만큼 마진을 깎은 뒤 반품 처리비 2,000원을 추가로 뺍니다. 900원과 2,000원은 7월 주문 9,836건과 반품 811건을 실측해서 나온 값이에요.</p>
+    </div></div>
+    <div class="step"><div class="step-n">3</div><div>
+      <h4>조회당 마진으로 환산 + 소표본 보정</h4>
+      <p>실현마진을 조회수로 나눠 "조회 1회당 마진"으로 만듭니다. 이때 조회가 적은 상품이 우연히 튀지 않도록, 카테고리 평균 성적의 가상 조회를 일정량 섞어 평균 쪽으로 끌어당깁니다.</p>
+    </div></div>
+    <div class="step"><div class="step-n">4</div><div>
+      <h4>최근 가중 합산</h4>
+      <p>최근 7일 성적 70% + 이전 14일 성적 30%를 합쳐 최종 점수를 만듭니다. "요즘 잘 나가는 상품을 올리되, 반짝인지는 과거로 검증"하는 비율이에요.</p>
+    </div></div>
+  </div>
+  <div class="formula">점수 = 조회당 기대마진(원) = 0.7 × 최근 7일 성적 + 0.3 × 이전 14일 성적</div>
+
+  <h2><span class="no">4</span>진열 구간 — 표의 행 색과 같습니다</h2>
+  <p>점수만으로 줄 세우지 않고, 성격이 다른 상품은 구간으로 나눠 배치합니다. 위에서부터 이 순서대로 진열돼요.</p>
+  <div class="table-scroll">
+  <table>
+    <tr><th>구간</th><th>누가 들어가나</th><th>순서 기준</th></tr>
+    <tr><td><span class="chip best">BEST 12</span></td><td>21일 순판매량 상위 20개 중 실현마진 상위 12개</td><td class="num">마진 순</td></tr>
+    <tr><td><span class="chip new">신상</span></td><td>등록 14일 이내, 최대 12개. 모자라도 억지로 안 채움</td><td class="num">최신 순</td></tr>
+    <tr><td><span class="chip rank">랭킹 / 하위</span></td><td>검증된 나머지 상품 (48위까지 랭킹, 이후 하위)</td><td class="num">점수 순</td></tr>
+    <tr><td><span class="chip low">데이터부족</span></td><td>21일 조회가 기준 미달이거나 <strong>21일 판매 10개 미만</strong> — 점수를 믿기엔 근거 부족</td><td class="num">점수 순</td></tr>
+    <tr><td><span class="chip season">시즌제외</span></td><td>MD가 "지금 시즌 아님"으로 직접 지정한 상품</td><td class="num">점수 순</td></tr>
+    <tr><td><span class="chip out">제외</span></td><td>품절 설정, 공급가 미입력 등 "팔 수 없는 상태"</td><td class="num">맨 뒤</td></tr>
+  </table>
+  </div>
+
+  <h3>데이터부족 구간이 왜 필요한가요? (7월 말 실제 사례)</h3>
+  <p>여름에 조회가 바닥인 가디건이 어쩌다 2벌 팔리면 — 조회 49회에 2벌이니 "구매율"이 비정상적으로 높게 잡혀서, <strong>조회 66,000회에 1,589벌 판 1위 썸머 블라우스보다 점수가 높게</strong> 나오는 일이 실제로 있었습니다. 그래서 판매 근거가 부족한 상품(21일 판매 10개 미만)은 점수를 신뢰하지 않고 아래로 내립니다. 나중에 진짜로 팔리기 시작하면(가을의 니트처럼) 자동으로 랭킹에 복귀해요.</p>
+
+  <h3>시즌제외 — MD의 판단이 들어가는 자리</h3>
+  <p>데이터로는 못 거르는 경우가 있습니다. 가을 원단인데 선구매 수요로 실제로 팔리는 상품은 알고리즘 입장에선 "올릴 이유"가 있거든요. 이런 상품은 표 오른쪽의 <strong>'제외' 버튼</strong>을 누르면 모든 카테고리에서 하단으로 내려가고, 시즌이 바뀌면 <strong>'복원'</strong>을 누르면 됩니다. 지정 내역은 팀 전체가 공유돼요.</p>
+  <div class="callout"><b>현재 시즌제외 5개 (가을에 복원 필요)</b><br>[Best] 클레르 블라우스 · 라이트 모튼 가디건 니트 · 메그 루즈핏 가디건 니트 세트 · 본느 루즈핏 니트 · 은은 스트링 블라우스</div>
+
+  <h3>주력 vs 비주력 카테고리</h3>
+  <p>21일 조회 70회 이상 상품이 30개가 안 되는 카테고리(여름의 OUTER, Jacket/Coat 등)는 <strong>비주력</strong>으로 자동 판정됩니다. 데이터가 얇아 점수 줄 세우기가 의미 없으므로, 신상 블록 이후는 <strong>현재 진열 순서를 그대로 유지</strong>해요 — 즉 MD 수동 진열 구간입니다. 비주력에서 시즌 안 맞는 상품이 위에 보이면 '제외' 버튼으로 직접 내려주세요.</p>
+
+  <h2><span class="no">5</span>배지 읽는 법</h2>
+  <ul>
+    <li><strong>트래픽이상치</strong> — 21일 조회가 카테고리 중앙값의 10배 이상. 광고를 태웠거나 외부 유입이 몰린 상품이라 조회당 마진이 낮게 보일 수 있으니 참고만 하세요. <strong>점수나 순위에는 개입하지 않습니다.</strong></li>
+    <li><strong>조기강등</strong> — 신상 블록에서 7일 이상 충분히 노출됐는데(21일 조회 210회 이상) 블록 내 점수 하위 25%라 신상 자리를 회수당한 상품.</li>
+    <li><strong>제외 사유</strong> — 품절 설정 / 공급가 미입력 / 상품정보 없음. 공급가만 카페24에 입력하면 다음 계산부터 정상 경쟁합니다.</li>
+  </ul>
+
+  <h2><span class="no">6</span>매주 이렇게 쓰면 됩니다</h2>
+  <ol>
+    <li><strong>기준일 선택 → 데이터 조회</strong> (수십 초 걸려요)</li>
+    <li><strong>카테고리 선택</strong> — 결과 표에서 순위와 구간을 훑어보세요</li>
+    <li>시즌에 안 맞는 상품이 보이면 <strong>'제외' 버튼</strong>으로 내리기</li>
+    <li><strong>카페24 업로드용 CSV 다운로드</strong> → 검토 후 카페24에 직접 업로드 (CSV엔 전체 상품이 포함돼야 순서가 안 깨집니다)</li>
+    <li><strong>주간 스냅샷 저장</strong> — 다음 주에 순위 변동(▲▼)을 비교할 수 있어요</li>
+  </ol>
+  <p class="footnote">설정 패널의 모든 숫자(가중치, 기준값, 비용)는 조정 가능하며 바꾸는 즉시 재계산됩니다. 기본값은 7월 실측 데이터 기반이에요.</p>
+
+  <h2><span class="no">7</span>자주 나올 질문</h2>
+  <dl class="qa">
+    <dt>많이 팔리는 상품인데 왜 BEST에 없죠?</dt>
+    <dd>BEST 자격은 판매량 상위 20개지만, 최종 12개는 <strong>실현마진 순</strong>입니다. 많이 팔려도 마진이 얇거나 반품이 잦으면 밀릴 수 있어요.</dd>
+    <dt>잘 팔리기 시작한 상품이 '데이터부족'에 있어요.</dt>
+    <dd>21일 판매가 10개를 넘는 순간 자동으로 랭킹 구간에 복귀합니다. 기다리기 아까우면 시즌·물량 판단하에 수동 진열(비주력) 또는 다음 주 계산을 확인하세요.</dd>
+    <dt>신상은 점수가 낮아도 왜 위에 있나요?</dt>
+    <dd>신상은 데이터가 쌓일 때까지 노출 기회를 보장하는 별도 블록(최신순)입니다. 대신 충분히 보여줬는데 성과가 없으면 조기강등으로 자리를 회수해요.</dd>
+    <dt>광고 많이 타는 상품이 순위가 낮게 나와요.</dt>
+    <dd>광고 유입은 조회수를 부풀려 조회당 마진을 낮춥니다. 그래서 트래픽이상치 배지를 달아 사람이 판단하게 하고, 점수에는 손대지 않아요. 진열 순위는 광고가 아니라 <strong>매장을 둘러보는 손님</strong>에게 무엇을 먼저 보여줄지의 문제라서요.</dd>
+    <dt>반품 이력이 없는 신상품이 유리한 것 아닌가요?</dt>
+    <dd>아니요. 모든 상품은 조회 시점의 전사 평균 반품률(자동 계산, 현재 약 11~12%)을 깔고 시작하고, 판매가 쌓여야 낮은 반품률을 "증명"할 수 있습니다 (3단계 참고).</dd>
+  </dl>
+</div>
+</body>
+</html>
