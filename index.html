@@ -411,6 +411,7 @@
   <button class="menu-item" data-menu="stock" id="menu-stock" onclick="showMenu('stock')">📦 셀메이트 재고 대조</button>
   <button class="menu-item" data-menu="stable" id="menu-stable" onclick="showMenu('stable')">🧮 안정재고 편성</button>
   <button class="menu-item" data-menu="adv"  id="menu-adv" onclick="showMenu('adv')">📣 광고 효율</button>
+  <button class="menu-item" data-menu="profit" id="menu-profit" onclick="showMenu('profit')">💰 순익 시나리오</button>
   <button class="menu-item" data-menu="meet" onclick="showMenu('meet')">📝 광고 회의록</button>
   <button class="menu-item" data-menu="users" id="menu-users" style="display:none;" onclick="showMenu('users')">👥 직원 관리</button>
 </nav>
@@ -1055,6 +1056,61 @@
   </div>
 
   <!-- ════════════════════════════════════════
+       SECTION : 순익 시나리오 (관리자 전용)
+  ════════════════════════════════════════ -->
+  <div class="section-card page-sec" id="sec-profit">
+    <div class="section-header" style="cursor:default;">
+      <h2><span>💰</span> 순익 시나리오</h2>
+    </div>
+    <div class="section-body">
+      <div style="font-size:.85rem;color:#6b7280;margin-bottom:14px;">기간의 매출·취소반품·마진율·광고비를 <strong>자동으로 수집</strong>하고, 고정비를 더해 부가세·법인세까지 반영한 <strong>순이익</strong>을 계산합니다. 매트릭스에서 ROAS·취소반품률 변화에 따른 시나리오를 비교하세요.</div>
+
+      <!-- STEP 1: 기간 + 자동 수집 -->
+      <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:14px;">
+        <label style="font-size:.83rem;font-weight:700;color:#4b5563;"><i class="fa-regular fa-calendar"></i> 기간</label>
+        <input type="date" id="pfDateStart" style="padding:7px 11px;border:1.5px solid #e5e7eb;border-radius:8px;font-size:.85rem;font-family:inherit;" />
+        <span class="date-sep">~</span>
+        <input type="date" id="pfDateEnd" style="padding:7px 11px;border:1.5px solid #e5e7eb;border-radius:8px;font-size:.85rem;font-family:inherit;" />
+        <button class="btn-analyze" id="btn-pf-fetch" onclick="fetchProfitData()">
+          <i class="fa-solid fa-cloud-arrow-down"></i> 데이터 자동 수집
+        </button>
+        <span style="font-size:.75rem;color:#9ca3af;">매출(카페24 결제)·취소반품(카페24)·마진율(판매 성과)·광고비(Meta) — 수집 후 직접 수정 가능</span>
+      </div>
+
+      <!-- STEP 2: 수집값 (수정 가능) -->
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-bottom:14px;">
+        <label style="font-size:.78rem;font-weight:700;color:#4b5563;">💰 결제 매출 (원)<input type="number" id="pf-rev" oninput="renderProfit()" style="width:100%;margin-top:4px;border:1.5px solid #c7d2fe;border-radius:8px;padding:8px 10px;font-size:.9rem;" /></label>
+        <label style="font-size:.78rem;font-weight:700;color:#4b5563;">🔄 취소·반품 금액 (원)<input type="number" id="pf-claims" oninput="renderProfit()" style="width:100%;margin-top:4px;border:1.5px solid #c7d2fe;border-radius:8px;padding:8px 10px;font-size:.9rem;" /></label>
+        <label style="font-size:.78rem;font-weight:700;color:#4b5563;">💹 마진율 (%)<input type="number" id="pf-margin" step="0.1" oninput="renderProfit()" style="width:100%;margin-top:4px;border:1.5px solid #c7d2fe;border-radius:8px;padding:8px 10px;font-size:.9rem;" /></label>
+        <label style="font-size:.78rem;font-weight:700;color:#4b5563;">📣 광고비 (원, Meta)<input type="number" id="pf-ad" oninput="renderProfit()" style="width:100%;margin-top:4px;border:1.5px solid #c7d2fe;border-radius:8px;padding:8px 10px;font-size:.9rem;" /></label>
+      </div>
+
+      <!-- STEP 3: 고정비 입력 -->
+      <div style="background:#f8f9ff;border:1.5px solid #e0e7ff;border-radius:12px;padding:12px 16px;margin-bottom:14px;">
+        <div style="font-size:.8rem;font-weight:700;color:#4338ca;margin-bottom:10px;">✏️ 기간 비용 입력 <span style="font-weight:400;color:#9ca3af;font-size:.72rem;">— 입력값은 이 브라우저에 저장돼 다음에도 유지됩니다</span></div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;font-size:.78rem;color:#374151;">
+          <label>👥 인건비 (근무관리 참조)<input type="number" id="pf-labor" oninput="profitSaveCosts();renderProfit()" style="width:100%;margin-top:3px;border:1.5px solid #d1d5db;border-radius:8px;padding:7px 10px;" /></label>
+          <label>🧳 사입삼촌 비용<input type="number" id="pf-buying" oninput="profitSaveCosts();renderProfit()" style="width:100%;margin-top:3px;border:1.5px solid #d1d5db;border-radius:8px;padding:7px 10px;" /></label>
+          <label>🏢 사무실 월세<input type="number" id="pf-rent" oninput="profitSaveCosts();renderProfit()" style="width:100%;margin-top:3px;border:1.5px solid #d1d5db;border-radius:8px;padding:7px 10px;" /></label>
+          <label>🧾 관리비<input type="number" id="pf-mgmt" oninput="profitSaveCosts();renderProfit()" style="width:100%;margin-top:3px;border:1.5px solid #d1d5db;border-radius:8px;padding:7px 10px;" /></label>
+          <label>📦 기타 비용 (구독·청소·회식 등)<input type="number" id="pf-etc" oninput="profitSaveCosts();renderProfit()" style="width:100%;margin-top:3px;border:1.5px solid #d1d5db;border-radius:8px;padding:7px 10px;" /></label>
+        </div>
+      </div>
+
+      <!-- 결과 -->
+      <div id="pf-result">
+        <div class="empty-state"><div class="es-icon">💰</div><p>기간을 선택하고 <strong>데이터 자동 수집</strong>을 누르거나, 값을 직접 입력하세요.</p></div>
+      </div>
+      <div id="pf-matrix" style="margin-top:20px;"></div>
+      <div id="pf-detail" style="margin-top:14px;"></div>
+
+      <div style="background:#fffbeb;border:1.5px solid #fde68a;border-radius:10px;padding:10px 14px;margin-top:16px;font-size:.76rem;color:#78350f;line-height:1.7;">
+        ⚠️ <strong>세금은 참고용 개략치</strong>예요 — 부가세 = (매출이익 − 광고비)의 10/110 (상품 사입·광고비 매입세액 공제 가정), 법인세 = 과세표준 구간세율(2억 이하 9% / 2억~200억 19% / 200억 초과 21%, 연 기준 구간을 기간 손익에 그대로 적용). 실제 세액은 매입세액 공제·손금 처리에 따라 달라집니다.
+      </div>
+    </div>
+  </div>
+
+  <!-- ════════════════════════════════════════
        SECTION : 광고 회의록
   ════════════════════════════════════════ -->
   <div class="section-card page-sec" id="sec-meet">
@@ -1176,13 +1232,14 @@
       <!-- 소재 미리보기 모달 -->
       <div id="meta-preview-modal" onclick="if(event.target===this)this.style.display='none'"
            style="display:none;position:fixed;inset:0;background:rgba(15,23,42,.55);z-index:200;align-items:center;justify-content:center;padding:20px;">
-        <div style="background:#fff;border-radius:16px;max-width:420px;width:100%;max-height:88vh;overflow:auto;padding:16px;">
+        <div style="background:#fff;border-radius:16px;max-width:500px;width:100%;max-height:90vh;overflow:auto;padding:16px;">
           <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">
             <b id="meta-preview-title" style="font-size:.85rem;color:#1e1b4b;flex:1;word-break:break-all;"></b>
             <button onclick="document.getElementById('meta-preview-modal').style.display='none'"
                     style="border:none;background:#f3f4f6;border-radius:8px;padding:4px 10px;font-size:.9rem;cursor:pointer;">✕</button>
           </div>
           <div id="meta-preview-body" style="text-align:center;min-height:200px;"></div>
+          <div id="meta-preview-stats" style="margin-top:12px;"></div>
         </div>
       </div>
 
@@ -1301,6 +1358,7 @@ function applyRole() {
   $('menu-stock').style.display = isAdmin() && !isCS() ? '' : 'none';
   $('menu-stable').style.display = isAdmin() && !isCS() ? '' : 'none';
   $('menu-adv').style.display = isAdmin() && !isCS() ? '' : 'none';
+  $('menu-profit').style.display = isAdmin() && !isCS() ? '' : 'none';
   // Meta 광고 성과 패널 — 광고비·ROAS로 매출 역산이 가능해 관리자 전용
   const mp = $('meta-panel'); if (mp) mp.style.display = isAdmin() ? 'block' : 'none';
   $('user-info').textContent = SESSION ? `${SESSION.name} (${isAdmin() ? '관리자' : isCS() ? 'CS팀' : '직원'})` : '';
@@ -2916,7 +2974,7 @@ async function fetchMetaAds() {
     if (!ads.length) {
       $('meta-topads').innerHTML = '<div class="empty-state"><div class="es-icon">📱</div><p>기간 내 지출된 광고가 없습니다.</p></div>';
     } else {
-      let html = `<div style="font-size:.8rem;color:#6b7280;margin-bottom:8px;">💡 지출 상위 10개 소재 · <b>행을 클릭하면 소재(이미지·영상)를 볼 수 있어요</b></div>
+      let html = `<div style="font-size:.8rem;color:#6b7280;margin-bottom:8px;">💡 지출 상위 20개 소재 · <b>행을 클릭하면 소재와 기간별 성과 그래프를 볼 수 있어요</b></div>
         <div class="table-wrap"><table>
         <thead><tr>
           <th>순위</th><th style="text-align:left;">광고명</th><th>지출 금액</th>
@@ -2944,13 +3002,18 @@ async function fetchMetaAds() {
   }
 }
 
+let metaStatsChart = null;
+
 async function showMetaPreview(adId) {
   const modal = $('meta-preview-modal');
   modal.style.display = 'flex';
   $('meta-preview-title').textContent = '불러오는 중...';
   $('meta-preview-body').innerHTML = '<div style="padding:40px;color:#9ca3af;"><i class="fa-solid fa-spinner fa-spin"></i></div>';
-  try {
-    const d = await metaGet({ action: 'preview', ad_id: adId });
+  $('meta-preview-stats').innerHTML = '<div style="padding:14px;color:#9ca3af;font-size:.78rem;"><i class="fa-solid fa-spinner fa-spin"></i> 기간별 성과 조회 중...</div>';
+  if (metaStatsChart) { metaStatsChart.destroy(); metaStatsChart = null; }
+
+  // 미리보기와 기간별 통계를 병렬로 — 하나가 실패해도 나머지는 표시
+  metaGet({ action: 'preview', ad_id: adId }).then(d => {
     $('meta-preview-title').textContent = d.name || adId;
     if (d.iframe) {
       $('meta-preview-body').innerHTML = d.iframe;   // Meta가 주는 공식 미리보기 iframe (영상 재생 포함)
@@ -2961,15 +3024,289 @@ async function showMetaPreview(adId) {
     } else {
       $('meta-preview-body').innerHTML = '<div style="padding:30px;color:#9ca3af;">미리보기를 가져오지 못했습니다</div>';
     }
-  } catch (err) {
+  }).catch(err => {
     $('meta-preview-body').innerHTML = `<div style="padding:30px;color:#b91c1c;font-size:.85rem;">${escHtml(err.message)}</div>`;
+  });
+
+  metaGet({ action: 'adstats', ad_id: adId }).then(d => {
+    const LABELS = { today: '오늘', yesterday: '어제', last_7d: '최근 7일', last_14d: '최근 14일', last_30d: '최근 30일' };
+    const stats = d.stats || [];
+    if (!stats.length) { $('meta-preview-stats').innerHTML = ''; return; }
+    $('meta-preview-stats').innerHTML = `
+      <div style="border-top:1px solid #f3f4f6;padding-top:10px;">
+        <div style="font-size:.78rem;font-weight:800;color:#4338ca;margin-bottom:6px;">📊 기간별 지출·구매 ROAS <span style="font-weight:400;color:#9ca3af;font-size:.68rem;">(7·14·30일은 어제까지 기준)</span></div>
+        <div style="height:190px;"><canvas id="meta-stats-canvas"></canvas></div>
+        <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:4px;margin-top:8px;text-align:center;">
+          ${stats.map(s => `<div style="background:#f8f9ff;border-radius:8px;padding:6px 2px;">
+            <div style="font-size:.62rem;color:#9ca3af;">${LABELS[s.preset]}</div>
+            <div style="font-size:.72rem;font-weight:800;color:#1e1b4b;">${fmt(Math.round(s.spend / 10000))}만</div>
+            <div style="font-size:.66rem;font-weight:700;color:${s.roas >= 1 ? '#15803d' : '#b91c1c'};">${s.roas.toFixed(2)}</div>
+          </div>`).join('')}
+        </div>
+      </div>`;
+    if (typeof Chart === 'undefined') return;
+    metaStatsChart = new Chart($('meta-stats-canvas'), {
+      data: {
+        labels: stats.map(s => LABELS[s.preset]),
+        datasets: [
+          { type: 'bar', label: '지출 (만원)', data: stats.map(s => Math.round(s.spend / 10000)),
+            backgroundColor: 'rgba(99,102,241,0.55)', borderRadius: 6, yAxisID: 'y' },
+          { type: 'line', label: '구매 ROAS', data: stats.map(s => +s.roas.toFixed(2)),
+            borderColor: '#f59e0b', backgroundColor: '#f59e0b', tension: 0.3, pointRadius: 4, yAxisID: 'y1' },
+        ],
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { labels: { font: { size: 11 } } } },
+        scales: {
+          y: { position: 'left', title: { display: true, text: '지출 (만원)', font: { size: 10 } } },
+          y1: { position: 'right', grid: { drawOnChartArea: false }, title: { display: true, text: 'ROAS', font: { size: 10 } } },
+        },
+      },
+    });
+  }).catch(() => { $('meta-preview-stats').innerHTML = ''; });
+}
+
+/* ──────────────────────────────
+   순익 시나리오 (관리자 전용) — 기존 '순이익 시나리오 분석' HTML 도구 통합판
+   자동 수집: 매출(revenue)·취소반품(cafe24-claims)·마진율(performance)·광고비(meta-ads)
+────────────────────────────── */
+const PF_COST_KEY = 'dnrb_profit_costs';
+const PF_ROAS_COLS = [200, 300, 400, 500, 600, 700, 800, 900, 1000];  /* % */
+const PF_CR_ROWS = [10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30];      /* % */
+const pfSel = { roas: null, cr: null };
+
+/* 억/만 축약 표기 (매트릭스 셀용) */
+function fmtEok(n) {
+  const a = Math.abs(n), s = n < 0 ? '−' : '';
+  if (a >= 1e8) return s + (a / 1e8).toFixed(1) + '억';
+  if (a >= 1e4) return s + fmt(Math.round(a / 1e4)) + '만';
+  return s + fmt(Math.round(a));
+}
+function fmtEokS(n) { return (n >= 0 ? '+' : '') + fmtEok(n); }
+
+/* 법인세 (과세표준 구간별 — 연 기준 구간을 기간 손익에 그대로 적용, 참고용) */
+function pfCorpTax(base) {
+  if (base <= 0) return 0;
+  if (base <= 2e8) return base * 0.09;
+  if (base <= 2e10) return 2e8 * 0.09 + (base - 2e8) * 0.19;
+  return 2e8 * 0.09 + (2e10 - 2e8) * 0.19 + (base - 2e10) * 0.21;
+}
+
+function pfCosts() {
+  return { labor: toNum($('pf-labor').value), buying: toNum($('pf-buying').value),
+           rent: toNum($('pf-rent').value), mgmt: toNum($('pf-mgmt').value), etc: toNum($('pf-etc').value) };
+}
+function profitSaveCosts() { localStorage.setItem(PF_COST_KEY, JSON.stringify(pfCosts())); }
+function profitLoadCosts() {
+  try {
+    const c = JSON.parse(localStorage.getItem(PF_COST_KEY) || '{}');
+    if (c.labor) $('pf-labor').value = c.labor;
+    if (c.buying) $('pf-buying').value = c.buying;
+    if (c.rent) $('pf-rent').value = c.rent;
+    if (c.mgmt) $('pf-mgmt').value = c.mgmt;
+    if (c.etc) $('pf-etc').value = c.etc;
+  } catch {}
+}
+
+/* 핵심 계산 — rev·ad·비용은 원 단위, cr·margin은 % */
+function pfCalc(rev, crPct, marginPct, ad, costs) {
+  const netR = rev * (1 - crPct / 100);                 // 순매출 (취소·반품 차감)
+  const gp = netR * (marginPct / 100);                  // 매출이익
+  const fixedSum = costs.labor + costs.buying + costs.rent + costs.mgmt + costs.etc;
+  const pretax = gp - ad - fixedSum;                    // 세전이익
+  const vat = Math.max(0, (gp - ad) * 10 / 110);        // 부가세 개략 (원가·광고비 매입세액 공제 가정)
+  const corp = pfCorpTax(pretax);                       // 법인세
+  return { netR, gp, fixedSum, pretax, vat, corp, net: pretax - vat - corp };
+}
+
+async function fetchProfitData() {
+  if (!isAdmin()) { showToast('⛔ 접근 권한이 없습니다'); return; }
+  const s = $('pfDateStart').value, e = $('pfDateEnd').value;
+  if (!s || !e) { showToast('📅 기간을 선택해주세요'); return; }
+  const btn = $('btn-pf-fetch');
+  btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> 수집 중... (수십 초)';
+  try {
+    const [rev, claims, perf, meta] = await Promise.all([
+      anGet({ action: 'revenue', start_date: s, end_date: e }).catch(err => ({ __err: '매출: ' + err.message })),
+      fetch(fnUrl('cafe24-claims', { start_date: s, end_date: e }), { headers: sbHeaders() }).then(r => r.json()).catch(err => ({ __err: '취소반품: ' + err.message })),
+      anGet({ action: 'performance', start_date: s, end_date: e }).catch(err => ({ __err: '마진율: ' + err.message })),
+      metaGet({ action: 'summary', start_date: s, end_date: e }).catch(err => ({ __err: '광고비: ' + err.message })),
+    ]);
+    const errs = [rev, claims, perf, meta].filter(x => x && x.__err).map(x => x.__err);
+
+    if (rev && !rev.__err) $('pf-rev').value = rev.revenue;
+    if (claims && !claims.__err && claims.cancel) $('pf-claims').value = Math.round((claims.cancel.amount || 0) + (claims.return.amount || 0));
+    if (perf && !perf.__err && perf.rows) {
+      // 판매 성과 메뉴와 동일: 공급가×1.1 기준 마진율을 판매수량 가중평균
+      let wm = 0, wq = 0;
+      for (const r of perf.rows) {
+        const q = (r.paid_qty || 0) - (r.cancel_qty || 0);
+        if (q > 0 && r.price > 0 && r.supply_price > 0) {
+          wm += ((r.price - r.supply_price * 1.1) / r.price) * 100 * q; wq += q;
+        }
+      }
+      if (wq > 0) $('pf-margin').value = (wm / wq).toFixed(1);
+    }
+    if (meta && !meta.__err && meta.error !== 'not_connected') $('pf-ad').value = Math.round(meta.spend);
+
+    renderProfit();
+    showToast(errs.length ? '⚠️ 일부 수집 실패: ' + errs.join(' / ') : '✅ 4개 지표 자동 수집 완료 — 값은 직접 수정할 수 있어요');
+  } finally {
+    btn.disabled = false; btn.innerHTML = '<i class="fa-solid fa-cloud-arrow-down"></i> 데이터 자동 수집';
   }
+}
+
+function pfCurrent() {
+  const rev = toNum($('pf-rev').value);
+  const claimsAmt = toNum($('pf-claims').value);
+  const margin = parseFloat($('pf-margin').value) || 0;
+  const ad = toNum($('pf-ad').value);
+  return { rev, claimsAmt, margin, ad,
+    crPct: rev > 0 ? claimsAmt / rev * 100 : 0,
+    roas: ad > 0 ? rev / ad * 100 : 0 };
+}
+
+function renderProfit() {
+  const cur = pfCurrent();
+  if (cur.rev <= 0) {
+    $('pf-result').innerHTML = '<div class="empty-state"><div class="es-icon">💰</div><p>기간을 선택하고 <strong>데이터 자동 수집</strong>을 누르거나, 값을 직접 입력하세요.</p></div>';
+    $('pf-matrix').innerHTML = ''; $('pf-detail').innerHTML = '';
+    return;
+  }
+  const costs = pfCosts();
+  const d = pfCalc(cur.rev, cur.crPct, cur.margin, cur.ad, costs);
+
+  const row = (label, val, note, opt) => `
+    <div style="display:flex;justify-content:space-between;align-items:baseline;padding:7px 2px;border-bottom:1px dashed #eef0f6;${opt?.strong ? 'border-top:2px solid #e0e7ff;padding-top:10px;' : ''}">
+      <span style="font-size:.83rem;color:#6b7280;">${label}${note ? ` <span style="font-size:.7rem;color:#c4c9d4;">${note}</span>` : ''}</span>
+      <span style="font-size:${opt?.strong ? '1.05rem' : '.88rem'};font-weight:${opt?.strong ? '800' : '600'};color:${opt?.color || '#374151'};font-variant-numeric:tabular-nums;">${val}</span>
+    </div>`;
+  const won = n => fmt(Math.round(n)) + '원';
+  const netColor = d.net >= 0 ? '#15803d' : '#b91c1c';
+
+  $('pf-result').innerHTML = `
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:16px;">
+      <div style="background:#fff;border:1.5px solid #e5e7eb;border-radius:12px;padding:14px 18px;">
+        <div style="font-size:.8rem;font-weight:800;color:#4338ca;margin-bottom:6px;">📋 손익 계산서</div>
+        ${row('결제 매출', won(cur.rev))}
+        ${row('(−) 취소·반품', '−' + won(cur.claimsAmt), `${cur.crPct.toFixed(1)}%`, { color: '#b45309' })}
+        ${row('순매출', won(d.netR))}
+        ${row('(−) 상품 원가', '−' + won(d.netR - d.gp), `마진율 ${cur.margin}%`, { color: '#6b7280' })}
+        ${row('매출이익', won(d.gp))}
+        ${row('(−) 광고비 (Meta)', '−' + won(cur.ad), `ROAS ${cur.roas.toFixed(0)}%`, { color: '#6366f1' })}
+        ${row('(−) 인건비', '−' + won(costs.labor), '', { color: '#b45309' })}
+        ${row('(−) 사입삼촌 비용', '−' + won(costs.buying), '', { color: '#6b7280' })}
+        ${row('(−) 사무실 월세', '−' + won(costs.rent), '', { color: '#6b7280' })}
+        ${row('(−) 관리비', '−' + won(costs.mgmt), '', { color: '#6b7280' })}
+        ${row('(−) 기타 비용', '−' + won(costs.etc), '', { color: '#6b7280' })}
+        ${row('세전이익', won(d.pretax), '', { strong: true, color: d.pretax >= 0 ? '#1e1b4b' : '#b91c1c' })}
+        ${row('(−) 부가세 (자동)', '−' + won(d.vat), '(매출이익−광고비)의 10/110', { color: '#9333ea' })}
+        ${row('(−) 법인세 (자동)', '−' + won(d.corp), '구간세율', { color: '#9333ea' })}
+        ${row('최종 순이익', won(d.net), '', { strong: true, color: netColor })}
+      </div>
+      <div style="display:flex;flex-direction:column;gap:12px;">
+        <div style="border-radius:13px;padding:20px;color:#fff;background:linear-gradient(135deg,${d.net >= 0 ? '#15803d,#16a34a' : '#b91c1c,#dc2626'});">
+          <div style="font-size:.78rem;font-weight:600;opacity:.85;">💰 기간 순이익 (세후)</div>
+          <div style="font-size:2rem;font-weight:800;margin-top:4px;">${fmtEok(d.net)}<span style="font-size:1rem;font-weight:600;"> (${won(d.net)})</span></div>
+          <div style="font-size:.75rem;opacity:.75;margin-top:4px;">순이익률 ${cur.rev > 0 ? (d.net / cur.rev * 100).toFixed(1) : 0}% · 세전 ${fmtEok(d.pretax)}</div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+          <div style="background:#f8f9ff;border:1.5px solid #e0e7ff;border-radius:12px;padding:12px 14px;">
+            <div style="font-size:.72rem;color:#6b7280;font-weight:600;">현재 ROAS</div>
+            <div style="font-size:1.1rem;font-weight:800;color:#1e1b4b;">${cur.roas.toFixed(0)}%</div>
+            <div style="font-size:.68rem;color:#9ca3af;">매출 ÷ 광고비</div>
+          </div>
+          <div style="background:#f8f9ff;border:1.5px solid #e0e7ff;border-radius:12px;padding:12px 14px;">
+            <div style="font-size:.72rem;color:#6b7280;font-weight:600;">현재 취소·반품률</div>
+            <div style="font-size:1.1rem;font-weight:800;color:#1e1b4b;">${cur.crPct.toFixed(1)}%</div>
+            <div style="font-size:.68rem;color:#9ca3af;">금액 기준</div>
+          </div>
+        </div>
+        <div style="background:#f8f9ff;border:1.5px solid #e0e7ff;border-radius:12px;padding:12px 14px;font-size:.76rem;color:#6b7280;line-height:1.7;">
+          손익분기 광고비: <b style="color:#1e1b4b;">${won(Math.max(0, d.gp - d.fixedSum - d.vat))}</b><br />지금 구조에서 광고비가 이보다 커지면 적자예요 (세금 개략 반영)
+        </div>
+      </div>
+    </div>`;
+  renderProfitMatrix(cur, costs);
+  renderProfitDetail(cur, costs);
+}
+
+function renderProfitMatrix(cur, costs) {
+  const curD = pfCalc(cur.rev, cur.crPct, cur.margin, cur.ad, costs);
+  const nearRoas = PF_ROAS_COLS.reduce((a, b) => Math.abs(b - cur.roas) < Math.abs(a - cur.roas) ? b : a);
+  const nearCr = PF_CR_ROWS.reduce((a, b) => Math.abs(b - cur.crPct) < Math.abs(a - cur.crPct) ? b : a);
+
+  const cells = [];
+  for (const crv of PF_CR_ROWS) for (const rs of PF_ROAS_COLS)
+    cells.push(pfCalc(cur.rev, crv, cur.margin, cur.rev / (rs / 100), costs).net);
+  const mn = Math.min(...cells), mx = Math.max(...cells);
+  const bg = v => {
+    if (v < 0) return 'rgba(220,38,38,0.10)';
+    const t = mx === Math.max(0, mn) ? 0.5 : (v - Math.max(0, mn)) / (mx - Math.max(0, mn));
+    return `rgba(79,70,229,${(0.06 + t * 0.32).toFixed(2)})`;
+  };
+
+  let html = `<div style="font-size:.8rem;font-weight:800;color:#4338ca;margin-bottom:4px;">🗺️ 순이익 매트릭스 <span style="font-weight:400;color:#9ca3af;font-size:.72rem;">— 행 = 취소·반품률, 열 = ROAS · 셀 클릭 시 상세 비교 · 파란 테두리 = 현재 위치</span></div>
+    <div class="table-wrap"><table style="font-size:.78rem;">
+    <thead><tr><th style="white-space:nowrap;">CR ↓ / ROAS →</th>${PF_ROAS_COLS.map(r =>
+      `<th style="${r === nearRoas ? 'color:#4f46e5;border-bottom:2px solid #4f46e5;' : ''}">${r}%</th>`).join('')}</tr></thead><tbody>`;
+  for (const crv of PF_CR_ROWS) {
+    html += `<tr><td style="font-weight:${crv === nearCr ? '800' : '400'};color:${crv === nearCr ? '#4f46e5' : '#6b7280'};white-space:nowrap;">${crv}%</td>`;
+    for (const rs of PF_ROAS_COLS) {
+      const net = pfCalc(cur.rev, crv, cur.margin, cur.rev / (rs / 100), costs).net;
+      const isCur = crv === nearCr && rs === nearRoas;
+      const isSel = pfSel.roas === rs && pfSel.cr === crv;
+      const diff = net - curD.net;
+      html += `<td onclick="pfSelect(${rs}, ${crv})" style="cursor:pointer;background:${isSel ? '#4f46e5' : bg(net)};${isCur ? 'outline:2px solid #4f46e5;outline-offset:-2px;' : ''}border-radius:6px;padding:7px 6px;">
+        <div style="font-weight:700;color:${isSel ? '#fff' : net < 0 ? '#b91c1c' : '#1e1b4b'};">${fmtEok(net)}</div>
+        <div style="font-size:.64rem;color:${isSel ? 'rgba(255,255,255,.8)' : isCur ? '#4f46e5' : diff >= 0 ? '#15803d' : '#b91c1c'};">${isCur ? '현재' : fmtEokS(diff)}</div>
+      </td>`;
+    }
+    html += '</tr>';
+  }
+  $('pf-matrix').innerHTML = html + '</tbody></table></div>';
+}
+
+function pfSelect(roas, cr) {
+  pfSel.roas = roas; pfSel.cr = cr;
+  renderProfit();
+  const el = $('pf-detail'); if (el) el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+function renderProfitDetail(cur, costs) {
+  if (pfSel.roas === null) { $('pf-detail').innerHTML = ''; return; }
+  const curD = pfCalc(cur.rev, cur.crPct, cur.margin, cur.ad, costs);
+  const ad = cur.rev / (pfSel.roas / 100);
+  const d = pfCalc(cur.rev, pfSel.cr, cur.margin, ad, costs);
+  const diff = d.net - curD.net;
+  const won = n => fmt(Math.round(n)) + '원';
+  const tile = (label, val, sub, color) => `
+    <div style="background:#fff;border:1.5px solid #e5e7eb;border-radius:12px;padding:12px 14px;text-align:center;">
+      <div style="font-size:.72rem;color:#6b7280;font-weight:600;">${label}</div>
+      <div style="font-size:1.05rem;font-weight:800;color:${color || '#1e1b4b'};margin-top:2px;">${val}</div>
+      ${sub ? `<div style="font-size:.68rem;color:#9ca3af;margin-top:2px;">${sub}</div>` : ''}
+    </div>`;
+  $('pf-detail').innerHTML = `
+    <div style="background:#eef2ff;border:1.5px solid #c7d2fe;border-radius:12px;padding:14px 16px;">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">
+        <b style="font-size:.85rem;color:#4338ca;">🎯 선택 시나리오: ROAS ${pfSel.roas}% · 취소반품 ${pfSel.cr}%</b>
+        <button onclick="pfSel.roas=null;pfSel.cr=null;renderProfit()" style="margin-left:auto;border:1px solid #c7d2fe;background:#fff;border-radius:6px;padding:3px 10px;font-size:.74rem;cursor:pointer;color:#4338ca;">닫기</button>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;">
+        ${tile('광고비', won(ad), `ROAS ${pfSel.roas}% 역산`)}
+        ${tile('세전이익', won(d.pretax), '', d.pretax >= 0 ? '#1e1b4b' : '#b91c1c')}
+        ${tile('부가세+법인세', '−' + won(d.vat + d.corp), '자동 계산')}
+        ${tile('순이익 (세후)', fmtEok(d.net), won(d.net), d.net >= 0 ? '#15803d' : '#b91c1c')}
+        ${tile('현재 대비', fmtEokS(diff), '연환산 ' + fmtEokS(diff * 12) + ' (동일 기간 반복 가정)', diff >= 0 ? '#15803d' : '#b91c1c')}
+      </div>
+    </div>`;
 }
 
 /* ──────────────────────────────
    좌측 메뉴 내비게이션 + 대시보드(홈)
 ────────────────────────────── */
-const MENU_KEYS = ['home', 'cr', 'an', 'perf', 'disp', 'stock', 'stable', 'adv', 'meet', 'users'];
+const MENU_KEYS = ['home', 'cr', 'an', 'perf', 'disp', 'stock', 'stable', 'adv', 'profit', 'meet', 'users'];
 
 function showMenu(key) {
   if (!MENU_KEYS.includes(key)) key = 'home';
@@ -2977,7 +3314,7 @@ function showMenu(key) {
   // 권한 없는 메뉴는 홈으로 되돌린다 — 여기서 return하면 URL에 #stock 등을 달고 들어온
   // 권한 없는 사용자에게 아무 섹션도 표시되지 않아 화면이 비어버림
   const denied = (key === 'cr' && isStaff())
-    || (['users', 'disp', 'stock', 'stable', 'adv'].includes(key) && !isAdmin());
+    || (['users', 'disp', 'stock', 'stable', 'adv', 'profit'].includes(key) && !isAdmin());
   if (denied) { showToast('⛔ 접근 권한이 없습니다'); key = 'home'; }
   document.querySelectorAll('.page-sec').forEach(el => { el.style.display = 'none'; });
   const target = $('sec-' + key);
@@ -4818,6 +5155,12 @@ function bootApp() {
   stableSyncDays();
   $('metaDateStart').value = fmtD(new Date(now.getFullYear(), now.getMonth(), now.getDate() - 7));
   $('metaDateEnd').value   = fmtD(new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1));
+  // 순익 시나리오: 기본 = 이번 달 1일 ~ 어제 (1일이면 지난달 전체)
+  const pfEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
+  const pfStart = pfEnd < first ? new Date(now.getFullYear(), now.getMonth() - 1, 1) : first;
+  $('pfDateStart').value = fmtD(pfStart);
+  $('pfDateEnd').value   = fmtD(pfEnd);
+  profitLoadCosts();
   $('np-pw').value = localStorage.getItem(NP_PW_KEY) || '';
 
   // 세션 확인 → 로그인 화면 또는 대시보드 시작

@@ -80,13 +80,13 @@ Deno.serve(async (req) => {
         return json({ period: { start: s, end: e }, spend, purchases, purchase_value: purchaseValue, meta_roas: metaRoas });
       }
 
-      // topads — 소재(광고) 단위, 지출 내림차순 상위 10
+      // topads — 소재(광고) 단위, 지출 내림차순 상위 20
       const body = await graphGet(`${c.account}/insights`, {
         time_range: timeRange,
         level: "ad",
         fields: "ad_id,ad_name,spend,actions,action_values,purchase_roas,frequency,cost_per_action_type",
         sort: "spend_descending",
-        limit: "10",
+        limit: "20",
       }, c.token);
       const ads = ((body.data ?? []) as Record<string, unknown>[]).map((r) => {
         const spend = num(r.spend);
@@ -105,6 +105,25 @@ Deno.serve(async (req) => {
         };
       });
       return json({ period: { start: s, end: e }, ads });
+    }
+
+    // 소재별 기간 통계 — 오늘/어제/최근7일/최근14일/최근30일의 지출·ROAS
+    // (last_7d 등 date_preset은 오늘을 제외하고 어제까지 집계 — Meta 표준)
+    if (action === "adstats") {
+      const adId = url.searchParams.get("ad_id");
+      if (!adId) return json({ error: "ad_id 필수" }, 400);
+      const presets = ["today", "yesterday", "last_7d", "last_14d", "last_30d"];
+      const results = await Promise.all(presets.map((p) =>
+        graphGet(`${adId}/insights`, { date_preset: p, fields: "spend,purchase_roas,action_values" }, c.token)
+          .catch(() => ({ data: [] }))));
+      const stats = presets.map((p, i) => {
+        const r = (((results[i] as Record<string, unknown>).data ?? []) as Record<string, unknown>[])[0] ?? {};
+        const spend = num(r.spend);
+        const roasArr = (r.purchase_roas ?? []) as { value?: unknown }[];
+        const pv = pickPurchase(r.action_values);
+        return { preset: p, spend, roas: roasArr.length ? num(roasArr[0].value) : (spend > 0 ? pv / spend : 0) };
+      });
+      return json({ ad_id: adId, stats });
     }
 
     // 소재 미리보기 — 실제 게재 형태의 iframe + 썸네일 (이미지·영상 모두 iframe 안에서 재생됨)
