@@ -436,7 +436,7 @@
         <button class="btn-analyze" id="btn-api-home" onclick="loadHome(true)">
           <i class="fa-solid fa-cloud-arrow-down"></i> 카페24 불러오기
         </button>
-        <span style="font-size:.75rem;color:#9ca3af;">불러오면 <strong>취소&amp;반품 · 조회수&amp;주문율 · 판매 성과</strong> 메뉴에도 같은 기간으로 자동 반영됩니다</span>
+        <span style="font-size:.75rem;color:#9ca3af;">불러오면 <strong>취소&amp;반품 · 상품 분석 · 판매 성과 · 광고 효율(Meta) · 순익 시나리오 · 재고 대조</strong>에 같은 기간이 적용되고 데이터가 자동 기입됩니다 · 각 메뉴의 "이 메뉴만 별도 기간"을 체크하면 그 메뉴는 건드리지 않아요</span>
       </div>
 
       <!-- 카페24 연동 상태 + 최초/재연동 -->
@@ -523,6 +523,8 @@
         <input type="date" id="crDateStart" />
         <span class="date-sep">~</span>
         <input type="date" id="crDateEnd" />
+        <label style="display:flex;align-items:center;gap:5px;font-size:.72rem;color:#9ca3af;cursor:pointer;font-weight:600;white-space:nowrap;" title="체크하면 홈 대시보드의 '카페24 불러오기'가 이 메뉴의 기간을 덮어쓰지 않습니다">
+          <input type="checkbox" id="own-period-cr" onchange="saveOwnPeriod()" /> 이 메뉴만 별도 기간</label>
         <div class="divider"></div>
         <label>총 매출액</label>
         <div class="revenue-input">
@@ -692,6 +694,8 @@
         <input type="date" id="anDateStart" />
         <span class="date-sep">~</span>
         <input type="date" id="anDateEnd" />
+        <label style="display:flex;align-items:center;gap:5px;font-size:.72rem;color:#9ca3af;cursor:pointer;font-weight:600;white-space:nowrap;" title="체크하면 홈 대시보드의 '카페24 불러오기'가 이 메뉴의 기간을 덮어쓰지 않습니다">
+          <input type="checkbox" id="own-period-an" onchange="saveOwnPeriod()" /> 이 메뉴만 별도 기간</label>
         <div class="divider"></div>
         <label>디바이스</label>
         <select id="anDevice" style="border:1.5px solid #d1d5db;border-radius:8px;padding:8px 10px;font-size:.88rem;">
@@ -759,6 +763,8 @@
         <input type="date" id="perfDateStart" style="padding:7px 11px;border:1.5px solid #e5e7eb;border-radius:8px;font-size:.85rem;font-family:inherit;" />
         <span class="date-sep">~</span>
         <input type="date" id="perfDateEnd" style="padding:7px 11px;border:1.5px solid #e5e7eb;border-radius:8px;font-size:.85rem;font-family:inherit;" />
+        <label style="display:flex;align-items:center;gap:5px;font-size:.72rem;color:#9ca3af;cursor:pointer;font-weight:600;white-space:nowrap;" title="체크하면 홈 대시보드의 '카페24 불러오기'가 이 메뉴의 기간을 덮어쓰지 않습니다">
+          <input type="checkbox" id="own-period-perf" onchange="saveOwnPeriod()" /> 이 메뉴만 별도 기간</label>
         <div class="divider"></div>
         <button class="btn-analyze" id="btn-api-perf" onclick="fetchPerfApi()">
           <i class="fa-solid fa-cloud-arrow-down"></i> 카페24 불러오기
@@ -933,6 +939,8 @@
         <input type="date" id="stockDateStart" style="padding:7px 11px;border:1.5px solid #e5e7eb;border-radius:8px;font-size:.85rem;font-family:inherit;" />
         <span class="date-sep">~</span>
         <input type="date" id="stockDateEnd" style="padding:7px 11px;border:1.5px solid #e5e7eb;border-radius:8px;font-size:.85rem;font-family:inherit;" />
+        <label style="display:flex;align-items:center;gap:5px;font-size:.72rem;color:#9ca3af;cursor:pointer;font-weight:600;white-space:nowrap;" title="체크하면 홈 대시보드의 '카페24 불러오기'가 이 메뉴의 기간을 덮어쓰지 않습니다">
+          <input type="checkbox" id="own-period-stock" onchange="saveOwnPeriod()" /> 이 메뉴만 별도 기간</label>
         <button class="btn-analyze" id="btn-stock-fetch" onclick="fetchStockCompare()">
           <i class="fa-solid fa-cloud-arrow-down"></i> 대조 실행
         </button>
@@ -1071,6 +1079,8 @@
         <input type="date" id="pfDateStart" style="padding:7px 11px;border:1.5px solid #e5e7eb;border-radius:8px;font-size:.85rem;font-family:inherit;" />
         <span class="date-sep">~</span>
         <input type="date" id="pfDateEnd" style="padding:7px 11px;border:1.5px solid #e5e7eb;border-radius:8px;font-size:.85rem;font-family:inherit;" />
+        <label style="display:flex;align-items:center;gap:5px;font-size:.72rem;color:#9ca3af;cursor:pointer;font-weight:600;white-space:nowrap;" title="체크하면 홈 대시보드의 '카페24 불러오기'가 이 메뉴의 기간을 덮어쓰지 않습니다">
+          <input type="checkbox" id="own-period-profit" onchange="saveOwnPeriod()" /> 이 메뉴만 별도 기간</label>
         <button class="btn-analyze" id="btn-pf-fetch" onclick="fetchProfitData()">
           <i class="fa-solid fa-cloud-arrow-down"></i> 데이터 자동 수집
         </button>
@@ -1221,6 +1231,8 @@
           <input type="date" id="metaDateStart" style="padding:7px 11px;border:1.5px solid #e5e7eb;border-radius:8px;font-size:.85rem;font-family:inherit;" />
           <span class="date-sep">~</span>
           <input type="date" id="metaDateEnd" style="padding:7px 11px;border:1.5px solid #e5e7eb;border-radius:8px;font-size:.85rem;font-family:inherit;" />
+        <label style="display:flex;align-items:center;gap:5px;font-size:.72rem;color:#9ca3af;cursor:pointer;font-weight:600;white-space:nowrap;" title="체크하면 홈 대시보드의 '카페24 불러오기'가 이 메뉴의 기간을 덮어쓰지 않습니다">
+          <input type="checkbox" id="own-period-adv" onchange="saveOwnPeriod()" /> 이 메뉴만 별도 기간</label>
           <button class="btn-analyze" id="btn-meta-fetch" onclick="fetchMetaAds()">
             <i class="fa-solid fa-cloud-arrow-down"></i> Meta 불러오기
           </button>
@@ -2954,6 +2966,8 @@ async function fetchMetaAds() {
       return;
     }
     $('meta-status').style.display = 'none';
+    store.metaSpend = sum.spend;
+    store.metaPeriod = s + '~' + e;
 
     const revenue = rev ? rev.revenue : null;
     const cafeRoas = revenue !== null && sum.spend > 0 ? revenue / sum.spend : null;
@@ -3122,6 +3136,45 @@ function pfCalc(rev, crPct, marginPct, ad, costs) {
   return { netR, gp, fixedSum, pretax, vat, corp, net: pretax - vat - corp };
 }
 
+
+
+/* '이 메뉴만 별도 기간' 체크 상태 — 홈 불러오기의 기간 동기화·자동 기입에서 제외 */
+const OWN_PERIOD_KEY = 'dnrb_own_period';
+const OWN_PERIOD_MENUS = ['cr', 'an', 'perf', 'adv', 'profit', 'stock'];
+function ownPeriod(key) { const el = $('own-period-' + key); return !!(el && el.checked); }
+function saveOwnPeriod() {
+  const o = {};
+  OWN_PERIOD_MENUS.forEach(k => { const el = $('own-period-' + k); if (el) o[k] = el.checked; });
+  localStorage.setItem(OWN_PERIOD_KEY, JSON.stringify(o));
+}
+function loadOwnPeriod() {
+  try {
+    const o = JSON.parse(localStorage.getItem(OWN_PERIOD_KEY) || '{}');
+    OWN_PERIOD_MENUS.forEach(k => { const el = $('own-period-' + k); if (el && k in o) el.checked = o[k]; });
+  } catch {}
+}
+
+/* 홈 불러오기 후 순익 시나리오 자동 기입 — 이미 수집된 데이터 재사용 (추가 API 호출 없음) */
+function fillProfitFromStores(ds, de) {
+  if (!isAdmin()) return;
+  $('pf-rev').value = toNum($('totalRevenue').value) || '';
+  // 취소·반품 금액: 카페24 API 수집분 (순익 자동수집 버튼과 동일 기준 — 네이버 CSV 제외)
+  const claimsAmt = [...store.c24.cancelRows, ...store.c24.returnRows].reduce((t, r) => t + (r.amt || 0), 0);
+  if (claimsAmt > 0) $('pf-claims').value = Math.round(claimsAmt);
+  // 마진율: 판매 성과 수집분 가중평균 (홈 타일과 동일 계산)
+  let w = 0, wQty = 0;
+  store.salesData.forEach(r => {
+    const cd = findCostData(r.productName);
+    if (cd && cd.salePrice > 0 && r.salesQty > 0) {
+      w += (cd.salePrice - cd.supplyCost * 1.1) / cd.salePrice * 100 * r.salesQty;
+      wQty += r.salesQty;
+    }
+  });
+  if (wQty > 0) $('pf-margin').value = (w / wQty).toFixed(1);
+  // 광고비: Meta 패널 수집분 (기간이 일치할 때만)
+  if (store.metaSpend > 0 && store.metaPeriod === ds + '~' + de) $('pf-ad').value = Math.round(store.metaSpend);
+  renderProfit();
+}
 
 /* 근무관리 시스템(로컬 서버 :3001) 인건비 자동 수집 — 근무관리가 켜진 컴퓨터에서만 동작
    기간에 걸친 달의 월 급여 합계를 가져온다 (정규직=월급 고정, 알바=해당 월 실근무 기준) */
@@ -3515,10 +3568,15 @@ async function loadHome(force) {
   if (!ds || !de) { showToast('📅 기준 기간을 먼저 선택해주세요'); return; }
   homeState.loading = true;
 
-  // 하위 카테고리 기간 동기화
-  $('crDateStart').value = ds;   $('crDateEnd').value = de;
-  $('anDateStart').value = ds;   $('anDateEnd').value = de;
-  $('perfDateStart').value = ds; $('perfDateEnd').value = de;
+  // 하위 메뉴 기간 동기화 — '이 메뉴만 별도 기간' 체크 시 건드리지 않음
+  if (!ownPeriod('cr'))   { $('crDateStart').value = ds;   $('crDateEnd').value = de; }
+  if (!ownPeriod('an'))   { $('anDateStart').value = ds;   $('anDateEnd').value = de; }
+  if (!ownPeriod('perf')) { $('perfDateStart').value = ds; $('perfDateEnd').value = de; }
+  if (isAdmin()) {
+    if (!ownPeriod('adv'))    { $('metaDateStart').value = ds;  $('metaDateEnd').value = de; }
+    if (!ownPeriod('profit')) { $('pfDateStart').value = ds;    $('pfDateEnd').value = de; }
+    if (!ownPeriod('stock'))  { $('stockDateStart').value = ds; $('stockDateEnd').value = de; }
+  }
 
   const btn = $('btn-api-home');
   btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> 불러오는 중... (수십 초)';
@@ -3537,14 +3595,17 @@ async function loadHome(force) {
 
   // ② 취소·반품 — 취소&반품 메뉴의 API 조회 그대로 실행 (직원은 생략·블러 처리)
   const pClaims = isStaff() ? Promise.resolve($('home-claims').textContent = '—')
+    : ownPeriod('cr') ? Promise.resolve($('home-claims').textContent = '별도 기간 사용 중')
     : fetchCafe24Api().then(() => updateHomeClaimsTile());
 
   // ③ 조회수·주문율 — 조회수&주문율 메뉴 조회 실행 후 타일 계산
-  const pTraffic = fetchAnalytics(true).then(() => updateHomeTrafficTile())
+  const pTraffic = ownPeriod('an') ? Promise.resolve($('home-traffic').textContent = '별도 기간 사용 중')
+    : fetchAnalytics(true).then(() => updateHomeTrafficTile())
     .catch(() => { $('home-traffic').textContent = '—'; });
 
   // ④ 판매수량·평균 마진율 — 판매 성과 메뉴 조회 실행 후 타일 계산
-  const pPerf = fetchPerfApi().then(() => {
+  const pPerf = ownPeriod('perf') ? Promise.resolve($('home-margin').textContent = '별도 기간 사용 중')
+    : fetchPerfApi().then(() => {
     let qty = 0, w = 0, wQty = 0;
     store.salesData.forEach(r => {
       qty += r.salesQty;
@@ -3559,6 +3620,11 @@ async function loadHome(force) {
   }).catch(() => { $('home-margin').textContent = '—'; });
 
   await Promise.allSettled([pRev, pClaims, pTraffic, pPerf]);
+
+  // ⑤ Meta 광고 + 순익 시나리오 자동 기입 (관리자만 · 별도 기간 체크 시 생략)
+  if (isAdmin() && !ownPeriod('adv')) await fetchMetaAds().catch(() => {});
+  if (isAdmin() && !ownPeriod('profit')) fillProfitFromStores(ds, de);
+
   loadTrending(true);
   runAnalysis();  // 총 매출액 반영해 취소반품 비율 재계산
   updateHomeSourceStatus(); updateHomeReasons(); updateHomeClaimsTile();
@@ -5191,6 +5257,7 @@ function bootApp() {
   $('pfDateStart').value = fmtD(pfStart);
   $('pfDateEnd').value   = fmtD(pfEnd);
   profitLoadCosts();
+  loadOwnPeriod();
   $('np-pw').value = localStorage.getItem(NP_PW_KEY) || '';
 
   // 세션 확인 → 로그인 화면 또는 대시보드 시작
