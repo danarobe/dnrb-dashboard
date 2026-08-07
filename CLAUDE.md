@@ -162,7 +162,10 @@ AUTHOR_FIELDS(notes/comments=author_id, likes=user_id): POST는 본인 id 필수
   2. **조회 기간 ≤ 3개월** — `"date range ... should be within 3 months"`.
   3. `/admin/orders/count`에 **`fields`·`embed`를 넘기면 `{count:N}` 대신 `[]`가 올 때가 있다** → 건수를 0으로 읽어 조회가 통째로 비는 사고 발생. count에는 `date_type`·`order_status`만 넘길 것.
   - 그 외: `/admin/products`는 limit 최대 100, `date_type`의 결제일 값은 `pay_date`, `order_status`는 **콤마 다중 지정 가능**(`R40,R30,R34`).
-- **대응 = `eachOrder()` 공용 헬퍼**(cafe24-analytics): 기간을 80일 이하로 미리 자르고(3개월 제한), `/count`로 조각별 건수를 재서 15,000을 넘으면 반으로 쪼갠 뒤, 조각마다 offset을 0부터 다시 세며 3개씩 동시 처리한다. 건수를 못 읽으면(-1) 쪼개지 않고 통째로 읽어 **빈 결과로 끝나지 않게** 방어. 적용: netreturns·displaymetrics·returnreasons·paiditems·performance(취소반품 스캔).
+- **대응 = 조각내어 훑기**: 기간을 80일 이하로 미리 자르고(3개월 제한), `/count`로 조각별 건수를 재서 15,000을 넘으면 반으로 쪼갠 뒤, 조각마다 offset을 0부터 다시 세며 3개씩 동시 처리한다. 건수를 못 읽으면(-1) 쪼개지 않고 통째로 읽어 **빈 결과로 끝나지 않게** 방어.
+  - cafe24-analytics `eachOrder()` — netreturns·displaymetrics·returnreasons·paiditems·performance(취소반품 스캔)
+  - cafe24-claims `eachClaimOrder()` (2026-08-07) — 같은 방식. 이 함수는 `embed=items,cancellation,return`이 무거워 **limit은 100 유지**(limit 500이면 페이지당 8.9MB)하고, 주문을 모으지 않고 **페이지마다 즉시 집계**한다(예전처럼 전부 모으면 3개월치가 100MB를 넘겨 메모리가 터진다). 안 쓰이던 `Bucket.orders` 누적도 제거. `raw=1` 디버그 모드는 조각 나누기 없이 첫 페이지만 반환.
+  - 실측 효과: 취소&반품 7월 한 달 **23초 → 5초**(동시 처리), 6개월(2/1~8/7) 12,961건도 65초에 완주 — 독립 count 합계와 정확히 일치(누락·중복 0).
 - **Meta**: 광고계정 343611764656087, 비즈니스 Onniverse, 앱 1005085742525912. Graph v23.0.
 - **네이버**: 이 몰 주문은 네이버페이 주문형(카페24 결제) — 공개 API 없음, **CSV 업로드가 유일**. 스마트스토어 없음. Fixie 고정IP 프록시(52.87.82.133/52.5.155.132) 미사용(스마트스토어 열면 재활용).
 - **근무관리(work-manager)**: 별도 프로젝트, 로컬 Express :3001, `/api/salary/all?year&month` 응답의 totalPay 합계.
@@ -176,8 +179,7 @@ AUTHOR_FIELDS(notes/comments=author_id, likes=user_id): POST는 본인 id 필수
 
 ## 8. 남은 일 / 미결정
 
-- **`cafe24-claims`는 아직 옛 방식**(offset ≤ 8000, limit 100 단일 스캔). 취소&반품 메뉴에서 아주 긴 기간을 고르면 **오류 없이 조용히 잘릴** 수 있다(7월 한 달 2,317건이라 당장은 여유). 나중에 `eachOrder` 같은 방식으로 옮길 것.
-- 3개월짜리 판매 성과 조회는 netreturns가 ~52초로 느리다(동작은 함). 더 줄이려면 동시 처리 수를 올려야 하는데 카페24 토큰 갱신 경쟁 위험이 있어 보류.
+- 긴 기간 조회는 여전히 느리다(동작은 함): 판매 성과 3개월 netreturns ~52초, 취소&반품 6개월 ~65초. 더 줄이려면 동시 처리 수를 올려야 하는데 카페24 토큰 갱신 경쟁 위험이 있어 보류.
 
 - 카테고리별 진열 CSV 실제 카페24 업로드 검증(테스트 카테고리 1개 권장).
 - TOP 카테고리 품절 설정 43개 실측 대조.

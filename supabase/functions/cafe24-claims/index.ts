@@ -90,6 +90,66 @@ function num(v: unknown): number {
   return isFinite(n) ? n : 0;
 }
 
+// ── 주문 페이지네이션 (카페24 제약 회피) — cafe24-analytics의 eachOrder와 같은 방식 ──
+// 카페24 제약: ① offset < 15,000 ② 조회 기간 ≤ 3개월 ③ /count에 fields·embed를 넘기면
+// {count:N} 대신 []가 오는 경우가 있어 건수를 0으로 오독한다(count에는 date_type·order_status만).
+// 여기서는 embed=items,cancellation,return이 무거워(limit 100에 페이지당 ~1.7MB) limit을 올리지 않고,
+// 페이지를 받는 즉시 집계해 넘긴다(주문을 전부 모으면 3개월치가 100MB를 넘어 메모리가 터진다).
+const CAFE24_MAX_OFFSET = 15000;
+const MAX_RANGE_DAYS = 80;
+const CLAIM_PAGE = 100;
+const CHUNK_CONCURRENCY = 3;
+const dayMs = 24 * 3600 * 1000;
+const ymd = (t: number) => new Date(t).toISOString().slice(0, 10);
+
+async function countOrders(token: string, qs: string): Promise<number> {
+  const body = await cafe24Get(`/admin/orders/count?${qs}`, token);
+  const c = (body as Record<string, unknown>).count;
+  return c === undefined || c === null ? -1 : num(c);   // -1 = 못 읽음 → 쪼개지 말고 통째로
+}
+
+async function splitRanges(token: string, countQs: string, s: string, e: string): Promise<[string, string][]> {
+  const out: [string, string][] = [];
+  const stack: [string, string][] = [];
+  for (let t = new Date(s).getTime(), end = new Date(e).getTime(); t <= end;) {
+    const chunkEnd = Math.min(t + (MAX_RANGE_DAYS - 1) * dayMs, end);
+    stack.push([ymd(t), ymd(chunkEnd)]);
+    t = chunkEnd + dayMs;
+  }
+  while (stack.length) {
+    const [a, b] = stack.pop()!;
+    const c = await countOrders(token, `start_date=${a}&end_date=${b}&${countQs}`);
+    if (c === 0) continue;
+    if (c < 0 || c < CAFE24_MAX_OFFSET || a === b) { out.push([a, b]); continue; }
+    const midMs = new Date(a).getTime() +
+      Math.floor((new Date(b).getTime() - new Date(a).getTime()) / dayMs / 2) * dayMs;
+    stack.push([a, ymd(midMs)], [ymd(midMs + dayMs), b]);
+  }
+  return out.sort((x, y) => (x[0] < y[0] ? -1 : 1));
+}
+
+/** 기간 내 주문을 조각·페이지 단위로 훑어 페이지마다 onOrders에 넘긴다 (모아두지 않음). */
+async function eachClaimOrder(
+  token: string, listQs: string, countQs: string, s: string, e: string,
+  onOrders: (orders: Record<string, unknown>[]) => void,
+): Promise<void> {
+  const ranges = await splitRanges(token, countQs, s, e);
+  let idx = 0;
+  const worker = async () => {
+    while (idx < ranges.length) {
+      const [a, b] = ranges[idx++];
+      for (let offset = 0; offset < CAFE24_MAX_OFFSET; offset += CLAIM_PAGE) {
+        const body = await cafe24Get(
+          `/admin/orders?start_date=${a}&end_date=${b}&${listQs}&limit=${CLAIM_PAGE}&offset=${offset}`, token);
+        const orders = (body.orders ?? []) as Record<string, unknown>[];
+        onOrders(orders);
+        if (orders.length < CLAIM_PAGE) break;
+      }
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(CHUNK_CONCURRENCY, ranges.length) }, worker));
+}
+
 // 항목에서 사유 추출 (API 버전에 따라 필드명이 다를 수 있어 방어적으로 탐색)
 function pickReason(obj: Record<string, unknown>): string {
   for (const key of [
@@ -126,28 +186,22 @@ Deno.serve(async (req) => {
     const RETURN_STATUSES = new Set(["R00", "R10", "R30", "R34", "R40"]);
     const STATUS_FILTER = ["C40", ...RETURN_STATUSES].join(",");
 
-    const LIMIT = 100;
-    const allOrders: Record<string, unknown>[] = [];
-    let offset = 0;
-    while (offset <= 8000) {
-      // date_type=order_date: 선택한 기간은 '주문일' 기준 (취소/반품 완료일이 아님)
-      const path =
-        `/admin/orders?start_date=${startDate}&end_date=${endDate}` +
-        `&date_type=order_date` +
-        `&order_status=${STATUS_FILTER}&embed=items,cancellation,return` +
-        `&limit=${LIMIT}&offset=${offset}`;
-      const body = await cafe24Get(path, token);
-      const orders = (body.orders ?? []) as Record<string, unknown>[];
-      if (raw && offset === 0) return json({ raw: body });
-      allOrders.push(...orders);
-      if (orders.length < LIMIT) break;
-      offset += LIMIT;
+    // date_type=order_date: 선택한 기간은 '주문일' 기준 (취소/반품 완료일이 아님)
+    const listQs = `date_type=order_date&order_status=${STATUS_FILTER}&embed=items,cancellation,return`;
+    const countQs = `date_type=order_date&order_status=${STATUS_FILTER}`;   // count엔 embed 금지
+
+    // 디버그용 원문 보기 — 첫 페이지만 그대로 반환 (조각 나누기 없이 단순 호출)
+    if (raw) {
+      const body = await cafe24Get(
+        `/admin/orders?start_date=${startDate}&end_date=${endDate}&${listQs}&limit=${CLAIM_PAGE}&offset=0`, token);
+      return json({ raw: body });
     }
 
     // ── 집계: 주문 단위 (기존 CSV 로직과 동일하게 주문번호 기준 중복 없음) ──
-    type Bucket = { count: number; amount: number; reasons: Record<string, number>; orders: unknown[] };
-    const cancel: Bucket = { count: 0, amount: 0, reasons: {}, orders: [] };
-    const ret: Bucket = { count: 0, amount: 0, reasons: {}, orders: [] };
+    type Bucket = { count: number; amount: number; reasons: Record<string, number> };
+    const cancel: Bucket = { count: 0, amount: 0, reasons: {} };
+    const ret: Bucket = { count: 0, amount: 0, reasons: {} };
+    let fetchedOrders = 0;
 
     // 클레임(cancellation/return embed) 배열에서 실제 환불금액 합산
     // — 관리자 취소/반품관리 CSV의 '총 실제 환불금액'과 동일 기준
@@ -180,7 +234,9 @@ Deno.serve(async (req) => {
       return "";
     };
 
-    for (const o of allOrders) {
+    await eachClaimOrder(token, listQs, countQs, startDate, endDate, (orders) => {
+      fetchedOrders += orders.length;
+      for (const o of orders) {
       // 네이버페이(주문형) 주문 제외 — 클레임이 네이버페이센터에서 관리되어
       // 카페24 취소/반품관리에 없고, 네이버페이 CSV로 별도 반영되므로 이중집계 방지
       const placeName = String(o.order_place_name ?? "").replace(/\s/g, "");
@@ -214,16 +270,15 @@ Deno.serve(async (req) => {
         const reason = claimReason(o.cancellation) || itemReason() || "사유 미기재";
         cancel.count++; cancel.amount += amount;
         cancel.reasons[reason] = (cancel.reasons[reason] ?? 0) + 1;
-        cancel.orders.push({ order_id: o.order_id, order_date: o.order_date, amount, reason, type: "cancel" });
       }
       if (isReturn) {
         const amount = claimRefund(o.return) || fallbackAmt;
         const reason = claimReason(o.return) || itemReason() || "사유 미기재";
         ret.count++; ret.amount += amount;
         ret.reasons[reason] = (ret.reasons[reason] ?? 0) + 1;
-        ret.orders.push({ order_id: o.order_id, order_date: o.order_date, amount, reason, type: "return" });
       }
-    }
+      }
+    });
 
     const toRanked = (m: Record<string, number>) =>
       Object.entries(m).map(([reason, cnt]) => ({ reason, cnt }))
@@ -232,7 +287,7 @@ Deno.serve(async (req) => {
     return json({
       provider: "cafe24",
       period: { start: startDate, end: endDate },
-      fetched_orders: allOrders.length,
+      fetched_orders: fetchedOrders,
       cancel: { count: cancel.count, amount: Math.round(cancel.amount), reasons: toRanked(cancel.reasons) },
       return: { count: ret.count, amount: Math.round(ret.amount), reasons: toRanked(ret.reasons) },
     });
