@@ -105,6 +105,16 @@ const num = (v: unknown) => {
   return isFinite(n) ? n : 0;
 };
 
+// 카페24 claim_reason은 '신청 사유 (구매자|판매자 주문취소 : 접수 사유)' 형태로 두 사유가 합쳐져 온다.
+// 실측 예: "사이즈작음 (구매자 주문취소 : 구매 의사 취소)" / "(판매자 주문취소 : )" (신청 사유 없음)
+const CLAIM_ACCEPT_SUFFIX = /\((?:구매자|판매자)\s*주문취소\s*:\s*([^)]*)\)\s*$/;
+function splitClaimReason(raw: unknown): { request: string; accept: string } {
+  const s = String(raw ?? "").trim();
+  const m = s.match(CLAIM_ACCEPT_SUFFIX);
+  if (!m) return { request: s, accept: "" };
+  return { request: s.slice(0, m.index).trim(), accept: (m[1] ?? "").trim() };
+}
+
 Deno.serve(async (req) => {
   const opt = handleOptions(req);
   if (opt) return opt;
@@ -319,6 +329,61 @@ Deno.serve(async (req) => {
         },
         rows,
       });
+    }
+
+    // ── 상품별 반품 사유 원문 (판매 성과 상세용) ──
+    // netreturns와 **완전히 같은 모수**를 쓴다: 품목 delivered_date 기준 기간 내 R40/R30/R34.
+    // 다만 order_status 필터로 반품 주문만 받아 스캔량을 크게 줄인다 (실측 4,554건 → 486건).
+    //
+    // 카페24는 '반품 신청 사유'와 '반품 접수 사유'를 claim_reason 한 필드에 합쳐서 준다:
+    //     "사이즈작음 (구매자 주문취소 : 구매 의사 취소)"
+    //      └ 신청 사유 ┘ └────── 접수 사유 ──────┘
+    // 사용자 규칙: 둘 다 있으면 중복으로 보고 **신청 사유만** 집계, 신청이 비면 접수 사유를 쓴다.
+    if (action === "returnreasons") {
+      const s = url.searchParams.get("start_date");
+      const e = url.searchParams.get("end_date");
+      if (!s || !e) return json({ error: "start_date, end_date 필수 (YYYY-MM-DD)" }, 400);
+
+      const NET_RETURN_STATUSES = ["R40", "R30", "R34"];
+      const statusSet = new Set(NET_RETURN_STATUSES);
+      const day = 24 * 3600 * 1000;
+      const pad = (d: Date) => d.toISOString().slice(0, 10);
+      const fetchStart = pad(new Date(new Date(s).getTime() - 7 * day));
+      const fetchEnd = pad(new Date(Math.min(new Date(e).getTime() + 30 * day, Date.now())));
+
+      type Out = {
+        product_no: number; product_name: string; option: string;
+        qty: number; date: string; request: string; accept: string;
+      };
+      const items: Out[] = [];
+      const LIMIT = 500;
+      for (let offset = 0; offset <= 60000; offset += LIMIT) {
+        const body = await apiGet(
+          `${API_BASE}/admin/orders?start_date=${fetchStart}&end_date=${fetchEnd}&date_type=shipend_date` +
+          `&order_status=${NET_RETURN_STATUSES.join(",")}` +
+          `&embed=items&fields=order_id,items&limit=${LIMIT}&offset=${offset}`, token);
+        const orders = (body.orders ?? []) as Record<string, unknown>[];
+        for (const o of orders) {
+          for (const it of (o.items ?? []) as Record<string, unknown>[]) {
+            if (!statusSet.has(String(it.order_status ?? ""))) continue;
+            const dd = String(it.delivered_date ?? "").slice(0, 10);
+            if (!dd || dd < s || dd > e) continue;      // netreturns와 동일한 기간 판정
+            const no = Number(it.product_no);
+            if (!no) continue;
+            const { request, accept } = splitClaimReason(it.claim_reason);
+            items.push({
+              product_no: no,
+              product_name: String(it.product_name ?? ""),
+              option: String(it.option_value ?? "").trim(),
+              qty: num(it.quantity),
+              date: dd,
+              request, accept,
+            });
+          }
+        }
+        if (orders.length < LIMIT) break;
+      }
+      return json({ period: { start: s, end: e }, basis: "item_delivered_date", items });
     }
 
     // ── 셀메이트 재고 대조용: 기간 내 품목별 결제수량 (관리자 전용) ──
