@@ -346,6 +346,9 @@
     /* 필터 탭 */
     /* 안정재고 편성: 표 헤더 행 고정 (표 내부 스크롤 시) */
     #sec-stable .table-wrap thead th { position:sticky; top:0; background:#f8f9ff; z-index:2; }
+    /* 카테고리별 진열: 표 헤더 고정 + 지표 열(등록일~변동) 접기 */
+    #sec-disp .table-wrap thead th { position:sticky; top:0; background:#f8f9ff; z-index:2; }
+    #disp-result.cols-collapsed .dcol { display:none; }
     .filter-tabs { display:flex; gap:7px; margin-bottom:12px; flex-wrap:wrap; }
     .filter-tab {
       padding:6px 15px; border-radius:50px; border:1.5px solid #e5e7eb;
@@ -876,8 +879,12 @@
       <details style="background:#f8f9ff;border:1.5px solid #e0e7ff;border-radius:12px;padding:12px 18px;margin-bottom:16px;">
         <summary style="font-size:.88rem;font-weight:700;color:#4338ca;cursor:pointer;">⚙️ 설정 패널 <span style="font-weight:400;color:#9ca3af;font-size:.75rem;">— 모든 상수 조정 가능, 변경 즉시 재계산</span></summary>
         <div id="disp-cfg" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:10px;margin-top:12px;font-size:.78rem;color:#374151;">
+          <label>BEST 진열 개수 <input type="number" id="dcfg-bestmax" value="10" oninput="dispRender()" /></label>
+          <label>BEST 자격 풀 (21일 순판매 상위) <input type="number" id="dcfg-bestpool" value="20" oninput="dispRender()" /></label>
+          <label>한 페이지 상품 수 <input type="number" id="dcfg-pagesize" value="12" oninput="dispRender()" /></label>
+          <label>페이지당 섞어 넣을 BEST 수 <input type="number" id="dcfg-bestperpage" value="3" oninput="dispRender()" /></label>
           <label>신상 블록 최대 개수 <input type="number" id="dcfg-newmax" value="12" oninput="dispRender()" /></label>
-          <label>신상 신선도 (일) <input type="number" id="dcfg-freshdays" value="14" oninput="dispRender()" /></label>
+          <label>신상 신선도 (일) <input type="number" id="dcfg-freshdays" value="21" oninput="dispRender()" /></label>
           <label>랭킹 구간 끝 순위 <input type="number" id="dcfg-rankend" value="48" oninput="dispRender()" /></label>
           <label>7일 가중치 <input type="number" step="0.05" id="dcfg-w7" value="0.7" oninput="dispRender()" /></label>
           <label>축소추정 계수 <input type="number" step="0.05" id="dcfg-shrink" value="0.3" oninput="dispRender()" /></label>
@@ -895,6 +902,13 @@
         </div>
       </details>
 
+      <!-- 시즌 제외 상품 모아보기 (전 카테고리 공통 — 카테고리를 고르지 않아도 열람·복원 가능) -->
+      <details id="disp-season-panel" ontoggle="if(this.open)dispLoadSeasonPanel()"
+               style="background:#fff7ed;border:1.5px solid #fed7aa;border-radius:12px;padding:12px 18px;margin-bottom:16px;">
+        <summary style="font-size:.88rem;font-weight:700;color:#c2410c;cursor:pointer;">🍂 시즌 제외 상품 모아보기 <span id="disp-season-count" style="font-weight:400;color:#9ca3af;font-size:.75rem;">— 펼치면 불러옵니다</span></summary>
+        <div id="disp-season-list" style="margin-top:12px;"></div>
+      </details>
+
       <!-- STEP 3: 요약 + 결과 -->
       <div id="disp-summary" style="display:none;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-bottom:14px;"></div>
       <div id="disp-notes" style="display:none;background:#fffbeb;border:1.5px solid #fde68a;border-radius:10px;padding:10px 14px;margin-bottom:14px;font-size:.78rem;color:#78350f;line-height:1.6;"></div>
@@ -907,9 +921,10 @@
 
       <!-- STEP 4: 내보내기 -->
       <div id="disp-export" style="display:none;margin-top:16px;gap:10px;align-items:center;flex-wrap:wrap;">
-        <button class="btn-analyze" onclick="dispExportCSV()"><i class="fa-solid fa-download"></i> 카페24 업로드용 CSV</button>
+        <button class="btn-analyze" onclick="dispExportCSV('best')" style="background:#f59e0b;"><i class="fa-solid fa-download"></i> BEST 진열 CSV</button>
+        <button class="btn-analyze" onclick="dispExportCSV('normal')"><i class="fa-solid fa-download"></i> 일반 진열 CSV</button>
         <button onclick="dispSaveSnapshot()" style="background:#f3f4f6;border:1.5px solid #d1d5db;border-radius:8px;padding:9px 16px;font-size:.85rem;cursor:pointer;font-weight:600;">📸 주간 스냅샷 저장 + JSON</button>
-        <span style="font-size:.75rem;color:#9ca3af;">CSV는 카테고리 <strong>전체 상품</strong>이 포함됩니다 (일부만 업로드하면 순서가 깨짐) · 스냅샷은 다음 주 순위 변동 비교용</span>
+        <span style="font-size:.75rem;color:#9ca3af;">두 파일은 <strong>양식이 같고 따로 업로드</strong>합니다 · BEST는 선별된 상위 상품만, 일반은 카테고리 <strong>전체 상품</strong>(BEST 포함, 일부만 올리면 순서가 깨짐) · 스냅샷은 다음 주 순위 변동 비교용</span>
       </div>
     </div>
   </div>
@@ -2133,13 +2148,22 @@ async function deleteAdTopic(id) {
    · K는 카테고리 평균 조회수에 비례 · 마진 미보유 상품은 추정하지 않고 제외+경고
    · 트래픽 이상치는 배지만(점수 개입 없음) · 품절은 명시 설정값만(재고 수량 금지)
    · BEST는 판매량 자격 → 마진 선별의 2단 (표시광고법)
+   · BEST는 상단 BEST 영역과 일반 진열 양쪽에 들어가며, 일반 진열에서는 페이지별로 섞인다
 ────────────────────────────── */
 const DISP_SNAP_KEY = 'dnrb_disp_snapshots';
-const dispState = { metrics: null, period: null, members: {}, info: {}, order: null, catNo: null };
+const dispState = {
+  metrics: null, period: null, members: {}, info: {}, order: null, best: null, catNo: null,
+  sel: new Set(),            // 표에서 체크한 상품 (시즌 제외 일괄 처리용)
+  lastSelIdx: null,          // Shift+클릭 범위 선택 기준
+  colsCollapsed: false,      // 지표 열(등록일~변동) 접힘 여부
+  seasonRows: null,          // 시즌 제외 전체 목록 (모아보기 패널용)
+};
 
 function dispCfg() {
   const n = id => parseFloat($(id).value) || 0;
   return {
+    bestMax: n('dcfg-bestmax'), bestPool: n('dcfg-bestpool'),
+    pageSize: n('dcfg-pagesize'), bestPerPage: n('dcfg-bestperpage'),
     newMax: n('dcfg-newmax'), freshDays: n('dcfg-freshdays'), rankEnd: n('dcfg-rankend'),
     w7: n('dcfg-w7'), shrink: n('dcfg-shrink'),
     priorLoss: n('dcfg-priorloss'), priorN: n('dcfg-priorn'),
@@ -2218,7 +2242,7 @@ function dispCompute(catNo) {
       v7, v14, v21: m.v21, q7, q14, q21: m.q21, del7: m.del7, ret7: m.ret7,
       price, supply, unitMargin, marginMissing, loss, net7, net14, net21, rm7, rm14, rm21,
       excluded: reasons.length > 0, reasons,
-      adj7: 0, adj14: 0, score: 0, outlier: false, zone: '', rank: 0, demoted: false, seasonOut: false,
+      adj7: 0, adj14: 0, score: 0, outlier: false, zone: '', rank: 0, demoted: false, seasonOut: false, bestRank: 0,
     };
   });
 
@@ -2254,15 +2278,16 @@ function dispCompute(catNo) {
   const coreN = passed.filter(r => r.v21 >= cfg.coreViews).length;
   const major = coreN >= cfg.coreCount;
 
-  // 4-5 ① BEST 12: 21일 순판매량 상위 20 자격 → 그중 실현마진 상위 12 선별 (주력만)
+  // 4-5 ① BEST: 21일 순판매량 상위 N 자격 → 그중 실현마진 상위 N 선별 (주력만)
   let best = [];
   if (major) {
-    best = [...passed].sort((a, b) => b.net21 - a.net21).slice(0, 20)
-      .sort((a, b) => b.rm21 - a.rm21).slice(0, 12);
+    best = [...passed].sort((a, b) => b.net21 - a.net21).slice(0, cfg.bestPool)
+      .sort((a, b) => b.rm21 - a.rm21).slice(0, cfg.bestMax);
   }
+  best.forEach((r, i) => { r.bestRank = i + 1; });
   const bestSet = new Set(best.map(r => r.no));
 
-  // ② 신상 블록: 14일 이내·최신순·최대 N개 — 미만이어도 채우지 않음
+  // ② 신상 블록: freshDays 이내·최신순·최대 N개 — 미만이어도 채우지 않음
   let fresh = passed.filter(r => !bestSet.has(r.no) && r.ageDays <= cfg.freshDays)
     .sort((a, b) => (b.created > a.created ? 1 : -1))
     .slice(0, cfg.newMax);
@@ -2295,8 +2320,11 @@ function dispCompute(catNo) {
   const seasonOut = rows.filter(r => r.seasonOut).sort((a, b) => b.score - a.score);
   const excluded = rows.filter(r => r.excluded).sort((a, b) => b.score - a.score);
 
-  // 최종 순서 = 카페24 업로드 파일 순서 (전체 상품 포함)
-  const order = [...best, ...fresh, ...rest, ...lowEv, ...seasonOut, ...excluded];
+  // 일반 진열의 기본 줄기 (BEST는 여기서 빠졌다가 아래에서 페이지별로 섞여 들어감)
+  const base = [...fresh, ...rest, ...lowEv, ...seasonOut, ...excluded];
+
+  // 최종 순서 = 카페24 '일반 진열' 업로드 파일 순서 (전체 상품 포함 + BEST 섞임)
+  const order = dispMixBest(base, best, cfg.pageSize, cfg.bestPerPage);
   let pos = 0;
   for (const r of order) {
     r.rank = ++pos;
@@ -2317,20 +2345,56 @@ function dispCompute(catNo) {
   };
 }
 
+/* BEST 상품을 일반 진열에 페이지 단위로 섞어 넣는다.
+   BEST 상단 블록에서 이미 노출되는 상위 상품일수록 일반 진열에서는 뒤 페이지로 보내,
+   페이지를 넘길수록 새로운 강자를 만나게 하는 배치 (사용자 요청).
+     예) BEST 10개·페이지 12칸·페이지당 3개
+         1페이지 ← 8·9·10위, 2페이지 ← 5·6·7위, 3페이지 ← 2·3·4위, 4페이지 ← 1위
+   페이지 안에서는 12칸을 3등분(4칸)해 각 묶음 맨 앞(1·5·9번째 자리)에 하나씩 놓는다. */
+/* 요약 타일용 배분 설명 — 예: "1p←8·9·10위, 2p←5·6·7위, 3p←2·3·4위, 4p←1위" */
+function dispMixSummary(n, perPage) {
+  if (n < 1 || perPage < 1) return '';
+  const ranks = Array.from({ length: n }, (_, i) => i + 1);
+  const parts = [];
+  for (let p = 1; ranks.length; p++) parts.push(`${p}p←${ranks.splice(-perPage).join('·')}위`);
+  return parts.join(', ');
+}
+
+function dispMixBest(base, best, pageSize, perPage) {
+  const rest = [...base];
+  if (!best.length || pageSize < 1 || perPage < 1) return rest;
+
+  // 약한 쪽(뒤)부터 잘라내므로 groups[0]이 1페이지에 들어갈 가장 약한 묶음이 된다
+  const remain = [...best];
+  const groups = [];
+  while (remain.length) groups.push(remain.splice(-perPage));
+
+  const step = Math.max(1, Math.floor(pageSize / perPage));
+  const out = [];
+  for (let g = 0; rest.length || g < groups.length; g++) {
+    const grp = groups[g] || [];
+    const page = [];
+    for (let i = 0; i < pageSize; i++) {
+      const bi = i % step === 0 ? i / step : -1;          // 1·5·9번째 자리
+      if (bi >= 0 && bi < grp.length) page.push(grp[bi]);
+      else if (rest.length) page.push(rest.shift());
+    }
+    if (!page.length) break;                               // 더 넣을 게 없으면 종료
+    out.push(...page);
+  }
+  return out;
+}
+
 async function dispRender() {
   const catNo = Number($('dispCategory').value);
   if (!dispState.metrics || !catNo) return;
   try { await dispEnsureCategory(catNo); }
   catch (e) { showToast('❌ 카테고리 데이터 조회 실패: ' + e.message); return; }
-  if (!dispState.seasonOut) {
-    try {
-      const rows = await dbProxy('disp_season_out?select=product_no');
-      dispState.seasonOut = new Set((rows || []).map(r => Number(r.product_no)));
-    } catch (e) { dispState.seasonOut = new Set(); }
-  }
+  if (!dispState.seasonOut) await dispLoadSeasonOut();
   const cfg = dispCfg();
   const R = dispCompute(catNo);
   dispState.order = R.order;
+  dispState.best = R.best;
   dispState.catNo = catNo;
 
   // 요약 카드 (STEP 3)
@@ -2344,7 +2408,10 @@ async function dispRender() {
   R.excluded.forEach(r => r.reasons.forEach(x => reasonCnt[x] = (reasonCnt[x] || 0) + 1));
   $('disp-summary').innerHTML =
     tile('카테고리 등급', R.major ? '주력' : '비주력', `21일 조회 ${cfg.coreViews}+ 상품 ${R.coreN}개 (기준 ${cfg.coreCount}개)`, !R.major) +
-    tile('신상 블록', `${R.fresh.length}개`, R.fresh.length < cfg.newMax ? `최대 ${cfg.newMax}개 미만 — 억지로 채우지 않음` : '', R.fresh.length < cfg.newMax) +
+    tile('BEST 진열', `${R.best.length}개`, R.best.length
+      ? `일반 진열에는 페이지당 ${cfg.bestPerPage}개씩 뒤 순위부터 섞여 들어감 (${dispMixSummary(R.best.length, cfg.bestPerPage)})`
+      : '비주력 카테고리는 BEST를 선별하지 않습니다', !R.best.length) +
+    tile('신상 블록', `${R.fresh.length}개`, `${cfg.freshDays}일 이내` + (R.fresh.length < cfg.newMax ? ` · 최대 ${cfg.newMax}개 미만 — 억지로 채우지 않음` : ''), R.fresh.length < cfg.newMax) +
     tile('하드 필터 제외', `${R.excluded.length}개`, Object.entries(reasonCnt).map(([k, v]) => `${k} ${v}`).join(' · ') || '없음', R.excluded.length > 0) +
     tile('마진 데이터 누락', `${R.marginMissingN}개`, '계산 제외 — 카페24에 공급가 입력 필요', R.marginMissingN > 0) +
     tile('평균 조회당마진 (7d)', R.a7.mpv.toFixed(1) + '원', `K(7d)=${R.a7.K.toFixed(1)} · K(14d)=${R.a14.K.toFixed(1)} · 반품 사전평균 ${(R.priorLoss * 100).toFixed(1)}%${R.priorAuto ? '(전사 자동)' : '(수동)'}`) +
@@ -2354,6 +2421,7 @@ async function dispRender() {
   $('disp-summary').style.display = 'grid';
 
   const notes = ['사이즈 결품 판정 미지원 — 옵션별 품절 설정의 일괄 조회 API가 없어 제외 (재고 수량으로 대체하지 않음)'];
+  if (R.best.length) notes.push(`BEST ${R.best.length}개는 <strong>두 파일 모두에</strong> 들어갑니다 — BEST 진열 영역용 파일 + 일반 진열 파일(페이지별로 섞임). 아래 표는 <strong>일반 진열 순서</strong>이며 ${cfg.pageSize}칸마다 페이지 구분선이 표시됩니다`);
   if (cfg.returnCost === 0 && cfg.shipCost === 0) notes.push('부대비용 미반영 — 반품 건당 비용·포장물류비가 0 (실측치 확보 후 설정 패널에 입력)');
   if (!R.major) notes.push('비주력 카테고리 — 신상 블록 이후는 점수 정렬 없이 현재 진열 순서를 유지합니다 (MD 수동 진열 구간)');
   $('disp-notes').innerHTML = '⚠️ ' + notes.join('<br />⚠️ ');
@@ -2364,16 +2432,34 @@ async function dispRender() {
   const prev = snaps[catNo] ? snaps[catNo].ranks : null;
 
   const zoneBg = { 'BEST': '#fefce8', '신상': '#eff6ff', '제외': '#fef2f2', '하위': '#fafafa', '수동검토': '#fdf4ff', '데이터부족': '#f1f5f9', '시즌제외': '#ffedd5' };
-  let html = `<div class="table-wrap" style="max-height:640px;overflow:auto;"><table>
+  const sel = dispState.sel;
+  const selectable = R.order.filter(r => !r.excluded);            // 제외 상품은 시즌 지정 대상이 아님
+  const allChecked = selectable.length > 0 && selectable.every(r => sel.has(r.no));
+  const pageSize = Math.max(1, cfg.pageSize);
+
+  let html = `
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px;">
+      <button id="disp-cols-btn" onclick="dispToggleCols()" style="border:1.5px solid #d1d5db;background:#fff;border-radius:8px;padding:6px 12px;font-size:.78rem;font-weight:600;cursor:pointer;">${dispState.colsCollapsed ? '▶ 지표 열 펼치기' : '◀ 지표 열 접기'} <span style="font-weight:400;color:#9ca3af;">(등록일~변동)</span></button>
+      <div style="width:1px;height:20px;background:#e5e7eb;"></div>
+      <span style="font-size:.78rem;color:#6b7280;">선택 <b id="disp-sel-count" style="color:#4338ca;">${sel.size}</b>개</span>
+      <button onclick="dispBulkSeason(true)" style="border:1.5px solid #fdba74;background:#fff7ed;color:#c2410c;border-radius:8px;padding:6px 12px;font-size:.78rem;font-weight:700;cursor:pointer;">선택 시즌 제외</button>
+      <button onclick="dispBulkSeason(false)" style="border:1.5px solid #d1d5db;background:#fff;color:#6b7280;border-radius:8px;padding:6px 12px;font-size:.78rem;font-weight:600;cursor:pointer;">선택 복원</button>
+      <button onclick="dispClearSel()" style="border:none;background:none;color:#9ca3af;font-size:.75rem;cursor:pointer;text-decoration:underline;">선택 해제</button>
+      <span style="font-size:.72rem;color:#9ca3af;">체크박스는 Shift+클릭으로 범위 선택</span>
+    </div>
+    <div class="table-wrap" style="max-height:640px;overflow:auto;"><table>
     <thead><tr>
-      <th>순위</th><th>구간</th><th style="text-align:left;">상품명</th><th>등록일</th>
-      <th>조회<br><span style="font-size:.68rem;font-weight:400;color:#9ca3af;">7d</span></th>
-      <th>조회<br><span style="font-size:.68rem;font-weight:400;color:#9ca3af;">14d</span></th>
-      <th>순판매<br><span style="font-size:.68rem;font-weight:400;color:#9ca3af;">7d</span></th>
-      <th>순반품률</th>
-      <th>조정<br><span style="font-size:.68rem;font-weight:400;color:#9ca3af;">7d</span></th>
-      <th>조정<br><span style="font-size:.68rem;font-weight:400;color:#9ca3af;">14d</span></th>
-      <th>점수</th><th>배지</th><th>변동</th><th>시즌</th><th>코드</th>
+      <th><input type="checkbox" ${allChecked ? 'checked' : ''} onclick="dispSelectAll(this.checked)" style="cursor:pointer;" /></th>
+      <th>순위</th><th>구간</th><th style="text-align:left;">상품명</th>
+      <th class="dcol">등록일</th>
+      <th class="dcol">조회<br><span style="font-size:.68rem;font-weight:400;color:#9ca3af;">7d</span></th>
+      <th class="dcol">조회<br><span style="font-size:.68rem;font-weight:400;color:#9ca3af;">14d</span></th>
+      <th class="dcol">순판매<br><span style="font-size:.68rem;font-weight:400;color:#9ca3af;">7d</span></th>
+      <th class="dcol">순반품률</th>
+      <th class="dcol">조정<br><span style="font-size:.68rem;font-weight:400;color:#9ca3af;">7d</span></th>
+      <th class="dcol">조정<br><span style="font-size:.68rem;font-weight:400;color:#9ca3af;">14d</span></th>
+      <th class="dcol">점수</th><th class="dcol">배지</th><th class="dcol">변동</th>
+      <th>시즌</th><th>코드</th>
     </tr></thead><tbody>`;
   for (const r of R.order) {
     const badges = [];
@@ -2385,15 +2471,22 @@ async function dispRender() {
       const d = prev[r.no] - r.rank;
       delta = d === 0 ? '—' : d > 0 ? `<span style="color:#dc2626;font-weight:700;">▲${d}</span>` : `<span style="color:#2563eb;font-weight:700;">▼${-d}</span>`;
     }
+    // 페이지가 바뀌는 자리에 구분선 — 어떤 상품이 몇 페이지에 걸리는지 눈으로 확인
+    if ((r.rank - 1) % pageSize === 0) {
+      html += `<tr><td colspan="17" style="background:#eef2ff;color:#4338ca;font-size:.72rem;font-weight:700;padding:4px 10px;text-align:left;">
+        ${Math.floor((r.rank - 1) / pageSize) + 1} 페이지</td></tr>`;
+    }
     html += `<tr style="background:${zoneBg[r.zone] || '#fff'};">
-      <td>${r.rank}</td><td style="font-size:.72rem;font-weight:700;">${r.zone}</td>
+      <td>${r.excluded ? '' : `<input type="checkbox" data-no="${r.no}" ${sel.has(r.no) ? 'checked' : ''} onclick="dispToggleSel(event, ${r.no})" style="cursor:pointer;" />`}</td>
+      <td>${r.rank}</td>
+      <td style="font-size:.72rem;font-weight:700;">${r.zone}${r.bestRank ? `<br /><span style="color:#b45309;">${r.bestRank}위</span>` : ''}</td>
       <td style="text-align:left;min-width:200px;">${escHtml(r.name)}</td>
-      <td style="font-size:.75rem;">${r.created}</td>
-      <td>${fmt(r.v7)}</td><td>${fmt(r.v14)}</td><td>${r.net7.toFixed(1)}</td>
-      <td>${(r.loss * 100).toFixed(1)}%</td>
-      <td>${r.adj7.toFixed(1)}</td><td>${r.adj14.toFixed(1)}</td>
-      <td style="font-weight:800;color:#1e1b4b;">${r.score.toFixed(1)}</td>
-      <td style="text-align:left;">${badges.join(' ')}</td><td>${delta}</td>
+      <td class="dcol" style="font-size:.75rem;">${r.created}</td>
+      <td class="dcol">${fmt(r.v7)}</td><td class="dcol">${fmt(r.v14)}</td><td class="dcol">${r.net7.toFixed(1)}</td>
+      <td class="dcol">${(r.loss * 100).toFixed(1)}%</td>
+      <td class="dcol">${r.adj7.toFixed(1)}</td><td class="dcol">${r.adj14.toFixed(1)}</td>
+      <td class="dcol" style="font-weight:800;color:#1e1b4b;">${r.score.toFixed(1)}</td>
+      <td class="dcol" style="text-align:left;">${badges.join(' ')}</td><td class="dcol">${delta}</td>
       <td>${r.excluded ? '' : r.seasonOut
         ? `<button onclick="dispToggleSeason(${r.no})" style="border:1px solid #fdba74;background:#fff7ed;color:#c2410c;border-radius:6px;padding:2px 8px;font-size:.7rem;font-weight:700;cursor:pointer;">복원</button>`
         : `<button onclick="dispToggleSeason(${r.no})" style="border:1px solid #e5e7eb;background:#fff;color:#9ca3af;border-radius:6px;padding:2px 8px;font-size:.7rem;cursor:pointer;">제외</button>`}</td>
@@ -2402,7 +2495,148 @@ async function dispRender() {
   }
   html += '</tbody></table></div>';
   $('disp-result').innerHTML = html;
+  $('disp-result').className = dispState.colsCollapsed ? 'cols-collapsed' : '';
   $('disp-export').style.display = 'flex';
+}
+
+/* 지표 열(등록일~변동) 접기·펼치기 — 시즌/코드 열을 가로 스크롤 없이 보기 위함
+   표가 200행이 넘어 다시 그리면 느리므로, CSS 클래스만 바꾸고 버튼 글자만 갈아끼운다 */
+function dispToggleCols() {
+  dispState.colsCollapsed = !dispState.colsCollapsed;
+  const box = $('disp-result');
+  box.className = dispState.colsCollapsed ? 'cols-collapsed' : '';
+  const btn = $('disp-cols-btn');
+  if (btn) btn.innerHTML = (dispState.colsCollapsed ? '▶ 지표 열 펼치기' : '◀ 지표 열 접기') +
+    ' <span style="font-weight:400;color:#9ca3af;">(등록일~변동)</span>';
+}
+
+/* ── 표 다중 선택 ───────────────────────────── */
+function dispSyncSelCount() {
+  const el = $('disp-sel-count');
+  if (el) el.textContent = dispState.sel.size;
+}
+function dispToggleSel(ev, no) {
+  const boxes = [...document.querySelectorAll('#disp-result tbody input[type=checkbox]')];
+  const idx = boxes.findIndex(b => Number(b.dataset.no) === no);
+  const on = boxes[idx] ? boxes[idx].checked : !dispState.sel.has(no);
+  // Shift+클릭 = 직전 클릭 지점부터 여기까지 한꺼번에
+  if (ev && ev.shiftKey && dispState.lastSelIdx !== null && idx >= 0) {
+    const [a, b] = [dispState.lastSelIdx, idx].sort((x, y) => x - y);
+    for (let i = a; i <= b; i++) {
+      const n = Number(boxes[i].dataset.no);
+      boxes[i].checked = on;
+      on ? dispState.sel.add(n) : dispState.sel.delete(n);
+    }
+  } else {
+    on ? dispState.sel.add(no) : dispState.sel.delete(no);
+  }
+  if (idx >= 0) dispState.lastSelIdx = idx;
+  dispSyncSelCount();
+}
+function dispSelectAll(on) {
+  document.querySelectorAll('#disp-result tbody input[type=checkbox]').forEach(b => {
+    b.checked = on;
+    const n = Number(b.dataset.no);
+    on ? dispState.sel.add(n) : dispState.sel.delete(n);
+  });
+  dispState.lastSelIdx = null;
+  dispSyncSelCount();
+}
+function dispClearSel() {
+  dispState.sel.clear();
+  dispState.lastSelIdx = null;
+  document.querySelectorAll('#disp-result input[type=checkbox]').forEach(b => { b.checked = false; });
+  dispSyncSelCount();
+}
+
+/* 선택한 상품을 한꺼번에 시즌 제외 / 복원 */
+async function dispBulkSeason(add) {
+  const nos = [...dispState.sel];
+  if (!nos.length) { showToast('☑️ 먼저 상품을 체크해주세요'); return; }
+  // 이미 그 상태인 것은 건너뛴다 (제외 중복 삽입·없는 것 삭제 방지)
+  const targets = nos.filter(no => dispState.seasonOut.has(no) !== add);
+  if (!targets.length) { showToast(add ? '이미 전부 시즌 제외 상태입니다' : '시즌 제외된 상품이 없습니다'); return; }
+  try {
+    if (add) {
+      await dbProxy('disp_season_out', {
+        method: 'POST',
+        headers: { Prefer: 'return=minimal,resolution=ignore-duplicates' },
+        body: JSON.stringify(targets.map(no => ({
+          product_no: no,
+          product_name: dispState.info[no] ? dispState.info[no].product_name : '',
+        }))),
+      });
+      targets.forEach(no => dispState.seasonOut.add(no));
+      showToast(`🍂 ${targets.length}개 시즌 제외 — 모든 카테고리에서 하단으로 내려갑니다`);
+    } else {
+      await dbProxy(`disp_season_out?product_no=in.(${targets.join(',')})`, {
+        method: 'DELETE', headers: { Prefer: 'return=minimal' },
+      });
+      targets.forEach(no => dispState.seasonOut.delete(no));
+      showToast(`↩️ ${targets.length}개 복원 — 다음 계산부터 정상 경쟁합니다`);
+    }
+    dispState.sel.clear();
+    dispState.seasonRows = null;                       // 모아보기 목록 캐시 무효화
+    if ($('disp-season-panel').open) dispLoadSeasonPanel();
+    dispRender();
+  } catch (e) { showToast('❌ ' + e.message); }
+}
+
+/* ── 시즌 제외 모아보기 (전 카테고리 공통 목록) ───────────────────────────── */
+async function dispLoadSeasonOut() {
+  try {
+    const rows = await dbProxy('disp_season_out?select=*&order=created_at.desc');
+    dispState.seasonRows = rows || [];
+    dispState.seasonOut = new Set(dispState.seasonRows.map(r => Number(r.product_no)));
+  } catch (e) {
+    dispState.seasonRows = [];
+    if (!dispState.seasonOut) dispState.seasonOut = new Set();
+  }
+}
+
+async function dispLoadSeasonPanel() {
+  if (!isAdmin()) return;
+  const box = $('disp-season-list');
+  if (!dispState.seasonRows) {
+    box.innerHTML = '<div style="color:#9ca3af;font-size:.8rem;"><i class="fa-solid fa-spinner fa-spin"></i> 불러오는 중...</div>';
+    await dispLoadSeasonOut();
+  }
+  const rows = dispState.seasonRows || [];
+  $('disp-season-count').textContent = `— ${rows.length}개 (상품 단위 · 전 카테고리 공통)`;
+  if (!rows.length) {
+    box.innerHTML = '<div style="color:#9ca3af;font-size:.8rem;">시즌 제외된 상품이 없습니다. 아래 표의 <b>제외</b> 버튼으로 지정하세요.</div>';
+    return;
+  }
+  box.innerHTML = `
+    <div style="margin-bottom:8px;">
+      <button onclick="dispRestoreAllSeason()" style="border:1.5px solid #fdba74;background:#fff;color:#c2410c;border-radius:8px;padding:6px 12px;font-size:.78rem;font-weight:700;cursor:pointer;">전체 복원 (${rows.length}개)</button>
+      <span style="font-size:.72rem;color:#9ca3af;margin-left:8px;">가을·겨울로 시즌이 바뀌면 여기서 한 번에 되돌리세요</span>
+    </div>
+    <div class="table-wrap" style="max-height:280px;overflow:auto;"><table>
+      <thead><tr><th style="text-align:left;">상품명</th><th>상품번호</th><th>지정일</th><th>복원</th></tr></thead>
+      <tbody>${rows.map(r => `<tr>
+        <td style="text-align:left;">${escHtml(r.product_name || '(이름 없음)')}</td>
+        <td style="font-size:.75rem;color:#6b7280;">${r.product_no}</td>
+        <td style="font-size:.75rem;color:#6b7280;">${String(r.created_at || '').slice(0, 10)}</td>
+        <td><button onclick="dispToggleSeason(${r.product_no})" style="border:1px solid #fdba74;background:#fff7ed;color:#c2410c;border-radius:6px;padding:2px 8px;font-size:.7rem;font-weight:700;cursor:pointer;">복원</button></td>
+      </tr>`).join('')}</tbody>
+    </table></div>`;
+}
+
+async function dispRestoreAllSeason() {
+  const rows = dispState.seasonRows || [];
+  if (!rows.length) return;
+  if (!confirm(`시즌 제외 ${rows.length}개를 모두 복원할까요?\n다음 계산부터 전부 정상 경쟁합니다.`)) return;
+  try {
+    await dbProxy(`disp_season_out?product_no=in.(${rows.map(r => r.product_no).join(',')})`, {
+      method: 'DELETE', headers: { Prefer: 'return=minimal' },
+    });
+    dispState.seasonOut = new Set();
+    dispState.seasonRows = [];
+    showToast(`↩️ ${rows.length}개 전부 복원했습니다`);
+    dispLoadSeasonPanel();
+    dispRender();
+  } catch (e) { showToast('❌ ' + e.message); }
 }
 
 /* 시즌 제외 토글 — 상품 단위(전 카테고리 공통), disp_season_out 테이블에 저장 */
@@ -2422,20 +2656,33 @@ async function dispToggleSeason(no) {
       dispState.seasonOut.add(no);
       showToast('🍂 시즌 제외 — 모든 카테고리에서 하단 구간으로 내려갑니다');
     }
+    dispState.seasonRows = null;                       // 모아보기 목록 캐시 무효화
+    if ($('disp-season-panel').open) dispLoadSeasonPanel();
     dispRender();
   } catch (e) { showToast('❌ ' + e.message); }
 }
 
-/* STEP 4 — 카페24 업로드용 CSV (진열순위,상품코드,상품명,진열고정 — 전체 상품) */
-function dispExportCSV() {
+/* STEP 4 — 카페24 업로드용 CSV (진열순위,상품코드,상품명,진열고정)
+   양식은 같고 파일만 둘로 나뉜다:
+     best   = BEST 진열 영역용 (선별된 상위 상품만, BEST 1위부터)
+     normal = 일반 진열용 (카테고리 전체 상품 — BEST가 페이지별로 섞여 들어간 순서) */
+function dispExportCSV(mode) {
   if (!dispState.order) return;
   const catName = $('dispCategory').selectedOptions[0].textContent.trim();
+  const best = mode === 'best';
+  const rows = best ? (dispState.best || []) : dispState.order;
+  if (best && !rows.length) {
+    showToast('⚠️ BEST 상품이 없습니다 — 비주력 카테고리는 BEST를 선별하지 않습니다');
+    return;
+  }
   const lines = ['진열순위,상품코드,상품명,진열고정'];
-  dispState.order.forEach(r => {
-    lines.push(`${r.rank},${r.code},"${r.name.replace(/"/g, '""')}",`);
+  rows.forEach((r, i) => {
+    lines.push(`${best ? i + 1 : r.rank},${r.code},"${r.name.replace(/"/g, '""')}",`);
   });
-  dlCSV(lines.join('\r\n'), `진열순서_${catName}_${$('dispDate').value}.csv`);
-  showToast(`✅ ${dispState.order.length}개 상품 순서 다운로드 — 검토 후 카페24에 직접 업로드하세요`);
+  dlCSV(lines.join('\r\n'), `${best ? 'BEST진열' : '일반진열'}_${catName}_${$('dispDate').value}.csv`);
+  showToast(best
+    ? `✅ BEST ${rows.length}개 다운로드 — BEST 진열 영역에 업로드하세요`
+    : `✅ 일반 진열 ${rows.length}개 다운로드 — 전체 상품이라 그대로 업로드하세요`);
 }
 
 /* 주간 스냅샷 (localStorage + JSON) — 다음 주 순위 변동 비교용 */
