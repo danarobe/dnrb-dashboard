@@ -792,6 +792,22 @@
         </div>
       </div>
 
+      <!-- 반품 사유 모달 (상품명 클릭 시) -->
+      <div id="rr-modal" onclick="if(event.target===this)this.style.display='none'"
+           style="display:none;position:fixed;inset:0;background:rgba(15,23,42,.55);z-index:200;align-items:center;justify-content:center;padding:20px;">
+        <div style="background:#fff;border-radius:16px;max-width:620px;width:100%;max-height:88vh;overflow:auto;padding:18px;">
+          <div style="display:flex;align-items:flex-start;gap:8px;margin-bottom:4px;">
+            <div style="flex:1;">
+              <b id="rr-title" style="font-size:.9rem;color:#1e1b4b;word-break:break-all;"></b>
+              <div id="rr-sub" style="font-size:.74rem;color:#9ca3af;margin-top:3px;"></div>
+            </div>
+            <button onclick="document.getElementById('rr-modal').style.display='none'"
+                    style="border:none;background:#f3f4f6;border-radius:8px;padding:4px 10px;font-size:.9rem;cursor:pointer;">✕</button>
+          </div>
+          <div id="rr-body" style="margin-top:12px;"></div>
+        </div>
+      </div>
+
       <!-- 판매 성과 저장 패널 -->
       <div id="perf-save-panel" style="display:none; margin-top:24px; background:#f0fdf4; border:1.5px solid #bbf7d0; border-radius:14px; padding:20px 24px;">
         <div style="font-size:.95rem; font-weight:700; color:#059669; margin-bottom:14px;">
@@ -4706,6 +4722,151 @@ function escHtml(s) {
 
 
 
+/* ──────────────────────────────
+   반품 사유 모아보기 (판매 성과 표에서 상품명 클릭)
+
+   카페24는 '반품 신청 사유'와 '반품 접수 사유'를 claim_reason 한 필드에 붙여서 준다:
+       "사이즈작음 (구매자 주문취소 : 구매 의사 취소)"
+   서버(cafe24-analytics returnreasons)가 둘로 쪼개서 주고, 여기서는 사용자 규칙대로
+   **신청 사유가 있으면 그것만** 쓰고, 비어 있을 때만 접수 사유를 쓴다 (중복 집계 방지).
+
+   성능: 조회는 상품명을 처음 클릭할 때 딱 한 번(기간당). 결과를 통째로 캐시하므로
+   두 번째 클릭부터는 API 호출이 없다. 판매 성과 초기 로딩 속도에는 영향을 주지 않는다.
+────────────────────────────── */
+const rrState = { key: null, byProduct: null, loading: false };
+
+/* 표기 흔들림 흡수 — 공백·문장부호·자음 반복 제거 + 흔한 오타 통일 */
+function rrNorm(s) {
+  let t = String(s || '').toLowerCase().replace(/[ㅠㅜㅋㅎ]+/g, '');
+  t = t.replace(/[^0-9a-z가-힣]/g, '');
+  return t.replace(/싸이즈|서이즈|사이스|싸이스/g, '사이즈');
+}
+
+/* 사유 분류 — 위에서부터 먼저 걸리는 것이 이긴다 (불량이 변심보다 우선)
+   한글은 어미가 붙어 '두꺼'로 '두껍고'를 못 잡으므로 실제로 쓰이는 형태를 함께 넣었다 */
+const RR_CATS = [
+  ['불량·하자', ['불량','하자','실밥','튿','뜯','박음질','바느질','오염','얼룩','구멍','터짐','이염','올나','올이','올풀','풀려','파손','냄새','마감','찢','흠집','스크래치','짝짝']],
+  ['사이즈·핏', ['사이즈','치수','핏이','기장','길이','작아','작음','작은','작네','작고','커요','커서','커용','컸','큽','큼','크고','크네','타이트','헐렁','짧','길어','길고','품이','부해','펑퍼짐','넓어','좁아','좁음','붕뜨','오버핏','정사이즈','꽉','답답','깊음','끼네','끼어']],
+  ['원단·소재', ['원단','재질','소재','두께','두껍','두꺼','얇','비침','비쳐','비칩','촉감','까칠','신축','퀄리티','품질','뻣뻣','보풀','늘어남','더워']],
+  ['색상·실물 차이', ['색상','색깔','컬러','색이','색감','사진','이미지','화면','실물','상이','달라','다름','다르','다릉','진해','연해','생각과','보이는것과']],
+  ['배송·품절', ['배송','지연','늦','누락','오배송','품절','잘못보내','다른상품','다른제품']],
+  ['단순 변심', ['변심','마음에','맘에','안들','어울','필요없','구매의사','재주문','다시주문','취소','불만족','느낌','생각했던','생각햇던','생각보다','생각한','이쁘','예쁘','이뻐','예뻐','이쁨','안예','안이','별로','불편','안맞','안어','실패','디자인']],
+];
+function rrCat(norm) {
+  if (norm.length < 2) return '사유 미기재';
+  for (const [name, kws] of RR_CATS) if (kws.some(k => norm.includes(k))) return name;
+  return '기타';
+}
+const RR_CAT_COLOR = {
+  '사이즈·핏': '#6366f1', '단순 변심': '#94a3b8', '원단·소재': '#0ea5e9',
+  '불량·하자': '#dc2626', '색상·실물 차이': '#f59e0b', '배송·품절': '#10b981',
+  '기타': '#a78bfa', '사유 미기재': '#d1d5db',
+};
+
+/* 기간이 바뀌면 캐시를 버리고 다시 받는다 */
+async function rrEnsure(ds, de) {
+  const key = ds + '~' + de;
+  if (rrState.key === key && rrState.byProduct) return;
+  const d = await anGet({ action: 'returnreasons', start_date: ds, end_date: de });
+  const by = new Map();
+  for (const x of (d.items || [])) {
+    if (!by.has(x.product_no)) by.set(x.product_no, []);
+    by.get(x.product_no).push(x);
+  }
+  rrState.key = key; rrState.byProduct = by;
+}
+
+async function showReturnReasons(productNo) {
+  const ds = $('perfDateStart').value, de = $('perfDateEnd').value;
+  if (!ds || !de) { showToast('📅 분석 기간을 먼저 선택해주세요'); return; }
+  const row = store.salesData.find(r => r.productNo === productNo);
+  const modal = $('rr-modal');
+  modal.style.display = 'flex';
+  $('rr-title').textContent = row ? row.productName : '상품 #' + productNo;
+  $('rr-sub').textContent = `${ds} ~ ${de} · 배송완료일 기준 반품(R40/R30/R34)`;
+  const cached = rrState.key === ds + '~' + de && rrState.byProduct;
+  $('rr-body').innerHTML = `<div style="padding:28px;text-align:center;color:#9ca3af;font-size:.82rem;">
+    <i class="fa-solid fa-spinner fa-spin"></i> ${cached ? '집계 중...' : '반품 사유를 불러오는 중입니다 (처음 한 번만 5초 정도 걸립니다)'}</div>`;
+  try {
+    await rrEnsure(ds, de);
+    rrRenderBody(productNo);
+  } catch (e) {
+    $('rr-body').innerHTML = `<div style="padding:24px;color:#b91c1c;font-size:.82rem;">불러오지 못했습니다: ${escHtml(e.message)}</div>`;
+  }
+}
+
+function rrRenderBody(productNo) {
+  const list = (rrState.byProduct.get(productNo) || []);
+  if (!list.length) {
+    $('rr-body').innerHTML = '<div style="padding:24px;text-align:center;color:#9ca3af;font-size:.85rem;">이 기간에 이 상품의 반품이 없습니다.</div>';
+    return;
+  }
+  // 사용자 규칙: 신청 사유가 있으면 그것만 집계, 없을 때만 접수 사유 사용
+  const groups = new Map();     // 분류 → { n, texts: Map(정규화 → {text, n}) }
+  let fromAccept = 0, blank = 0;
+  for (const x of list) {
+    const req = (x.request || '').trim();
+    const acc = (x.accept || '').trim();
+    const text = req || acc;
+    if (!text) { blank++; continue; }
+    if (!req && acc) fromAccept++;
+    const n = rrNorm(text);
+    const cat = rrCat(n);
+    if (!groups.has(cat)) groups.set(cat, { n: 0, texts: new Map() });
+    const g = groups.get(cat);
+    g.n++;
+    const t = g.texts.get(n);
+    if (t) t.n++; else g.texts.set(n, { text, n: 1 });
+  }
+  const total = [...groups.values()].reduce((s, g) => s + g.n, 0);
+  const ranked = [...groups.entries()].sort((a, b) => b[1].n - a[1].n);
+  const top = ranked.slice(0, 5), restN = ranked.slice(5).reduce((s, g) => s + g[1].n, 0);
+
+  const medal = ['🥇', '🥈', '🥉', '4', '5'];
+  let html = `
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;">
+      <span style="background:#eef2ff;color:#4338ca;border-radius:8px;padding:5px 10px;font-size:.76rem;font-weight:700;">반품 ${list.length}건</span>
+      <span style="background:#f8f9ff;color:#6b7280;border-radius:8px;padding:5px 10px;font-size:.76rem;">사유 기재 ${total}건</span>
+      ${blank ? `<span style="background:#f3f4f6;color:#9ca3af;border-radius:8px;padding:5px 10px;font-size:.76rem;">미기재 ${blank}건</span>` : ''}
+      ${fromAccept ? `<span style="background:#fff7ed;color:#c2410c;border-radius:8px;padding:5px 10px;font-size:.76rem;">접수 사유로 대체 ${fromAccept}건</span>` : ''}
+    </div>
+    <div style="font-size:.8rem;font-weight:800;color:#4338ca;margin-bottom:8px;">📊 비슷한 사유끼리 묶은 TOP ${top.length}</div>`;
+
+  top.forEach(([cat, g], i) => {
+    const pct = total > 0 ? (g.n / total * 100) : 0;
+    const color = RR_CAT_COLOR[cat] || '#6366f1';
+    // 같은 묶음 안에서는 실제 문장을 많이 나온 순으로 (같은 말은 이미 합쳐짐)
+    const texts = [...g.texts.values()].sort((a, b) => b.n - a.n);
+    html += `
+      <div style="border:1.5px solid #eef2ff;border-radius:12px;padding:10px 12px;margin-bottom:8px;">
+        <div style="display:flex;align-items:center;gap:8px;">
+          <span style="font-size:.9rem;width:22px;text-align:center;">${medal[i]}</span>
+          <span style="font-weight:800;color:${color};font-size:.84rem;flex:1;">${cat}</span>
+          <span style="font-weight:800;color:#1e1b4b;font-size:.84rem;">${g.n}건</span>
+          <span style="color:#9ca3af;font-size:.76rem;width:46px;text-align:right;">${pct.toFixed(0)}%</span>
+        </div>
+        <div style="height:7px;background:#f3f4f6;border-radius:4px;margin:7px 0 8px;overflow:hidden;">
+          <div style="height:100%;width:${pct.toFixed(1)}%;background:${color};border-radius:4px;"></div>
+        </div>
+        <div style="font-size:.76rem;color:#4b5563;line-height:1.75;">
+          ${texts.slice(0, 4).map(t => `<div style="display:flex;gap:6px;">
+            <span style="color:#c7d2fe;">•</span>
+            <span style="flex:1;">${escHtml(t.text)}</span>
+            ${t.n > 1 ? `<span style="color:#9ca3af;white-space:nowrap;">×${t.n}</span>` : ''}
+          </div>`).join('')}
+          ${texts.length > 4 ? `<details style="margin-top:4px;"><summary style="cursor:pointer;color:#6366f1;font-size:.74rem;">나머지 ${texts.length - 4}가지 더 보기</summary>
+            <div style="margin-top:4px;">${texts.slice(4).map(t => `<div style="display:flex;gap:6px;">
+              <span style="color:#e5e7eb;">•</span><span style="flex:1;">${escHtml(t.text)}</span>
+              ${t.n > 1 ? `<span style="color:#9ca3af;">×${t.n}</span>` : ''}</div>`).join('')}</div></details>` : ''}
+        </div>
+      </div>`;
+  });
+  if (restN > 0) html += `<div style="font-size:.74rem;color:#9ca3af;text-align:center;margin-top:2px;">그 외 ${ranked.length - 5}개 묶음 ${restN}건</div>`;
+  html += `<div style="font-size:.7rem;color:#9ca3af;margin-top:10px;line-height:1.6;border-top:1px solid #f3f4f6;padding-top:8px;">
+    ※ 신청 사유와 접수 사유가 모두 있으면 <b>신청 사유만</b> 셉니다 (중복 방지) · 비슷한 표현은 자동으로 한 묶음으로 셉니다</div>`;
+  $('rr-body').innerHTML = html;
+}
+
 /* 판매 성과 실시간 API 조회 — CSV(salesData/costMap)와 동일 구조로 매핑해
    renderPerfResult·필터·아카이브 기능을 그대로 재사용 */
 async function fetchPerfApi() {
@@ -4902,7 +5063,10 @@ function renderPerfResult() {
       }
       html += `<tr>
         <td>${row.rank}</td>
-        <td class="name-cell">${escHtml(row.productName)}${row.option?`<div><span class="option-tag">${escHtml(row.option)}</span></div>`:''}</td>
+        <td class="name-cell">${row.productNo
+          ? `<span onclick="showReturnReasons(${row.productNo})" title="클릭하면 이 상품의 반품 사유를 모아 봅니다"
+                   style="cursor:pointer;color:#4338ca;text-decoration:underline dotted;text-underline-offset:3px;">${escHtml(row.productName)}</span>`
+          : escHtml(row.productName)}${row.option?`<div><span class="option-tag">${escHtml(row.option)}</span></div>`:''}</td>
         <td>${row.salePrice>0?fmt(row.salePrice)+'원':'—'}</td>
         <td>${sc}</td>
         <td>${fmt(row.paidQty)}</td><td>${fmt(row.refundQty)}</td><td>${fmt(row.salesQty)}</td>
