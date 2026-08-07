@@ -69,6 +69,12 @@ async function getAccessToken(force = false): Promise<string> {
   return String(body.access_token);
 }
 
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+// 카페24 요청 한도(429 "Too much requests occur. (40/40)") — 홈에서 여러 조회가 겹치면 쉽게 걸린다.
+// 버킷이 다시 차기를 기다렸다가 재시도한다. Retry-After가 오면 그 값을 우선 따른다.
+const RATE_LIMIT_RETRIES = 6;
+
 async function cafe24Get(path: string, token: string): Promise<Record<string, unknown>> {
   const doFetch = (tk: string) => fetch(`${API_BASE}${path}`, {
     headers: {
@@ -79,6 +85,12 @@ async function cafe24Get(path: string, token: string): Promise<Record<string, un
   });
   let res = await doFetch(token);
   if (res.status === 401) res = await doFetch(await getAccessToken(true));
+  for (let i = 0; res.status === 429 && i < RATE_LIMIT_RETRIES; i++) {
+    const ra = Number(res.headers.get("Retry-After"));
+    await res.body?.cancel();
+    await sleep(isFinite(ra) && ra > 0 ? ra * 1000 : Math.min(1000 * 2 ** i, 8000));
+    res = await doFetch(token);
+  }
   const body = await res.json();
   if (!res.ok) throw new Error(`cafe24 GET ${path} → ${res.status}: ${JSON.stringify(body)}`);
   return body;
@@ -98,7 +110,7 @@ function num(v: unknown): number {
 const CAFE24_MAX_OFFSET = 15000;
 const MAX_RANGE_DAYS = 80;
 const CLAIM_PAGE = 100;
-const CHUNK_CONCURRENCY = 3;
+const CHUNK_CONCURRENCY = 2;   // 홈에서 다른 조회와 겹치므로 낮게 (3이면 429)
 const dayMs = 24 * 3600 * 1000;
 const ymd = (t: number) => new Date(t).toISOString().slice(0, 10);
 

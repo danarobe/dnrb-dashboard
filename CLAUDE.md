@@ -160,6 +160,7 @@ AUTHOR_FIELDS(notes/comments=author_id, likes=user_id): POST는 본인 id 필수
 - **카페24 주문 조회 3대 제약 (2026-08-07 실측, 어기면 422)**
   1. **offset < 15,000** — `"[Start location of list] must be less than 15000"`. 한 달 분석도 패딩 포함 16,321건이라 걸린다.
   2. **조회 기간 ≤ 3개월** — `"date range ... should be within 3 months"`.
+  2-1. **요청 한도 429** — `"Too much requests occur. (40/40)"`. 앱 단위 버킷이라 **홈 '카페24 불러오기'처럼 여러 조회가 겹치면 바로 걸린다**(실측: 동시 처리 3으로 뒀더니 홈 3개월에서 429). 대응: `apiGet`/`cafe24Get`에 **429 재시도 6회**(Retry-After 우선, 없으면 1→2→4→8초 백오프) + 조회당 동시 요청 수 `CHUNK_CONCURRENCY = 2`.
   3. `/admin/orders/count`에 **`fields`·`embed`를 넘기면 `{count:N}` 대신 `[]`가 올 때가 있다** → 건수를 0으로 읽어 조회가 통째로 비는 사고 발생. count에는 `date_type`·`order_status`만 넘길 것.
   - 그 외: `/admin/products`는 limit 최대 100, `date_type`의 결제일 값은 `pay_date`, `order_status`는 **콤마 다중 지정 가능**(`R40,R30,R34`).
 - **대응 = 조각내어 훑기**: 기간을 80일 이하로 미리 자르고(3개월 제한), `/count`로 조각별 건수를 재서 15,000을 넘으면 반으로 쪼갠 뒤, 조각마다 offset을 0부터 다시 세며 3개씩 동시 처리한다. 건수를 못 읽으면(-1) 쪼개지 않고 통째로 읽어 **빈 결과로 끝나지 않게** 방어.
@@ -179,7 +180,7 @@ AUTHOR_FIELDS(notes/comments=author_id, likes=user_id): POST는 본인 id 필수
 
 ## 8. 남은 일 / 미결정
 
-- 긴 기간 조회는 여전히 느리다(동작은 함): 판매 성과 3개월 netreturns ~52초, 취소&반품 6개월 ~65초. 더 줄이려면 동시 처리 수를 올려야 하는데 카페24 토큰 갱신 경쟁 위험이 있어 보류.
+- 긴 기간 조회는 여전히 느리다(동작은 함): 판매 성과 3개월 netreturns ~52초, 취소&반품 6개월 ~65초, **홈 '카페24 불러오기' 3개월 ~127초**(기본 1주일은 ~48초). 동시 처리 수를 올리면 빨라지지만 카페24 429에 걸려 지금이 상한.
 
 - 카테고리별 진열 CSV 실제 카페24 업로드 검증(테스트 카테고리 1개 권장).
 - TOP 카테고리 품절 설정 43개 실측 대조.

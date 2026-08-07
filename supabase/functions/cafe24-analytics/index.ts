@@ -64,6 +64,12 @@ async function getAccessToken(force = false): Promise<string> {
   return String(body.access_token);
 }
 
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+// 카페24 요청 한도(429 "Too much requests occur. (40/40)") — 홈처럼 여러 조회가 겹치면 쉽게 걸린다.
+// 버킷이 다시 차기를 기다렸다가 재시도한다. Retry-After가 오면 그 값을 우선 따른다.
+const RATE_LIMIT_RETRIES = 6;
+
 async function apiGet(url: string, token: string): Promise<Record<string, unknown>> {
   const doFetch = (tk: string) => fetch(url, {
     headers: {
@@ -76,6 +82,12 @@ async function apiGet(url: string, token: string): Promise<Record<string, unknow
   if (res.status === 401) {
     // 동시 갱신 경쟁으로 토큰이 무효화된 경우 → 강제 재발급 후 1회 재시도
     res = await doFetch(await getAccessToken(true));
+  }
+  for (let i = 0; res.status === 429 && i < RATE_LIMIT_RETRIES; i++) {
+    const ra = Number(res.headers.get("Retry-After"));
+    await res.body?.cancel();
+    await sleep(isFinite(ra) && ra > 0 ? ra * 1000 : Math.min(1000 * 2 ** i, 8000));
+    res = await doFetch(token);
   }
   const body = await res.json();
   if (!res.ok) throw new Error(`GET ${url.replace(/\?.*$/, "")} → ${res.status}: ${JSON.stringify(body)}`);
@@ -116,7 +128,9 @@ const CAFE24_MAX_OFFSET = 15000;
 // 패딩(e+30일)까지 더하면 두 달짜리 분석도 넘길 수 있으므로 처음부터 80일 이하로 잘라 시작한다.
 const MAX_RANGE_DAYS = 80;
 const ORDER_PAGE = 500;
-const CHUNK_CONCURRENCY = 3;   // 토큰 갱신 경쟁을 피하려고 과하게 늘리지 않는다
+// 홈은 취소반품·판매성과·재고대조를 한꺼번에 부르므로, 조회 하나가 쓰는 동시 요청 수를 낮게 잡는다
+// (전에 3으로 뒀다가 홈에서 3개월을 고르면 카페24 429가 났다)
+const CHUNK_CONCURRENCY = 2;
 
 const dayMs = 24 * 3600 * 1000;
 const ymd = (t: number) => new Date(t).toISOString().slice(0, 10);
