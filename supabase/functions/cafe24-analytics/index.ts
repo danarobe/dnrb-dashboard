@@ -105,6 +105,81 @@ const num = (v: unknown) => {
   return isFinite(n) ? n : 0;
 };
 
+// ── 주문 페이지네이션 (카페24 offset 상한 회피) ────────────────────────────
+// 카페24는 offset이 15,000 이상이면 422를 준다:
+//   "[Start location of list] must be less than 15000. (parameter.offset)"
+// 분석 기간이 한 달만 돼도 패딩 포함 주문이 16,000건을 넘어(실측 7/1~7/31 → 16,321건)
+// 조회 도중 422 → 500으로 죽었다. 그래서 **기간을 조각내어 조각마다 offset을 0부터 다시 센다.**
+// 조각 크기는 /count로 실측해 정하고(상한을 넘으면 반으로 쪼갬), 조각들은 동시에 처리해 시간을 줄인다.
+const CAFE24_MAX_OFFSET = 15000;
+// 카페24는 조회 기간도 3개월 이내로 제한한다("...should be within 3 months days..." 422).
+// 패딩(e+30일)까지 더하면 두 달짜리 분석도 넘길 수 있으므로 처음부터 80일 이하로 잘라 시작한다.
+const MAX_RANGE_DAYS = 80;
+const ORDER_PAGE = 500;
+const CHUNK_CONCURRENCY = 3;   // 토큰 갱신 경쟁을 피하려고 과하게 늘리지 않는다
+
+const dayMs = 24 * 3600 * 1000;
+const ymd = (t: number) => new Date(t).toISOString().slice(0, 10);
+
+// /count에는 **embed·fields를 넘기면 안 된다** — 그러면 카페24가 {count:N} 대신 []를 돌려줘서
+// 건수가 0으로 읽히고 조회 범위가 통째로 버려진다(실측). 집계 대상에 영향을 주는 것만 남긴다.
+const COUNT_PARAMS = new Set(["date_type", "order_status"]);
+const countFilter = (filter: string) =>
+  filter.split("&").filter((kv) => COUNT_PARAMS.has(kv.split("=")[0])).join("&");
+
+// 반환값 -1 = 개수를 읽지 못함 (형식이 예상과 다름) → 쪼개지 말고 통째로 읽게 한다
+async function countOrders(token: string, qs: string): Promise<number> {
+  const body = await apiGet(`${API_BASE}/admin/orders/count?${qs}`, token);
+  const c = (body as Record<string, unknown>).count;
+  return c === undefined || c === null ? -1 : num(c);
+}
+
+// [s,e]를 offset 상한 안에 들어오는 날짜 조각들로 나눈다 (하루까지 쪼개도 넘치면 그대로 두고 상한까지만 읽음)
+async function splitOrderRanges(token: string, filter: string, s: string, e: string): Promise<[string, string][]> {
+  const cf = countFilter(filter);
+  const out: [string, string][] = [];
+  // 3개월 제한부터 피하고 시작 — 80일 이하 조각으로 미리 나눈다
+  const stack: [string, string][] = [];
+  for (let t = new Date(s).getTime(), end = new Date(e).getTime(); t <= end;) {
+    const chunkEnd = Math.min(t + (MAX_RANGE_DAYS - 1) * dayMs, end);
+    stack.push([ymd(t), ymd(chunkEnd)]);
+    t = chunkEnd + dayMs;
+  }
+  while (stack.length) {
+    const [a, b] = stack.pop()!;
+    const c = await countOrders(token, `start_date=${a}&end_date=${b}&${cf}`);
+    if (c === 0) continue;
+    // 개수를 못 읽으면 예전처럼 통째로 읽는다 (데이터가 빈 채로 반환되는 사고 방지)
+    if (c < 0 || c < CAFE24_MAX_OFFSET || a === b) { out.push([a, b]); continue; }
+    const midMs = new Date(a).getTime() + Math.floor((new Date(b).getTime() - new Date(a).getTime()) / dayMs / 2) * dayMs;
+    stack.push([a, ymd(midMs)], [ymd(midMs + dayMs), b]);
+  }
+  return out.sort((x, y) => (x[0] < y[0] ? -1 : 1));
+}
+
+/** 기간 내 주문을 조각·페이지 단위로 모두 훑어 onOrders에 넘긴다.
+ *  filter는 date_type·order_status·embed·fields 등 start_date/end_date를 뺀 나머지 쿼리스트링. */
+async function eachOrder(
+  token: string, filter: string, s: string, e: string,
+  onOrders: (orders: Record<string, unknown>[]) => void,
+): Promise<void> {
+  const ranges = await splitOrderRanges(token, filter, s, e);
+  let idx = 0;
+  const worker = async () => {
+    while (idx < ranges.length) {
+      const [a, b] = ranges[idx++];
+      for (let offset = 0; offset < CAFE24_MAX_OFFSET; offset += ORDER_PAGE) {
+        const body = await apiGet(
+          `${API_BASE}/admin/orders?start_date=${a}&end_date=${b}&${filter}&limit=${ORDER_PAGE}&offset=${offset}`, token);
+        const orders = (body.orders ?? []) as Record<string, unknown>[];
+        onOrders(orders);
+        if (orders.length < ORDER_PAGE) break;
+      }
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(CHUNK_CONCURRENCY, ranges.length) }, worker));
+}
+
 // 카페24 claim_reason은 '신청 사유 (구매자|판매자 주문취소 : 접수 사유)' 형태로 두 사유가 합쳐져 온다.
 // 실측 예: "사이즈작음 (구매자 주문취소 : 구매 의사 취소)" / "(판매자 주문취소 : )" (신청 사유 없음)
 const CLAIM_ACCEPT_SUFFIX = /\((?:구매자|판매자)\s*주문취소\s*:\s*([^)]*)\)\s*$/;
@@ -209,12 +284,7 @@ Deno.serve(async (req) => {
       const NET_RETURN_STATUSES = new Set(["R40", "R30", "R34"]);
       const fetchStart = dstr(new Date(lossS).getTime() - 7 * day);
       const fetchEnd = dstr(Math.min(new Date(lossE).getTime() + 30 * day, Date.now()));
-      const LIMIT = 500;
-      for (let offset = 0; offset <= 60000; offset += LIMIT) {
-        const body = await apiGet(
-          `${API_BASE}/admin/orders?start_date=${fetchStart}&end_date=${fetchEnd}&date_type=shipend_date` +
-          `&embed=items&fields=order_id,items&limit=${LIMIT}&offset=${offset}`, token);
-        const orders = (body.orders ?? []) as Record<string, unknown>[];
+      await eachOrder(token, "date_type=shipend_date&embed=items&fields=order_id,items", fetchStart, fetchEnd, (orders) => {
         for (const o of orders) {
           for (const it of (o.items ?? []) as Record<string, unknown>[]) {
             const dd = String(it.delivered_date ?? "").slice(0, 10);
@@ -227,8 +297,7 @@ Deno.serve(async (req) => {
             if (NET_RETURN_STATUSES.has(String(it.order_status ?? ""))) m.ret7 += qty;
           }
         }
-        if (orders.length < LIMIT) break;
-      }
+      });
 
       const metrics: Record<string, M> = {};
       for (const [no, m] of map) metrics[String(no)] = m;
@@ -269,7 +338,6 @@ Deno.serve(async (req) => {
         opts: Map<string, Opt>;
       };
       const map = new Map<number, Row>();
-      const LIMIT = 500;
       let totalQty = 0, returnQty = 0;
       // 주문 단위 shipend_date는 부분배송 시 기간 밖 품목까지 포함하므로,
       // 주문은 여유 범위로 수집한 뒤 '품목별 배송완료일(delivered_date)'로 정확히 필터
@@ -278,11 +346,7 @@ Deno.serve(async (req) => {
       const pad = (d: Date) => d.toISOString().slice(0, 10);
       const fetchStart = pad(new Date(new Date(s).getTime() - 7 * day));
       const fetchEnd = pad(new Date(Math.min(new Date(e).getTime() + 30 * day, Date.now())));
-      for (let offset = 0; offset <= 60000; offset += LIMIT) {
-        const body = await apiGet(
-          `${API_BASE}/admin/orders?start_date=${fetchStart}&end_date=${fetchEnd}&date_type=shipend_date` +
-          `&embed=items&fields=order_id,items&limit=${LIMIT}&offset=${offset}`, token);
-        const orders = (body.orders ?? []) as Record<string, unknown>[];
+      await eachOrder(token, "date_type=shipend_date&embed=items&fields=order_id,items", fetchStart, fetchEnd, (orders) => {
         for (const o of orders) {
           for (const it of (o.items ?? []) as Record<string, unknown>[]) {
             const dd = String(it.delivered_date ?? "").slice(0, 10);
@@ -309,8 +373,7 @@ Deno.serve(async (req) => {
             if (isReturn) opt.return_qty += qty;
           }
         }
-        if (orders.length < LIMIT) break;
-      }
+      });
       const rows = [...map.values()].map((r) => ({
         product_no: r.product_no, product_name: r.product_name,
         total_qty: r.total_qty, return_qty: r.return_qty,
@@ -356,13 +419,9 @@ Deno.serve(async (req) => {
         qty: number; date: string; request: string; accept: string;
       };
       const items: Out[] = [];
-      const LIMIT = 500;
-      for (let offset = 0; offset <= 60000; offset += LIMIT) {
-        const body = await apiGet(
-          `${API_BASE}/admin/orders?start_date=${fetchStart}&end_date=${fetchEnd}&date_type=shipend_date` +
-          `&order_status=${NET_RETURN_STATUSES.join(",")}` +
-          `&embed=items&fields=order_id,items&limit=${LIMIT}&offset=${offset}`, token);
-        const orders = (body.orders ?? []) as Record<string, unknown>[];
+      const filter = `date_type=shipend_date&order_status=${NET_RETURN_STATUSES.join(",")}` +
+        `&embed=items&fields=order_id,items`;
+      await eachOrder(token, filter, fetchStart, fetchEnd, (orders) => {
         for (const o of orders) {
           for (const it of (o.items ?? []) as Record<string, unknown>[]) {
             if (!statusSet.has(String(it.order_status ?? ""))) continue;
@@ -381,8 +440,7 @@ Deno.serve(async (req) => {
             });
           }
         }
-        if (orders.length < LIMIT) break;
-      }
+      });
       return json({ period: { start: s, end: e }, basis: "item_delivered_date", items });
     }
 
@@ -403,13 +461,8 @@ Deno.serve(async (req) => {
       const map = new Map<string, Item>();
       // 취소·반품으로 되돌아간 수량은 별도 집계 (결제수량 자체는 그대로 유지)
       const CANCELED = new Set(["C40", "R40", "R30", "R34"]);
-      const LIMIT = 500;
       let orderCount = 0;
-      for (let offset = 0; offset <= 60000; offset += LIMIT) {
-        const body = await apiGet(
-          `${API_BASE}/admin/orders?start_date=${s}&end_date=${e}&date_type=pay_date` +
-          `&embed=items&fields=order_id,items&limit=${LIMIT}&offset=${offset}`, token);
-        const orders = (body.orders ?? []) as Record<string, unknown>[];
+      await eachOrder(token, "date_type=pay_date&embed=items&fields=order_id,items", s, e, (orders) => {
         orderCount += orders.length;
         for (const o of orders) {
           for (const it of (o.items ?? []) as Record<string, unknown>[]) {
@@ -430,8 +483,7 @@ Deno.serve(async (req) => {
             if (CANCELED.has(String(it.order_status ?? ""))) row.canceled_qty += qty;
           }
         }
-        if (orders.length < LIMIT) break;
-      }
+      });
 
       // 전체 상품명 목록 — 기간 내 결제가 0건인 상품도 "카페24에 존재함"을 판정하려면 필요.
       // (이게 없으면 판매 0건 재고가 '미매칭'과 구분되지 않음)
@@ -487,12 +539,8 @@ Deno.serve(async (req) => {
       }
 
       // ② 취소·반품 완료 수량 — 주문 품목(C40/R40) 집계 (주문일 기준, 전 채널)
-      const LIMIT = 100;
-      for (let offset = 0; offset <= 8000; offset += LIMIT) {
-        const body = await apiGet(
-          `${API_BASE}/admin/orders?start_date=${s}&end_date=${e}&date_type=order_date` +
-          `&order_status=C40,R40&embed=items&fields=order_id,items&limit=${LIMIT}&offset=${offset}`, token);
-        const orders = (body.orders ?? []) as Record<string, unknown>[];
+      await eachOrder(token,
+        "date_type=order_date&order_status=C40,R40&embed=items&fields=order_id,items", s, e, (orders) => {
         for (const o of orders) {
           for (const it of (o.items ?? []) as Record<string, unknown>[]) {
             const st = String(it.order_status ?? "");
@@ -501,8 +549,7 @@ Deno.serve(async (req) => {
             if (row) row.cancel_qty += num(it.quantity);
           }
         }
-        if (orders.length < LIMIT) break;
-      }
+      });
 
       // ③ 판매가·공급가 — 상품 정보 (100개씩 배치)
       const nos = [...map.keys()];
