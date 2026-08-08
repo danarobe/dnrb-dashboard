@@ -21,6 +21,7 @@ const TABLE_ROLES: Record<string, string[]> = {
   ad_note_comments: ["admin", "staff"],   // 공유 회의 기록 댓글
   ad_note_likes: ["admin", "staff"],      // 공유 회의 기록 좋아요
   disp_season_out: ["admin"],   // 진열 시즌 제외 목록 (관리자 전용 메뉴)
+  return_watch: ["admin", "staff"],   // 반품 관리 상품 (관리자 + MD)
   profit_archive: ["admin"],    // 순익 시나리오 기간별 기록
 };
 // 본인 것만 쓰기·수정·삭제 가능한 테이블과 작성자 컬럼 (클라이언트 규칙을 서버에서 강제)
