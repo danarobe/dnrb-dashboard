@@ -146,6 +146,8 @@ async function eachClaimOrder(
   onOrders: (orders: Record<string, unknown>[]) => void,
 ): Promise<void> {
   const ranges = await splitRanges(token, countQs, s, e);
+  // 부분배송 주문은 배송종료일이 여러 개라 두 조각 모두에 잡힌다 → 주문번호로 중복 제거
+  const seen = new Set<string>();
   let idx = 0;
   const worker = async () => {
     while (idx < ranges.length) {
@@ -154,8 +156,14 @@ async function eachClaimOrder(
         const body = await cafe24Get(
           `/admin/orders?start_date=${a}&end_date=${b}&${listQs}&limit=${CLAIM_PAGE}&offset=${offset}`, token);
         const orders = (body.orders ?? []) as Record<string, unknown>[];
-        onOrders(orders);
-        if (orders.length < CLAIM_PAGE) break;
+        const fresh = orders.filter((o) => {
+          const id = String(o.order_id ?? "");
+          if (!id || seen.has(id)) return false;
+          seen.add(id);
+          return true;
+        });
+        if (fresh.length) onOrders(fresh);
+        if (orders.length < CLAIM_PAGE) break;    // 페이지 끝 판정은 걸러내기 전 길이로
       }
     }
   };

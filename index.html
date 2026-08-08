@@ -412,6 +412,7 @@
   <button class="menu-item" data-menu="cr"   id="menu-cr" onclick="showMenu('cr')">📉 취소 &amp; 반품</button>
   <button class="menu-item" data-menu="an"   onclick="showMenu('an')">👀 상품 분석</button>
   <button class="menu-item" data-menu="perf" onclick="showMenu('perf')">📊 판매 성과</button>
+  <button class="menu-item" data-menu="rwatch" id="menu-rwatch" onclick="showMenu('rwatch')">🔁 반품 관리</button>
   <button class="menu-item" data-menu="disp" id="menu-disp" onclick="showMenu('disp')">🗂️ 카테고리별 진열</button>
   <button class="menu-item" data-menu="stock" id="menu-stock" onclick="showMenu('stock')">📦 셀메이트 재고 대조</button>
   <button class="menu-item" data-menu="stable" id="menu-stable" onclick="showMenu('stable')">🧮 안정재고 편성</button>
@@ -863,6 +864,91 @@
         </div>
       </div>
 
+    </div>
+  </div>
+
+  <!-- ════════════════════════════════════════
+       SECTION : 반품 관리 — 잘 팔리는데 반품 많은 상품 잡아내기
+  ════════════════════════════════════════ -->
+  <div class="section-card page-sec" id="sec-rwatch">
+    <div class="section-header" style="cursor:default;">
+      <h2><span>🔁</span> 반품 관리</h2>
+    </div>
+    <div class="section-body">
+      <div style="font-size:.85rem;color:#6b7280;margin-bottom:14px;">
+        결제수량 상위 상품 중 <strong>순반품률이 높은 상품</strong>을 찾아 대응이 필요한 것을 '관리 상품'으로 모아둡니다.
+        이 메뉴의 순반품률은 <strong>반품 신청·접수까지 포함</strong>해서 셉니다 (판매 성과 메뉴는 수거 이후만 세므로 수치가 조금 더 높게 나옵니다).
+      </div>
+
+      <div class="control-bar">
+        <label><i class="fa-regular fa-calendar"></i> 기준일</label>
+        <input type="date" id="rwDate" onchange="rwCheckDate()" />
+        <button class="btn-analyze" id="btn-rw" onclick="rwFetch()">
+          <i class="fa-solid fa-cloud-arrow-down"></i> 조회
+        </button>
+        <div class="divider"></div>
+        <label style="font-size:.78rem;">상위</label>
+        <input type="number" id="rwTop" value="30" style="width:64px;border:1.5px solid #d1d5db;border-radius:8px;padding:7px;" />
+        <label style="font-size:.78rem;">위험 기준(%)</label>
+        <input type="number" id="rwRisk" value="20" style="width:64px;border:1.5px solid #d1d5db;border-radius:8px;padding:7px;" />
+        <label style="font-size:.78rem;">최소 배송완료</label>
+        <input type="number" id="rwMinQty" value="10" style="width:64px;border:1.5px solid #d1d5db;border-radius:8px;padding:7px;" />
+      </div>
+      <div id="rw-datewarn" style="display:none;background:#fef2f2;border:1.5px solid #fecaca;border-radius:10px;padding:10px 14px;margin-bottom:12px;font-size:.8rem;color:#b91c1c;line-height:1.6;"></div>
+      <div style="font-size:.75rem;color:#9ca3af;margin-bottom:14px;">
+        7일·14일 결제수량 상위 상품을 뽑아, 배송완료일 기준 7·14·21·30일 순반품률을 계산합니다 ·
+        배송완료 <b id="rw-minq-label">10</b>개 미만 옵션은 <b>판정 보류</b>(1개 팔려 1개 반품 같은 요행 제외) ·
+        상품명을 누르면 창별·옵션별 상세를 봅니다
+      </div>
+
+      <div id="rw-summary" style="display:none;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px;margin-bottom:14px;"></div>
+
+      <div class="filter-tabs" id="rw-tabs" style="display:none;">
+        <button class="filter-tab active" id="rwtab-risk" onclick="rwSetTab('risk')">위험 상품</button>
+        <button class="filter-tab" id="rwtab-all" onclick="rwSetTab('all')">전체 상위 상품</button>
+        <button class="filter-tab" id="rwtab-watch" onclick="rwSetTab('watch')">⭐ 관리 상품</button>
+      </div>
+
+      <div id="rw-result">
+        <div class="empty-state">
+          <div class="es-icon">🔁</div>
+          <p>기준일을 선택하고 <strong>조회</strong>를 누르세요. (기본값은 오늘로부터 7일 전 — 반품이 확정된 시점입니다)</p>
+        </div>
+      </div>
+
+      <!-- 창별·옵션별 상세 모달 -->
+      <div id="rw-modal" onclick="if(event.target===this)this.style.display='none'"
+           style="display:none;position:fixed;inset:0;background:rgba(15,23,42,.55);z-index:200;align-items:center;justify-content:center;padding:20px;">
+        <div style="background:#fff;border-radius:16px;max-width:680px;width:100%;max-height:88vh;overflow:auto;padding:18px;">
+          <div style="display:flex;align-items:flex-start;gap:8px;margin-bottom:10px;">
+            <div style="flex:1;">
+              <b id="rw-modal-title" style="font-size:.9rem;color:#1e1b4b;word-break:break-all;"></b>
+              <div id="rw-modal-sub" style="font-size:.74rem;color:#9ca3af;margin-top:3px;"></div>
+            </div>
+            <button onclick="document.getElementById('rw-modal').style.display='none'"
+                    style="border:none;background:#f3f4f6;border-radius:8px;padding:4px 10px;font-size:.9rem;cursor:pointer;">✕</button>
+          </div>
+          <div id="rw-modal-body"></div>
+        </div>
+      </div>
+
+      <!-- 관리 상품 지정 모달 -->
+      <div id="rw-add-modal" onclick="if(event.target===this)this.style.display='none'"
+           style="display:none;position:fixed;inset:0;background:rgba(15,23,42,.55);z-index:210;align-items:center;justify-content:center;padding:20px;">
+        <div style="background:#fff;border-radius:16px;max-width:460px;width:100%;padding:18px;">
+          <b style="font-size:.9rem;color:#1e1b4b;">⭐ 관리 상품으로 지정</b>
+          <div id="rw-add-name" style="font-size:.8rem;color:#4b5563;margin:8px 0 4px;word-break:break-all;"></div>
+          <div id="rw-add-stat" style="font-size:.74rem;color:#9ca3af;margin-bottom:10px;"></div>
+          <label style="font-size:.78rem;font-weight:700;color:#374151;">지정 사유</label>
+          <textarea id="rw-add-reason" rows="3" placeholder="예: 베이지 색상 사이즈가 작게 나옴 — 상세페이지에 실측 추가 예정"
+                    style="width:100%;margin-top:5px;border:1.5px solid #d1d5db;border-radius:8px;padding:9px;font-size:.85rem;font-family:inherit;resize:vertical;"></textarea>
+          <div style="display:flex;gap:8px;margin-top:12px;justify-content:flex-end;">
+            <button onclick="document.getElementById('rw-add-modal').style.display='none'"
+                    style="border:1.5px solid #d1d5db;background:#fff;border-radius:8px;padding:8px 14px;font-size:.82rem;cursor:pointer;">취소</button>
+            <button class="btn-analyze" onclick="rwSaveWatch()">저장</button>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -1426,6 +1512,7 @@ function applyRole() {
   $('menu-stock').style.display = isAdmin() && !isCS() ? '' : 'none';
   $('menu-stable').style.display = isAdmin() && !isCS() ? '' : 'none';
   $('menu-adv').style.display = (isAdmin() || isStaff()) && !isCS() ? '' : 'none';   // MD도 광고 효율 접근
+  $('menu-rwatch').style.display = (isAdmin() || isStaff()) && !isCS() ? '' : 'none'; // 반품 관리 = 관리자 + MD
   $('menu-profit').style.display = isAdmin() && !isCS() ? '' : 'none';
   // Meta 광고 성과 패널 — 관리자 + MD (MD는 광고비·전환값·총매출 블러)
   const mp = $('meta-panel'); if (mp) mp.style.display = (isAdmin() || isStaff()) && !isCS() ? 'block' : 'none';
@@ -2155,6 +2242,238 @@ async function deleteAdTopic(id) {
     await meetRest(`ad_meeting_topics?id=eq.${id}`, { method: 'DELETE', headers: { Prefer: 'return=minimal' } });
     loadAdTopics();
   } catch (e) { showToast('❌ 삭제 실패: ' + e.message); }
+}
+
+/* ──────────────────────────────
+   반품 관리 (관리자 + MD) — 잘 팔리는데 반품 많은 상품 잡아내기
+
+   · 순반품률은 이 메뉴에서만 **반품신청(R00)·접수(R10)까지 포함**해서 센다.
+     판매 성과·홈·진열이 쓰는 netreturns(R30/R34/R40)는 그대로 두었다 (사용자 결정).
+     상태는 품목당 하나뿐이라 신청·접수를 더해도 중복 집계되지 않는다.
+   · 기준일 기본값은 **오늘 −7일**. 반품 신청은 배송완료 후 0~5일에 걸쳐 들어오고(당일 51%·5일 99%)
+     승인·수거에 며칠 더 걸려서, 오늘 날짜로 보면 실제의 절반 이하로 나온다(실측 4.97% vs 확정 11.8%).
+────────────────────────────── */
+const rwState = { data: null, tab: 'risk', watch: null, addNo: null };
+
+const rwToday = () => new Date().toISOString().slice(0, 10);
+const rwShiftDays = (ymd, n) => new Date(new Date(ymd).getTime() + n * 86400000).toISOString().slice(0, 10);
+
+function rwInit() {
+  if (!$('rwDate').value) $('rwDate').value = rwShiftDays(rwToday(), -7);
+  rwCheckDate();
+  if (!rwState.watch) rwLoadWatch().then(() => { if (rwState.data) rwRender(); });
+}
+
+/* 기준일이 너무 최근이면 경고 — 아직 반품이 다 안 들어온 시점 */
+function rwCheckDate() {
+  const v = $('rwDate').value, el = $('rw-datewarn');
+  if (!v) { el.style.display = 'none'; return; }
+  const age = Math.round((new Date(rwToday()) - new Date(v)) / 86400000);
+  if (age >= 5) { el.style.display = 'none'; return; }
+  el.style.display = 'block';
+  el.innerHTML = `⚠️ 기준일이 <b>${age}일 전</b>입니다. 반품은 배송완료 후 며칠에 걸쳐 들어오기 때문에, 최근 날짜로 보면 <b>실제보다 낮게</b> 나옵니다.
+    <br />정확히 보시려면 <b>${rwShiftDays(rwToday(), -7)}</b>(7일 전) 이전으로 잡아주세요.`;
+}
+
+async function rwFetch() {
+  const e = $('rwDate').value;
+  if (!e) { showToast('📅 기준일을 선택해주세요'); return; }
+  const btn = $('btn-rw');
+  btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> 조회 중... (30초 안팎)';
+  try {
+    const [d] = await Promise.all([
+      anGet({ action: 'returnwatch', end_date: e,
+              top: $('rwTop').value || 30, risk: $('rwRisk').value || 20, min_qty: $('rwMinQty').value || 10 }),
+      rwState.watch ? Promise.resolve() : rwLoadWatch(),
+    ]);
+    rwState.data = d;
+    $('rw-minq-label').textContent = d.min_qty;
+    rwRender();
+    const n = d.products.filter(p => p.flagged).length;
+    showToast(`✅ 상위 ${d.products.length}개 상품 중 위험 ${n}개`);
+  } catch (err) {
+    showToast('❌ 조회 실패: ' + err.message);
+    console.error(err);
+  } finally {
+    btn.disabled = false; btn.innerHTML = '<i class="fa-solid fa-cloud-arrow-down"></i> 조회';
+  }
+}
+
+async function rwLoadWatch() {
+  try {
+    const rows = await dbProxy('return_watch?select=*&order=created_at.desc');
+    rwState.watch = rows || [];
+  } catch (e) { rwState.watch = []; }
+}
+const rwWatchSet = () => new Set((rwState.watch || []).map(w => Number(w.product_no)));
+
+function rwSetTab(t) { rwState.tab = t; rwRender(); }
+
+const rwBadge = (rate, del, minQty, riskAt) => {
+  if (del < minQty) return `<span style="color:#9ca3af;">${rate.toFixed(1)}% <span style="font-size:.68rem;">보류</span></span>`;
+  const c = rate >= riskAt ? '#dc2626' : rate >= riskAt / 2 ? '#d97706' : '#16a34a';
+  return `<b style="color:${c};">${rate.toFixed(1)}%</b>`;
+};
+
+function rwRender() {
+  const d = rwState.data;
+  const wset = rwWatchSet();
+  ['risk', 'all', 'watch'].forEach(t => $('rwtab-' + t).classList.toggle('active', rwState.tab === t));
+  $('rw-tabs').style.display = 'flex';
+
+  if (rwState.tab === 'watch') { rwRenderWatch(); return; }
+  if (!d) { $('rw-result').innerHTML = '<div class="empty-state"><div class="es-icon">🔁</div><p>먼저 <strong>조회</strong>를 눌러주세요.</p></div>'; return; }
+
+  const flagged = d.products.filter(p => p.flagged);
+  const list = rwState.tab === 'risk' ? flagged : d.products;
+
+  const tile = (label, val, sub, warn) => `
+    <div style="background:${warn ? '#fef2f2' : '#f8f9ff'};border:1.5px solid ${warn ? '#fecaca' : '#e0e7ff'};border-radius:12px;padding:12px 14px;">
+      <div style="font-size:.72rem;color:#6b7280;font-weight:600;margin-bottom:4px;">${label}</div>
+      <div style="font-size:1.05rem;font-weight:800;color:${warn ? '#b91c1c' : '#1e1b4b'};">${val}</div>
+      ${sub ? `<div style="font-size:.7rem;color:#9ca3af;margin-top:3px;">${sub}</div>` : ''}
+    </div>`;
+  const prodRisk = flagged.filter(p => p.product_risk).length;
+  const optOnly = flagged.length - prodRisk;
+  $('rw-summary').innerHTML =
+    tile('대상 상품', `${d.products.length}개`, `7일·14일 결제수량 상위 ${d.top}위 합집합`) +
+    tile('위험 상품', `${flagged.length}개`, `상품 전체 ${prodRisk}개 · 옵션만 ${optOnly}개`, flagged.length > 0) +
+    tile('관리 상품', `${(rwState.watch || []).length}개`, '⭐ 탭에서 사유·지정일 확인') +
+    tile('기준일', d.end_date, `7일 창 ${d.window_start['7']}~ · 30일 창 ${d.window_start['30']}~`);
+  $('rw-summary').style.display = 'grid';
+
+  if (!list.length) {
+    $('rw-result').innerHTML = `<div class="empty-state"><div class="es-icon">✅</div><p>${rwState.tab === 'risk' ? '위험으로 분류된 상품이 없습니다.' : '상품이 없습니다.'}</p></div>`;
+    return;
+  }
+
+  let html = `<div class="table-wrap" style="max-height:620px;overflow:auto;"><table>
+    <thead><tr>
+      <th>순위<br><span style="font-size:.68rem;font-weight:400;color:#9ca3af;">7d/14d</span></th>
+      <th style="text-align:left;">상품명</th>
+      <th>결제수량<br><span style="font-size:.68rem;font-weight:400;color:#9ca3af;">7d/14d</span></th>
+      <th>순반품률<br><span style="font-size:.68rem;font-weight:400;color:#9ca3af;">7일</span></th>
+      <th>순반품률<br><span style="font-size:.68rem;font-weight:400;color:#9ca3af;">14일</span></th>
+      <th>순반품률<br><span style="font-size:.68rem;font-weight:400;color:#9ca3af;">30일</span></th>
+      <th>위험 사유</th><th>관리</th>
+    </tr></thead><tbody>`;
+  for (const p of list) {
+    const w = p.windows, on = wset.has(p.product_no);
+    const reasons = [];
+    if (p.product_risk) reasons.push('<span style="background:#fee2e2;color:#b91c1c;border-radius:5px;padding:1px 7px;font-size:.68rem;font-weight:700;">상품 전체</span>');
+    if (p.risk_options.length) reasons.push(`<span style="background:#ffedd5;color:#c2410c;border-radius:5px;padding:1px 7px;font-size:.68rem;font-weight:700;">옵션 ${p.risk_options.length}개</span>`);
+    html += `<tr style="background:${p.flagged ? '#fffbeb' : '#fff'};">
+      <td style="font-size:.75rem;color:#6b7280;">${p.rank7 || '—'} / ${p.rank14 || '—'}</td>
+      <td style="text-align:left;min-width:210px;">
+        <span onclick="rwShowDetail(${p.product_no})" style="cursor:pointer;color:#4338ca;text-decoration:underline dotted;text-underline-offset:3px;">${escHtml(p.product_name)}</span>
+        ${on ? ' <span title="관리 상품">⭐</span>' : ''}</td>
+      <td style="font-size:.78rem;">${fmt(p.paid7)} / ${fmt(p.paid14)}</td>
+      <td>${rwBadge(w['7'].rate, w['7'].del, d.min_qty, d.risk_at)}<div style="font-size:.66rem;color:#9ca3af;">${fmt(w['7'].ret)}÷${fmt(w['7'].del)}</div></td>
+      <td>${rwBadge(w['14'].rate, w['14'].del, d.min_qty, d.risk_at)}<div style="font-size:.66rem;color:#9ca3af;">${fmt(w['14'].ret)}÷${fmt(w['14'].del)}</div></td>
+      <td>${rwBadge(w['30'].rate, w['30'].del, d.min_qty, d.risk_at)}<div style="font-size:.66rem;color:#9ca3af;">${fmt(w['30'].ret)}÷${fmt(w['30'].del)}</div></td>
+      <td style="text-align:left;">${reasons.join(' ') || '<span style="color:#9ca3af;font-size:.72rem;">—</span>'}</td>
+      <td>${on
+        ? `<button onclick="rwRemoveWatch(${p.product_no})" style="border:1px solid #fdba74;background:#fff7ed;color:#c2410c;border-radius:6px;padding:3px 9px;font-size:.7rem;font-weight:700;cursor:pointer;">해제</button>`
+        : `<button onclick="rwOpenAdd(${p.product_no})" style="border:1px solid #c7d2fe;background:#eef2ff;color:#4338ca;border-radius:6px;padding:3px 9px;font-size:.7rem;font-weight:700;cursor:pointer;">⭐ 지정</button>`}</td>
+    </tr>`;
+  }
+  html += '</tbody></table></div>';
+  $('rw-result').innerHTML = html;
+}
+
+/* ⭐ 관리 상품 탭 — 지정일·사유·지정 시점 수치 */
+function rwRenderWatch() {
+  const rows = rwState.watch || [];
+  $('rw-summary').style.display = 'none';
+  if (!rows.length) {
+    $('rw-result').innerHTML = '<div class="empty-state"><div class="es-icon">⭐</div><p>아직 관리 상품이 없습니다. 위험 상품 표에서 <strong>⭐ 지정</strong>을 눌러 등록하세요.</p></div>';
+    return;
+  }
+  $('rw-result').innerHTML = `<div class="table-wrap" style="max-height:620px;overflow:auto;"><table>
+    <thead><tr><th>지정일</th><th style="text-align:left;">상품명</th><th>지정 시점<br><span style="font-size:.68rem;font-weight:400;color:#9ca3af;">순반품률</span></th>
+      <th style="text-align:left;">지정 사유</th><th>지정자</th><th>해제</th></tr></thead><tbody>
+    ${rows.map(r => `<tr>
+      <td style="font-size:.76rem;color:#6b7280;white-space:nowrap;">${String(r.created_at || '').slice(0, 10)}</td>
+      <td style="text-align:left;min-width:200px;">${escHtml(r.product_name || '')}</td>
+      <td>${r.watch_rate != null ? `<b style="color:#dc2626;">${Number(r.watch_rate).toFixed(1)}%</b><div style="font-size:.66rem;color:#9ca3af;">배송완료 ${fmt(r.watch_qty || 0)}</div>` : '—'}</td>
+      <td style="text-align:left;font-size:.8rem;color:#374151;white-space:pre-wrap;">${escHtml(r.reason || '')}</td>
+      <td style="font-size:.75rem;color:#6b7280;">${escHtml(r.created_by || '')}</td>
+      <td><button onclick="rwRemoveWatch(${r.product_no})" style="border:1px solid #fdba74;background:#fff7ed;color:#c2410c;border-radius:6px;padding:3px 9px;font-size:.7rem;font-weight:700;cursor:pointer;">해제</button></td>
+    </tr>`).join('')}</tbody></table></div>`;
+}
+
+/* 창별(7/14/21/30일) + 옵션별 상세 */
+function rwShowDetail(no) {
+  const d = rwState.data, p = d.products.find(x => x.product_no === no);
+  if (!p) return;
+  $('rw-modal').style.display = 'flex';
+  $('rw-modal-title').textContent = p.product_name;
+  $('rw-modal-sub').textContent = `기준일 ${d.end_date} · 배송완료일 기준 · 반품신청·접수 포함`;
+  const WS = ['7', '14', '21', '30'];
+  const cell = (c) => `${rwBadge(c.rate, c.del, d.min_qty, d.risk_at)}<div style="font-size:.65rem;color:#9ca3af;">${fmt(c.ret)}÷${fmt(c.del)}</div>`;
+  $('rw-modal-body').innerHTML = `
+    <div style="font-size:.8rem;font-weight:800;color:#4338ca;margin-bottom:6px;">📅 기간별 순반품률 — 상품 전체</div>
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px;text-align:center;margin-bottom:14px;">
+      ${WS.map(k => `<div style="background:#f8f9ff;border-radius:10px;padding:9px 4px;">
+        <div style="font-size:.7rem;color:#6b7280;font-weight:600;">최근 ${k}일</div>
+        <div style="font-size:.62rem;color:#c7cbd6;margin-bottom:3px;">${d.window_start[k]}~</div>
+        ${cell(p.windows[k])}</div>`).join('')}
+    </div>
+    <div style="font-size:.8rem;font-weight:800;color:#4338ca;margin-bottom:6px;">🎨 옵션별 (14일 배송완료 많은 순)</div>
+    <div class="table-wrap" style="max-height:320px;overflow:auto;"><table>
+      <thead><tr><th style="text-align:left;">옵션</th>${WS.map(k => `<th>${k}일</th>`).join('')}</tr></thead>
+      <tbody>${p.options.map(o => `<tr style="background:${WS.some(k => o.windows[k].risk) ? '#fffbeb' : '#fff'};">
+        <td style="text-align:left;min-width:150px;font-size:.8rem;">${escHtml(o.option)}</td>
+        ${WS.map(k => `<td>${cell(o.windows[k])}</td>`).join('')}
+      </tr>`).join('')}</tbody>
+    </table></div>
+    <div style="font-size:.7rem;color:#9ca3af;margin-top:9px;line-height:1.6;border-top:1px solid #f3f4f6;padding-top:8px;">
+      ※ 배송완료 ${d.min_qty}개 미만은 <b>보류</b>로 표시합니다 (표본이 적어 요행일 수 있음) ·
+      이 수치는 <b>반품 신청·접수까지 포함</b>이라 판매 성과 메뉴보다 조금 높습니다</div>`;
+}
+
+/* ⭐ 지정 / 해제 */
+function rwOpenAdd(no) {
+  const p = rwState.data.products.find(x => x.product_no === no);
+  if (!p) return;
+  rwState.addNo = no;
+  $('rw-add-name').textContent = p.product_name;
+  $('rw-add-stat').textContent = `14일 순반품률 ${p.windows['14'].rate.toFixed(1)}% (${p.windows['14'].ret}÷${p.windows['14'].del})`
+    + (p.risk_options.length ? ` · 위험 옵션: ${p.risk_options.join(', ')}` : '');
+  $('rw-add-reason').value = '';
+  $('rw-add-modal').style.display = 'flex';
+  setTimeout(() => $('rw-add-reason').focus(), 50);
+}
+
+async function rwSaveWatch() {
+  const no = rwState.addNo;
+  const p = rwState.data.products.find(x => x.product_no === no);
+  const reason = $('rw-add-reason').value.trim();
+  if (!reason) { showToast('✏️ 지정 사유를 입력해주세요'); return; }
+  try {
+    await dbProxy('return_watch', {
+      method: 'POST', headers: { Prefer: 'return=minimal,resolution=merge-duplicates' },
+      body: JSON.stringify({
+        product_no: no, product_name: p.product_name, reason,
+        watch_rate: p.windows['14'].rate, watch_qty: p.windows['14'].del,
+        created_by: SESSION ? SESSION.name : '',
+      }),
+    });
+    $('rw-add-modal').style.display = 'none';
+    rwState.watch = null; await rwLoadWatch();
+    showToast('⭐ 관리 상품으로 지정했습니다');
+    rwRender();
+  } catch (e) { showToast('❌ ' + e.message); }
+}
+
+async function rwRemoveWatch(no) {
+  if (!confirm('관리 상품에서 해제할까요? 기록한 사유도 함께 지워집니다.')) return;
+  try {
+    await dbProxy(`return_watch?product_no=eq.${no}`, { method: 'DELETE', headers: { Prefer: 'return=minimal' } });
+    rwState.watch = null; await rwLoadWatch();
+    showToast('↩️ 해제했습니다');
+    rwRender();
+  } catch (e) { showToast('❌ ' + e.message); }
 }
 
 /* ──────────────────────────────
@@ -3842,7 +4161,7 @@ function renderProfitDetail(cur, costs) {
 /* ──────────────────────────────
    좌측 메뉴 내비게이션 + 대시보드(홈)
 ────────────────────────────── */
-const MENU_KEYS = ['home', 'cr', 'an', 'perf', 'disp', 'stock', 'stable', 'adv', 'profit', 'meet', 'users'];
+const MENU_KEYS = ['home', 'cr', 'an', 'perf', 'rwatch', 'disp', 'stock', 'stable', 'adv', 'profit', 'meet', 'users'];
 
 function showMenu(key) {
   if (!MENU_KEYS.includes(key)) key = 'home';
@@ -3850,6 +4169,7 @@ function showMenu(key) {
   // 권한 없는 메뉴는 홈으로 되돌린다 — 여기서 return하면 URL에 #stock 등을 달고 들어온
   // 권한 없는 사용자에게 아무 섹션도 표시되지 않아 화면이 비어버림
   const denied = (key === 'cr' && isStaff())
+    || (key === 'rwatch' && isCS())                      // 반품 관리 = 관리자 + MD
     || (['users', 'disp', 'stock', 'stable', 'profit'].includes(key) && !isAdmin());
   if (denied) { showToast('⛔ 접근 권한이 없습니다'); key = 'home'; }
   document.querySelectorAll('.page-sec').forEach(el => { el.style.display = 'none'; });
@@ -3865,6 +4185,7 @@ function showMenu(key) {
   }
   if (key === 'users') loadUsers();
   if (key === 'profit' && isAdmin()) loadProfitArchive();
+  if (key === 'rwatch') rwInit();
 }
 
 const homeState = { loaded: false, loading: false };

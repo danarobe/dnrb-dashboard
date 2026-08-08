@@ -178,6 +178,9 @@ async function eachOrder(
   onOrders: (orders: Record<string, unknown>[]) => void,
 ): Promise<void> {
   const ranges = await splitOrderRanges(token, filter, s, e);
+  // **부분배송 주문은 배송종료일이 여러 개라 두 조각 모두에 잡힌다**(실측: 조각 합계가 전체보다 176건 많음).
+  // 조각을 나눈 뒤로 생긴 문제라 주문번호로 걸러 같은 주문을 두 번 세지 않는다.
+  const seen = new Set<string>();
   let idx = 0;
   const worker = async () => {
     while (idx < ranges.length) {
@@ -186,8 +189,14 @@ async function eachOrder(
         const body = await apiGet(
           `${API_BASE}/admin/orders?start_date=${a}&end_date=${b}&${filter}&limit=${ORDER_PAGE}&offset=${offset}`, token);
         const orders = (body.orders ?? []) as Record<string, unknown>[];
-        onOrders(orders);
-        if (orders.length < ORDER_PAGE) break;
+        const fresh = orders.filter((o) => {
+          const id = String(o.order_id ?? "");
+          if (!id || seen.has(id)) return false;
+          seen.add(id);
+          return true;
+        });
+        if (fresh.length) onOrders(fresh);
+        if (orders.length < ORDER_PAGE) break;    // 페이지 끝 판정은 걸러내기 전 길이로
       }
     }
   };
@@ -405,6 +414,112 @@ Deno.serve(async (req) => {
           net_return_rate: totalQty > 0 ? +(returnQty / totalQty * 100).toFixed(2) : 0,
         },
         rows,
+      });
+    }
+
+    // ── 반품 관리: 결제수량 상위 상품의 창별(7/14/21/30일) 순반품률 (관리자·MD) ──
+    // 기존 netreturns와 **일부러 기준이 다르다**(사용자 결정):
+    //   · netreturns   = R30/R34/R40 (수거 이후만)          — 판매 성과·홈·진열이 쓰는 기존 지표, 건드리지 않음
+    //   · 여기(returnwatch) = R00/R10 + R30/R34/R40         — 반품신청·접수까지 포함해 최근 기간도 빨리 확정됨
+    // 상태는 품목당 하나뿐이라 신청·접수를 더해도 중복 집계되지 않는다(실측: 철회·반려 코드 자체가 없음).
+    //
+    // 성능: 30일 창의 패딩 범위를 **한 번만** 훑고 delivered_date로 잘라 4개 창을 모두 만든다
+    // (창마다 따로 조회하면 123초, 한 번 훑으면 ~50초 — 실측으로 4개 창 수치 완전 일치 확인).
+    if (action === "returnwatch") {
+      if (!["admin", "staff"].includes(authed.role)) return json({ error: "접근 권한이 없습니다" }, 403);
+      const e = url.searchParams.get("end_date");
+      if (!e) return json({ error: "end_date 필수 (YYYY-MM-DD)" }, 400);
+      const topN = Math.max(1, Math.min(100, Number(url.searchParams.get("top") ?? 30)));
+      const minQty = Math.max(0, Number(url.searchParams.get("min_qty") ?? 10));   // 소표본 판정 보류 기준
+      const riskAt = Number(url.searchParams.get("risk") ?? 20);                    // '위험' 경계 (%)
+
+      const RET = new Set(["R00", "R10", "R30", "R34", "R40"]);
+      const WINDOWS = [7, 14, 21, 30];
+      const endMs = new Date(e).getTime();
+      const winStart: Record<number, string> = {};
+      for (const w of WINDOWS) winStart[w] = ymd(endMs - (w - 1) * dayMs);
+      const scanFrom = ymd(endMs - 29 * dayMs);
+
+      // ① 결제수량 순위 — 애널리틱스(빠름). 7일·14일 각각의 상위 topN을 합집합으로 본다
+      const paid: Record<number, Record<number, number>> = {};      // window → product_no → 결제수량
+      const nameOf = new Map<number, string>();
+      for (const w of [7, 14]) {
+        const rows = await collectData("/products/sales", "sales",
+          new URLSearchParams({ mall_id: MALL_ID, start_date: winStart[w], end_date: e }), token);
+        const m: Record<number, number> = {};
+        for (const r of rows) {
+          const no = Number(r.product_no);
+          if (!no) continue;
+          m[no] = (m[no] ?? 0) + num(r.order_product_count);
+          if (r.product_name) nameOf.set(no, String(r.product_name));
+        }
+        paid[w] = m;
+      }
+      const topOf = (w: number) => Object.entries(paid[w])
+        .sort((a, b) => b[1] - a[1]).slice(0, topN).map(([no]) => Number(no));
+      const rank7 = topOf(7), rank14 = topOf(14);
+      const target = new Set([...rank7, ...rank14]);
+      const rankIdx = (arr: number[], no: number) => { const i = arr.indexOf(no); return i < 0 ? 0 : i + 1; };
+
+      // ② 배송완료·반품 수량 — 30일 창 패딩 범위를 한 번만 훑는다
+      type Cell = { del: number; ret: number };
+      const mk = (): Record<number, Cell> => ({ 7: { del: 0, ret: 0 }, 14: { del: 0, ret: 0 }, 21: { del: 0, ret: 0 }, 30: { del: 0, ret: 0 } });
+      type Row = { name: string; win: Record<number, Cell>; opts: Map<string, Record<number, Cell>> };
+      const rows = new Map<number, Row>();
+      const fetchStart = ymd(new Date(scanFrom).getTime() - 7 * dayMs);
+      const fetchEnd = ymd(Math.min(endMs + 30 * dayMs, Date.now()));
+
+      await eachOrder(token, "date_type=shipend_date&embed=items&fields=order_id,items", fetchStart, fetchEnd, (orders) => {
+        for (const o of orders) {
+          for (const it of (o.items ?? []) as Record<string, unknown>[]) {
+            const no = Number(it.product_no);
+            if (!no || !target.has(no)) continue;                    // 상위 상품만 집계 (응답 가볍게)
+            const dd = String(it.delivered_date ?? "").slice(0, 10);
+            if (!dd || dd < scanFrom || dd > e) continue;
+            let row = rows.get(no);
+            if (!row) { row = { name: String(it.product_name ?? nameOf.get(no) ?? ""), win: mk(), opts: new Map() }; rows.set(no, row); }
+            const optKey = String(it.option_value ?? "").trim() || "(단일 옵션)";
+            let opt = row.opts.get(optKey);
+            if (!opt) { opt = mk(); row.opts.set(optKey, opt); }
+            const qty = num(it.quantity);
+            const isRet = RET.has(String(it.order_status ?? ""));
+            for (const w of WINDOWS) {
+              if (dd < winStart[w]) continue;
+              row.win[w].del += qty; opt[w].del += qty;
+              if (isRet) { row.win[w].ret += qty; opt[w].ret += qty; }
+            }
+          }
+        }
+      });
+
+      // ③ 위험 판정 — 배송완료 minQty 미만은 '판정 보류'(소표본 요행 배제, 판매 성과와 같은 기준)
+      const rate = (c: Cell) => c.del > 0 ? +(c.ret / c.del * 100).toFixed(2) : 0;
+      const risky = (c: Cell) => c.del >= minQty && rate(c) >= riskAt;
+      const out = [...rows.entries()].map(([no, r]) => {
+        const options = [...r.opts.entries()].map(([option, w]) => ({
+          option,
+          windows: Object.fromEntries(WINDOWS.map((k) => [k, { ...w[k], rate: rate(w[k]), risk: risky(w[k]) }])),
+        })).sort((a, b) => b.windows[14].del - a.windows[14].del);
+        const windows = Object.fromEntries(WINDOWS.map((k) => [k, { ...r.win[k], rate: rate(r.win[k]), risk: risky(r.win[k]) }]));
+        // 판정 창 = 순위에 든 창 (7일 상위면 7일, 14일 상위면 14일 — 둘 다면 둘 중 하나라도)
+        const judge = [rank7.includes(no) ? 7 : 0, rank14.includes(no) ? 14 : 0].filter(Boolean) as number[];
+        const productRisk = judge.some((w) => risky(r.win[w]));
+        const optionRisk = options.filter((o) => judge.some((w) => o.windows[w].risk));
+        return {
+          product_no: no, product_name: r.name,
+          rank7: rankIdx(rank7, no), rank14: rankIdx(rank14, no),
+          paid7: paid[7][no] ?? 0, paid14: paid[14][no] ?? 0,
+          windows, options,
+          product_risk: productRisk,
+          risk_options: optionRisk.map((o) => o.option),
+          flagged: productRisk || optionRisk.length > 0,
+        };
+      }).sort((a, b) => (b.windows[14].rate - a.windows[14].rate));
+
+      return json({
+        end_date: e, window_start: winStart, basis: "item_delivered_date",
+        statuses: [...RET], min_qty: minQty, risk_at: riskAt, top: topN,
+        products: out,
       });
     }
 
