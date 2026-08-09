@@ -381,6 +381,90 @@
       .section-body { padding:14px; }
       .control-bar { padding:12px 14px; gap:10px; }
     }
+    /* ═══════════════════════════════════════════
+       글래스모피즘 리스타일 (2026-08-09, 사용자 요청)
+       기존 규칙 뒤에서 덮어쓰기만 한다 — 레이아웃·마크업 불변.
+       라벤더→하늘색 그라데이션 배경 + 반투명 유리 카드(blur) + 인디고 포인트.
+    ═══════════════════════════════════════════ */
+    body {
+      background: linear-gradient(135deg, #e8e4f8 0%, #e3ecfb 45%, #dfe9fa 70%, #e9e6f9 100%);
+      background-attachment: fixed;
+    }
+    .top-header {
+      background: rgba(255,255,255,.55);
+      -webkit-backdrop-filter: blur(18px); backdrop-filter: blur(18px);
+      border-bottom: 1px solid rgba(255,255,255,.7);
+      box-shadow: 0 4px 24px rgba(99,102,241,.10);
+    }
+    .top-header h1 { color: #1e1b4b; }
+    .top-header h1 span { color: #6366f1; }
+    #user-info { color: #4b5563 !important; }
+    .btn-copy-link {
+      background: rgba(99,102,241,.10); color: #4f46e5; border: 1px solid rgba(99,102,241,.35);
+    }
+    .btn-copy-link:hover { background: rgba(99,102,241,.20); }
+
+    .menu-group {
+      font-size: .68rem; font-weight: 800; color: #6d6a8a;
+      letter-spacing: .08em; padding: 12px 4px 2px 8px; user-select: none;
+    }
+    .side-menu .menu-group:first-child { padding-top: 0; }
+    .menu-item {
+      background: rgba(255,255,255,.5);
+      -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px);
+      border: 1px solid rgba(255,255,255,.75);
+      box-shadow: 0 2px 10px rgba(99,102,241,.06);
+    }
+    .menu-item:hover { background: rgba(255,255,255,.75); border-color: rgba(99,102,241,.35); }
+    .menu-item.active {
+      background: linear-gradient(135deg, rgba(99,102,241,.92), rgba(139,92,246,.92));
+      border-color: transparent; box-shadow: 0 6px 18px rgba(99,102,241,.35);
+    }
+
+    .section-card {
+      background: rgba(255,255,255,.6);
+      -webkit-backdrop-filter: blur(18px); backdrop-filter: blur(18px);
+      border: 1px solid rgba(255,255,255,.8);
+      box-shadow: 0 8px 30px rgba(99,102,241,.10);
+    }
+    .section-header { background: rgba(255,255,255,.35); border-bottom: 1px solid rgba(255,255,255,.6); }
+    .control-bar {
+      background: rgba(255,255,255,.45);
+      border: 1px solid rgba(255,255,255,.75);
+      -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px);
+    }
+    .table-wrap { background: rgba(255,255,255,.55); border-color: rgba(255,255,255,.8); }
+    .filter-tab { background: rgba(255,255,255,.55); border-color: rgba(255,255,255,.85); }
+    .filter-tab.active { border-color: transparent; }
+    #login-overlay { background: linear-gradient(135deg, #e8e4f8, #dfe9fa); }
+    #login-card {
+      background: rgba(255,255,255,.65) !important;
+      -webkit-backdrop-filter: blur(20px); backdrop-filter: blur(20px);
+      border: 1px solid rgba(255,255,255,.85);
+    }
+    /* 모달 4종 — 컨테이너가 인라인 #fff라 !important로 유리화 */
+    #rr-modal > div, #rw-modal > div, #rw-add-modal > div, #meta-preview-modal > div {
+      background: rgba(255,255,255,.78) !important;
+      -webkit-backdrop-filter: blur(22px); backdrop-filter: blur(22px);
+      border: 1px solid rgba(255,255,255,.85);
+      box-shadow: 0 18px 50px rgba(30,27,75,.25);
+    }
+
+    /* 기간 프리셋 칩 (⑤) */
+    .qp { display: inline-flex; gap: 5px; flex-wrap: wrap; }
+    .qp button {
+      border: 1px solid rgba(99,102,241,.3); background: rgba(255,255,255,.55);
+      color: #4f46e5; border-radius: 50px; padding: 5px 11px;
+      font-size: .73rem; font-weight: 700; cursor: pointer; font-family: inherit;
+      transition: all .15s;
+    }
+    .qp button:hover { background: rgba(99,102,241,.12); }
+
+    /* 모바일 열 숨김 공용 클래스 (④ — 판매 성과·상품 분석) */
+    @media (max-width: 700px) {
+      .m-hide { display: none !important; }
+      .menu-group { display: none; }   /* 가로 스크롤 메뉴에선 소제목 생략 */
+    }
   </style>
 </head>
 <body>
@@ -418,16 +502,20 @@
 
 <!-- ══ 좌측 메뉴 ══ -->
 <nav class="side-menu">
+  <div class="menu-group">📊 분석</div>
   <button class="menu-item" data-menu="home" onclick="showMenu('home')">🏠 대시보드</button>
   <button class="menu-item" data-menu="cr"   id="menu-cr" onclick="showMenu('cr')">📉 취소 &amp; 반품</button>
   <button class="menu-item" data-menu="an"   onclick="showMenu('an')">👀 상품 분석</button>
   <button class="menu-item" data-menu="perf" onclick="showMenu('perf')">📊 판매 성과</button>
   <button class="menu-item" data-menu="rwatch" id="menu-rwatch" onclick="showMenu('rwatch')">🔁 반품 관리</button>
+  <div class="menu-group">🏪 운영</div>
   <button class="menu-item" data-menu="disp" id="menu-disp" onclick="showMenu('disp')">🗂️ 카테고리별 진열</button>
   <button class="menu-item" data-menu="stock" id="menu-stock" onclick="showMenu('stock')">📦 셀메이트 재고 대조</button>
   <button class="menu-item" data-menu="stable" id="menu-stable" onclick="showMenu('stable')">🧮 안정재고 편성</button>
+  <div class="menu-group">💼 경영</div>
   <button class="menu-item" data-menu="adv"  id="menu-adv" onclick="showMenu('adv')">📣 광고 효율</button>
   <button class="menu-item" data-menu="profit" id="menu-profit" onclick="showMenu('profit')">💰 순익 시나리오</button>
+  <div class="menu-group">🤝 협업</div>
   <button class="menu-item" data-menu="meet" onclick="showMenu('meet')">📝 광고 회의록</button>
   <button class="menu-item" data-menu="users" id="menu-users" style="display:none;" onclick="showMenu('users')">👥 직원 관리</button>
 </nav>
@@ -449,6 +537,7 @@
         <input type="date" id="homeDateStart" />
         <span class="date-sep">~</span>
         <input type="date" id="homeDateEnd" />
+        <span class="qp"><button onclick="qPeriod('homeDateStart','homeDateEnd','7d')">최근 7일</button><button onclick="qPeriod('homeDateStart','homeDateEnd','14d')">14일</button><button onclick="qPeriod('homeDateStart','homeDateEnd','30d')">30일</button><button onclick="qPeriod('homeDateStart','homeDateEnd','lastm')">지난달</button></span>
         <button class="btn-analyze" id="btn-api-home" onclick="loadHome(true)">
           <i class="fa-solid fa-cloud-arrow-down"></i> 카페24 불러오기
         </button>
@@ -520,6 +609,9 @@
         </div>
       </div>
 
+      <!-- 바로가기 — 역할별로 보이는 메뉴만 (renderHomeShortcuts) -->
+      <div id="home-shortcuts" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-top:14px;"></div>
+
     </div>
   </div>
 
@@ -539,6 +631,7 @@
         <input type="date" id="crDateStart" />
         <span class="date-sep">~</span>
         <input type="date" id="crDateEnd" />
+        <span class="qp"><button onclick="qPeriod('crDateStart','crDateEnd','7d')">최근 7일</button><button onclick="qPeriod('crDateStart','crDateEnd','14d')">14일</button><button onclick="qPeriod('crDateStart','crDateEnd','30d')">30일</button><button onclick="qPeriod('crDateStart','crDateEnd','lastm')">지난달</button></span>
         <label style="display:flex;align-items:center;gap:5px;font-size:.72rem;color:#9ca3af;cursor:pointer;font-weight:600;white-space:nowrap;" title="체크하면 홈 대시보드의 '카페24 불러오기'가 이 메뉴의 기간을 덮어쓰지 않습니다">
           <input type="checkbox" id="own-period-cr" onchange="saveOwnPeriod()" /> 이 메뉴만 별도 기간</label>
         <div class="divider"></div>
@@ -710,6 +803,7 @@
         <input type="date" id="anDateStart" />
         <span class="date-sep">~</span>
         <input type="date" id="anDateEnd" />
+        <span class="qp"><button onclick="qPeriod('anDateStart','anDateEnd','7d')">최근 7일</button><button onclick="qPeriod('anDateStart','anDateEnd','14d')">14일</button><button onclick="qPeriod('anDateStart','anDateEnd','30d')">30일</button><button onclick="qPeriod('anDateStart','anDateEnd','lastm')">지난달</button></span>
         <label style="display:flex;align-items:center;gap:5px;font-size:.72rem;color:#9ca3af;cursor:pointer;font-weight:600;white-space:nowrap;" title="체크하면 홈 대시보드의 '카페24 불러오기'가 이 메뉴의 기간을 덮어쓰지 않습니다">
           <input type="checkbox" id="own-period-an" onchange="saveOwnPeriod()" /> 이 메뉴만 별도 기간</label>
         <div class="divider"></div>
@@ -779,6 +873,7 @@
         <input type="date" id="perfDateStart" style="padding:7px 11px;border:1.5px solid #e5e7eb;border-radius:8px;font-size:.85rem;font-family:inherit;" />
         <span class="date-sep">~</span>
         <input type="date" id="perfDateEnd" style="padding:7px 11px;border:1.5px solid #e5e7eb;border-radius:8px;font-size:.85rem;font-family:inherit;" />
+        <span class="qp"><button onclick="qPeriod('perfDateStart','perfDateEnd','7d')">최근 7일</button><button onclick="qPeriod('perfDateStart','perfDateEnd','14d')">14일</button><button onclick="qPeriod('perfDateStart','perfDateEnd','30d')">30일</button><button onclick="qPeriod('perfDateStart','perfDateEnd','lastm')">지난달</button></span>
         <label style="display:flex;align-items:center;gap:5px;font-size:.72rem;color:#9ca3af;cursor:pointer;font-weight:600;white-space:nowrap;" title="체크하면 홈 대시보드의 '카페24 불러오기'가 이 메뉴의 기간을 덮어쓰지 않습니다">
           <input type="checkbox" id="own-period-perf" onchange="saveOwnPeriod()" /> 이 메뉴만 별도 기간</label>
         <div class="divider"></div>
@@ -893,6 +988,7 @@
       <div class="control-bar">
         <label><i class="fa-regular fa-calendar"></i> 기준일</label>
         <input type="date" id="rwDate" onchange="rwCheckDate()" />
+        <span class="qp"><button onclick="qDate('rwDate',7)">7일 전</button><button onclick="qDate('rwDate',14)">14일 전</button></span>
         <button class="btn-analyze" id="btn-rw" onclick="rwFetch()">
           <i class="fa-solid fa-cloud-arrow-down"></i> 조회
         </button>
@@ -1526,6 +1622,16 @@ function applyRole() {
   $('menu-profit').style.display = isAdmin() && !isCS() ? '' : 'none';
   // Meta 광고 성과 패널 — 관리자 + MD (MD는 광고비·전환값·총매출 블러)
   const mp = $('meta-panel'); if (mp) mp.style.display = (isAdmin() || isStaff()) && !isCS() ? 'block' : 'none';
+  // 그룹 소제목: 그 그룹의 버튼이 하나도 안 보이면 소제목도 숨김 (CS는 판매 성과만 보이므로 대부분 숨음)
+  const navEls = [...document.querySelectorAll('.side-menu > *')];
+  navEls.forEach((el, i) => {
+    if (!el.classList.contains('menu-group')) return;
+    let anyVisible = false;
+    for (let j = i + 1; j < navEls.length && !navEls[j].classList.contains('menu-group'); j++) {
+      if (navEls[j].style.display !== 'none') { anyVisible = true; break; }
+    }
+    el.style.display = anyVisible ? '' : 'none';
+  });
   $('user-info').textContent = SESSION ? `${SESSION.name} (${isAdmin() ? '관리자' : isCS() ? 'CS팀' : 'MD'})` : '';
   $('btn-logout').style.display = SESSION ? '' : 'none';
 }
@@ -1596,6 +1702,46 @@ async function changeMyPassword() {
 }
 
 /* 아카이브·회의록 테이블 접근 — db 프록시 함수 경유 (anon 직접 접근은 차단됨) */
+
+/* ── 기간 프리셋 칩 — 시작~끝 날짜를 한 번에 채운다 (조회는 사용자가 직접 누름) ── */
+function qPeriod(sId, eId, kind) {
+  const day = 864e5;
+  const ymd = ms => new Date(ms).toISOString().slice(0, 10);
+  let s, e = Date.now();
+  if (kind === '7d') s = e - 6 * day;
+  else if (kind === '14d') s = e - 13 * day;
+  else if (kind === '30d') s = e - 29 * day;
+  else if (kind === 'lastm') {  // 지난달 1일~말일 (정오 기준 — UTC 변환으로 하루 밀리는 것 방지)
+    const d = new Date();
+    s = new Date(d.getFullYear(), d.getMonth() - 1, 1, 12).getTime();
+    e = new Date(d.getFullYear(), d.getMonth(), 0, 12).getTime();
+  }
+  $(sId).value = ymd(s); $(eId).value = ymd(e);
+}
+function qDate(id, daysAgo) {
+  $(id).value = new Date(Date.now() - daysAgo * 864e5).toISOString().slice(0, 10);
+  if (id === 'rwDate') rwCheckDate();
+}
+
+/* ── 조회 버튼 진행 표시 — 긴 조회(수십 초~수 분) 동안 경과 시간을 보여준다 ── */
+const __btnTimers = new Map();
+function btnBusy(btn, label) {
+  if (!btn) return;
+  const t0 = Date.now();
+  btn.disabled = true;
+  const tick = () => {
+    const s = Math.round((Date.now() - t0) / 1000);
+    btn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> ${label} <span style="opacity:.75;font-size:.85em;">${s}초</span>`;
+  };
+  tick();
+  __btnTimers.set(btn, setInterval(tick, 1000));
+}
+function btnIdle(btn, html) {
+  if (!btn) return;
+  clearInterval(__btnTimers.get(btn)); __btnTimers.delete(btn);
+  btn.disabled = false; btn.innerHTML = html;
+}
+
 async function dbProxy(path, init = {}) {
   if (!sbReady()) throw new Error('config.js에 Supabase 설정이 필요합니다');
   const res = await fetch(`${SB.SUPABASE_URL}/functions/v1/db`, {
@@ -1726,7 +1872,7 @@ async function fetchCafe24Api() {
   const ds = $('crDateStart').value, de = $('crDateEnd').value;
   if (!ds || !de) { showToast('📅 분석 기간을 먼저 선택해주세요'); return; }
   const btn = $('btn-api-c24');
-  btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> 조회 중...';
+  btnBusy(btn, '조회 중');
   try {
     const res = await fetch(fnUrl('cafe24-claims', { start_date: ds, end_date: de }), { headers: sbHeaders() });
     const data = await res.json();
@@ -1745,8 +1891,7 @@ async function fetchCafe24Api() {
     showToast('❌ 카페24 조회 실패: ' + e.message);
     console.error(e);
   } finally {
-    btn.disabled = false;
-    btn.innerHTML = '<i class="fa-solid fa-cloud-arrow-down"></i> 카페24 불러오기';
+    btnIdle(btn, '<i class="fa-solid fa-cloud-arrow-down"></i> 카페24 불러오기');
   }
 }
 
@@ -1932,17 +2077,17 @@ function renderAnalytics() {
   const sorted = [...rows].sort((a, b) => b[key] - a[key]);
   let html = `<div class="table-wrap"><table>
     <thead><tr>
-      <th style="width:44px;">#</th><th style="text-align:left;">상품</th>
-      <th>조회수</th><th>주문수</th><th>판매수량</th>${isStaff() ? '' : '<th>주문금액</th>'}<th>주문율</th>
+      <th style="width:44px;" class="m-hide">#</th><th style="text-align:left;">상품</th>
+      <th>조회수</th><th class="m-hide">주문수</th><th>판매수량</th>${isStaff() ? '' : '<th class="m-hide">주문금액</th>'}<th>주문율</th>
     </tr></thead><tbody>`;
   sorted.forEach((r, i) => {
     html += `<tr>
-      <td style="color:#9ca3af;">${i + 1}</td>
+      <td style="color:#9ca3af;" class="m-hide">${i + 1}</td>
       <td style="text-align:left;"><span style="color:#9ca3af;font-size:.75rem;">[${r.product_no}]</span> ${escHtml(r.product_name)}</td>
       <td>${fmt(r.views)}</td>
-      <td>${fmt(r.order_count)}</td>
+      <td class="m-hide">${fmt(r.order_count)}</td>
       <td>${fmt(r.order_qty)}</td>
-      ${isStaff() ? '' : `<td>${fmt(r.order_amount)}원</td>`}
+      ${isStaff() ? '' : `<td class="m-hide">${fmt(r.order_amount)}원</td>`}
       <td>${anRateBadge(r.rate)}</td>
     </tr>`;
   });
@@ -2289,7 +2434,7 @@ async function rwFetch() {
   const e = $('rwDate').value;
   if (!e) { showToast('📅 기준일을 선택해주세요'); return; }
   const btn = $('btn-rw');
-  btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> 조회 중... (30초 안팎)';
+  btnBusy(btn, '조회 중');
   try {
     const [d] = await Promise.all([
       anGet({ action: 'returnwatch', end_date: e,
@@ -2305,7 +2450,7 @@ async function rwFetch() {
     showToast('❌ 조회 실패: ' + err.message);
     console.error(err);
   } finally {
-    btn.disabled = false; btn.innerHTML = '<i class="fa-solid fa-cloud-arrow-down"></i> 조회';
+    btnIdle(btn, '<i class="fa-solid fa-cloud-arrow-down"></i> 조회');
   }
 }
 
@@ -2524,7 +2669,7 @@ async function dispFetch() {
   const end = $('dispDate').value;
   if (!end) { showToast('📅 기준일을 선택해주세요'); return; }
   const btn = $('btn-disp-fetch');
-  btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> 조회 중... (수십 초)';
+  btnBusy(btn, '조회 중');
   try {
     const d = await anGet({ action: 'displaymetrics', end_date: end });
     dispState.metrics = d.metrics;
@@ -2533,7 +2678,7 @@ async function dispFetch() {
     showToast(`✅ 지표 조회 완료 (7일 ${d.period.start7}~ · 21일 ${d.period.start21}~ · 순반품률 ${d.period.loss_start}~${d.period.loss_end}) — 카테고리를 선택하세요`);
     if ($('dispCategory').value) await dispRender();
   } catch (e) { showToast('❌ 조회 실패: ' + e.message); console.error(e); }
-  finally { btn.disabled = false; btn.innerHTML = '<i class="fa-solid fa-cloud-arrow-down"></i> 데이터 조회'; }
+  finally { btnIdle(btn, '<i class="fa-solid fa-cloud-arrow-down"></i> 데이터 조회'); }
 }
 
 async function dispEnsureCategory(catNo) {
@@ -3201,7 +3346,7 @@ async function fetchStockCompare() {
   if (!s || !e) { showToast('📅 결제 기간을 선택해주세요'); return; }
 
   const btn = $('btn-stock-fetch');
-  btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> 대조 중... (수십 초)';
+  btnBusy(btn, '대조 중');
   try {
     const d = await anGet({ action: 'paiditems', start_date: s, end_date: e });
     stockState.period = d.period;
@@ -3253,7 +3398,7 @@ async function fetchStockCompare() {
   } catch (err) {
     showToast('❌ 대조 실패: ' + err.message);
   } finally {
-    btn.disabled = false; btn.innerHTML = '<i class="fa-solid fa-cloud-arrow-down"></i> 대조 실행';
+    btnIdle(btn, '<i class="fa-solid fa-cloud-arrow-down"></i> 대조 실행');
   }
 }
 
@@ -3894,7 +4039,7 @@ async function fetchProfitData() {
   const s = $('pfDateStart').value, e = $('pfDateEnd').value;
   if (!s || !e) { showToast('📅 기간을 선택해주세요'); return; }
   const btn = $('btn-pf-fetch');
-  btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> 수집 중... (수십 초)';
+  btnBusy(btn, '수집 중');
   try {
     const [rev, claims, perf, meta] = await Promise.all([
       anGet({ action: 'revenue', start_date: s, end_date: e }).catch(err => ({ __err: '매출: ' + err.message })),
@@ -3932,7 +4077,7 @@ async function fetchProfitData() {
     renderProfit();
     showToast(errs.length ? '⚠️ 일부 수집 실패: ' + errs.join(' / ') : '✅ 4개 지표 자동 수집 완료 — 값은 직접 수정할 수 있어요');
   } finally {
-    btn.disabled = false; btn.innerHTML = '<i class="fa-solid fa-cloud-arrow-down"></i> 데이터 자동 수집';
+    btnIdle(btn, '<i class="fa-solid fa-cloud-arrow-down"></i> 데이터 자동 수집');
   }
 }
 
@@ -4187,7 +4332,7 @@ function showMenu(key) {
   if (target) target.style.display = 'block';
   document.querySelectorAll('.menu-item').forEach(b => b.classList.toggle('active', b.dataset.menu === key));
   history.replaceState(null, '', '#' + key);
-  if (key === 'home') { checkCafe24Status(); updateHomeSourceStatus(); updateHomeReasons(); updateHomeClaimsTile(); updateHomeTrafficTile(); }
+  if (key === 'home') { checkCafe24Status(); updateHomeSourceStatus(); updateHomeReasons(); updateHomeClaimsTile(); updateHomeTrafficTile(); renderHomeShortcuts(); }
   if (key === 'meet') {
     loadAdTopics(); loadMeetNotes();
     if (!$('note-date').value) $('note-date').value = new Date().toISOString().slice(0, 10);
@@ -4199,6 +4344,35 @@ function showMenu(key) {
 }
 
 const homeState = { loaded: false, loading: false };
+
+/* 홈 바로가기 타일 — 역할별로 접근 가능한 메뉴만. 관리 상품 개수는 가벼운 DB 조회로 비동기 채움 */
+function renderHomeShortcuts() {
+  const el = $('home-shortcuts'); if (!el) return;
+  const tiles = [
+    { key: 'rwatch', icon: '🔁', name: '반품 관리', desc: '반품률 높은 상품 점검', show: isAdmin() || isStaff() },
+    { key: 'disp',   icon: '🗂️', name: '카테고리별 진열', desc: '주간 진열 순서 계산', show: isAdmin() },
+    { key: 'adv',    icon: '📣', name: '광고 효율', desc: 'Meta 광고 성과·소재', show: isAdmin() || isStaff() },
+    { key: 'profit', icon: '💰', name: '순익 시나리오', desc: '기간 순이익 계산', show: isAdmin() },
+    { key: 'meet',   icon: '📝', name: '광고 회의록', desc: '팀 안건·회의 기록', show: !isCS() },
+  ].filter(t => t.show);
+  el.innerHTML = tiles.map(t => `
+    <button onclick="showMenu('${t.key}')" style="display:flex;align-items:center;gap:12px;text-align:left;cursor:pointer;
+      background:rgba(255,255,255,.55);border:1px solid rgba(255,255,255,.85);border-radius:14px;padding:14px 16px;font-family:inherit;transition:all .15s;"
+      onmouseover="this.style.background='rgba(255,255,255,.8)'" onmouseout="this.style.background='rgba(255,255,255,.55)'">
+      <span style="font-size:1.5rem;">${t.icon}</span>
+      <span>
+        <b style="display:block;font-size:.88rem;color:#1e1b4b;">${t.name} <span style="color:#9ca3af;">→</span></b>
+        <span style="font-size:.73rem;color:#6b7280;" id="hs-desc-${t.key}">${t.desc}</span>
+      </span>
+    </button>`).join('');
+  // 관리 상품 개수 비동기 표시 (실패해도 무해)
+  if ((isAdmin() || isStaff()) && sbReady()) {
+    dbProxy('return_watch?select=product_no').then(rows => {
+      const d = $('hs-desc-rwatch');
+      if (d && rows && rows.length) d.innerHTML = `⭐ 관리 상품 <b style="color:#c2410c;">${rows.length}개</b> 추적 중`;
+    }).catch(() => {});
+  }
+}
 
 /* 데이터 수집 상태 칩 — 카페24 API / 네이버 취소 CSV / 네이버 반품 CSV */
 function updateHomeSourceStatus() {
@@ -4364,7 +4538,7 @@ async function loadHome(force) {
   }
 
   const btn = $('btn-api-home');
-  btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> 불러오는 중... (수십 초)';
+  btnBusy(btn, '불러오는 중');
   const loading = '<i class="fa-solid fa-spinner fa-spin"></i>';
   ['home-rev', 'home-claims', 'home-traffic', 'home-margin'].forEach(id => { $(id).innerHTML = loading; });
 
@@ -4413,8 +4587,7 @@ async function loadHome(force) {
   loadTrending(true);
   runAnalysis();  // 총 매출액 반영해 취소반품 비율 재계산
   updateHomeSourceStatus(); updateHomeReasons(); updateHomeClaimsTile();
-  btn.disabled = false;
-  btn.innerHTML = '<i class="fa-solid fa-cloud-arrow-down"></i> 카페24 불러오기';
+  btnIdle(btn, '<i class="fa-solid fa-cloud-arrow-down"></i> 카페24 불러오기');
   homeState.loaded = true;
   homeState.loading = false;
 }
@@ -5251,7 +5424,7 @@ async function fetchPerfApi() {
   const ds = $('perfDateStart').value, de = $('perfDateEnd').value;
   if (!ds || !de) { showToast('📅 분석 기간을 먼저 선택해주세요'); return; }
   const btn = $('btn-api-perf');
-  btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> 조회 중... (수십 초 소요)';
+  btnBusy(btn, '조회 중');
   try {
     const [data, net] = await Promise.all([
       anGet({ action: 'performance', start_date: ds, end_date: de }),
@@ -5293,8 +5466,7 @@ async function fetchPerfApi() {
     showToast('❌ 판매 성과 조회 실패: ' + e.message);
     console.error(e);
   } finally {
-    btn.disabled = false;
-    btn.innerHTML = '<i class="fa-solid fa-cloud-arrow-down"></i> 카페24 불러오기';
+    btnIdle(btn, '<i class="fa-solid fa-cloud-arrow-down"></i> 카페24 불러오기');
   }
 }
 
@@ -5415,16 +5587,16 @@ function renderPerfResult() {
   } else {
     html += `<div class="table-wrap"><table>
       <thead><tr>
-        <th>순위</th>
+        <th class="m-hide">순위</th>
         <th>상품명</th>
-        <th>판매가</th>
-        <th>공급가<br><span style="font-size:.68rem;font-weight:400;color:#9ca3af;">VAT 제외</span></th>
-        <th>결제수량</th>
-        <th>환불수량</th>
+        <th class="m-hide">판매가</th>
+        <th class="m-hide">공급가<br><span style="font-size:.68rem;font-weight:400;color:#9ca3af;">VAT 제외</span></th>
+        <th class="m-hide">결제수량</th>
+        <th class="m-hide">환불수량</th>
         <th>순판매량</th>
-        ${isStaff() || isCS() ? '' : '<th>판매합계</th>'}
+        ${isStaff() || isCS() ? '' : '<th class="m-hide">판매합계</th>'}
         <th>순반품률<br><span style="font-size:.68rem;font-weight:400;color:#9ca3af;">배송완료일 기준</span></th>
-        <th>취소&amp;반품률<br><span style="font-size:.68rem;font-weight:400;color:#9ca3af;">주문일 기준·참고용</span></th>
+        <th class="m-hide">취소&amp;반품률<br><span style="font-size:.68rem;font-weight:400;color:#9ca3af;">주문일 기준·참고용</span></th>
         ${isCS() ? '' : '<th>마진율<br><span style="font-size:.68rem;font-weight:400;color:#9ca3af;">공급가×1.1 기준</span></th>'}
       </tr></thead>
       <tbody>`;
@@ -5439,15 +5611,15 @@ function renderPerfResult() {
         mg = marginBadge(m); cr = costBadge(c); sc = fmt(cd.supplyCost)+'원';
       }
       html += `<tr>
-        <td>${row.rank}</td>
+        <td class="m-hide">${row.rank}</td>
         <td class="name-cell">${row.productNo
           ? `<span onclick="showReturnReasons(${row.productNo})" title="클릭하면 이 상품의 반품 사유를 모아 봅니다"
                    style="cursor:pointer;color:#4338ca;text-decoration:underline dotted;text-underline-offset:3px;">${escHtml(row.productName)}</span>`
           : escHtml(row.productName)}${row.option?`<div><span class="option-tag">${escHtml(row.option)}</span></div>`:''}</td>
-        <td>${row.salePrice>0?fmt(row.salePrice)+'원':'—'}</td>
-        <td>${sc}</td>
-        <td>${fmt(row.paidQty)}</td><td>${fmt(row.refundQty)}</td><td>${fmt(row.salesQty)}</td>
-        ${isStaff() || isCS() ? '' : `<td>${row.salesTotal>0?fmt(row.salesTotal)+'원':'—'}</td>`}
+        <td class="m-hide">${row.salePrice>0?fmt(row.salePrice)+'원':'—'}</td>
+        <td class="m-hide">${sc}</td>
+        <td class="m-hide">${fmt(row.paidQty)}</td><td class="m-hide">${fmt(row.refundQty)}</td><td>${fmt(row.salesQty)}</td>
+        ${isStaff() || isCS() ? '' : `<td class="m-hide">${row.salesTotal>0?fmt(row.salesTotal)+'원':'—'}</td>`}
         <td>${netReturnBadge(row)}${(() => {
           const nr = netOf(row);
           if (!nr) return '';
@@ -5458,7 +5630,7 @@ function renderPerfResult() {
           }
           return cell;
         })()}</td>
-        <td style="color:#6b7280;">${fmtP(row.returnRate)}</td>
+        <td style="color:#6b7280;" class="m-hide">${fmtP(row.returnRate)}</td>
         ${isCS() ? '' : `<td>${mg}</td>`}
       </tr>`;
       // 옵션별 순반품률 접이식 상세 행 (기본 숨김 — 버튼 클릭 시 표시)
