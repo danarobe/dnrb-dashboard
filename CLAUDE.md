@@ -197,6 +197,16 @@ AUTHOR_FIELDS(notes/comments=author_id, likes=user_id): POST는 본인 id 필수
 - 상품명 클릭 → 4개 창 타일 + **옵션별 4개 창** 표.
 - `return_watch` 테이블(admin+staff, db 프록시): product_no(PK)·product_name·reason·**watch_rate/watch_qty(지정 시점 수치)**·created_by·created_at. 탭 3개(위험/전체/⭐관리 상품). 해제는 행 삭제.
 
+## 7-2. UI/UX 개편 (2026-08-09, 사용자 요청 6종 + 글래스모피즘)
+
+1. **서버 결과 캐시 10분** — `api_cache` 테이블(RLS, service_role 전용) + `_shared/util.ts`의 `cacheGet/cacheSet`. 무거운 액션만: netreturns·performance·returnwatch·paiditems·displaymetrics·returnreasons·cafe24-claims. **캐시 조회는 각 액션의 권한 검사 뒤에** 해야 함(권한 우회 방지). performance는 역할별 응답이 달라 **키에 role 포함**. `nocache=1`로 우회 가능. 실측: netreturns 47초→0.4초, claims 8초→0.4초.
+2. **조회 버튼 경과초 표시** — `btnBusy(btn,라벨)/btnIdle(btn,html)`. 적용: 홈·취소반품·판매성과·반품관리·진열·재고대조·순익 수집.
+3. **메뉴 그룹화** — `.menu-group` 라벨(분석/운영/경영/협업). updateAuthUI 끝에서 **그룹 내 보이는 버튼이 없으면 라벨도 숨김**(CS는 '분석' 하나만 남는 것 확인). 900px↓ 가로 메뉴에선 라벨 숨김.
+4. **모바일 열 숨김 공용 클래스 `.m-hide`**(≤700px) — 판매 성과(상품명·순판매량·순반품률·마진율만)·상품 분석(상품·조회수·판매수량·주문율만). 반품 관리는 `.rw-hm`, 진열은 `.dcol` 별도.
+5. **기간 프리셋 칩 `.qp`** — `qPeriod(sId,eId,'7d|14d|30d|lastm')`·`qDate(id,daysAgo)`. 홈·취소반품·상품분석·판매성과 + 반품관리(7일 전/14일 전). '지난달'은 **정오 기준 Date 생성**(UTC 변환으로 하루 밀림 방지).
+6. **홈 바로가기 타일** — `renderHomeShortcuts()`, 역할별 표시, 반품 관리 타일엔 관리 상품 개수 비동기 표시.
+7. **글래스모피즘**(사용자 제공 시안) — 기존 규칙 **뒤에 덮어쓰는 CSS 블록 하나**로만 구현(마크업·레이아웃 불변): 라벤더 그라데이션 body, 반투명 blur 카드/헤더/메뉴/모달 4종(`#rr-modal>div` 등 인라인 #fff라 `!important`). 헤더가 어두운 남색→밝은 유리로 바뀌면서 h1/user-info 글자색도 함께 교체됨.
+
 ## 8. 남은 일 / 미결정
 
 - 긴 기간 조회는 여전히 느리다(동작은 함): 판매 성과 3개월 netreturns ~52초, 취소&반품 6개월 ~65초, **홈 '카페24 불러오기' 3개월 ~127초**(기본 1주일은 ~48초). 동시 처리 수를 올리면 빨라지지만 카페24 429에 걸려 지금이 상한.

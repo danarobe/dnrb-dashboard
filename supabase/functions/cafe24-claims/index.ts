@@ -15,7 +15,7 @@
 //   - 혼합 주문(한 주문에 취소+반품 공존): 취소 1건 + 반품 1건으로 각각 집계,
 //     금액은 cancellation/return 클레임별로 분리 반영
 // ═══════════════════════════════════════════════
-import { handleOptions, json, getToken, saveToken, verifyAuthToken } from "../_shared/util.ts";
+import { cacheGet, cacheSet, handleOptions, json, getToken, saveToken, verifyAuthToken } from "../_shared/util.ts";
 
 const MALL_ID = Deno.env.get("CAFE24_MALL_ID")!;
 const CLIENT_ID = Deno.env.get("CAFE24_CLIENT_ID")!;
@@ -197,6 +197,13 @@ Deno.serve(async (req) => {
   if (!startDate || !endDate) return json({ error: "start_date, end_date 필수 (YYYY-MM-DD)" }, 400);
 
   try {
+    // 결과 캐시 10분 — 관리자 전용 함수라 역할 구분 불필요. raw 디버그 모드는 캐시 안 함.
+    const cacheKey = `cl:${startDate}~${endDate}`;
+    if (!raw && url.searchParams.get("nocache") !== "1") {
+      const hit = await cacheGet(cacheKey, 10 * 60 * 1000);
+      if (hit) return json(hit);
+    }
+
     const token = await getAccessToken();
 
     // 수집 대상 상태 (품목 order_status 기준)
@@ -304,13 +311,15 @@ Deno.serve(async (req) => {
       Object.entries(m).map(([reason, cnt]) => ({ reason, cnt }))
         .sort((a, b) => b.cnt - a.cnt);
 
-    return json({
+    const body = {
       provider: "cafe24",
       period: { start: startDate, end: endDate },
       fetched_orders: fetchedOrders,
       cancel: { count: cancel.count, amount: Math.round(cancel.amount), reasons: toRanked(cancel.reasons) },
       return: { count: ret.count, amount: Math.round(ret.amount), reasons: toRanked(ret.reasons) },
-    });
+    };
+    await cacheSet(cacheKey, body);
+    return json(body);
   } catch (e) {
     return json({ error: String(e) }, 500);
   }

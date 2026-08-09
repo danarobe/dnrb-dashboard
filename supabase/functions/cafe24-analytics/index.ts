@@ -11,7 +11,7 @@
 //   조회수/주문수 — 카페24 애널리틱스 API (ca-api.cafe24data.com, scope: mall.read_analytics)
 //   카테고리     — Admin API (scope: mall.read_category)
 // ═══════════════════════════════════════════════
-import { handleOptions, json, getToken, saveToken, verifyAuthToken } from "../_shared/util.ts";
+import { cacheGet, cacheSet, handleOptions, json, getToken, saveToken, verifyAuthToken } from "../_shared/util.ts";
 
 const MALL_ID = Deno.env.get("CAFE24_MALL_ID")!;
 const CLIENT_ID = Deno.env.get("CAFE24_CLIENT_ID")!;
@@ -225,6 +225,16 @@ Deno.serve(async (req) => {
     const authed = await verifyAuthToken(req);
     if (!authed) return json({ error: "로그인이 필요합니다" }, 401);
 
+    // ── 결과 캐시 (10분) — 무거운 주문 스캔 액션만. 반드시 각 액션의 **권한 검사 뒤에**
+    // fromCache()를 불러야 한다 (캐시가 권한 우회 통로가 되면 안 됨).
+    // performance는 역할에 따라 응답이 달라서(비관리자 order_amount=0) 키에 역할 포함.
+    const qsKey = new URLSearchParams(url.search);
+    qsKey.delete("nocache"); qsKey.sort();
+    const cacheKey = `an:${qsKey.toString()}` + (action === "performance" ? `:${authed.role}` : "");
+    const noCache = url.searchParams.get("nocache") === "1";
+    const fromCache = async () => noCache ? null : await cacheGet(cacheKey, 10 * 60 * 1000);
+    const respond = async (body: unknown) => { await cacheSet(cacheKey, body); return json(body); };
+
     const token = await getAccessToken();
 
     // ── 카테고리 목록 ──
@@ -275,6 +285,7 @@ Deno.serve(async (req) => {
       if (authed.role !== "admin") return json({ error: "접근 권한이 없습니다" }, 403);
       const e = url.searchParams.get("end_date");
       if (!e) return json({ error: "end_date 필수 (YYYY-MM-DD)" }, 400);
+      const hit = await fromCache(); if (hit) return json(hit);
       const day = 24 * 3600 * 1000;
       const dstr = (t: number) => new Date(t).toISOString().slice(0, 10);
       const endMs = new Date(e).getTime();
@@ -324,7 +335,7 @@ Deno.serve(async (req) => {
 
       const metrics: Record<string, M> = {};
       for (const [no, m] of map) metrics[String(no)] = m;
-      return json({ period: { end: e, start7: s7, start21: s21, loss_start: lossS, loss_end: lossE }, metrics });
+      return respond({ period: { end: e, start7: s7, start21: s21, loss_start: lossS, loss_end: lossE }, metrics });
     }
 
     // ── 상품 기본 정보 배치 조회 (관리자 전용): 진열 계산용 ──
@@ -353,6 +364,7 @@ Deno.serve(async (req) => {
       const s = url.searchParams.get("start_date");
       const e = url.searchParams.get("end_date");
       if (!s || !e) return json({ error: "start_date, end_date 필수 (YYYY-MM-DD)" }, 400);
+      const hit = await fromCache(); if (hit) return json(hit);
 
       // 2026-08-08 사용자 결정: 반품신청(R00)·접수(R10)도 포함 — 반품 관리 메뉴와 기준 통일.
       // 상태는 품목당 하나뿐이라 중복 집계 불가, 철회·반려는 실측 0건(신청 이력 2,730건 기준).
@@ -408,7 +420,7 @@ Deno.serve(async (req) => {
           net_return_rate: o.total_qty > 0 ? +(o.return_qty / o.total_qty * 100).toFixed(2) : 0,
         })).sort((a, b) => b.total_qty - a.total_qty),
       })).sort((a, b) => b.return_qty - a.return_qty);
-      return json({
+      return respond({
         period: { start: s, end: e },
         basis: "item_delivered_date",
         totals: {
@@ -433,6 +445,7 @@ Deno.serve(async (req) => {
       const topN = Math.max(1, Math.min(100, Number(url.searchParams.get("top") ?? 30)));
       const minQty = Math.max(0, Number(url.searchParams.get("min_qty") ?? 10));   // 소표본 판정 보류 기준
       const riskAt = Number(url.searchParams.get("risk") ?? 20);                    // '위험' 경계 (%)
+      const hit = await fromCache(); if (hit) return json(hit);
 
       const RET = new Set(["R00", "R10", "R30", "R34", "R40"]);
       const WINDOWS = [7, 14, 21, 30];
@@ -517,7 +530,7 @@ Deno.serve(async (req) => {
         };
       }).sort((a, b) => (b.windows[14].rate - a.windows[14].rate));
 
-      return json({
+      return respond({
         end_date: e, window_start: winStart, basis: "item_delivered_date",
         statuses: [...RET], min_qty: minQty, risk_at: riskAt, top: topN,
         products: out,
@@ -537,6 +550,7 @@ Deno.serve(async (req) => {
       const s = url.searchParams.get("start_date");
       const e = url.searchParams.get("end_date");
       if (!s || !e) return json({ error: "start_date, end_date 필수 (YYYY-MM-DD)" }, 400);
+      const hit = await fromCache(); if (hit) return json(hit);
 
       const NET_RETURN_STATUSES = ["R00", "R10", "R30", "R34", "R40"];
       const statusSet = new Set(NET_RETURN_STATUSES);
@@ -572,7 +586,7 @@ Deno.serve(async (req) => {
           }
         }
       });
-      return json({ period: { start: s, end: e }, basis: "item_delivered_date", items });
+      return respond({ period: { start: s, end: e }, basis: "item_delivered_date", items });
     }
 
     // ── 셀메이트 재고 대조용: 기간 내 품목별 결제수량 (관리자 전용) ──
@@ -584,6 +598,7 @@ Deno.serve(async (req) => {
       const s = url.searchParams.get("start_date");
       const e = url.searchParams.get("end_date");
       if (!s || !e) return json({ error: "start_date, end_date 필수 (YYYY-MM-DD)" }, 400);
+      const hit = await fromCache(); if (hit) return json(hit);
 
       type Item = {
         product_no: number; product_name: string; option_value: string;
@@ -632,7 +647,7 @@ Deno.serve(async (req) => {
       }
 
       const items = [...map.values()].sort((a, b) => b.paid_qty - a.paid_qty);
-      return json({
+      return respond({
         period: { start: s, end: e },
         order_count: orderCount, item_count: items.length,
         product_count: products.length,
@@ -647,6 +662,7 @@ Deno.serve(async (req) => {
       const s = url.searchParams.get("start_date");
       const e = url.searchParams.get("end_date");
       if (!s || !e) return json({ error: "start_date, end_date 필수 (YYYY-MM-DD)" }, 400);
+      const hit = await fromCache(); if (hit) return json(hit);   // 키에 역할 포함됨
 
       // ① 기간 판매(주문) 수량·금액 — 애널리틱스
       const base = new URLSearchParams({ mall_id: MALL_ID, start_date: s, end_date: e });
@@ -701,7 +717,7 @@ Deno.serve(async (req) => {
       const rows = [...map.values()].sort((a, b) => b.paid_qty - a.paid_qty);
       // 주문금액(판매합계)은 관리자만 — 직원·CS는 UI에서도 숨김/블러 처리되는 값이라 서버에서 0으로 제거
       if (authed.role !== "admin") for (const r of rows) r.order_amount = 0;
-      return json({ period: { start: s, end: e }, product_count: rows.length, rows });
+      return respond({ period: { start: s, end: e }, product_count: rows.length, rows });
     }
 
     // ── 조회수 + 주문수 통합 (기본) ──

@@ -78,6 +78,34 @@ async function rest(path: string, init: RequestInit = {}): Promise<Response> {
   });
 }
 
+// ── 조회 결과 캐시 (api_cache 테이블) ──
+// 무거운 카페24 주문 스캔(수십 초)을 같은 조건으로 다시 돌리지 않기 위한 것.
+// 키에는 호출자가 역할까지 넣어야 한다 — 역할별로 응답이 다른 액션(performance)이 있음.
+export async function cacheGet(key: string, ttlMs: number): Promise<unknown | null> {
+  try {
+    const res = await rest(`api_cache?cache_key=eq.${encodeURIComponent(key)}&select=payload,created_at`);
+    if (!res.ok) return null;
+    const row = (await res.json())[0];
+    if (!row) return null;
+    if (Date.now() - new Date(row.created_at).getTime() > ttlMs) return null;
+    return row.payload;
+  } catch { return null; }
+}
+
+export async function cacheSet(key: string, payload: unknown): Promise<void> {
+  try {
+    await rest(`api_cache?on_conflict=cache_key`, {
+      method: "POST",
+      headers: { Prefer: "resolution=merge-duplicates,return=minimal" },
+      body: JSON.stringify({ cache_key: key, payload, created_at: new Date().toISOString() }),
+    });
+    // 오래된 항목 정리 (실패해도 무해)
+    await rest(`api_cache?created_at=lt.${encodeURIComponent(new Date(Date.now() - 3600_000).toISOString())}`, {
+      method: "DELETE", headers: { Prefer: "return=minimal" },
+    });
+  } catch { /* 캐시는 실패해도 기능에 영향 없음 */ }
+}
+
 export interface TokenRow {
   provider: string;
   access_token: string | null;
