@@ -354,7 +354,9 @@ Deno.serve(async (req) => {
       const e = url.searchParams.get("end_date");
       if (!s || !e) return json({ error: "start_date, end_date 필수 (YYYY-MM-DD)" }, 400);
 
-      const NET_RETURN_STATUSES = new Set(["R40", "R30", "R34"]);
+      // 2026-08-08 사용자 결정: 반품신청(R00)·접수(R10)도 포함 — 반품 관리 메뉴와 기준 통일.
+      // 상태는 품목당 하나뿐이라 중복 집계 불가, 철회·반려는 실측 0건(신청 이력 2,730건 기준).
+      const NET_RETURN_STATUSES = new Set(["R00", "R10", "R30", "R34", "R40"]);
       type Opt = { option: string; total_qty: number; return_qty: number };
       type Row = {
         product_no: number; product_name: string; total_qty: number; return_qty: number;
@@ -418,9 +420,8 @@ Deno.serve(async (req) => {
     }
 
     // ── 반품 관리: 결제수량 상위 상품의 창별(7/14/21/30일) 순반품률 (관리자·MD) ──
-    // 기존 netreturns와 **일부러 기준이 다르다**(사용자 결정):
-    //   · netreturns   = R30/R34/R40 (수거 이후만)          — 판매 성과·홈·진열이 쓰는 기존 지표, 건드리지 않음
-    //   · 여기(returnwatch) = R00/R10 + R30/R34/R40         — 반품신청·접수까지 포함해 최근 기간도 빨리 확정됨
+    // 반품 상태 기준 = R00/R10 + R30/R34/R40 (신청·접수 포함).
+    // 2026-08-08부터 netreturns(판매 성과)도 같은 기준 — 진열(displaymetrics)만 R30/R34/R40 유지.
     // 상태는 품목당 하나뿐이라 신청·접수를 더해도 중복 집계되지 않는다(실측: 철회·반려 코드 자체가 없음).
     //
     // 성능: 30일 창의 패딩 범위를 **한 번만** 훑고 delivered_date로 잘라 4개 창을 모두 만든다
@@ -524,7 +525,8 @@ Deno.serve(async (req) => {
     }
 
     // ── 상품별 반품 사유 원문 (판매 성과 상세용) ──
-    // netreturns와 **완전히 같은 모수**를 쓴다: 품목 delivered_date 기준 기간 내 R40/R30/R34.
+    // netreturns와 **완전히 같은 모수**를 쓴다: 품목 delivered_date 기준 기간 내 R00/R10/R30/R34/R40
+    // (2026-08-08부터 신청·접수 포함 — netreturns와 동시 변경, 두 기준은 항상 같이 움직여야 함).
     // 다만 order_status 필터로 반품 주문만 받아 스캔량을 크게 줄인다 (실측 4,554건 → 486건).
     //
     // 카페24는 '반품 신청 사유'와 '반품 접수 사유'를 claim_reason 한 필드에 합쳐서 준다:
@@ -536,7 +538,7 @@ Deno.serve(async (req) => {
       const e = url.searchParams.get("end_date");
       if (!s || !e) return json({ error: "start_date, end_date 필수 (YYYY-MM-DD)" }, 400);
 
-      const NET_RETURN_STATUSES = ["R40", "R30", "R34"];
+      const NET_RETURN_STATUSES = ["R00", "R10", "R30", "R34", "R40"];
       const statusSet = new Set(NET_RETURN_STATUSES);
       const day = 24 * 3600 * 1000;
       const pad = (d: Date) => d.toISOString().slice(0, 10);
