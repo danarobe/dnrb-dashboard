@@ -603,6 +603,21 @@
         </div>
       </div>
 
+      <!-- 월별 추이 (직전 3개 완결 월) — 판매 성과와 같은 데이터, CS는 홈 접근 없음 -->
+      <div id="home-trend" style="display:none;background:#f8f9fb;border:1px solid #eceef2;border-radius:12px;padding:14px 16px;margin-top:14px;">
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:4px;">
+          <b style="font-size:.88rem;color:#1e1b4b;">월별 추이</b>
+          <span id="home-trend-months" style="font-size:.75rem;color:#9ca3af;"></span>
+          <span style="flex:1;"></span>
+          <button class="btn-analyze" id="btn-home-trend" style="padding:6px 14px;font-size:.75rem;" onclick="perfTrendLoad(true, this)">
+            <i class="fa-solid fa-chart-line"></i> 추이 불러오기
+          </button>
+        </div>
+        <div id="home-trend-body">
+          <div style="font-size:.75rem;color:#9ca3af;">직전 3개월의 순반품률 · 평균 마진율 · 취소반품률. 처음 한 번만 수집하면 이후엔 저장된 값을 바로 보여줍니다.</div>
+        </div>
+      </div>
+
       <!-- 바로가기 — 역할별로 보이는 메뉴만 (renderHomeShortcuts) -->
       <div id="home-shortcuts" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-top:14px;"></div>
 
@@ -867,7 +882,7 @@
           <b style="font-size:.88rem;color:#1e1b4b;">월별 추이</b>
           <span id="perf-trend-months" style="font-size:.75rem;color:#9ca3af;"></span>
           <span style="flex:1;"></span>
-          <button class="btn-analyze" id="btn-perf-trend" style="padding:6px 14px;font-size:.75rem;" onclick="perfTrendLoad(true)">
+          <button class="btn-analyze" id="btn-perf-trend" style="padding:6px 14px;font-size:.75rem;" onclick="perfTrendLoad(true, this)">
             <i class="fa-solid fa-chart-line"></i> 추이 불러오기
           </button>
         </div>
@@ -4363,7 +4378,7 @@ function showMenu(key) {
   if (target) target.style.display = 'block';
   document.querySelectorAll('.menu-item').forEach(b => b.classList.toggle('active', b.dataset.menu === key));
   history.replaceState(null, '', '#' + key);
-  if (key === 'home') { checkCafe24Status(); updateHomeSourceStatus(); updateHomeReasons(); updateHomeClaimsTile(); updateHomeTrafficTile(); renderHomeShortcuts(); }
+  if (key === 'home') { checkCafe24Status(); updateHomeSourceStatus(); updateHomeReasons(); updateHomeClaimsTile(); updateHomeTrafficTile(); renderHomeShortcuts(); homeTrendInit(); }
   if (key === 'meet') {
     loadAdTopics(); loadMeetNotes();
     if (!$('note-date').value) $('note-date').value = new Date().toISOString().slice(0, 10);
@@ -5499,28 +5514,45 @@ async function ptFetchMonth(ym) {
   if ((Date.now() - new Date(e).getTime()) / 864e5 >= 10) localStorage.setItem(PT_KEY(ym), JSON.stringify(stat));
   return stat;
 }
-let ptChart = null;
-function perfTrendInit() {
-  if (isCS()) return;                       // CS는 전사 지표 비공개
-  $('perf-trend').style.display = 'block';
-  const months = ptMonths();
-  $('perf-trend-months').textContent = months.map(m => Number(m.split('-')[1]) + '월').join(' · ');
-  if (months.every(m => localStorage.getItem(PT_KEY(m)))) perfTrendLoad(false);
+const ptCharts = {};
+let ptState = null;                          // {months, stats} — 7월처럼 아직 저장 안 되는 달의 세션 내 재사용
+/* 수집 없이 바로 그릴 수 있으면 stats 반환 (메모리 → localStorage 순) */
+function ptReady(months) {
+  if (ptState && ptState.months.join() === months.join()) return ptState.stats;
+  if (months.every(m => localStorage.getItem(PT_KEY(m)))) {
+    try { return months.map(m => JSON.parse(localStorage.getItem(PT_KEY(m)))); } catch { return null; }
+  }
+  return null;
 }
-async function perfTrendLoad(force) {
+/* 메뉴 진입 시 — 패널 표시 + 데이터 있으면 그 메뉴의 컨테이너에 렌더 (숨은 캔버스에 그리면 깨져서 진입 때마다 새로 그림) */
+function ptInitPanel(prefix) {
+  if (isCS()) return;                        // CS는 전사 지표 비공개
+  const panel = $(prefix + '-trend'); if (!panel) return;
+  panel.style.display = 'block';
   const months = ptMonths();
-  const cached = months.every(m => localStorage.getItem(PT_KEY(m)));
+  $(prefix + '-trend-months').textContent = months.map(m => Number(m.split('-')[1]) + '월').join(' · ');
+  const stats = ptReady(months);
+  if (stats) ptRenderTo(prefix, months, stats);
+}
+function perfTrendInit() { ptInitPanel('perf'); }
+function homeTrendInit() { ptInitPanel('home'); }
+async function perfTrendLoad(force, btnEl) {
+  const months = ptMonths();
+  const cached = !!ptReady(months);
   if (!force && !cached) return;
-  const btn = $('btn-perf-trend');
+  const btn = btnEl || $('btn-perf-trend');
   if (!cached) btnBusy(btn, '수집 중');
   try {
     const stats = [];
     for (const m of months) stats.push(await ptFetchMonth(m));   // 순차 실행 — 카페24 요청 한도 보호
-    ptRender(months, stats);
+    ptState = { months, stats };
+    // 지금 보이는 섹션에만 그림 — 다른 메뉴는 진입할 때 ptInitPanel이 그림
+    if ($('sec-perf').style.display === 'block') ptRenderTo('perf', months, stats);
+    if ($('sec-home').style.display === 'block') ptRenderTo('home', months, stats);
   } catch (e) { showToast('추이 수집 실패: ' + e.message); console.error(e); }
   finally { btnIdle(btn, '<i class="fa-solid fa-rotate"></i> 다시 불러오기'); }
 }
-function ptRender(months, stats) {
+function ptRenderTo(prefix, months, stats) {
   const label = months.map(m => Number(m.split('-')[1]) + '월');
   const row = (name, key, color, better) => `
     <tr>
@@ -5533,9 +5565,9 @@ function ptRender(months, stats) {
           ${d !== null && d !== 0 ? `<span style="font-size:.7rem;color:${good ? '#16a34a' : '#dc2626'};margin-left:4px;">${d > 0 ? '+' : ''}${d}%p</span>` : ''}</td>`;
       }).join('')}
     </tr>`;
-  $('perf-trend-body').innerHTML = `
+  $(prefix + '-trend-body').innerHTML = `
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;align-items:center;" class="pt-grid">
-      <div style="height:180px;"><canvas id="perf-trend-canvas"></canvas></div>
+      <div style="height:180px;"><canvas id="${prefix}-trend-canvas"></canvas></div>
       <div class="table-wrap"><table style="font-size:.82rem;">
         <thead><tr><th style="text-align:left;">지표</th>${label.map(l => `<th>${l}</th>`).join('')}</tr></thead>
         <tbody>
@@ -5547,8 +5579,8 @@ function ptRender(months, stats) {
     </div>
     <div style="font-size:.7rem;color:#9ca3af;margin-top:8px;">순반품률 = 배송완료일 기준(신청·접수 포함) · 마진율 = 순판매량 가중평균(공급가×1.1) · 취소반품률 = 취소반품수량 ÷ 결제수량(주문일 기준) · 완결 월 수치는 저장돼 다시 계산하지 않습니다</div>`;
   if (typeof Chart === 'undefined') return;
-  if (ptChart) { ptChart.destroy(); ptChart = null; }
-  ptChart = new Chart($('perf-trend-canvas'), {
+  if (ptCharts[prefix]) { ptCharts[prefix].destroy(); delete ptCharts[prefix]; }
+  ptCharts[prefix] = new Chart($(prefix + '-trend-canvas'), {
     type: 'line',
     data: { labels: label, datasets: [
       { label: '순반품률', data: stats.map(s => s.nr), borderColor: '#4f46e5', backgroundColor: '#4f46e5', tension: .3, pointRadius: 4 },
