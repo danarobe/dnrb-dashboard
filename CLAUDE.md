@@ -197,6 +197,13 @@ AUTHOR_FIELDS(notes/comments=author_id, likes=user_id): POST는 본인 id 필수
 - 상품명 클릭 → 4개 창 타일 + **옵션별 4개 창** 표 + **반품 사유 TOP5**(2026-08-09 추가 — 30일 창 기준, 판매 성과의 `rrBuildHtml` 공용 렌더러 재사용, `rrEnsure` 캐시 공유라 두 번째 클릭부터 즉시). 비동기 로딩 중 다른 상품을 열면 `rwState.detailNo` 가드로 덮어쓰기 방지. 검증: 30일 창 반품 수량과 사유 건수 일치(16=16).
 - `return_watch` 테이블(admin+staff, db 프록시): product_no(PK)·product_name·reason·**watch_rate/watch_qty(지정 시점 수치)**·created_by·created_at. 탭 3개(위험/전체/⭐관리 상품). 해제는 행 삭제.
 
+## 7-1-b. 판매 성과 · 월별 추이 패널 (2026-08-09)
+
+판매 성과 최상단(CS 제외)에 **직전 3개 완결 월**(8월 조회→5·6·7월)의 순반품률/평균 마진율/취소반품률 — Chart.js 선그래프 + 값·전월 대비 표.
+- 데이터: 월별 `performance`(마진 가중평균·취소반품률=Σcancel÷Σpaid) + `netreturns`(순반품률). **순차 실행**(429 예방). 최초 수집 ~4분, 이후 localStorage.
+- **완결 월은 수치가 불변이라 localStorage 영구 저장**(`dnrb_trend_v2_YYYY-MM`) — 단 **월말+10일 전이면 반품 미성숙이라 저장 안 함**(예: 8/9에 7월은 계산만, 8/10부터 저장). v2 = 신청·접수 포함 기준, 기준 변경 시 버전 올려 무효화.
+- 검증: 7월 순반품률 12.8% = 독립 실측 12.80% 일치. 5월 12.8/48.7/20.2, 6월 11.4/49.1/17.6.
+
 ## 7-2. UI/UX 개편 (2026-08-09, 사용자 요청 6종 + 글래스모피즘)
 
 1. **서버 결과 캐시 10분** — `api_cache` 테이블(RLS, service_role 전용) + `_shared/util.ts`의 `cacheGet/cacheSet`. 무거운 액션만: netreturns·performance·returnwatch·paiditems·displaymetrics·returnreasons·cafe24-claims. **캐시 조회는 각 액션의 권한 검사 뒤에** 해야 함(권한 우회 방지). performance는 역할별 응답이 달라 **키에 role 포함**. `nocache=1`로 우회 가능. 실측: netreturns 47초→0.4초, claims 8초→0.4초.

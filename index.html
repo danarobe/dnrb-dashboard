@@ -861,6 +861,21 @@
     </div>
     <div class="section-body" id="body-perf">
 
+      <!-- 월별 추이 (직전 3개 완결 월) — CS 제외 -->
+      <div id="perf-trend" style="display:none;background:#f8f9fb;border:1px solid #eceef2;border-radius:12px;padding:14px 16px;margin-bottom:18px;">
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:4px;">
+          <b style="font-size:.88rem;color:#1e1b4b;">월별 추이</b>
+          <span id="perf-trend-months" style="font-size:.75rem;color:#9ca3af;"></span>
+          <span style="flex:1;"></span>
+          <button class="btn-analyze" id="btn-perf-trend" style="padding:6px 14px;font-size:.75rem;" onclick="perfTrendLoad(true)">
+            <i class="fa-solid fa-chart-line"></i> 추이 불러오기
+          </button>
+        </div>
+        <div id="perf-trend-body">
+          <div style="font-size:.75rem;color:#9ca3af;">직전 3개월의 순반품률 · 평균 마진율 · 취소반품률을 월 단위로 비교합니다. 처음 한 번은 1~2분 걸리고, 이후에는 저장된 값을 바로 보여줍니다.</div>
+        </div>
+      </div>
+
       <!-- 날짜 -->
       <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:18px;">
         <label style="font-size:.82rem;font-weight:700;color:#4b5563;"><i class="fa-regular fa-calendar"></i> 분석 기간</label>
@@ -4357,6 +4372,7 @@ function showMenu(key) {
   if (key === 'users') loadUsers();
   if (key === 'profit' && isAdmin()) loadProfitArchive();
   if (key === 'rwatch') rwInit();
+  if (key === 'perf') perfTrendInit();
 }
 
 const homeState = { loaded: false, loading: false };
@@ -5436,6 +5452,113 @@ function rrBuildHtml(list) {
   html += `<div style="font-size:.7rem;color:#9ca3af;margin-top:10px;line-height:1.6;border-top:1px solid #f3f4f6;padding-top:8px;">
     ※ 신청 사유와 접수 사유가 모두 있으면 <b>신청 사유만</b> 셉니다 (중복 방지) · 비슷한 표현은 자동으로 한 묶음으로 셉니다</div>`;
   return html;
+}
+
+/* ──────────────────────────────
+   판매 성과 · 월별 추이 — 직전 3개 완결 월의 순반품률 / 평균 마진율 / 취소반품률
+   (예: 8월에 조회 → 5·6·7월. 이번 달은 아직 진행 중이라 제외)
+
+   무거운 조회(월당 ~30초)라서:
+   · 완결된 월의 수치는 변하지 않으므로 localStorage에 영구 저장 — 브라우저당 딱 한 번만 수집
+   · 단, 월이 끝난 지 10일이 안 됐으면 반품이 덜 들어온 상태라 저장하지 않음(볼 때마다 새로 계산)
+   · 키에 v2 = 반품 신청·접수 포함 기준 (기준이 또 바뀌면 버전을 올려 무효화)
+────────────────────────────── */
+const PT_KEY = ym => `dnrb_trend_v2_${ym}`;
+function ptMonths() {
+  const out = [], d = new Date();
+  for (let i = 3; i >= 1; i--) {
+    const m = new Date(d.getFullYear(), d.getMonth() - i, 15);
+    out.push(`${m.getFullYear()}-${String(m.getMonth() + 1).padStart(2, '0')}`);
+  }
+  return out;
+}
+function ptRange(ym) {   // 'YYYY-MM' → [1일, 말일] (정오 기준 — UTC 변환으로 하루 밀림 방지)
+  const [y, m] = ym.split('-').map(Number);
+  const ymd = t => new Date(t).toISOString().slice(0, 10);
+  return [ymd(new Date(y, m - 1, 1, 12)), ymd(new Date(y, m, 0, 12))];
+}
+async function ptFetchMonth(ym) {
+  const saved = localStorage.getItem(PT_KEY(ym));
+  if (saved) { try { return JSON.parse(saved); } catch { /* 깨진 값은 새로 수집 */ } }
+  const [s, e] = ptRange(ym);
+  const perf = await anGet({ action: 'performance', start_date: s, end_date: e });
+  const net = await anGet({ action: 'netreturns', start_date: s, end_date: e });
+  let paid = 0, cancel = 0, w = 0, wq = 0;
+  for (const r of (perf.rows || [])) {
+    paid += r.paid_qty; cancel += r.cancel_qty;
+    const sq = Math.max(0, r.paid_qty - r.cancel_qty);
+    if (r.supply_price > 0 && r.price > 0 && sq > 0) {
+      w += (r.price - r.supply_price * 1.1) / r.price * 100 * sq; wq += sq;   // 홈 타일과 동일한 가중평균
+    }
+  }
+  const stat = {
+    nr: net.totals ? net.totals.net_return_rate : 0,
+    margin: wq > 0 ? +(w / wq).toFixed(1) : 0,
+    cr: paid > 0 ? +(cancel / paid * 100).toFixed(1) : 0,
+  };
+  if ((Date.now() - new Date(e).getTime()) / 864e5 >= 10) localStorage.setItem(PT_KEY(ym), JSON.stringify(stat));
+  return stat;
+}
+let ptChart = null;
+function perfTrendInit() {
+  if (isCS()) return;                       // CS는 전사 지표 비공개
+  $('perf-trend').style.display = 'block';
+  const months = ptMonths();
+  $('perf-trend-months').textContent = months.map(m => Number(m.split('-')[1]) + '월').join(' · ');
+  if (months.every(m => localStorage.getItem(PT_KEY(m)))) perfTrendLoad(false);
+}
+async function perfTrendLoad(force) {
+  const months = ptMonths();
+  const cached = months.every(m => localStorage.getItem(PT_KEY(m)));
+  if (!force && !cached) return;
+  const btn = $('btn-perf-trend');
+  if (!cached) btnBusy(btn, '수집 중');
+  try {
+    const stats = [];
+    for (const m of months) stats.push(await ptFetchMonth(m));   // 순차 실행 — 카페24 요청 한도 보호
+    ptRender(months, stats);
+  } catch (e) { showToast('추이 수집 실패: ' + e.message); console.error(e); }
+  finally { btnIdle(btn, '<i class="fa-solid fa-rotate"></i> 다시 불러오기'); }
+}
+function ptRender(months, stats) {
+  const label = months.map(m => Number(m.split('-')[1]) + '월');
+  const row = (name, key, color, better) => `
+    <tr>
+      <td style="text-align:left;font-weight:700;color:#374151;">${name}</td>
+      ${stats.map((s, i) => {
+        const v = s[key], prev = i > 0 ? stats[i - 1][key] : null;
+        const d = prev === null ? null : +(v - prev).toFixed(1);
+        const good = d === null ? null : (better === 'down' ? d < 0 : d > 0);
+        return `<td><b style="color:${color};">${v.toFixed(1)}%</b>
+          ${d !== null && d !== 0 ? `<span style="font-size:.7rem;color:${good ? '#16a34a' : '#dc2626'};margin-left:4px;">${d > 0 ? '+' : ''}${d}%p</span>` : ''}</td>`;
+      }).join('')}
+    </tr>`;
+  $('perf-trend-body').innerHTML = `
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;align-items:center;" class="pt-grid">
+      <div style="height:180px;"><canvas id="perf-trend-canvas"></canvas></div>
+      <div class="table-wrap"><table style="font-size:.82rem;">
+        <thead><tr><th style="text-align:left;">지표</th>${label.map(l => `<th>${l}</th>`).join('')}</tr></thead>
+        <tbody>
+          ${row('순반품률', 'nr', '#4f46e5', 'down')}
+          ${row('평균 마진율', 'margin', '#16a34a', 'up')}
+          ${row('취소반품률', 'cr', '#d97706', 'down')}
+        </tbody>
+      </table></div>
+    </div>
+    <div style="font-size:.7rem;color:#9ca3af;margin-top:8px;">순반품률 = 배송완료일 기준(신청·접수 포함) · 마진율 = 순판매량 가중평균(공급가×1.1) · 취소반품률 = 취소반품수량 ÷ 결제수량(주문일 기준) · 완결 월 수치는 저장돼 다시 계산하지 않습니다</div>`;
+  if (typeof Chart === 'undefined') return;
+  if (ptChart) { ptChart.destroy(); ptChart = null; }
+  ptChart = new Chart($('perf-trend-canvas'), {
+    type: 'line',
+    data: { labels: label, datasets: [
+      { label: '순반품률', data: stats.map(s => s.nr), borderColor: '#4f46e5', backgroundColor: '#4f46e5', tension: .3, pointRadius: 4 },
+      { label: '평균 마진율', data: stats.map(s => s.margin), borderColor: '#16a34a', backgroundColor: '#16a34a', tension: .3, pointRadius: 4 },
+      { label: '취소반품률', data: stats.map(s => s.cr), borderColor: '#d97706', backgroundColor: '#d97706', tension: .3, pointRadius: 4 },
+    ] },
+    options: { responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { labels: { font: { size: 11 }, boxWidth: 12 } } },
+      scales: { y: { ticks: { callback: v => v + '%' } } } },
+  });
 }
 
 /* 판매 성과 실시간 API 조회 — CSV(salesData/costMap)와 동일 구조로 매핑해
