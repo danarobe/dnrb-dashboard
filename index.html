@@ -2552,6 +2552,7 @@ function rwRenderWatch() {
 function rwShowDetail(no) {
   const d = rwState.data, p = d.products.find(x => x.product_no === no);
   if (!p) return;
+  rwState.detailNo = no;                                // 사유 비동기 로딩의 대상 확인용
   $('rw-modal').style.display = 'flex';
   $('rw-modal-title').textContent = p.product_name;
   $('rw-modal-sub').textContent = `기준일 ${d.end_date} · 배송완료일 기준 · 반품신청·접수 포함`;
@@ -2573,9 +2574,33 @@ function rwShowDetail(no) {
         ${WS.map(k => `<td>${cell(o.windows[k])}</td>`).join('')}
       </tr>`).join('')}</tbody>
     </table></div>
+    <div style="font-size:.82rem;font-weight:800;color:#4338ca;margin:14px 0 6px;">반품 사유
+      <span style="font-weight:400;color:#9ca3af;font-size:.7rem;">최근 30일 창 (${d.window_start['30']} ~ ${d.end_date})</span></div>
+    <div id="rw-rr-box"><div style="padding:16px;text-align:center;color:#9ca3af;font-size:.75rem;">
+      <i class="fa-solid fa-spinner fa-spin"></i> 반품 사유를 불러오는 중입니다 (처음 한 번만 몇 초 걸립니다)</div></div>
     <div style="font-size:.7rem;color:#9ca3af;margin-top:9px;line-height:1.6;border-top:1px solid #f3f4f6;padding-top:8px;">
       ※ 배송완료 ${d.min_qty}개 미만은 <b>보류</b>로 표시합니다 (표본이 적어 요행일 수 있음) ·
       이 수치는 <b>반품 신청·접수까지 포함</b>합니다 (판매 성과 메뉴와 같은 기준)</div>`;
+  rwLoadReasons(no);
+}
+
+/* 상세 모달의 반품 사유 — 30일 창 기준, 판매 성과의 사유 묶음(rrBuildHtml)을 그대로 재사용.
+   조회는 기간당 한 번(rrEnsure 캐시 공유), 이후 클릭은 즉시. */
+async function rwLoadReasons(no) {
+  const d = rwState.data;
+  const ds = d.window_start['30'], de = d.end_date;
+  try {
+    await rrEnsure(ds, de);
+    if (rwState.detailNo !== no) return;                // 로딩 중 다른 상품을 연 경우 — 덮어쓰지 않음
+    const box = $('rw-rr-box');
+    if (!box) return;
+    const list = rrState.byProduct.get(no) || [];
+    box.innerHTML = list.length ? rrBuildHtml(list)
+      : '<div style="padding:14px;text-align:center;color:#9ca3af;font-size:.75rem;">이 기간에 이 상품의 반품 사유 기록이 없습니다.</div>';
+  } catch (e) {
+    const box = $('rw-rr-box');
+    if (box) box.innerHTML = `<div style="padding:14px;color:#b91c1c;font-size:.75rem;">사유를 불러오지 못했습니다: ${escHtml(e.message)}</div>`;
+  }
 }
 
 /* 지정 / 해제 */
@@ -5342,6 +5367,11 @@ function rrRenderBody(productNo) {
     $('rr-body').innerHTML = '<div style="padding:24px;text-align:center;color:#9ca3af;font-size:.82rem;">이 기간에 이 상품의 반품이 없습니다.</div>';
     return;
   }
+  $('rr-body').innerHTML = rrBuildHtml(list);
+}
+
+/* 사유 목록 → 묶음 TOP5 HTML (판매 성과 모달 + 반품 관리 상세에서 공용) */
+function rrBuildHtml(list) {
   // 사용자 규칙: 신청 사유가 있으면 그것만 집계, 없을 때만 접수 사유 사용
   const groups = new Map();     // 분류 → { n, texts: Map(정규화 → {text, n}) }
   let fromAccept = 0, blank = 0;
@@ -5405,7 +5435,7 @@ function rrRenderBody(productNo) {
   if (restN > 0) html += `<div style="font-size:.75rem;color:#9ca3af;text-align:center;margin-top:2px;">그 외 ${ranked.length - 5}개 묶음 ${restN}건</div>`;
   html += `<div style="font-size:.7rem;color:#9ca3af;margin-top:10px;line-height:1.6;border-top:1px solid #f3f4f6;padding-top:8px;">
     ※ 신청 사유와 접수 사유가 모두 있으면 <b>신청 사유만</b> 셉니다 (중복 방지) · 비슷한 표현은 자동으로 한 묶음으로 셉니다</div>`;
-  $('rr-body').innerHTML = html;
+  return html;
 }
 
 /* 판매 성과 실시간 API 조회 — CSV(salesData/costMap)와 동일 구조로 매핑해
