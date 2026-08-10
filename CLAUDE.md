@@ -49,7 +49,7 @@ curl -s -X POST "https://api.supabase.com/v1/projects/eeffmbusaqaadeojjlnc/datab
 | `cafe24-analytics` | 조회수·주문율·판매성과·진열지표·순반품률·결제품목 | 로그인 필수, 일부 관리자 |
 | `naver-claims` | 네이버 커머스API(미사용 — 이 몰은 조회 대상 없음) | 관리자 |
 | `db` | 아카이브·회의록·기타 테이블 프록시(anon 정책 제거 후 유일 경로) | 로그인+역할 화이트리스트 |
-| `meta-ads` | Meta 광고관리자(Graph v23.0) summary/topads/adstats/preview | 관리자+MD |
+| `meta-ads` | Meta 광고관리자(Graph v23.0) summary/topads/**dateads**/adstats/preview | 관리자+MD |
 
 - 공용 유틸 `_shared/util.ts`: CORS_HEADERS(**x-auth-token 포함**), verifyAuthToken(서명·만료 검증 + **DB 실계정·현재 role 재확인**), getToken/saveToken(api_tokens, service_role), json/handleOptions.
 - **Supabase 게이트웨이는 엣지 함수의 text/html 응답을 text/plain으로 강제 변환** → OAuth 완료는 DASHBOARD_URL(secret) 리다이렉트로 처리.
@@ -142,6 +142,7 @@ AUTHOR_FIELDS(notes/comments=author_id, likes=user_id): POST는 본인 id 필수
 ### 광고 효율 (#adv, 관리자+MD)
 - Meta 광고관리자 API. summary(광고비/구매전환값/구매수/Meta ROAS) + 카페24 ROAS(결제매출÷광고비) 5타일. 소재 **TOP 20**(행 클릭 → 미리보기 iframe + 기간별 지출·ROAS 이중축 차트).
 - 구매 액션은 **omni_purchase**→purchase→fb_pixel_purchase 폴백(이 몰은 omni_purchase).
+- **선택 기간 내 광고 효율 확인(dateads, 2026-08-10)**: 사내 규칙 — **광고 등록 시 광고명에 등록일 YYMMDD를 기입**(예: 260810). 조회 기간에 등록일이 걸리는 **현재 활성(effective_status=ACTIVE) 광고만** 소메뉴 표로 표시(사용자 결정 — 비활성 포함 시 과다). 서버가 insights에 `filtering=[{field:"ad.effective_status",...}]`를 걸고(동작 확인), 이름에서 정규식 `(?<!\d)(2[4-9])(MM)(DD)(?!\d)`로 날짜 추출 — 앞뒤 숫자 붙은 긴 숫자열(가격 24500 등)은 제외. 검증: 8/1~10 → 활성 중 35개, 8/3 단일 → 98개 중 12개·오탐 0. 행 클릭은 기존 미리보기 모달 재사용.
 - **adstats 기간 7종**(소재 클릭 시 모달): 오늘 / 어제 / 최근3일 / 최근7일 / **이전7일** / 최근14일 / 최근30일. 앞 6개는 date_preset(today/yesterday/last_3d/last_7d/last_14d/last_30d, 오늘 외에는 어제까지). **'이전 7일'은 Meta에 프리셋이 없어 time_range로 직접 조회** — 기준일은 last_7d 응답의 `date_start`에서 −7d~−1d 역산(광고계정 시간대 그대로라 어긋나지 않음), last_7d가 빈 응답이면 Asia/Seoul 오늘−7d로 폴백. 응답 stats에 `start`/`end` 포함 → 타일 tooltip·차트 tooltip에 실제 날짜 표시. 검증(2026-08-05, 6개 소재): **이전7일 + 최근7일 = 최근14일** 정확히 일치.
 - **Meta 연동 = 시스템 사용자 방식**(개인계정 잠금 문제 회피). 시스템사용자 dnrb-dashboard(비즈니스 Onniverse), 앱 DNRB-Dashboard(1005085742525912), 무기한 ads_read 토큰. 기존 수동 입력/시나리오/세금/아카이브 UI는 삭제됨(adv_archive 데이터는 보존, e89ef28 이전 커밋에서 복원 가능).
 
