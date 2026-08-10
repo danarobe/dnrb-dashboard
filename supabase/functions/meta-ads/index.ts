@@ -93,13 +93,13 @@ Deno.serve(async (req) => {
         return json({ period: { start: s, end: e }, spend, purchases, purchase_value: purchaseValue, meta_roas: metaRoas });
       }
 
-      // topads — 소재(광고) 단위, 지출 내림차순 상위 20
+      // topads — 소재(광고) 단위, 지출 내림차순 상위 30
       const body = await graphGet(`${c.account}/insights`, {
         time_range: timeRange,
         level: "ad",
         fields: "ad_id,ad_name,spend,actions,action_values,purchase_roas,frequency,cost_per_action_type",
         sort: "spend_descending",
-        limit: "20",
+        limit: "30",
       }, c.token);
       const ads = ((body.data ?? []) as Record<string, unknown>[]).map((r) => {
         const spend = num(r.spend);
