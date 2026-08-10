@@ -3,6 +3,7 @@
 //   GET ?action=summary&start_date&end_date → 기간 광고비·구매전환값·구매수·meta ROAS
 //   GET ?action=topads&start_date&end_date  → 지출 상위 10개 소재 (광고명/지출/구매당비용/구매수/전환값/ROAS/빈도)
 //   GET ?action=dateads&start_date&end_date → 광고명 YYMMDD가 기간 내인 활성 광고 (사내 등록일 규칙)
+//   GET ?action=activeads                    → 활성 광고 전체 + 시작~어제 누적 성과 (판매 성과 ON 광고 열)
 //   GET ?action=adstats&ad_id=...           → 소재 기간별 지출·ROAS (오늘/어제/최근3일/최근7일/이전7일/최근14일/최근30일)
 //   GET ?action=preview&ad_id=...           → 소재 미리보기(iframe HTML) + 썸네일
 //
@@ -122,6 +123,39 @@ Deno.serve(async (req) => {
       }, c.token);
       const ads = ((body.data ?? []) as Record<string, unknown>[]).map(mapAdRow);
       return json({ period: { start: s, end: e }, ads });
+    }
+
+    // 활성 광고 전체 + '광고 시작~어제' 누적 성과 — 판매 성과의 'ON 광고' 열용.
+    // 호출 2번으로 끝낸다: ① 활성 광고 이름 목록(지출 0인 것 포함) ② 어제까지 누적 인사이트.
+    // 상품별로 따로 묻지 않는다(상품 300개 × 호출 = 재앙). 매칭은 브라우저가 한다.
+    if (action === "activeads") {
+      const yesterday = addDays(seoulToday(), -1);
+      const [list, ins] = await Promise.all([
+        graphGet(`${c.account}/ads`, {
+          fields: "id,name",
+          filtering: JSON.stringify([{ field: "effective_status", operator: "IN", value: ["ACTIVE"] }]),
+          limit: "500",
+        }, c.token),
+        graphGet(`${c.account}/insights`, {
+          time_range: JSON.stringify({ since: "2024-01-01", until: yesterday }),
+          level: "ad",
+          fields: "ad_id,ad_name,spend,actions,action_values,purchase_roas,frequency,cost_per_action_type",
+          filtering: JSON.stringify([{ field: "ad.effective_status", operator: "IN", value: ["ACTIVE"] }]),
+          limit: "500",
+        }, c.token),
+      ]);
+      const metric = new Map(((ins.data ?? []) as Record<string, unknown>[])
+        .map((r) => [String(r.ad_id ?? ""), mapAdRow(r)]));
+      const rows = ((list.data ?? []) as Record<string, unknown>[]).map((a) => {
+        const id = String(a.id ?? "");
+        const m = metric.get(id);
+        return m ? { ...m, ad_name: String(a.name ?? m.ad_name) } : {
+          ad_id: id, ad_name: String(a.name ?? ""), spend: 0, cost_per_purchase: 0,
+          purchases: 0, purchase_value: 0, roas: 0, frequency: 0,
+        };
+      });
+      const truncated = ((list.data ?? []) as unknown[]).length >= 500;
+      return json({ until: yesterday, count: rows.length, truncated, ads: rows });
     }
 
     // 선택 기간 내 '등록된' 활성 광고 — 사내 규칙: 광고명에 등록일 YYMMDD를 기입 (예: 260810)
