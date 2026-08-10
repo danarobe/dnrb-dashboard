@@ -1011,7 +1011,7 @@
       <div class="control-bar">
         <label><i class="fa-regular fa-calendar"></i> 기준일</label>
         <input type="date" id="rwDate" onchange="rwCheckDate()" />
-        <span class="qp"><button onclick="qDate('rwDate',7)">7일 전</button><button onclick="qDate('rwDate',14)">14일 전</button></span>
+        <span class="qp"><button onclick="qDate('rwDate',4)">4일 전</button><button onclick="qDate('rwDate',7)">7일 전</button><button onclick="qDate('rwDate',14)">14일 전</button></span>
         <button class="btn-analyze" id="btn-rw" onclick="rwFetch()">
           <i class="fa-solid fa-cloud-arrow-down"></i> 조회
         </button>
@@ -1039,7 +1039,7 @@
       <div id="rw-result">
         <div class="empty-state">
           <div class="es-icon"><i class="fa-regular fa-folder-open"></i></div>
-          <p>기준일을 선택하고 <strong>조회</strong>를 누르세요. (기본값은 오늘로부터 7일 전 — 반품이 확정된 시점입니다)</p>
+          <p>기준일을 선택하고 <strong>조회</strong>를 누르세요. (기본값은 오늘로부터 4일 전 — 반품 신청이 대부분 들어온 시점입니다)</p>
         </div>
       </div>
 
@@ -2435,7 +2435,7 @@ const rwToday = () => new Date().toISOString().slice(0, 10);
 const rwShiftDays = (ymd, n) => new Date(new Date(ymd).getTime() + n * 86400000).toISOString().slice(0, 10);
 
 function rwInit() {
-  if (!$('rwDate').value) $('rwDate').value = rwShiftDays(rwToday(), -7);
+  if (!$('rwDate').value) $('rwDate').value = rwShiftDays(rwToday(), -4);   // 사용자 결정(2026-08-10): 기본 기준일 = 오늘 − 4일
   rwCheckDate();
   if (!rwState.watch) rwLoadWatch().then(() => { if (rwState.data) rwRender(); });
 }
@@ -2445,10 +2445,10 @@ function rwCheckDate() {
   const v = $('rwDate').value, el = $('rw-datewarn');
   if (!v) { el.style.display = 'none'; return; }
   const age = Math.round((new Date(rwToday()) - new Date(v)) / 86400000);
-  if (age >= 5) { el.style.display = 'none'; return; }
+  if (age >= 4) { el.style.display = 'none'; return; }
   el.style.display = 'block';
   el.innerHTML = `기준일이 <b>${age}일 전</b>입니다. 반품은 배송완료 후 며칠에 걸쳐 들어오기 때문에, 최근 날짜로 보면 <b>실제보다 낮게</b> 나옵니다.
-    <br />정확히 보시려면 <b>${rwShiftDays(rwToday(), -7)}</b>(7일 전) 이전으로 잡아주세요.`;
+    <br />정확히 보시려면 <b>${rwShiftDays(rwToday(), -4)}</b>(4일 전) 이전으로 잡아주세요.`;
 }
 
 async function rwFetch() {
@@ -3842,7 +3842,7 @@ async function fetchMetaAds() {
     if (!ads.length) {
       $('meta-topads').innerHTML = '<div class="empty-state"><div class="es-icon"><i class="fa-regular fa-folder-open"></i></div><p>기간 내 지출된 광고가 없습니다.</p></div>';
     } else {
-      let html = `<div style="font-size:.82rem;color:#6b7280;margin-bottom:8px;">지출 상위 20개 소재 · <b>행을 클릭하면 소재와 기간별 성과 그래프를 볼 수 있어요</b></div>
+      let html = `<div style="font-size:.82rem;color:#6b7280;margin-bottom:8px;">지출 상위 30개 소재 · <b>행을 클릭하면 소재와 기간별 성과 그래프를 볼 수 있어요</b></div>
         <div class="table-wrap"><table>
         <thead><tr>
           <th>순위</th><th style="text-align:left;">광고명</th><th>지출 금액</th>
