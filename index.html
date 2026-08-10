@@ -421,8 +421,9 @@
     }
 
     .section-card {
-      background: rgba(255,255,255,.92);
-      -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px);
+      background: rgba(255,255,255,.95);
+      /* backdrop-filter 금지 — 조상에 blur가 있으면 position:fixed 팝업의 기준이
+         화면이 아니라 이 카드가 되어, 긴 표에서 팝업이 화면 밖 한가운데에 뜬다(실사례) */
       border: 1px solid #e7e8ee;
       box-shadow: 0 1px 3px rgba(17,24,39,.06);
     }
@@ -6716,6 +6717,13 @@ function bootApp() {
     $('login-overlay').style.display = 'flex';
   }
 })();
+/* 소재 미리보기 모달은 여러 메뉴(광고 효율·판매 성과 ON 광고)에서 쓰므로 body 직속으로 옮긴다.
+   섹션 안에 두면 다른 메뉴에서 열었을 때 숨은 섹션(.page-sec)에 같이 가려져 안 보인다(실사례). */
+(() => {
+  const m = document.getElementById('meta-preview-modal');
+  if (m) { m.style.zIndex = '220'; document.body.appendChild(m); }
+})();
+
 </script>
 </body>
 </html>
