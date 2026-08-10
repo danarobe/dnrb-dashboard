@@ -2,6 +2,7 @@
 // Meta(페이스북·인스타그램) 광고관리자 연동 함수 — 관리자 전용
 //   GET ?action=summary&start_date&end_date → 기간 광고비·구매전환값·구매수·meta ROAS
 //   GET ?action=topads&start_date&end_date  → 지출 상위 10개 소재 (광고명/지출/구매당비용/구매수/전환값/ROAS/빈도)
+//   GET ?action=dateads&start_date&end_date → 광고명 YYMMDD가 기간 내인 활성 광고 (사내 등록일 규칙)
 //   GET ?action=adstats&ad_id=...           → 소재 기간별 지출·ROAS (오늘/어제/최근3일/최근7일/이전7일/최근14일/최근30일)
 //   GET ?action=preview&ad_id=...           → 소재 미리보기(iframe HTML) + 썸네일
 //
@@ -58,6 +59,24 @@ function pickPurchase(arr: unknown): number {
   return 0;
 }
 
+// 인사이트 행 → 표준 광고 행 (topads·dateads 공용)
+function mapAdRow(r: Record<string, unknown>) {
+  const spend = num(r.spend);
+  const purchases = pickPurchase(r.actions);
+  const purchaseValue = pickPurchase(r.action_values);
+  const roasArr = (r.purchase_roas ?? []) as { value?: unknown }[];
+  return {
+    ad_id: String(r.ad_id ?? ""),
+    ad_name: String(r.ad_name ?? ""),
+    spend,
+    cost_per_purchase: pickPurchase(r.cost_per_action_type) || (purchases > 0 ? spend / purchases : 0),
+    purchases,
+    purchase_value: purchaseValue,
+    roas: roasArr.length ? num(roasArr[0].value) : (spend > 0 ? purchaseValue / spend : 0),
+    frequency: num(r.frequency),
+  };
+}
+
 Deno.serve(async (req) => {
   const opt = handleOptions(req);
   if (opt) return opt;
@@ -101,23 +120,35 @@ Deno.serve(async (req) => {
         sort: "spend_descending",
         limit: "30",
       }, c.token);
-      const ads = ((body.data ?? []) as Record<string, unknown>[]).map((r) => {
-        const spend = num(r.spend);
-        const purchases = pickPurchase(r.actions);
-        const purchaseValue = pickPurchase(r.action_values);
-        const roasArr = (r.purchase_roas ?? []) as { value?: unknown }[];
-        return {
-          ad_id: String(r.ad_id ?? ""),
-          ad_name: String(r.ad_name ?? ""),
-          spend,
-          cost_per_purchase: pickPurchase(r.cost_per_action_type) || (purchases > 0 ? spend / purchases : 0),
-          purchases,
-          purchase_value: purchaseValue,
-          roas: roasArr.length ? num(roasArr[0].value) : (spend > 0 ? purchaseValue / spend : 0),
-          frequency: num(r.frequency),
-        };
-      });
+      const ads = ((body.data ?? []) as Record<string, unknown>[]).map(mapAdRow);
       return json({ period: { start: s, end: e }, ads });
+    }
+
+    // 선택 기간 내 '등록된' 활성 광고 — 사내 규칙: 광고명에 등록일 YYMMDD를 기입 (예: 260810)
+    // 광고명에서 날짜를 추출해 기간 안에 들어가는 것만 반환. 비활성까지 세면 너무 많아
+    // effective_status=ACTIVE 필터를 서버(Meta) 쪽에 건다 (사용자 결정).
+    if (action === "dateads") {
+      const s = url.searchParams.get("start_date");
+      const e = url.searchParams.get("end_date");
+      if (!s || !e) return json({ error: "start_date, end_date 필수 (YYYY-MM-DD)" }, 400);
+      const body = await graphGet(`${c.account}/insights`, {
+        time_range: JSON.stringify({ since: s, until: e }),
+        level: "ad",
+        fields: "ad_id,ad_name,spend,actions,action_values,purchase_roas,frequency,cost_per_action_type",
+        filtering: JSON.stringify([{ field: "ad.effective_status", operator: "IN", value: ["ACTIVE"] }]),
+        sort: "spend_descending",
+        limit: "250",
+      }, c.token);
+      // YYMMDD: 연 24~29, 월 01~12, 일 01~31. 앞뒤에 숫자가 붙어 있으면(가격 등 긴 숫자열) 제외.
+      const DATE_RE = /(?<!\d)(2[4-9])(0[1-9]|1[0-2])(0[1-9]|[12]\d|3[01])(?!\d)/g;
+      const rows = ((body.data ?? []) as Record<string, unknown>[]);
+      const ads = rows.map((r) => {
+        const row = mapAdRow(r);
+        const dates = [...row.ad_name.matchAll(DATE_RE)].map((m) => `20${m[1]}-${m[2]}-${m[3]}`);
+        const matched = [...new Set(dates.filter((d) => d >= s && d <= e))];
+        return { ...row, reg_dates: matched };
+      }).filter((r) => r.reg_dates.length > 0);
+      return json({ period: { start: s, end: e }, active_count: rows.length, ads });
     }
 
     // 소재별 기간 통계 — 오늘/어제/최근3일/최근7일/이전7일/최근14일/최근30일의 지출·ROAS
