@@ -10,7 +10,7 @@
 // 필요 secrets: META_ACCESS_TOKEN (비즈니스 설정 > 시스템 사용자 토큰, ads_read 권한),
 //               META_AD_ACCOUNT_ID (act_ 제외 숫자만 또는 act_숫자)
 // ═══════════════════════════════════════════════
-import { handleOptions, json, verifyAuthToken } from "../_shared/util.ts";
+import { cacheGet, cacheSet, handleOptions, json, verifyAuthToken } from "../_shared/util.ts";
 
 const GRAPH = "https://graph.facebook.com/v23.0";
 
@@ -130,6 +130,11 @@ Deno.serve(async (req) => {
     // 상품별로 따로 묻지 않는다(상품 300개 × 호출 = 재앙). 매칭은 브라우저가 한다.
     if (action === "activeads") {
       const yesterday = addDays(seoulToday(), -1);
+      // 10분 캐시 — 판매 성과를 여러 명이 반복 조회해도 Meta 호출은 10분에 2번.
+      // (오늘 실측: 검증 중 반복 호출로 Meta "User request limit reached" 발생 → 캐시로 예방)
+      const cacheKey = `meta:activeads:${yesterday}`;
+      const hit = await cacheGet(cacheKey, 10 * 60 * 1000);
+      if (hit) return json(hit);
       const [list, ins] = await Promise.all([
         graphGet(`${c.account}/ads`, {
           fields: "id,name",
@@ -155,7 +160,9 @@ Deno.serve(async (req) => {
         };
       });
       const truncated = ((list.data ?? []) as unknown[]).length >= 500;
-      return json({ until: yesterday, count: rows.length, truncated, ads: rows });
+      const body = { until: yesterday, count: rows.length, truncated, ads: rows };
+      await cacheSet(cacheKey, body);
+      return json(body);
     }
 
     // 선택 기간 내 '등록된' 활성 광고 — 사내 규칙: 광고명에 등록일 YYMMDD를 기입 (예: 260810)
