@@ -5411,8 +5411,25 @@ function paVerTok(name) {
   const m = String(name || '').match(/([가-힣]+|(?<![a-z]))ver\.?\d*/i);
   return m && PA_VER.test(m[0]) ? m[0] : null;
 }
-/* 비교 정규화: 공백 제거 + 'ver.'→'ver' + 소문자 */
-const paNorm = t => String(t || '').replace(/\s+/g, '').replace(/ver\./gi, 'ver').toLowerCase();
+/* 한글을 자모로 풀기 — 맥에서 광고명이 "ㅍㅡㄹㅔㅅㅣ ㅎㅜㄹ ㅌㅣㅅㅕㅊㅡ"처럼
+   조합 안 된 자모로 등록되는 경우가 있어(사용자 실사례), 비교는 항상 자모 단위로 한다.
+   "프레시" → "ㅍㅡㄹㅔㅅㅣ" 로 풀리므로 깨진 광고명과도 일치한다. */
+const PA_CHO = 'ㄱㄲㄴㄷㄸㄹㅁㅂㅃㅅㅆㅇㅈㅉㅊㅋㅌㅍㅎ';
+const PA_JUNG = 'ㅏㅐㅑㅒㅓㅔㅕㅖㅗㅘㅙㅚㅛㅜㅝㅞㅟㅠㅡㅢㅣ';
+const PA_JONG = ['','ㄱ','ㄲ','ㄳ','ㄴ','ㄵ','ㄶ','ㄷ','ㄹ','ㄺ','ㄻ','ㄼ','ㄽ','ㄾ','ㄿ','ㅀ','ㅁ','ㅂ','ㅄ','ㅅ','ㅆ','ㅇ','ㅈ','ㅊ','ㅋ','ㅌ','ㅍ','ㅎ'];
+function paJamo(s) {
+  let out = '';
+  for (const ch of s) {
+    const c = ch.codePointAt(0);
+    if (c >= 0xAC00 && c <= 0xD7A3) {
+      const i = c - 0xAC00;
+      out += PA_CHO[Math.floor(i / 588)] + PA_JUNG[Math.floor((i % 588) / 28)] + PA_JONG[i % 28];
+    } else out += ch;
+  }
+  return out;
+}
+/* 비교 정규화: NFC 정규화 → 자모 풀기 → 공백 제거 + 'ver.'→'ver' + 소문자 */
+const paNorm = t => paJamo(String(t || '').normalize('NFC')).replace(/\s+/g, '').replace(/ver\./gi, 'ver').toLowerCase();
 
 /* 광고 → 상품 배정.
    · 광고명에 핵심명이 포함되면 후보. 가장 긴 핵심명 하나에만 배정(부분 겹침 오매칭 방지).
@@ -5939,6 +5956,7 @@ function renderPerfResult() {
         <td class="m-hide">${fmt(row.paidQty)}</td><td class="m-hide">${fmt(row.refundQty)}</td><td>${fmt(row.salesQty)}</td>
         ${isStaff() || isCS() ? '' : `<td class="m-hide">${row.salesTotal>0?fmt(row.salesTotal)+'원':'—'}</td>`}
         ${isCS() ? '' : `<td>${(() => {
+          if (!store.activeAds) return '<span title="Meta 광고 조회 실패 — 잠시 후 다시 조회해주세요" style="color:#d1d5db;font-size:.75rem;">—</span>';
           const n = store.adMatch && store.adMatch.has(row.productNo) ? store.adMatch.get(row.productNo).length : 0;
           return n > 0
             ? `<button onclick="paShow(${row.productNo})" style="border:1px solid #c7d2fe;background:#eef2ff;color:#4338ca;border-radius:6px;padding:2px 10px;font-size:.75rem;font-weight:800;cursor:pointer;">${n}</button>`
