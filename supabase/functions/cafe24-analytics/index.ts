@@ -562,6 +562,7 @@ Deno.serve(async (req) => {
       type Out = {
         product_no: number; product_name: string; option: string;
         qty: number; date: string; request: string; accept: string;
+        claim: string;   // 클레임 번호 — 여러 상품 동반 반품 시 사유가 공유되므로 클라이언트가 이걸로 구분
       };
       const items: Out[] = [];
       const filter = `date_type=shipend_date&order_status=${NET_RETURN_STATUSES.join(",")}` +
@@ -582,6 +583,7 @@ Deno.serve(async (req) => {
               qty: num(it.quantity),
               date: dd,
               request, accept,
+              claim: String(it.claim_code ?? o.order_id ?? ""),
             });
           }
         }
