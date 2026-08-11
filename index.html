@@ -5520,8 +5520,40 @@ async function rrEnsure(ds, de) {
   const key = ds + '~' + de;
   if (rrState.key === key && rrState.byProduct) return;
   const d = await anGet({ action: 'returnreasons', start_date: ds, end_date: de });
+  const items = d.items || [];
+
+  /* ── 동반 반품 처리 ──
+     카페24는 사유를 '클레임(반품 신청) 단위'로 하나만 받는다. 여러 상품을 한 번에 반품하면
+     같은 문장이 모든 상품에 복사된다(실측: 클레임 22%가 다중 상품, 그중 87% 동일 사유).
+     그래서 각 품목을 세 가지로 나눈다:
+       sole   = 단독 반품이라 이 상품 사유가 확실 → TOP5 집계
+       shared = 여러 상품 동반 반품 — 어느 상품 얘기인지 불확실 → 별도 구역 표시
+       other  = 사유에 '다른' 상품 종류가 명시됨(예: 블라우스 반품인데 "원피스가 길어요") → 제외
+     귀속 판별: 사유에 클레임 내 상품의 종류 단어(핵심명 마지막 단어: 원피스·블라우스 등)가
+     정확히 한 상품 것만 나오면 그 상품 사유로 본다. */
+  const claims = new Map();
+  for (const x of items) {
+    if (!x.claim) continue;
+    if (!claims.has(x.claim)) claims.set(x.claim, new Map());
+    claims.get(x.claim).set(x.product_no, x.product_name);
+  }
+  const catTok = nm => { const w = paKey(nm).split(/\s+/); return w[w.length - 1] || ''; };
+  for (const x of items) {
+    const prods = x.claim ? claims.get(x.claim) : null;
+    x.share = 'sole'; x.others = [];
+    if (!prods || prods.size <= 1) continue;
+    x.others = [...prods].filter(([no]) => no !== x.product_no).map(([, nm]) => paKey(nm));
+    const text = (x.request || x.accept || '').trim();
+    if (!text) { x.share = 'shared'; continue; }
+    const toks = [...prods].map(([no, nm]) => ({ no, tok: catTok(nm) }));
+    const cnt = {}; toks.forEach(t => { cnt[t.tok] = (cnt[t.tok] || 0) + 1; });
+    const mentioned = toks.filter(t => t.tok.length >= 2 && cnt[t.tok] === 1 && text.includes(t.tok));
+    if (mentioned.length === 1) x.share = (mentioned[0].no === x.product_no) ? 'sole' : 'other';
+    else x.share = 'shared';
+  }
+
   const by = new Map();
-  for (const x of (d.items || [])) {
+  for (const x of items) {
     if (!by.has(x.product_no)) by.set(x.product_no, []);
     by.get(x.product_no).push(x);
   }
@@ -5560,14 +5592,23 @@ function rrRenderBody(productNo) {
 function rrBuildHtml(list) {
   // 사용자 규칙: 신청 사유가 있으면 그것만 집계, 없을 때만 접수 사유 사용
   const groups = new Map();     // 분류 → { n, texts: Map(정규화 → {text, n}) }
-  let fromAccept = 0, blank = 0;
+  let fromAccept = 0, blank = 0, otherN = 0;
+  const shared = new Map();     // 동반 반품 공유 사유: 정규화 → {text, n, others:Set}
   for (const x of list) {
+    if (x.share === 'other') { otherN++; continue; }           // 다른 상품에 대한 사유 — 제외
     const req = (x.request || '').trim();
     const acc = (x.accept || '').trim();
     const text = req || acc;
     if (!text) { blank++; continue; }
     if (!req && acc) fromAccept++;
     const n = rrNorm(text);
+    if (x.share === 'shared') {                                 // 동반 반품 — 별도 구역
+      const s = shared.get(n) || { text, n: 0, others: new Set() };
+      s.n++;
+      (x.others || []).forEach(o => s.others.add(o));
+      shared.set(n, s);
+      continue;
+    }
     const cat = rrCat(n);
     if (!groups.has(cat)) groups.set(cat, { n: 0, texts: new Map() });
     const g = groups.get(cat);
@@ -5575,6 +5616,7 @@ function rrBuildHtml(list) {
     const t = g.texts.get(n);
     if (t) t.n++; else g.texts.set(n, { text, n: 1 });
   }
+  const sharedN = [...shared.values()].reduce((s, v) => s + v.n, 0);
   const total = [...groups.values()].reduce((s, g) => s + g.n, 0);
   const ranked = [...groups.entries()].sort((a, b) => b[1].n - a[1].n);
   const top = ranked.slice(0, 5), restN = ranked.slice(5).reduce((s, g) => s + g[1].n, 0);
@@ -5583,11 +5625,13 @@ function rrBuildHtml(list) {
   let html = `
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;">
       <span style="background:#eef2ff;color:#4338ca;border-radius:8px;padding:5px 10px;font-size:.75rem;font-weight:700;">반품 ${list.length}건</span>
-      <span style="background:#f8f9ff;color:#6b7280;border-radius:8px;padding:5px 10px;font-size:.75rem;">사유 기재 ${total}건</span>
+      <span style="background:#f8f9ff;color:#6b7280;border-radius:8px;padding:5px 10px;font-size:.75rem;">이 상품 사유 확실 ${total}건</span>
+      ${sharedN ? `<span style="background:#fffbeb;color:#92400e;border-radius:8px;padding:5px 10px;font-size:.75rem;">동반 반품(불확실) ${sharedN}건</span>` : ''}
+      ${otherN ? `<span style="background:#f3f4f6;color:#9ca3af;border-radius:8px;padding:5px 10px;font-size:.75rem;">다른 상품 사유 제외 ${otherN}건</span>` : ''}
       ${blank ? `<span style="background:#f3f4f6;color:#9ca3af;border-radius:8px;padding:5px 10px;font-size:.75rem;">미기재 ${blank}건</span>` : ''}
       ${fromAccept ? `<span style="background:#fff7ed;color:#c2410c;border-radius:8px;padding:5px 10px;font-size:.75rem;">접수 사유로 대체 ${fromAccept}건</span>` : ''}
     </div>
-    <div style="font-size:.82rem;font-weight:800;color:#4338ca;margin-bottom:8px;">비슷한 사유끼리 묶은 TOP ${top.length}</div>`;
+    <div style="font-size:.82rem;font-weight:800;color:#4338ca;margin-bottom:8px;">비슷한 사유끼리 묶은 TOP ${top.length} <span style="font-weight:400;color:#9ca3af;font-size:.7rem;">(이 상품 것이 확실한 사유만)</span></div>`;
 
   top.forEach(([cat, g], i) => {
     const pct = total > 0 ? (g.n / total * 100) : 0;
@@ -5619,8 +5663,21 @@ function rrBuildHtml(list) {
       </div>`;
   });
   if (restN > 0) html += `<div style="font-size:.75rem;color:#9ca3af;text-align:center;margin-top:2px;">그 외 ${ranked.length - 5}개 묶음 ${restN}건</div>`;
+  if (shared.size) {
+    const rows = [...shared.values()].sort((a, b) => b.n - a.n);
+    html += `<details style="margin-top:10px;background:#fffbeb;border:1px solid #fde68a;border-radius:10px;padding:8px 12px;">
+      <summary style="cursor:pointer;font-size:.78rem;font-weight:700;color:#92400e;">여러 상품 동반 반품의 사유 ${sharedN}건 — 어느 상품에 대한 말인지 불확실 (TOP 집계 제외)</summary>
+      <div style="margin-top:6px;font-size:.75rem;color:#4b5563;line-height:1.8;">
+        ${rows.map(s => `<div style="display:flex;gap:6px;flex-wrap:wrap;">
+          <span style="flex:1;min-width:200px;">· ${escHtml(s.text)}${s.n > 1 ? ` <span style="color:#9ca3af;">×${s.n}</span>` : ''}</span>
+          <span style="color:#b45309;font-size:.7rem;">함께 반품: ${escHtml([...s.others].slice(0, 2).join(', '))}${s.others.size > 2 ? ' 외' : ''}</span>
+        </div>`).join('')}
+      </div></details>`;
+  }
   html += `<div style="font-size:.7rem;color:#9ca3af;margin-top:10px;line-height:1.6;border-top:1px solid #f3f4f6;padding-top:8px;">
-    ※ 신청 사유와 접수 사유가 모두 있으면 <b>신청 사유만</b> 셉니다 (중복 방지) · 비슷한 표현은 자동으로 한 묶음으로 셉니다</div>`;
+    ※ 신청 사유와 접수 사유가 모두 있으면 <b>신청 사유만</b> 셉니다 (중복 방지) · 비슷한 표현은 자동으로 한 묶음 ·
+    여러 상품을 한 번에 반품하면 카페24가 <b>한 문장을 모든 상품에 복사</b>하므로, 단독 반품 사유만 이 상품 것으로 확정합니다
+    (사유에 상품 종류가 명시되면 그 상품으로 자동 귀속)</div>`;
   return html;
 }
 
