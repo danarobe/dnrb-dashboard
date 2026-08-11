@@ -1140,6 +1140,7 @@
           <label>결제 수수료율 (%) <input type="number" step="0.1" id="dcfg-feerate" value="3" oninput="dispRender()" /></label>
           <label>포장·물류비 (건당 원) <input type="number" id="dcfg-shipcost" value="900" oninput="dispRender()" /></label>
           <label>조기 강등 조회수 하한 (21일) <input type="number" id="dcfg-demote" value="210" oninput="dispRender()" /></label>
+          <label>신상 보호 — 성과평가 없이 신상 블록 유지 (조기 강등 안 함) <input type="checkbox" id="dcfg-protectnew" onchange="dispRender()" /></label>
           <label>주력 판정: 조회수 기준 (21일) <input type="number" id="dcfg-coreviews" value="70" oninput="dispRender()" /></label>
           <label>주력 판정: 상품수 기준 <input type="number" id="dcfg-corecount" value="30" oninput="dispRender()" /></label>
           <label>트래픽 이상치 배수 <input type="number" id="dcfg-outlier" value="10" oninput="dispRender()" /></label>
@@ -2722,7 +2723,8 @@ function dispCfg() {
     w7: n('dcfg-w7'), shrink: n('dcfg-shrink'),
     priorLoss: n('dcfg-priorloss'), priorN: n('dcfg-priorn'),
     returnCost: n('dcfg-returncost'), feeRate: n('dcfg-feerate') / 100, shipCost: n('dcfg-shipcost'),
-    demoteViews: n('dcfg-demote'), coreViews: n('dcfg-coreviews'), coreCount: n('dcfg-corecount'),
+    demoteViews: n('dcfg-demote'), protectNew: $('dcfg-protectnew').checked,
+    coreViews: n('dcfg-coreviews'), coreCount: n('dcfg-corecount'),
     outlierMult: n('dcfg-outlier'), evidenceRatio: n('dcfg-evidence'), minSales: n('dcfg-minsales'),
   };
 }
@@ -2846,7 +2848,8 @@ function dispCompute(catNo) {
     .sort((a, b) => (b.created > a.created ? 1 : -1))
     .slice(0, cfg.newMax);
   // 조기 강등: 7일 경과 & 21일 조회수 충분 & 블록 내 점수 하위 25%
-  if (fresh.length >= 4) {
+  // (신상 보호 켜면 건너뜀 — 신선도 이내 신상은 성과와 무관하게 신상 블록 유지, 상품팀 요청 2026-08-11)
+  if (!cfg.protectNew && fresh.length >= 4) {
     const sorted = [...fresh].sort((a, b) => a.score - b.score);
     const bottom = new Set(sorted.slice(0, Math.ceil(fresh.length * 0.25)).map(r => r.no));
     fresh = fresh.filter(r => {
@@ -3011,7 +3014,7 @@ async function dispRender() {
     tile('BEST 진열', `${R.best.length}개`, R.best.length
       ? `일반 진열에는 페이지당 ${cfg.bestPerPage}개씩 뒤 순위부터 섞여 들어감 (${dispMixSummary(R.best.length, cfg.bestPerPage)}) · 1페이지는 신상 다음 자리에 무작위 배치`
       : '비주력 카테고리는 BEST를 선별하지 않습니다', !R.best.length) +
-    tile('신상 블록', `${R.fresh.length}개`, `${cfg.freshDays}일 이내` + (R.fresh.length < cfg.newMax ? ` · 최대 ${cfg.newMax}개 미만 — 억지로 채우지 않음` : ''), R.fresh.length < cfg.newMax) +
+    tile('신상 블록', `${R.fresh.length}개`, (cfg.protectNew ? '보호 켜짐 — 조기 강등 안 함 · ' : '') + `${cfg.freshDays}일 이내` + (R.fresh.length < cfg.newMax ? ` · 최대 ${cfg.newMax}개 미만 — 억지로 채우지 않음` : ''), R.fresh.length < cfg.newMax) +
     tile('하드 필터 제외', `${R.excluded.length}개`, Object.entries(reasonCnt).map(([k, v]) => `${k} ${v}`).join(' · ') || '없음', R.excluded.length > 0) +
     tile('마진 데이터 누락', `${R.marginMissingN}개`, '계산 제외 — 카페24에 공급가 입력 필요', R.marginMissingN > 0) +
     tile('평균 조회당마진 (7d)', R.a7.mpv.toFixed(1) + '원', `K(7d)=${R.a7.K.toFixed(1)} · K(14d)=${R.a14.K.toFixed(1)} · 반품 사전평균 ${(R.priorLoss * 100).toFixed(1)}%${R.priorAuto ? '(전사 자동)' : '(수동)'}`) +
