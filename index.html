@@ -2480,16 +2480,17 @@ async function rwFetch() {
   const btn = $('btn-rw');
   btnBusy(btn, '조회 중');
   try {
-    const [d] = await Promise.all([
-      anGet({ action: 'returnwatch', end_date: e,
-              top: $('rwTop').value || 30, risk: $('rwRisk').value || 20, min_qty: $('rwMinQty').value || 10 }),
-      rwState.watch ? Promise.resolve() : rwLoadWatch(),
-    ]);
+    // 관리 상품 번호를 extra로 넘겨 상위 N 밖이어도 7/14/30일 창이 계산되게 한다 (관리 상품 탭 표시용)
+    if (!rwState.watch) await rwLoadWatch();
+    const extra = (rwState.watch || []).map(w => w.product_no).join(',');
+    const d = await anGet({ action: 'returnwatch', end_date: e,
+      top: $('rwTop').value || 30, risk: $('rwRisk').value || 20, min_qty: $('rwMinQty').value || 10,
+      ...(extra ? { extra } : {}) });
     rwState.data = d;
     $('rw-minq-label').textContent = d.min_qty;
     rwRender();
-    const n = d.products.filter(p => p.flagged).length;
-    showToast(`상위 ${d.products.length}개 상품 중 위험 ${n}개`);
+    const ranked = d.products.filter(p => p.rank7 || p.rank14);
+    showToast(`상위 ${ranked.length}개 상품 중 위험 ${ranked.filter(p => p.flagged).length}개`);
   } catch (err) {
     showToast('조회 실패: ' + err.message);
     console.error(err);
@@ -2523,8 +2524,10 @@ function rwRender() {
   if (rwState.tab === 'watch') { rwRenderWatch(); return; }
   if (!d) { $('rw-result').innerHTML = '<div class="empty-state"><div class="es-icon"><i class="fa-regular fa-folder-open"></i></div><p>먼저 <strong>조회</strong>를 눌러주세요.</p></div>'; return; }
 
-  const flagged = d.products.filter(p => p.flagged);
-  const list = rwState.tab === 'risk' ? flagged : d.products;
+  // 위험·전체 탭은 순위권(7일·14일 상위 합집합)만 — extra로 끼워 넣은 관리 상품은 관리 탭 전용
+  const ranked = d.products.filter(p => p.rank7 || p.rank14);
+  const flagged = ranked.filter(p => p.flagged);
+  const list = rwState.tab === 'risk' ? flagged : ranked;
 
   const tile = (label, val, sub, warn) => `
     <div style="background:${warn ? '#fef2f2' : '#f8f9ff'};border:1.5px solid ${warn ? '#fecaca' : '#e0e7ff'};border-radius:12px;padding:12px 14px;">
@@ -2535,7 +2538,7 @@ function rwRender() {
   const prodRisk = flagged.filter(p => p.product_risk).length;
   const optOnly = flagged.length - prodRisk;
   $('rw-summary').innerHTML =
-    tile('대상 상품', `${d.products.length}개`, `7일·14일 결제수량 상위 ${d.top}위 합집합`) +
+    tile('대상 상품', `${ranked.length}개`, `7일·14일 결제수량 상위 ${d.top}위 합집합`) +
     tile('위험 상품', `${flagged.length}개`, `상품 전체 ${prodRisk}개 · 옵션만 ${optOnly}개`, flagged.length > 0) +
     tile('관리 상품', `${(rwState.watch || []).length}개`, "'관리 상품' 탭에서 사유·지정일 확인") +
     tile('기준일', d.end_date, `7일 창 ${d.window_start['7']}~ · 30일 창 ${d.window_start['30']}~`);
@@ -2580,7 +2583,7 @@ function rwRender() {
   $('rw-result').innerHTML = html;
 }
 
-/* 관리 상품 탭 — 지정일·사유·지정 시점 수치 */
+/* 관리 상품 탭 — 지정일·사유 + 위험 상품 표와 같은 7/14/30일 순반품률 (조회 후 표시) */
 function rwRenderWatch() {
   const rows = rwState.watch || [];
   $('rw-summary').style.display = 'none';
@@ -2588,13 +2591,34 @@ function rwRenderWatch() {
     $('rw-result').innerHTML = '<div class="empty-state"><div class="es-icon"><i class="fa-regular fa-star"></i></div><p>아직 관리 상품이 없습니다. 위험 상품 표에서 <strong>지정</strong>을 눌러 등록하세요.</p></div>';
     return;
   }
-  $('rw-result').innerHTML = `<div class="table-wrap" style="max-height:620px;overflow:auto;"><table>
-    <thead><tr><th>지정일</th><th style="text-align:left;">상품명</th><th>지정 시점<br><span style="font-size:.7rem;font-weight:400;color:#9ca3af;">순반품률</span></th>
+  const d = rwState.data;
+  const pOf = no => d ? d.products.find(x => x.product_no === Number(no)) : null;
+  const cellOf = (no, k) => {
+    const p = pOf(no);
+    if (!p) return '<span style="color:#c4c9d4;font-size:.75rem;">—</span>';
+    const c = p.windows[k];
+    return `${rwBadge(c.rate, c.del, d.min_qty, d.risk_at)}<div style="font-size:.7rem;color:#9ca3af;">${fmt(c.ret)}÷${fmt(c.del)}</div>`;
+  };
+  const nameCell = r => {
+    const nm = escHtml(r.product_name || '');
+    return pOf(r.product_no)
+      ? `<span onclick="rwShowDetail(${r.product_no})" style="cursor:pointer;color:#4338ca;text-decoration:underline dotted;text-underline-offset:3px;">${nm}</span>`
+      : nm;
+  };
+  const notice = d ? '' : `<div style="font-size:.75rem;color:#9ca3af;margin-bottom:8px;">
+    순반품률(7/14/30일)을 보려면 위의 <b>조회</b>를 눌러주세요 — 기준일 기준으로 계산됩니다.</div>`;
+  $('rw-result').innerHTML = `${notice}<div class="table-wrap" style="max-height:620px;overflow:auto;"><table>
+    <thead><tr><th>지정일</th><th style="text-align:left;">상품명</th>
+      <th>순반품률<br><span style="font-size:.7rem;font-weight:400;color:#9ca3af;">7일</span></th>
+      <th>순반품률<br><span style="font-size:.7rem;font-weight:400;color:#9ca3af;">14일</span></th>
+      <th class="rw-hm">순반품률<br><span style="font-size:.7rem;font-weight:400;color:#9ca3af;">30일</span></th>
       <th style="text-align:left;">지정 사유</th><th class="rw-hm">지정자</th><th>관리</th></tr></thead><tbody>
     ${rows.map(r => `<tr>
       <td style="font-size:.75rem;color:#6b7280;white-space:nowrap;">${String(r.created_at || '').slice(0, 10)}</td>
-      <td style="text-align:left;min-width:160px;white-space:normal;">${escHtml(r.product_name || '')}</td>
-      <td>${r.watch_rate != null ? `<b style="color:#dc2626;">${Number(r.watch_rate).toFixed(1)}%</b><div style="font-size:.7rem;color:#9ca3af;">배송완료 ${fmt(r.watch_qty || 0)}</div>` : '—'}</td>
+      <td style="text-align:left;min-width:160px;white-space:normal;">${nameCell(r)}</td>
+      <td>${cellOf(r.product_no, '7')}</td>
+      <td>${cellOf(r.product_no, '14')}</td>
+      <td class="rw-hm">${cellOf(r.product_no, '30')}</td>
       <td id="rw-reason-${r.product_no}" style="text-align:left;font-size:.82rem;color:#374151;white-space:pre-wrap;min-width:150px;">${escHtml(r.reason || '')}</td>
       <td class="rw-hm" style="font-size:.75rem;color:#6b7280;">${escHtml(r.created_by || '')}</td>
       <td style="white-space:nowrap;">
