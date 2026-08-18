@@ -206,6 +206,7 @@ AUTHOR_FIELDS(notes/comments=author_id, likes=user_id): POST는 본인 id 필수
 - 위험 판정 = 순반품률 ≥ risk(기본 20%) **AND 배송완료 ≥ min_qty(기본 10)**. 소표본은 '보류' 표시 — 실측상 7일 옵션 위험 7건 중 4건이 "1개 팔려 1개 반품" 같은 요행이었다. 판정 창은 **순위에 든 창**(7일 상위면 7일 기준).
 - 상품명 클릭 → 4개 창 타일 + **옵션별 4개 창** 표 + **반품 사유 TOP5**(2026-08-09 추가 — 30일 창 기준, 판매 성과의 `rrBuildHtml` 공용 렌더러 재사용, `rrEnsure` 캐시 공유라 두 번째 클릭부터 즉시). 비동기 로딩 중 다른 상품을 열면 `rwState.detailNo` 가드로 덮어쓰기 방지. 검증: 30일 창 반품 수량과 사유 건수 일치(16=16).
 - `return_watch` 테이블(admin+staff, db 프록시): product_no(PK)·product_name·reason·**watch_rate/watch_qty(지정 시점 수치)**·created_by·created_at. 탭 3개(위험/전체/⭐관리 상품). 해제는 행 삭제.
+- **지정 사유 편집(2026-08-18)**: 관리 상품 표 '관리' 열의 **수정** 버튼 → 사유 칸이 그 자리에서 textarea로 전환(기존 사유는 `value`로 프리필 — innerHTML 금지), 저장=PATCH reason만 / 취소=원복. watch_rate·created_by는 지정 시점 기록이라 안 건드림. admin+staff 둘 다 가능(기존 프록시 권한 그대로).
 
 ## 7-1-b. 월별 추이 패널 — 판매 성과 최상단 + 홈 하단 (2026-08-09)
 
