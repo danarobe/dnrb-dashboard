@@ -445,6 +445,10 @@ Deno.serve(async (req) => {
       const topN = Math.max(1, Math.min(100, Number(url.searchParams.get("top") ?? 30)));
       const minQty = Math.max(0, Number(url.searchParams.get("min_qty") ?? 10));   // 소표본 판정 보류 기준
       const riskAt = Number(url.searchParams.get("risk") ?? 20);                    // '위험' 경계 (%)
+      // 관리 상품(watch)도 창 집계에 포함 — 상위 N 밖이어도 관리 탭에서 7/14/30일 수치를 보여주기 위함.
+      // 30일 창 주문 스캔은 어차피 전 주문을 훑으므로 추가 비용은 집계 몇 줄뿐이다.
+      const extras = (url.searchParams.get("extra") ?? "").split(",")
+        .map((s) => Number(s)).filter((n) => Number.isFinite(n) && n > 0).slice(0, 200);
       const hit = await fromCache(); if (hit) return json(hit);
 
       const RET = new Set(["R00", "R10", "R30", "R34", "R40"]);
@@ -472,7 +476,7 @@ Deno.serve(async (req) => {
       const topOf = (w: number) => Object.entries(paid[w])
         .sort((a, b) => b[1] - a[1]).slice(0, topN).map(([no]) => Number(no));
       const rank7 = topOf(7), rank14 = topOf(14);
-      const target = new Set([...rank7, ...rank14]);
+      const target = new Set([...rank7, ...rank14, ...extras]);   // extras는 순위 0·flagged 판정 제외(judge 창 없음)
       const rankIdx = (arr: number[], no: number) => { const i = arr.indexOf(no); return i < 0 ? 0 : i + 1; };
 
       // ② 배송완료·반품 수량 — 30일 창 패딩 범위를 한 번만 훑는다
