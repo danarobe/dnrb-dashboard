@@ -2267,9 +2267,11 @@ async function loadMeetNotes() {
           </div>
           <div id="note-cm-${n.id}" style="display:${open ? 'block' : 'none'};margin-top:6px;background:#f8f9ff;border-radius:8px;padding:8px 12px;">
             ${commentRows || '<div style="font-size:.75rem;color:#c4c9d4;padding:2px 0;">첫 댓글을 남겨보세요</div>'}
-            <div style="display:flex;gap:6px;margin-top:8px;">
-              <input id="note-cm-input-${n.id}" type="text" placeholder="댓글 입력..." onkeydown="if(event.key==='Enter')addNoteComment('${n.id}')"
-                style="flex:1;border:1.5px solid #d1d5db;border-radius:8px;padding:6px 10px;font-size:.82rem;outline:none;" />
+            <div style="display:flex;gap:6px;margin-top:8px;align-items:flex-end;">
+              <textarea id="note-cm-input-${n.id}" rows="1" placeholder="댓글 입력... (Shift+Enter 줄바꿈)"
+                onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();addNoteComment('${n.id}');}"
+                oninput="this.style.height='auto';this.style.height=Math.min(this.scrollHeight,140)+'px';"
+                style="flex:1;border:1.5px solid #d1d5db;border-radius:8px;padding:6px 10px;font-size:.82rem;outline:none;resize:none;font-family:inherit;line-height:1.5;max-height:140px;overflow-y:auto;"></textarea>
               <button onclick="addNoteComment('${n.id}')" class="btn-analyze" style="padding:5px 14px;font-size:.75rem;">등록</button>
             </div>
           </div>`;
