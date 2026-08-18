@@ -2507,7 +2507,22 @@ async function rwLoadWatch() {
 }
 const rwWatchSet = () => new Set((rwState.watch || []).map(w => Number(w.product_no)));
 
-function rwSetTab(t) { rwState.tab = t; rwRender(); }
+function rwSetTab(t) { rwState.tab = t; if (t === 'watch') rwAutoFetch(); rwRender(); }
+
+/* 관리 상품 탭 자동 조회 — 조회 버튼을 안 눌러도 7/14/30일 수치가 채워지게.
+   서버 10분 캐시가 있어 최근 조회가 있으면 즉시, 없으면 ~30초 걸린다(버튼에 경과초 표시). */
+let rwFetching = false;
+async function rwAutoFetch() {
+  if (rwState.data || rwFetching) return;
+  if (!$('rwDate').value) $('rwDate').value = rwShiftDays(rwToday(), -4);
+  rwFetching = true;
+  try { await rwFetch(); }
+  finally {
+    rwFetching = false;
+    // 실패 시(조회 실패 토스트는 rwFetch가 띄움) 스피너 안내를 재시도 안내로 교체
+    if (!rwState.data && rwState.tab === 'watch') rwRender();
+  }
+}
 
 const rwBadge = (rate, del, minQty, riskAt) => {
   if (del < minQty) return `<span style="color:#9ca3af;">${rate.toFixed(1)}% <span style="font-size:.7rem;">보류</span></span>`;
@@ -2605,8 +2620,11 @@ function rwRenderWatch() {
       ? `<span onclick="rwShowDetail(${r.product_no})" style="cursor:pointer;color:#4338ca;text-decoration:underline dotted;text-underline-offset:3px;">${nm}</span>`
       : nm;
   };
-  const notice = d ? '' : `<div style="font-size:.75rem;color:#9ca3af;margin-bottom:8px;">
-    순반품률(7/14/30일)을 보려면 위의 <b>조회</b>를 눌러주세요 — 기준일 기준으로 계산됩니다.</div>`;
+  const notice = d ? '' : rwFetching
+    ? `<div style="font-size:.75rem;color:#6b7280;margin-bottom:8px;">
+        <i class="fa-solid fa-spinner fa-spin"></i> 순반품률(7/14/30일)을 자동으로 불러오는 중입니다 — 처음엔 최대 30초, 최근 조회가 있으면 즉시 뜹니다.</div>`
+    : `<div style="font-size:.75rem;color:#9ca3af;margin-bottom:8px;">
+        순반품률을 불러오지 못했습니다 — 위의 <b>조회</b>를 눌러 다시 시도해주세요.</div>`;
   $('rw-result').innerHTML = `${notice}<div class="table-wrap" style="max-height:620px;overflow:auto;"><table>
     <thead><tr><th>지정일</th><th style="text-align:left;">상품명</th>
       <th>순반품률<br><span style="font-size:.7rem;font-weight:400;color:#9ca3af;">7일</span></th>
