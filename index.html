@@ -2590,14 +2590,16 @@ function rwRenderWatch() {
   }
   $('rw-result').innerHTML = `<div class="table-wrap" style="max-height:620px;overflow:auto;"><table>
     <thead><tr><th>지정일</th><th style="text-align:left;">상품명</th><th>지정 시점<br><span style="font-size:.7rem;font-weight:400;color:#9ca3af;">순반품률</span></th>
-      <th style="text-align:left;">지정 사유</th><th class="rw-hm">지정자</th><th>해제</th></tr></thead><tbody>
+      <th style="text-align:left;">지정 사유</th><th class="rw-hm">지정자</th><th>관리</th></tr></thead><tbody>
     ${rows.map(r => `<tr>
       <td style="font-size:.75rem;color:#6b7280;white-space:nowrap;">${String(r.created_at || '').slice(0, 10)}</td>
       <td style="text-align:left;min-width:160px;white-space:normal;">${escHtml(r.product_name || '')}</td>
       <td>${r.watch_rate != null ? `<b style="color:#dc2626;">${Number(r.watch_rate).toFixed(1)}%</b><div style="font-size:.7rem;color:#9ca3af;">배송완료 ${fmt(r.watch_qty || 0)}</div>` : '—'}</td>
-      <td style="text-align:left;font-size:.82rem;color:#374151;white-space:pre-wrap;min-width:150px;">${escHtml(r.reason || '')}</td>
+      <td id="rw-reason-${r.product_no}" style="text-align:left;font-size:.82rem;color:#374151;white-space:pre-wrap;min-width:150px;">${escHtml(r.reason || '')}</td>
       <td class="rw-hm" style="font-size:.75rem;color:#6b7280;">${escHtml(r.created_by || '')}</td>
-      <td><button onclick="rwRemoveWatch(${r.product_no})" style="border:1px solid #fdba74;background:#fff7ed;color:#c2410c;border-radius:6px;padding:3px 9px;font-size:.7rem;font-weight:700;cursor:pointer;">해제</button></td>
+      <td style="white-space:nowrap;">
+        <button onclick="rwEditReason(${r.product_no})" style="border:1px solid #c7d2fe;background:#eef2ff;color:#4338ca;border-radius:6px;padding:3px 9px;font-size:.7rem;font-weight:700;cursor:pointer;">수정</button>
+        <button onclick="rwRemoveWatch(${r.product_no})" style="border:1px solid #fdba74;background:#fff7ed;color:#c2410c;border-radius:6px;padding:3px 9px;font-size:.7rem;font-weight:700;cursor:pointer;">해제</button></td>
     </tr>`).join('')}</tbody></table></div>`;
 }
 
@@ -2688,6 +2690,47 @@ async function rwSaveWatch() {
     showToast('관리 상품으로 지정했습니다');
     rwRender();
   } catch (e) { showToast('' + e.message); }
+}
+
+/* 지정 사유 편집 — 관리 상품 표에서 사유 칸을 그 자리에서 입력창으로 전환 */
+function rwEditReason(no) {
+  const r = (rwState.watch || []).find(w => Number(w.product_no) === no);
+  const cell = $('rw-reason-' + no);
+  if (!r || !cell || cell.dataset.editing) return;
+  cell.dataset.editing = '1';
+  cell.dataset.orig = cell.innerHTML;
+  cell.innerHTML = `
+    <textarea id="rw-reason-input-${no}" rows="3"
+      style="width:100%;box-sizing:border-box;border:1.5px solid #a5b4fc;border-radius:8px;padding:6px 9px;font-size:.82rem;outline:none;resize:vertical;font-family:inherit;line-height:1.5;"></textarea>
+    <div style="display:flex;gap:6px;margin-top:4px;">
+      <button onclick="rwSaveReason(${no})" class="btn-analyze" style="padding:3px 12px;font-size:.7rem;">저장</button>
+      <button onclick="rwCancelReason(${no})" style="border:1px solid #e5e7eb;background:#fff;color:#6b7280;border-radius:6px;padding:3px 12px;font-size:.7rem;font-weight:700;cursor:pointer;">취소</button>
+    </div>`;
+  const ta = $('rw-reason-input-' + no);
+  ta.value = r.reason || '';   // innerHTML이 아니라 value로 넣어 이스케이프 문제 차단
+  ta.focus();
+}
+
+function rwCancelReason(no) {
+  const cell = $('rw-reason-' + no);
+  if (cell && cell.dataset.orig != null) {
+    cell.innerHTML = cell.dataset.orig;
+    delete cell.dataset.orig; delete cell.dataset.editing;
+  }
+}
+
+async function rwSaveReason(no) {
+  const reason = ($('rw-reason-input-' + no)?.value || '').trim();
+  if (!reason) { showToast('지정 사유를 입력해주세요'); return; }
+  try {
+    await dbProxy(`return_watch?product_no=eq.${no}`, {
+      method: 'PATCH', headers: { Prefer: 'return=minimal' },
+      body: JSON.stringify({ reason }),
+    });
+    rwState.watch = null; await rwLoadWatch();
+    showToast('지정 사유를 수정했습니다');
+    rwRender();
+  } catch (e) { showToast('수정 실패: ' + e.message); }
 }
 
 async function rwRemoveWatch(no) {
