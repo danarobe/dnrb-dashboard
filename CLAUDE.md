@@ -161,6 +161,7 @@ AUTHOR_FIELDS(notes/comments=author_id, likes=user_id): POST는 본인 id 필수
 
 ### 광고 회의록 (#meet, 관리자+MD)
 - 회의 안건(ad_meeting_topics) + 일자별 회의 기록(ad_meeting_notes, 계정별 작성, 공유 토글). 공유 글에 **댓글·좋아요**(본인만 수정·삭제, 서버 강제).
+- **댓글 여러 줄 입력(2026-08-18)**: 입력창은 자동 높이 textarea(최대 140px, 넘으면 스크롤). **Enter=등록, Shift+Enter=줄바꿈**(메신저 방식, placeholder에 안내). 표시는 기존 `white-space:pre-wrap`이라 변경 없음.
 
 ---
 
