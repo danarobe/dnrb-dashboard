@@ -507,6 +507,7 @@
   <button class="menu-item" data-menu="disp" id="menu-disp" onclick="showMenu('disp')"><i class="fa-solid fa-table-cells-large" style="width:18px;text-align:center;color:#818cf8;"></i>카테고리별 진열</button>
   <button class="menu-item" data-menu="stock" id="menu-stock" onclick="showMenu('stock')"><i class="fa-solid fa-boxes-stacked" style="width:18px;text-align:center;color:#818cf8;"></i>셀메이트 재고 대조</button>
   <button class="menu-item" data-menu="stable" id="menu-stable" onclick="showMenu('stable')"><i class="fa-solid fa-warehouse" style="width:18px;text-align:center;color:#818cf8;"></i>안정재고 편성</button>
+  <button class="menu-item" id="menu-npm" title="상품 관리 시스템 — 새 탭으로 열립니다" onclick="window.open('https://newproduct-manager.vercel.app/products','_blank')"><i class="fa-solid fa-box-open" style="width:18px;text-align:center;color:#818cf8;"></i>상품 관리<i class="fa-solid fa-arrow-up-right-from-square" style="font-size:.62rem;color:#c4c9d4;margin-left:auto;"></i></button>
   <div class="menu-group">경영</div>
   <button class="menu-item" data-menu="adv"  id="menu-adv" onclick="showMenu('adv')"><i class="fa-solid fa-bullhorn" style="width:18px;text-align:center;color:#818cf8;"></i>광고 효율</button>
   <button class="menu-item" data-menu="profit" id="menu-profit" onclick="showMenu('profit')"><i class="fa-solid fa-coins" style="width:18px;text-align:center;color:#818cf8;"></i>순익 시나리오</button>
@@ -1659,6 +1660,7 @@ function applyRole() {
   $('menu-stable').style.display = isAdmin() && !isCS() ? '' : 'none';
   $('menu-adv').style.display = (isAdmin() || isStaff()) && !isCS() ? '' : 'none';   // MD도 광고 효율 접근
   $('menu-rwatch').style.display = (isAdmin() || isStaff()) && !isCS() ? '' : 'none'; // 반품 관리 = 관리자 + MD
+  $('menu-npm').style.display = (isAdmin() || isStaff()) && !isCS() ? '' : 'none';    // 상품 관리(외부 링크) = 관리자 + MD
   $('menu-profit').style.display = isAdmin() && !isCS() ? '' : 'none';
   // Meta 광고 성과 패널 — 관리자 + MD (MD는 광고비·전환값·총매출 블러)
   const mp = $('meta-panel'); if (mp) mp.style.display = (isAdmin() || isStaff()) && !isCS() ? 'block' : 'none';

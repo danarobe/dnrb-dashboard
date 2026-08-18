@@ -159,6 +159,9 @@ AUTHOR_FIELDS(notes/comments=author_id, likes=user_id): POST는 본인 id 필수
 - 법인세 = 과세표준 구간세율(2억 9% / 2억~200억 19% / 초과 21%, 연 구간을 기간 손익에 그대로 — 참고용). 손익분기 광고비 = 이분탐색.
 - 손익계산서 + 순이익 카드 + ROAS(200~1000)×취소반품률(10~30) 매트릭스(셀 클릭 상세) + **profit_archive 기록 저장/불러오기/삭제**.
 
+### 상품 관리 (외부 링크, 관리자+MD)
+- 메뉴 '운영' 그룹의 **`menu-npm` 버튼 — 별도 프로젝트 newproduct-manager**(https://newproduct-manager.vercel.app/products)를 **새 탭으로 여는 링크일 뿐**, 이 레포에 코드 통합 아님(사용자 결정 2026-08-18 — iframe은 상대 앱 세션 쿠키 SameSite=Lax라 로그인 유지 불가, 코드 통합은 Next.js+Neon이라 재개발 수준이어서 기각). 소스는 OneDrive-개인(2)/work-manager/newproduct-manager, 로그인·배포 전부 별개.
+
 ### 광고 회의록 (#meet, 관리자+MD)
 - 회의 안건(ad_meeting_topics) + 일자별 회의 기록(ad_meeting_notes, 계정별 작성, 공유 토글). 공유 글에 **댓글·좋아요**(본인만 수정·삭제, 서버 강제).
 - **댓글 여러 줄 입력(2026-08-18)**: 입력창은 자동 높이 textarea(최대 140px, 넘으면 스크롤). **Enter=등록, Shift+Enter=줄바꿈**(메신저 방식, placeholder에 안내). 표시는 기존 `white-space:pre-wrap`이라 변경 없음.
