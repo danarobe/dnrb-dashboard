@@ -514,6 +514,7 @@
   <div class="menu-group">협업</div>
   <button class="menu-item" data-menu="meet" onclick="showMenu('meet')"><i class="fa-solid fa-clipboard-list" style="width:18px;text-align:center;color:#818cf8;"></i>광고 회의록</button>
   <button class="menu-item" data-menu="board" id="menu-board" style="display:none;" onclick="showMenu('board')"><i class="fa-solid fa-people-group" style="width:18px;text-align:center;color:#818cf8;"></i>대표 회의보드</button>
+  <button class="menu-item" data-menu="proj" id="menu-proj" style="display:none;" onclick="showMenu('proj')"><i class="fa-solid fa-list-check" style="width:18px;text-align:center;color:#818cf8;"></i>프로젝트 관리</button>
   <button class="menu-item" data-menu="users" id="menu-users" style="display:none;" onclick="showMenu('users')"><i class="fa-solid fa-users" style="width:18px;text-align:center;color:#818cf8;"></i>직원 관리</button>
 </nav>
 
@@ -1472,6 +1473,66 @@
   <!-- ════════════════════════════════════════
        SECTION : 직원 관리 (관리자 전용)
   ════════════════════════════════════════ -->
+  <!-- 프로젝트 관리 (관리자) — project_tasks 테이블. 초기 데이터는 다나로브_프로젝트정리.xlsx(2026-08-19) 39건 임포트 -->
+  <div class="section-card page-sec" id="sec-proj">
+    <div class="section-header" style="cursor:default;">
+      <h2><span><i class="fa-solid fa-list-check" style="color:#4f46e5;font-size:.9em;"></i></span> 프로젝트 관리</h2>
+      <button class="toggle-btn" onclick="projLoad(true)"><i class="fa-solid fa-rotate"></i> 새로고침</button>
+    </div>
+    <div class="section-body">
+      <div id="proj-summary" style="display:none;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;margin-bottom:14px;"></div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:12px;">
+        <span id="proj-tabs" style="display:flex;gap:6px;flex-wrap:wrap;"></span>
+        <select id="proj-status-filter" onchange="projRender()" style="border:1.5px solid #d1d5db;border-radius:8px;padding:5px 8px;font-size:.78rem;outline:none;">
+          <option value="">상태 전체</option><option value="todo">미착수</option><option value="doing">진행중</option>
+          <option value="done">완료</option><option value="hold">보류</option>
+        </select>
+        <button class="btn-analyze" style="margin-left:auto;padding:6px 14px;font-size:.78rem;" onclick="projOpenAdd()"><i class="fa-solid fa-plus"></i> 업무 추가</button>
+      </div>
+      <div id="proj-result"><div class="empty-state"><p>불러오는 중...</p></div></div>
+    </div>
+  </div>
+
+  <!-- 프로젝트 업무 추가/수정 모달 -->
+  <div id="proj-modal" onclick="if(event.target===this)this.style.display='none'"
+       style="display:none;position:fixed;inset:0;background:rgba(15,23,42,.55);z-index:210;align-items:center;justify-content:center;padding:20px;">
+    <div style="background:#fff;border-radius:16px;max-width:560px;width:100%;padding:18px;max-height:92vh;overflow-y:auto;">
+      <b id="proj-modal-title" style="font-size:.88rem;color:#1e1b4b;">업무 추가</b>
+      <input type="hidden" id="pj-id" />
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:12px;">
+        <label style="font-size:.75rem;font-weight:700;color:#374151;display:flex;flex-direction:column;gap:4px;">프로젝트
+          <input id="pj-category" list="pj-cat-list" placeholder="예: 해외판매" style="border:1.5px solid #d1d5db;border-radius:8px;padding:7px 9px;font-size:.82rem;outline:none;" />
+          <datalist id="pj-cat-list"></datalist></label>
+        <label style="font-size:.75rem;font-weight:700;color:#374151;display:flex;flex-direction:column;gap:4px;">섹션 (선택)
+          <input id="pj-section" placeholder="예: 3. 번역" style="border:1.5px solid #d1d5db;border-radius:8px;padding:7px 9px;font-size:.82rem;outline:none;" /></label>
+      </div>
+      <label style="font-size:.75rem;font-weight:700;color:#374151;display:flex;flex-direction:column;gap:4px;margin-top:10px;">업무
+        <textarea id="pj-title" rows="2" style="border:1.5px solid #d1d5db;border-radius:8px;padding:7px 9px;font-size:.82rem;outline:none;font-family:inherit;resize:vertical;"></textarea></label>
+      <label style="font-size:.75rem;font-weight:700;color:#374151;display:flex;flex-direction:column;gap:4px;margin-top:10px;">완료 기준 (선택)
+        <textarea id="pj-crit" rows="2" style="border:1.5px solid #d1d5db;border-radius:8px;padding:7px 9px;font-size:.82rem;outline:none;font-family:inherit;resize:vertical;"></textarea></label>
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:10px;">
+        <label style="font-size:.75rem;font-weight:700;color:#374151;display:flex;flex-direction:column;gap:4px;">우선순위
+          <select id="pj-priority" style="border:1.5px solid #d1d5db;border-radius:8px;padding:7px 6px;font-size:.82rem;outline:none;">
+            <option value="높음">높음</option><option value="중간" selected>중간</option><option value="낮음">낮음</option><option value="">—</option></select></label>
+        <label style="font-size:.75rem;font-weight:700;color:#374151;display:flex;flex-direction:column;gap:4px;">담당자
+          <input id="pj-assignee" placeholder="예: 범준" style="border:1.5px solid #d1d5db;border-radius:8px;padding:7px 9px;font-size:.82rem;outline:none;" /></label>
+        <label style="font-size:.75rem;font-weight:700;color:#374151;display:flex;flex-direction:column;gap:4px;">마감일
+          <input id="pj-due" type="date" style="border:1.5px solid #d1d5db;border-radius:8px;padding:6px;font-size:.78rem;outline:none;" /></label>
+        <label style="font-size:.75rem;font-weight:700;color:#374151;display:flex;flex-direction:column;gap:4px;">상태
+          <select id="pj-status" style="border:1.5px solid #d1d5db;border-radius:8px;padding:7px 6px;font-size:.82rem;outline:none;">
+            <option value="todo">미착수</option><option value="doing">진행중</option><option value="done">완료</option><option value="hold">보류</option></select></label>
+      </div>
+      <label style="font-size:.75rem;font-weight:700;color:#374151;display:flex;flex-direction:column;gap:4px;margin-top:10px;">비고 (선택)
+        <input id="pj-note" style="border:1.5px solid #d1d5db;border-radius:8px;padding:7px 9px;font-size:.82rem;outline:none;" /></label>
+      <div style="display:flex;gap:8px;margin-top:14px;justify-content:flex-end;align-items:center;">
+        <button id="pj-delete" onclick="projDelete()" style="display:none;margin-right:auto;border:1px solid #fecaca;background:#fef2f2;color:#b91c1c;border-radius:8px;padding:8px 14px;font-size:.82rem;font-weight:700;cursor:pointer;">삭제</button>
+        <button onclick="document.getElementById('proj-modal').style.display='none'"
+                style="border:1.5px solid #d1d5db;background:#fff;border-radius:8px;padding:8px 14px;font-size:.82rem;cursor:pointer;">취소</button>
+        <button class="btn-analyze" onclick="projSave()">저장</button>
+      </div>
+    </div>
+  </div>
+
   <!-- 대표 회의보드 (관리자) — 별도 프로젝트 meeting-board를 같은 도메인 iframe으로 내장.
        src는 메뉴 첫 진입 때만 세팅(lazy) — 다른 메뉴 사용 시 로드 비용 0. -->
   <div class="section-card page-sec" id="sec-board">
@@ -1669,6 +1730,7 @@ function applyRole() {
   // 관리자 전용 메뉴는 버튼 자체를 숨김
   $('menu-users').style.display = isAdmin() ? '' : 'none';
   $('menu-board').style.display = isAdmin() ? '' : 'none';   // 대표 회의보드 = 관리자 전용 (사용자 결정 2026-08-19)
+  $('menu-proj').style.display = isAdmin() ? '' : 'none';    // 프로젝트 관리 = 관리자 전용 (사용자 결정 2026-08-19)
   $('menu-cr').style.display = isAdmin() && !isCS() ? '' : 'none';
   $('menu-disp').style.display = isAdmin() && !isCS() ? '' : 'none';
   $('menu-stock').style.display = isAdmin() && !isCS() ? '' : 'none';
@@ -2798,6 +2860,189 @@ async function rwRemoveWatch(no) {
     showToast('해제했습니다');
     rwRender();
   } catch (e) { showToast('' + e.message); }
+}
+
+/* ──────────────────────────────
+   프로젝트 관리 (#proj, 관리자 전용) — project_tasks 테이블 (db 프록시)
+   초기 데이터: 다나로브_프로젝트정리.xlsx 39건 (2026-08-19 임포트, 이후 대시보드가 원본)
+────────────────────────────── */
+const projState = { rows: null, cat: '' };   // cat '' = 전체
+const PROJ_ST = {
+  todo:  { label: '미착수', fg: '#6b7280', bg: '#f3f4f6' },
+  doing: { label: '진행중', fg: '#1d4ed8', bg: '#dbeafe' },
+  done:  { label: '완료',   fg: '#15803d', bg: '#dcfce7' },
+  hold:  { label: '보류',   fg: '#b45309', bg: '#fef3c7' },
+};
+const PROJ_PR = { '높음': ['#b91c1c', '#fee2e2'], '중간': ['#6b7280', '#f3f4f6'], '낮음': ['#9ca3af', '#f9fafb'] };
+
+async function projLoad(force) {
+  if (!isAdmin()) return;
+  if (projState.rows && !force) { projRender(); return; }
+  try {
+    projState.rows = await dbProxy('project_tasks?select=*&order=sort_order.asc,created_at.asc') || [];
+  } catch (e) {
+    $('proj-result').innerHTML = `<div class="empty-state"><p>불러오기 실패: ${escHtml(e.message)}</p></div>`;
+    return;
+  }
+  projRender();
+}
+
+const projCats = () => [...new Set((projState.rows || []).map(r => r.category))];   // 첫 등장 순서 유지
+function projSetCat(i) { projState.cat = i < 0 ? '' : (projCats()[i] || ''); projRender(); }
+
+function projRender() {
+  const rows = projState.rows || [];
+  const cats = projCats();
+  if (projState.cat && !cats.includes(projState.cat)) projState.cat = '';
+
+  // 요약 타일 — 프로젝트별 완료율 (엑셀 '요약' 시트와 같은 집계, 상태 변경 즉시 갱신)
+  const tile = (name, list) => {
+    const c = s => list.filter(r => r.status === s).length;
+    const done = c('done'), pct = list.length ? Math.round(done / list.length * 100) : 0;
+    return `<div style="background:#f8f9ff;border:1.5px solid #e0e7ff;border-radius:12px;padding:12px 14px;">
+      <div style="font-size:.78rem;font-weight:800;color:#1e1b4b;margin-bottom:4px;">${escHtml(name)}</div>
+      <div style="font-size:1.05rem;font-weight:800;color:${pct === 100 ? '#15803d' : '#4f46e5'};">${pct}%
+        <span style="font-size:.72rem;color:#9ca3af;font-weight:600;">(${done}/${list.length})</span></div>
+      <div style="font-size:.7rem;color:#9ca3af;margin-top:3px;">진행중 ${c('doing')} · 미착수 ${c('todo')}${c('hold') ? ` · 보류 ${c('hold')}` : ''}</div>
+      <div style="height:5px;background:#e5e7eb;border-radius:99px;margin-top:7px;overflow:hidden;">
+        <div style="width:${pct}%;height:100%;background:#4f46e5;border-radius:99px;"></div></div>
+    </div>`;
+  };
+  $('proj-summary').innerHTML = cats.map(c => tile(c, rows.filter(r => r.category === c))).join('')
+    + (cats.length > 1 ? tile('전체', rows) : '');
+  $('proj-summary').style.display = rows.length ? 'grid' : 'none';
+
+  // 프로젝트 탭 (인라인 onclick에 이름을 직접 넣지 않음 — 따옴표 사고 방지)
+  const tabBtn = (i, label, active) => `<button onclick="projSetCat(${i})"
+    style="border:1.5px solid ${active ? 'transparent' : '#d1d5db'};background:${active ? '#4f46e5' : '#fff'};color:${active ? '#fff' : '#4b5563'};border-radius:99px;padding:5px 13px;font-size:.78rem;font-weight:700;cursor:pointer;">${escHtml(label)}</button>`;
+  $('proj-tabs').innerHTML = tabBtn(-1, '전체', !projState.cat) + cats.map((c, i) => tabBtn(i, c, projState.cat === c)).join('');
+
+  // 표 — 프로젝트(첫 등장 순) → 섹션(연속 구간) 그룹. 새 업무의 sort_order가 커도 자기 프로젝트 끝에 붙는다.
+  const stFilter = $('proj-status-filter').value;
+  const ordered = [];
+  for (const c of cats) ordered.push(...rows.filter(r => r.category === c));
+  const list = ordered.filter(r => (!projState.cat || r.category === projState.cat) && (!stFilter || r.status === stFilter));
+  if (!list.length) {
+    $('proj-result').innerHTML = '<div class="empty-state"><div class="es-icon"><i class="fa-regular fa-folder-open"></i></div><p>해당 조건의 업무가 없습니다. <strong>업무 추가</strong>로 등록하세요.</p></div>';
+    return;
+  }
+
+  const stSel = r => `<select onchange="projSetStatus('${r.id}', this.value)"
+    style="border:1px solid ${PROJ_ST[r.status].fg}44;background:${PROJ_ST[r.status].bg};color:${PROJ_ST[r.status].fg};border-radius:99px;padding:3px 6px;font-size:.72rem;font-weight:700;cursor:pointer;outline:none;">
+    ${Object.entries(PROJ_ST).map(([k, v]) => `<option value="${k}" ${r.status === k ? 'selected' : ''}>${v.label}</option>`).join('')}</select>`;
+  const prBadge = p => {
+    const c = PROJ_PR[p];
+    return c ? `<span style="background:${c[1]};color:${c[0]};border-radius:5px;padding:1px 7px;font-size:.7rem;font-weight:700;">${escHtml(p)}</span>`
+             : '<span style="color:#c4c9d4;font-size:.75rem;">—</span>';
+  };
+  const today = new Date().toISOString().slice(0, 10);
+
+  let html = '<div class="table-wrap" style="max-height:640px;overflow:auto;"><table><thead><tr>' +
+    '<th style="text-align:left;">업무</th><th class="m-hide" style="text-align:left;">완료 기준</th>' +
+    '<th>우선순위</th><th>담당자</th><th class="m-hide">마감일</th><th>상태</th><th class="m-hide" style="text-align:left;">비고</th>' +
+    '</tr></thead><tbody>';
+  let lastGroup = null;
+  for (const r of list) {
+    const grp = `${r.category}|${r.section}`;
+    if (grp !== lastGroup) {
+      lastGroup = grp;
+      html += `<tr><td colspan="7" style="text-align:left;background:#eef2ff;color:#4338ca;font-size:.75rem;font-weight:800;padding:6px 10px;">${escHtml(r.category)}${r.section ? ` — ${escHtml(r.section)}` : ''}</td></tr>`;
+    }
+    const overdue = r.due_date && r.status !== 'done' && r.due_date < today;
+    html += `<tr style="background:${r.status === 'done' ? '#fafafa' : '#fff'};">
+      <td style="text-align:left;min-width:180px;white-space:pre-wrap;${r.status === 'done' ? 'color:#9ca3af;' : ''}">
+        <span onclick="projOpenEdit('${r.id}')" style="cursor:pointer;text-decoration:underline dotted;text-underline-offset:3px;">${escHtml(r.title)}</span></td>
+      <td class="m-hide" style="text-align:left;font-size:.75rem;color:#6b7280;white-space:pre-wrap;min-width:160px;">${escHtml(r.done_criteria || '')}</td>
+      <td>${prBadge(r.priority)}</td>
+      <td style="font-size:.78rem;">${escHtml(r.assignee || '') || '<span style="color:#c4c9d4;">—</span>'}</td>
+      <td class="m-hide" style="font-size:.75rem;color:${overdue ? '#dc2626' : '#6b7280'};white-space:nowrap;font-weight:${overdue ? '700' : '400'};">${r.due_date || '—'}${overdue ? ' 지남' : ''}</td>
+      <td>${stSel(r)}</td>
+      <td class="m-hide" style="text-align:left;font-size:.72rem;color:#9ca3af;min-width:90px;">${escHtml(r.note || '')}</td>
+    </tr>`;
+  }
+  html += '</tbody></table></div>';
+  $('proj-result').innerHTML = html;
+}
+
+async function projSetStatus(id, status) {
+  try {
+    await dbProxy(`project_tasks?id=eq.${id}`, {
+      method: 'PATCH', headers: { Prefer: 'return=minimal' },
+      body: JSON.stringify({ status, updated_at: new Date().toISOString() }),
+    });
+    const r = (projState.rows || []).find(x => x.id === id);
+    if (r) r.status = status;
+  } catch (e) { showToast('상태 변경 실패: ' + e.message); }
+  projRender();   // 요약 타일·완료 스타일 즉시 갱신 (실패 시 원래 값으로 복원)
+}
+
+function projFillCatList() {
+  $('pj-cat-list').innerHTML = projCats().map(c => `<option value="${escHtml(c)}"></option>`).join('');
+}
+
+function projOpenAdd() {
+  $('proj-modal-title').textContent = '업무 추가';
+  $('pj-id').value = '';
+  $('pj-category').value = projState.cat || '';
+  ['pj-section', 'pj-title', 'pj-crit', 'pj-assignee', 'pj-due', 'pj-note'].forEach(id => { $(id).value = ''; });
+  $('pj-priority').value = '중간'; $('pj-status').value = 'todo';
+  $('pj-delete').style.display = 'none';
+  projFillCatList();
+  $('proj-modal').style.display = 'flex';
+  setTimeout(() => $('pj-title').focus(), 50);
+}
+
+function projOpenEdit(id) {
+  const r = (projState.rows || []).find(x => x.id === id);
+  if (!r) return;
+  $('proj-modal-title').textContent = '업무 수정';
+  $('pj-id').value = r.id;
+  $('pj-category').value = r.category; $('pj-section').value = r.section || '';
+  $('pj-title').value = r.title; $('pj-crit').value = r.done_criteria || '';
+  $('pj-priority').value = r.priority || '';                       // 엑셀에 우선순위가 빈 업무도 있음 — '—' 옵션으로 보존
+  $('pj-assignee').value = r.assignee || ''; $('pj-due').value = r.due_date || '';
+  $('pj-status').value = r.status; $('pj-note').value = r.note || '';
+  $('pj-delete').style.display = '';
+  projFillCatList();
+  $('proj-modal').style.display = 'flex';
+}
+
+async function projSave() {
+  const id = $('pj-id').value;
+  const category = $('pj-category').value.trim();
+  const title = $('pj-title').value.trim();
+  if (!category) { showToast('프로젝트 이름을 입력해주세요'); return; }
+  if (!title) { showToast('업무 내용을 입력해주세요'); return; }
+  const body = {
+    category, section: $('pj-section').value.trim(), title,
+    done_criteria: $('pj-crit').value.trim(), priority: $('pj-priority').value,
+    assignee: $('pj-assignee').value.trim(), due_date: $('pj-due').value || null,
+    status: $('pj-status').value, note: $('pj-note').value.trim(),
+    updated_at: new Date().toISOString(),
+  };
+  try {
+    if (id) {
+      await dbProxy(`project_tasks?id=eq.${id}`, { method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: JSON.stringify(body) });
+    } else {
+      // 정렬은 렌더에서 프로젝트별로 다시 묶으므로, 새 업무는 전체 최대 + 1이면 자기 프로젝트 끝에 붙는다
+      body.sort_order = Math.max(0, ...(projState.rows || []).map(r => r.sort_order || 0)) + 1;
+      await dbProxy('project_tasks', { method: 'POST', headers: { Prefer: 'return=minimal' }, body: JSON.stringify(body) });
+    }
+    $('proj-modal').style.display = 'none';
+    showToast(id ? '수정했습니다' : '추가했습니다');
+    await projLoad(true);
+  } catch (e) { showToast('저장 실패: ' + e.message); }
+}
+
+async function projDelete() {
+  const id = $('pj-id').value;
+  if (!id || !confirm('이 업무를 삭제할까요? 되돌릴 수 없습니다.')) return;
+  try {
+    await dbProxy(`project_tasks?id=eq.${id}`, { method: 'DELETE', headers: { Prefer: 'return=minimal' } });
+    $('proj-modal').style.display = 'none';
+    showToast('삭제했습니다');
+    await projLoad(true);
+  } catch (e) { showToast('삭제 실패: ' + e.message); }
 }
 
 /* ──────────────────────────────
@@ -4525,7 +4770,7 @@ function renderProfitDetail(cur, costs) {
 /* ──────────────────────────────
    좌측 메뉴 내비게이션 + 대시보드(홈)
 ────────────────────────────── */
-const MENU_KEYS = ['home', 'cr', 'an', 'perf', 'rwatch', 'disp', 'stock', 'stable', 'adv', 'profit', 'meet', 'board', 'users'];
+const MENU_KEYS = ['home', 'cr', 'an', 'perf', 'rwatch', 'disp', 'stock', 'stable', 'adv', 'profit', 'meet', 'board', 'proj', 'users'];
 
 function showMenu(key) {
   if (!MENU_KEYS.includes(key)) key = 'home';
@@ -4534,7 +4779,7 @@ function showMenu(key) {
   // 권한 없는 사용자에게 아무 섹션도 표시되지 않아 화면이 비어버림
   const denied = (key === 'cr' && isStaff())
     || (key === 'rwatch' && isCS())                      // 반품 관리 = 관리자 + MD
-    || (['users', 'disp', 'stock', 'stable', 'profit', 'board'].includes(key) && !isAdmin());
+    || (['users', 'disp', 'stock', 'stable', 'profit', 'board', 'proj'].includes(key) && !isAdmin());
   if (denied) { showToast('접근 권한이 없습니다'); key = 'home'; }
   document.querySelectorAll('.page-sec').forEach(el => { el.style.display = 'none'; });
   const target = $('sec-' + key);
@@ -4549,6 +4794,7 @@ function showMenu(key) {
   }
   if (key === 'users') loadUsers();
   if (key === 'board') { const f = $('board-frame'); if (f && !f.src) f.src = 'https://danarobe.github.io/meeting-board/'; }
+  if (key === 'proj') projLoad();
   if (key === 'profit' && isAdmin()) loadProfitArchive();
   if (key === 'rwatch') rwInit();
   if (key === 'perf') perfTrendInit();
