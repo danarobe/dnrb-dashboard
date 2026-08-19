@@ -513,6 +513,7 @@
   <button class="menu-item" data-menu="profit" id="menu-profit" onclick="showMenu('profit')"><i class="fa-solid fa-coins" style="width:18px;text-align:center;color:#818cf8;"></i>순익 시나리오</button>
   <div class="menu-group">협업</div>
   <button class="menu-item" data-menu="meet" onclick="showMenu('meet')"><i class="fa-solid fa-clipboard-list" style="width:18px;text-align:center;color:#818cf8;"></i>광고 회의록</button>
+  <button class="menu-item" data-menu="board" id="menu-board" style="display:none;" onclick="showMenu('board')"><i class="fa-solid fa-people-group" style="width:18px;text-align:center;color:#818cf8;"></i>대표 회의보드</button>
   <button class="menu-item" data-menu="users" id="menu-users" style="display:none;" onclick="showMenu('users')"><i class="fa-solid fa-users" style="width:18px;text-align:center;color:#818cf8;"></i>직원 관리</button>
 </nav>
 
@@ -1471,6 +1472,19 @@
   <!-- ════════════════════════════════════════
        SECTION : 직원 관리 (관리자 전용)
   ════════════════════════════════════════ -->
+  <!-- 대표 회의보드 (관리자) — 별도 프로젝트 meeting-board를 같은 도메인 iframe으로 내장.
+       src는 메뉴 첫 진입 때만 세팅(lazy) — 다른 메뉴 사용 시 로드 비용 0. -->
+  <div class="section-card page-sec" id="sec-board">
+    <div class="section-header" style="cursor:default;">
+      <h2><span><i class="fa-solid fa-people-group" style="color:#4f46e5;font-size:.9em;"></i></span> 대표 회의보드</h2>
+      <button class="toggle-btn" onclick="window.open('https://danarobe.github.io/meeting-board/','_blank')"><i class="fa-solid fa-arrow-up-right-from-square"></i> 새 탭에서 열기</button>
+    </div>
+    <div class="section-body" style="padding:0;">
+      <iframe id="board-frame" title="대표 회의보드"
+        style="width:100%;height:calc(100vh - 210px);min-height:520px;border:none;border-radius:0 0 12px 12px;display:block;background:transparent;"></iframe>
+    </div>
+  </div>
+
   <div class="section-card page-sec" id="sec-users">
     <div class="section-header" style="cursor:default;">
       <h2><span><i class="fa-solid fa-users" style="color:#4f46e5;font-size:.9em;"></i></span> 직원 관리</h2>
@@ -1654,6 +1668,7 @@ function applyRole() {
   });
   // 관리자 전용 메뉴는 버튼 자체를 숨김
   $('menu-users').style.display = isAdmin() ? '' : 'none';
+  $('menu-board').style.display = isAdmin() ? '' : 'none';   // 대표 회의보드 = 관리자 전용 (사용자 결정 2026-08-19)
   $('menu-cr').style.display = isAdmin() && !isCS() ? '' : 'none';
   $('menu-disp').style.display = isAdmin() && !isCS() ? '' : 'none';
   $('menu-stock').style.display = isAdmin() && !isCS() ? '' : 'none';
@@ -4510,7 +4525,7 @@ function renderProfitDetail(cur, costs) {
 /* ──────────────────────────────
    좌측 메뉴 내비게이션 + 대시보드(홈)
 ────────────────────────────── */
-const MENU_KEYS = ['home', 'cr', 'an', 'perf', 'rwatch', 'disp', 'stock', 'stable', 'adv', 'profit', 'meet', 'users'];
+const MENU_KEYS = ['home', 'cr', 'an', 'perf', 'rwatch', 'disp', 'stock', 'stable', 'adv', 'profit', 'meet', 'board', 'users'];
 
 function showMenu(key) {
   if (!MENU_KEYS.includes(key)) key = 'home';
@@ -4519,7 +4534,7 @@ function showMenu(key) {
   // 권한 없는 사용자에게 아무 섹션도 표시되지 않아 화면이 비어버림
   const denied = (key === 'cr' && isStaff())
     || (key === 'rwatch' && isCS())                      // 반품 관리 = 관리자 + MD
-    || (['users', 'disp', 'stock', 'stable', 'profit'].includes(key) && !isAdmin());
+    || (['users', 'disp', 'stock', 'stable', 'profit', 'board'].includes(key) && !isAdmin());
   if (denied) { showToast('접근 권한이 없습니다'); key = 'home'; }
   document.querySelectorAll('.page-sec').forEach(el => { el.style.display = 'none'; });
   const target = $('sec-' + key);
@@ -4533,6 +4548,7 @@ function showMenu(key) {
     $('note-author').textContent = SESSION ? SESSION.name : '';
   }
   if (key === 'users') loadUsers();
+  if (key === 'board') { const f = $('board-frame'); if (f && !f.src) f.src = 'https://danarobe.github.io/meeting-board/'; }
   if (key === 'profit' && isAdmin()) loadProfitArchive();
   if (key === 'rwatch') rwInit();
   if (key === 'perf') perfTrendInit();

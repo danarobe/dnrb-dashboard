@@ -159,6 +159,11 @@ AUTHOR_FIELDS(notes/comments=author_id, likes=user_id): POST는 본인 id 필수
 - 법인세 = 과세표준 구간세율(2억 9% / 2억~200억 19% / 초과 21%, 연 구간을 기간 손익에 그대로 — 참고용). 손익분기 광고비 = 이분탐색.
 - 손익계산서 + 순이익 카드 + ROAS(200~1000)×취소반품률(10~30) 매트릭스(셀 클릭 상세) + **profit_archive 기록 저장/불러오기/삭제**.
 
+### 대표 회의보드 (#board, 관리자 전용)
+- 별도 프로젝트 **meeting-board**(React+Vite, ~/meeting-board, 배포 danarobe.github.io/meeting-board)를 **같은 도메인 iframe으로 내장**. 코드 통합 아님 — 회의보드 수정·배포는 그 프로젝트에서 그대로.
+- **같은 도메인(danarobe.github.io)이라 서드파티 쿠키 문제 없음**(상품 관리 시스템과 다른 점). 회의보드는 자체 로그인 없음(비공개 URL 전제) → 메뉴 노출만 admin 제한(사용자 결정 2026-08-19). `mb_user` localStorage도 도메인 공유로 그대로 동작.
+- **iframe src는 메뉴 첫 진입 때 세팅(lazy)** — showMenu('board')에서 `!f.src`일 때만. 다른 메뉴 성능 영향 0. 헤더에 '새 탭에서 열기' 버튼.
+
 ### 상품 관리 (외부 링크, 관리자+MD)
 - 메뉴 '운영' 그룹의 **`menu-npm` 버튼 — 별도 프로젝트 newproduct-manager**(https://newproduct-manager.vercel.app/products)를 **새 탭으로 여는 링크일 뿐**, 이 레포에 코드 통합 아님(사용자 결정 2026-08-18 — iframe은 상대 앱 세션 쿠키 SameSite=Lax라 로그인 유지 불가, 코드 통합은 Next.js+Neon이라 재개발 수준이어서 기각). 소스는 OneDrive-개인(2)/work-manager/newproduct-manager, 로그인·배포 전부 별개.
 
