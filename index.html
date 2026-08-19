@@ -3014,13 +3014,44 @@ function projRender() {
       <td class="m-hide" style="text-align:left;font-size:.75rem;color:#6b7280;white-space:pre-wrap;min-width:160px;">${escHtml(r.done_criteria || '')}</td>
       <td>${prBadge(r.priority)}</td>
       <td style="font-size:.78rem;white-space:nowrap;"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${projColor(r.assignee)};margin-right:4px;"></span>${escHtml(r.assignee || '') || '<span style="color:#c4c9d4;">—</span>'}</td>
-      <td class="m-hide" style="font-size:.75rem;color:${overdue ? '#dc2626' : '#6b7280'};white-space:nowrap;font-weight:${overdue ? '700' : '400'};">${r.due_date || '—'}${overdue ? ' 지남' : ''}</td>
+      <td class="m-hide" id="pj-due-${r.id}" onclick="projEditDue('${r.id}')" title="클릭해서 마감일 수정"
+          style="font-size:.75rem;color:${overdue ? '#dc2626' : '#6b7280'};white-space:nowrap;font-weight:${overdue ? '700' : '400'};cursor:pointer;">
+        <span style="text-decoration:underline dotted;text-underline-offset:3px;">${r.due_date || '—'}</span>${overdue ? ' 지남' : ''}</td>
       <td>${stSel(r)}</td>
       <td class="m-hide" style="text-align:left;font-size:.72rem;color:#9ca3af;min-width:90px;">${escHtml(r.note || '')}</td>
     </tr>`;
   }
   html += '</tbody></table></div>';
   $('proj-result').innerHTML = html;
+}
+
+/* 마감일 인라인 수정 — 표에서 칸 클릭 → 그 자리에서 날짜 선택 (비었어도, 채워져 있어도 동작) */
+function projEditDue(id) {
+  const cell = $('pj-due-' + id);
+  const r = (projState.rows || []).find(x => x.id === id);
+  if (!cell || !r || cell.dataset.editing) return;
+  cell.dataset.editing = '1';
+  cell.innerHTML = `<input type="date" value="${r.due_date || ''}"
+    onchange="projSaveDue('${id}', this.value)" onblur="setTimeout(projRender, 150)"
+    onclick="event.stopPropagation()"
+    style="border:1.5px solid #a5b4fc;border-radius:6px;padding:3px 5px;font-size:.72rem;outline:none;" />`;
+  const inp = cell.querySelector('input');
+  inp.focus();
+  try { inp.showPicker(); } catch {}   // 지원 브라우저에선 달력 즉시 열기
+}
+
+async function projSaveDue(id, val) {
+  const r = (projState.rows || []).find(x => x.id === id);
+  if (r && val && r.start_date && val < r.start_date) { showToast('마감일이 시작일보다 빠릅니다'); projRender(); return; }
+  try {
+    await dbProxy(`project_tasks?id=eq.${id}`, {
+      method: 'PATCH', headers: { Prefer: 'return=minimal' },
+      body: JSON.stringify({ due_date: val || null, updated_at: new Date().toISOString() }),
+    });
+    if (r) r.due_date = val || null;
+    showToast(val ? `마감일을 ${val}로 저장했습니다` : '마감일을 지웠습니다');
+  } catch (e) { showToast('마감일 변경 실패: ' + e.message); }
+  projRender();
 }
 
 function projToggleSub(id) {
