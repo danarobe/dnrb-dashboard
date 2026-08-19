@@ -1487,6 +1487,10 @@
           <option value="">상태 전체</option><option value="todo">미착수</option><option value="doing">진행중</option>
           <option value="done">완료</option><option value="hold">보류</option>
         </select>
+        <span id="proj-view-toggle" style="display:inline-flex;border:1.5px solid #d1d5db;border-radius:8px;overflow:hidden;">
+          <button id="proj-view-table" onclick="projSetView('table')" style="border:none;background:#4f46e5;color:#fff;padding:5px 12px;font-size:.78rem;font-weight:700;cursor:pointer;"><i class="fa-solid fa-table-list"></i> 표</button>
+          <button id="proj-view-gantt" onclick="projSetView('gantt')" style="border:none;background:#fff;color:#4b5563;padding:5px 12px;font-size:.78rem;font-weight:700;cursor:pointer;"><i class="fa-solid fa-chart-gantt"></i> 간트</button>
+        </span>
         <button class="btn-analyze" style="margin-left:auto;padding:6px 14px;font-size:.78rem;" onclick="projOpenAdd()"><i class="fa-solid fa-plus"></i> 업무 추가</button>
       </div>
       <div id="proj-result"><div class="empty-state"><p>불러오는 중...</p></div></div>
@@ -1506,21 +1510,27 @@
         <label style="font-size:.75rem;font-weight:700;color:#374151;display:flex;flex-direction:column;gap:4px;">섹션 (선택)
           <input id="pj-section" placeholder="예: 3. 번역" style="border:1.5px solid #d1d5db;border-radius:8px;padding:7px 9px;font-size:.82rem;outline:none;" /></label>
       </div>
-      <label style="font-size:.75rem;font-weight:700;color:#374151;display:flex;flex-direction:column;gap:4px;margin-top:10px;">업무
-        <textarea id="pj-title" rows="2" style="border:1.5px solid #d1d5db;border-radius:8px;padding:7px 9px;font-size:.82rem;outline:none;font-family:inherit;resize:vertical;"></textarea></label>
-      <label style="font-size:.75rem;font-weight:700;color:#374151;display:flex;flex-direction:column;gap:4px;margin-top:10px;">완료 기준 (선택)
+      <label style="font-size:.75rem;font-weight:700;color:#374151;display:flex;flex-direction:column;gap:4px;margin-top:10px;">업무 (대표 설명 한 줄)
+        <input id="pj-title" placeholder="예: 카페24 글로벌몰 기능 및 비용 확인" style="border:1.5px solid #d1d5db;border-radius:8px;padding:7px 9px;font-size:.82rem;outline:none;" /></label>
+      <label style="font-size:.75rem;font-weight:700;color:#374151;display:flex;flex-direction:column;gap:4px;margin-top:10px;">하위 업무 (선택 — 한 줄에 하나씩)
+        <textarea id="pj-subtasks" rows="3" placeholder="- 해외 PG / 결제수단 확인&#10;- 해외배송 방식 및 배송비 확인" style="border:1.5px solid #d1d5db;border-radius:8px;padding:7px 9px;font-size:.82rem;outline:none;font-family:inherit;resize:vertical;"></textarea></label>
+      <label style="font-size:.75rem;font-weight:700;color:#374151;display:flex;flex-direction:column;gap:4px;margin-top:10px;">꼭 포함할 것 (선택)
         <textarea id="pj-crit" rows="2" style="border:1.5px solid #d1d5db;border-radius:8px;padding:7px 9px;font-size:.82rem;outline:none;font-family:inherit;resize:vertical;"></textarea></label>
-      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:10px;">
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:10px;">
         <label style="font-size:.75rem;font-weight:700;color:#374151;display:flex;flex-direction:column;gap:4px;">우선순위
           <select id="pj-priority" style="border:1.5px solid #d1d5db;border-radius:8px;padding:7px 6px;font-size:.82rem;outline:none;">
             <option value="높음">높음</option><option value="중간" selected>중간</option><option value="낮음">낮음</option><option value="">—</option></select></label>
         <label style="font-size:.75rem;font-weight:700;color:#374151;display:flex;flex-direction:column;gap:4px;">담당자
-          <input id="pj-assignee" placeholder="예: 범준" style="border:1.5px solid #d1d5db;border-radius:8px;padding:7px 9px;font-size:.82rem;outline:none;" /></label>
-        <label style="font-size:.75rem;font-weight:700;color:#374151;display:flex;flex-direction:column;gap:4px;">마감일
-          <input id="pj-due" type="date" style="border:1.5px solid #d1d5db;border-radius:8px;padding:6px;font-size:.78rem;outline:none;" /></label>
+          <select id="pj-assignee" style="border:1.5px solid #d1d5db;border-radius:8px;padding:7px 6px;font-size:.82rem;outline:none;"></select></label>
         <label style="font-size:.75rem;font-weight:700;color:#374151;display:flex;flex-direction:column;gap:4px;">상태
           <select id="pj-status" style="border:1.5px solid #d1d5db;border-radius:8px;padding:7px 6px;font-size:.82rem;outline:none;">
             <option value="todo">미착수</option><option value="doing">진행중</option><option value="done">완료</option><option value="hold">보류</option></select></label>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px;">
+        <label style="font-size:.75rem;font-weight:700;color:#374151;display:flex;flex-direction:column;gap:4px;">시작일 (간트차트용)
+          <input id="pj-start" type="date" style="border:1.5px solid #d1d5db;border-radius:8px;padding:6px;font-size:.78rem;outline:none;" /></label>
+        <label style="font-size:.75rem;font-weight:700;color:#374151;display:flex;flex-direction:column;gap:4px;">마감일
+          <input id="pj-due" type="date" style="border:1.5px solid #d1d5db;border-radius:8px;padding:6px;font-size:.78rem;outline:none;" /></label>
       </div>
       <label style="font-size:.75rem;font-weight:700;color:#374151;display:flex;flex-direction:column;gap:4px;margin-top:10px;">비고 (선택)
         <input id="pj-note" style="border:1.5px solid #d1d5db;border-radius:8px;padding:7px 9px;font-size:.82rem;outline:none;" /></label>
@@ -2866,7 +2876,41 @@ async function rwRemoveWatch(no) {
    프로젝트 관리 (#proj, 관리자 전용) — project_tasks 테이블 (db 프록시)
    초기 데이터: 다나로브_프로젝트정리.xlsx 39건 (2026-08-19 임포트, 이후 대시보드가 원본)
 ────────────────────────────── */
-const projState = { rows: null, cat: '' };   // cat '' = 전체
+const projState = { rows: null, cat: '', view: 'table', open: new Set(), users: null };   // cat '' = 전체, open = 하위 업무 펼친 행
+// 간트 담당자 색 — 회의보드 팀 색과 톤 맞춤 (조범준=보라, 박민규=청록, 김다나=핑크)
+const PROJ_COLORS = { '조범준': '#6d5ae8', '박민규': '#0d9488', '김다나': '#db2777', '모두': '#64748b' };
+const PROJ_FALLBACK_COLORS = ['#b45309', '#1d4ed8', '#15803d', '#7c3aed'];
+function projColor(name) {
+  if (!name) return '#9ca3af';
+  if (PROJ_COLORS[name]) return PROJ_COLORS[name];
+  let h = 0; for (const ch of name) h = (h * 31 + ch.charCodeAt(0)) % 997;
+  return PROJ_FALLBACK_COLORS[h % PROJ_FALLBACK_COLORS.length];
+}
+
+function projSetView(v) {
+  projState.view = v;
+  $('proj-view-table').style.background = v === 'table' ? '#4f46e5' : '#fff';
+  $('proj-view-table').style.color = v === 'table' ? '#fff' : '#4b5563';
+  $('proj-view-gantt').style.background = v === 'gantt' ? '#4f46e5' : '#fff';
+  $('proj-view-gantt').style.color = v === 'gantt' ? '#fff' : '#4b5563';
+  projRender();
+}
+
+/* 담당자 선택지 = 직원 관리의 등록 사용자 (실패 시 기존 담당자 값으로 폴백) */
+async function projEnsureUsers() {
+  if (projState.users) return;
+  try {
+    const d = await authApi({ action: 'list_users', token: SESSION.token });
+    projState.users = (d.users || []).map(u => u.name);
+  } catch { projState.users = [...new Set((projState.rows || []).map(r => r.assignee).filter(Boolean))]; }
+}
+function projFillAssignees(current) {
+  const names = [...(projState.users || [])];
+  if (!names.includes('모두')) names.push('모두');
+  if (current && !names.includes(current)) names.push(current);   // 목록에 없는 기존 값 보존
+  $('pj-assignee').innerHTML = '<option value="">—</option>' +
+    names.map(n => `<option value="${escHtml(n)}" ${n === current ? 'selected' : ''}>${escHtml(n)}</option>`).join('');
+}
 const PROJ_ST = {
   todo:  { label: '미착수', fg: '#6b7280', bg: '#f3f4f6' },
   doing: { label: '진행중', fg: '#1d4ed8', bg: '#dbeafe' },
@@ -2917,7 +2961,7 @@ function projRender() {
     style="border:1.5px solid ${active ? 'transparent' : '#d1d5db'};background:${active ? '#4f46e5' : '#fff'};color:${active ? '#fff' : '#4b5563'};border-radius:99px;padding:5px 13px;font-size:.78rem;font-weight:700;cursor:pointer;">${escHtml(label)}</button>`;
   $('proj-tabs').innerHTML = tabBtn(-1, '전체', !projState.cat) + cats.map((c, i) => tabBtn(i, c, projState.cat === c)).join('');
 
-  // 표 — 프로젝트(첫 등장 순) → 섹션(연속 구간) 그룹. 새 업무의 sort_order가 커도 자기 프로젝트 끝에 붙는다.
+  // 공통 필터 — 프로젝트(첫 등장 순) → 섹션(연속 구간) 그룹. 새 업무의 sort_order가 커도 자기 프로젝트 끝에 붙는다.
   const stFilter = $('proj-status-filter').value;
   const ordered = [];
   for (const c of cats) ordered.push(...rows.filter(r => r.category === c));
@@ -2926,6 +2970,7 @@ function projRender() {
     $('proj-result').innerHTML = '<div class="empty-state"><div class="es-icon"><i class="fa-regular fa-folder-open"></i></div><p>해당 조건의 업무가 없습니다. <strong>업무 추가</strong>로 등록하세요.</p></div>';
     return;
   }
+  if (projState.view === 'gantt') { projRenderGantt(list); return; }
 
   const stSel = r => `<select onchange="projSetStatus('${r.id}', this.value)"
     style="border:1px solid ${PROJ_ST[r.status].fg}44;background:${PROJ_ST[r.status].bg};color:${PROJ_ST[r.status].fg};border-radius:99px;padding:3px 6px;font-size:.72rem;font-weight:700;cursor:pointer;outline:none;">
@@ -2938,7 +2983,7 @@ function projRender() {
   const today = new Date().toISOString().slice(0, 10);
 
   let html = '<div class="table-wrap" style="max-height:640px;overflow:auto;"><table><thead><tr>' +
-    '<th style="text-align:left;">업무</th><th class="m-hide" style="text-align:left;">완료 기준</th>' +
+    '<th style="text-align:left;">업무</th><th class="m-hide" style="text-align:left;">꼭 포함할 것</th>' +
     '<th>우선순위</th><th>담당자</th><th class="m-hide">마감일</th><th>상태</th><th class="m-hide" style="text-align:left;">비고</th>' +
     '</tr></thead><tbody>';
   let lastGroup = null;
@@ -2949,12 +2994,19 @@ function projRender() {
       html += `<tr><td colspan="7" style="text-align:left;background:#eef2ff;color:#4338ca;font-size:.75rem;font-weight:800;padding:6px 10px;">${escHtml(r.category)}${r.section ? ` — ${escHtml(r.section)}` : ''}</td></tr>`;
     }
     const overdue = r.due_date && r.status !== 'done' && r.due_date < today;
+    const subN = (r.subtasks || '').split('\n').filter(s => s.trim()).length;
+    const isOpen = projState.open.has(r.id);
+    // 하위 업무: 기본 접힘 — 토글 버튼으로 펼침 (사용자 요청 2026-08-19)
+    const subHtml = subN ? `
+      <button onclick="projToggleSub('${r.id}')" style="display:block;border:none;background:none;color:#6d5ae8;font-size:.72rem;font-weight:700;cursor:pointer;padding:3px 0 0;">
+        <i class="fa-solid fa-chevron-${isOpen ? 'down' : 'right'}" style="font-size:.6rem;"></i> 하위 업무 ${subN}개</button>
+      <div style="display:${isOpen ? 'block' : 'none'};white-space:pre-wrap;font-size:.75rem;color:#6b7280;background:#f8f9ff;border-radius:8px;padding:7px 10px;margin-top:4px;">${escHtml(r.subtasks)}</div>` : '';
     html += `<tr style="background:${r.status === 'done' ? '#fafafa' : '#fff'};">
-      <td style="text-align:left;min-width:180px;white-space:pre-wrap;${r.status === 'done' ? 'color:#9ca3af;' : ''}">
-        <span onclick="projOpenEdit('${r.id}')" style="cursor:pointer;text-decoration:underline dotted;text-underline-offset:3px;">${escHtml(r.title)}</span></td>
+      <td style="text-align:left;min-width:190px;${r.status === 'done' ? 'color:#9ca3af;' : ''}">
+        <span onclick="projOpenEdit('${r.id}')" style="cursor:pointer;text-decoration:underline dotted;text-underline-offset:3px;">${escHtml(r.title)}</span>${subHtml}</td>
       <td class="m-hide" style="text-align:left;font-size:.75rem;color:#6b7280;white-space:pre-wrap;min-width:160px;">${escHtml(r.done_criteria || '')}</td>
       <td>${prBadge(r.priority)}</td>
-      <td style="font-size:.78rem;">${escHtml(r.assignee || '') || '<span style="color:#c4c9d4;">—</span>'}</td>
+      <td style="font-size:.78rem;white-space:nowrap;"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${projColor(r.assignee)};margin-right:4px;"></span>${escHtml(r.assignee || '') || '<span style="color:#c4c9d4;">—</span>'}</td>
       <td class="m-hide" style="font-size:.75rem;color:${overdue ? '#dc2626' : '#6b7280'};white-space:nowrap;font-weight:${overdue ? '700' : '400'};">${r.due_date || '—'}${overdue ? ' 지남' : ''}</td>
       <td>${stSel(r)}</td>
       <td class="m-hide" style="text-align:left;font-size:.72rem;color:#9ca3af;min-width:90px;">${escHtml(r.note || '')}</td>
@@ -2962,6 +3014,109 @@ function projRender() {
   }
   html += '</tbody></table></div>';
   $('proj-result').innerHTML = html;
+}
+
+function projToggleSub(id) {
+  if (projState.open.has(id)) projState.open.delete(id); else projState.open.add(id);
+  projRender();
+}
+
+/* 간트차트 — 프로젝트별 그룹, 막대 = 시작일~마감일 (담당자 색), 마감일만 있으면 마름모 마커.
+   날짜 없는 업무는 차트 아래 '일정 미정' 목록으로. 순수 HTML/CSS(라이브러리 없음). */
+function projRenderGantt(list) {
+  const DAY = 86400000, PX = 26;                       // 하루 26px
+  const d2ms = s => new Date(s + 'T12:00:00').getTime();
+  const today = new Date().toISOString().slice(0, 10);
+
+  const dated = list.filter(r => r.start_date || r.due_date);
+  const undated = list.filter(r => !r.start_date && !r.due_date);
+  if (!dated.length) {
+    $('proj-result').innerHTML = `<div class="empty-state"><div class="es-icon"><i class="fa-solid fa-chart-gantt"></i></div>
+      <p>시작일·마감일이 입력된 업무가 없습니다.<br>업무를 클릭해 <strong>시작일과 마감일</strong>을 넣으면 여기에 일정 막대가 그려집니다.</p></div>`;
+    return;
+  }
+
+  let min = Infinity, max = -Infinity;
+  for (const r of dated) {
+    const s = d2ms(r.start_date || r.due_date), e = d2ms(r.due_date || r.start_date);
+    min = Math.min(min, s, e); max = Math.max(max, s, e);
+  }
+  min = Math.min(min, d2ms(today)); max = Math.max(max, d2ms(today));   // 오늘 선이 항상 보이게
+  min -= 2 * DAY; max += 3 * DAY;
+  const days = Math.round((max - min) / DAY) + 1;
+  const W = days * PX;
+  const x = s => (d2ms(s) - min) / DAY * PX;
+
+  // 날짜 눈금 — 매주 월요일 + 월 경계. ticks(헤더: 선+라벨) / tickLines(본문: 선만)
+  let ticks = '', tickLines = '';
+  for (let t = min; t <= max; t += DAY) {
+    const d = new Date(t);
+    const dow = d.getDay(), date = d.getDate();
+    if (dow === 1 || date === 1) {
+      const left = (t - min) / DAY * PX;
+      const line = `<div style="position:absolute;left:${left}px;top:0;bottom:0;border-left:1px ${date === 1 ? 'solid #d1d5db' : 'dashed #e8eaf1'};"></div>`;
+      ticks += line + `<div style="position:absolute;left:${left + 3}px;top:2px;font-size:.62rem;color:#9ca3af;white-space:nowrap;">${d.getMonth() + 1}/${date}</div>`;
+      tickLines += line;
+    }
+  }
+  const todayLeft = x(today) + PX / 2;
+  const todayLine = `<div style="position:absolute;left:${todayLeft}px;top:0;bottom:0;border-left:2px solid #ef4444;z-index:2;"></div>
+    <div style="position:absolute;left:${todayLeft + 3}px;top:2px;font-size:.62rem;color:#ef4444;font-weight:700;">오늘</div>`;
+
+  const cats = [...new Set(dated.map(r => r.category))];
+  const ROW = 30, HEAD = 22;
+  let rowsHtml = '', labelHtml = '', y = 0;
+  const groupRow = name => {
+    labelHtml += `<div style="height:${ROW}px;display:flex;align-items:center;background:#eef2ff;color:#4338ca;font-size:.72rem;font-weight:800;padding:0 8px;">${escHtml(name)}</div>`;
+    rowsHtml += `<div style="height:${ROW}px;background:#eef2ff66;"></div>`;
+    y += ROW;
+  };
+  for (const c of cats) {
+    groupRow(c);
+    for (const r of dated.filter(t => t.category === c)) {
+      const color = projColor(r.assignee);
+      const done = r.status === 'done';
+      labelHtml += `<div onclick="projOpenEdit('${r.id}')" title="${escHtml(r.title)}" style="height:${ROW}px;display:flex;align-items:center;padding:0 8px;font-size:.74rem;color:${done ? '#9ca3af' : '#374151'};cursor:pointer;border-bottom:1px solid #f3f4f6;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escHtml(r.title)}</div>`;
+      let bar;
+      const tip = `${escHtml(r.assignee || '담당 미지정')} · ${r.start_date || '?'} ~ ${r.due_date || '?'}`;
+      if (r.start_date && r.due_date && r.due_date >= r.start_date) {
+        const left = x(r.start_date), w = Math.max(PX, x(r.due_date) - left + PX);
+        bar = `<div onclick="projOpenEdit('${r.id}')" title="${tip}" style="position:absolute;left:${left}px;top:6px;width:${w}px;height:18px;background:${color}${done ? '55' : ''};border-radius:9px;cursor:pointer;display:flex;align-items:center;padding:0 7px;overflow:hidden;">
+          <span style="font-size:.64rem;color:#fff;font-weight:700;white-space:nowrap;">${escHtml(r.assignee || '')}</span></div>`;
+      } else {
+        const at = x(r.due_date || r.start_date);
+        bar = `<div onclick="projOpenEdit('${r.id}')" title="${tip}" style="position:absolute;left:${at + PX / 2 - 7}px;top:8px;width:14px;height:14px;background:${color}${done ? '55' : ''};transform:rotate(45deg);border-radius:3px;cursor:pointer;"></div>`;
+      }
+      rowsHtml += `<div style="position:relative;height:${ROW}px;border-bottom:1px solid #f3f4f6;">${bar}</div>`;
+      y += ROW;
+    }
+  }
+
+  // 범례 (담당자 색) + 일정 미정 목록
+  const names = [...new Set(dated.concat(undated).map(r => r.assignee).filter(Boolean))];
+  const legend = names.map(n => `<span style="font-size:.72rem;color:#4b5563;margin-right:10px;"><span style="display:inline-block;width:9px;height:9px;border-radius:50%;background:${projColor(n)};margin-right:4px;"></span>${escHtml(n)}</span>`).join('')
+    + '<span style="font-size:.7rem;color:#9ca3af;">막대 = 시작일~마감일 · 마름모 = 마감일만 입력됨 · 클릭하면 수정</span>';
+  const undatedHtml = undated.length ? `
+    <div style="margin-top:12px;font-size:.75rem;color:#6b7280;"><b style="color:#374151;">일정 미정 ${undated.length}개</b> — 클릭해서 시작일·마감일을 넣으면 차트에 나타납니다<br>
+      ${undated.map(r => `<span onclick="projOpenEdit('${r.id}')" style="display:inline-block;margin:4px 6px 0 0;border:1px solid #e5e7eb;border-radius:99px;padding:2px 10px;font-size:.72rem;cursor:pointer;background:#fff;">
+        <span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:${projColor(r.assignee)};margin-right:4px;"></span>${escHtml(r.title.slice(0, 30))}${r.title.length > 30 ? '…' : ''}</span>`).join('')}</div>` : '';
+
+  $('proj-result').innerHTML = `
+    <div style="margin-bottom:8px;">${legend}</div>
+    <div style="display:flex;border:1px solid #e5e7eb;border-radius:12px;overflow:hidden;">
+      <div style="flex:0 0 200px;border-right:1px solid #e5e7eb;background:#fff;">
+        <div style="height:${HEAD}px;border-bottom:1px solid #e5e7eb;background:#fafafa;"></div>${labelHtml}</div>
+      <div class="table-wrap" style="flex:1;overflow-x:auto;">
+        <div style="position:relative;width:${W}px;">
+          <div style="position:relative;height:${HEAD}px;border-bottom:1px solid #e5e7eb;background:#fafafa;">${ticks}${todayLine}</div>
+          <div style="position:relative;">
+            <div style="position:absolute;inset:0;">${tickLines}</div>
+            ${rowsHtml}
+            <div style="position:absolute;top:0;bottom:0;left:${todayLeft}px;border-left:2px solid #ef444488;"></div>
+          </div>
+        </div>
+      </div>
+    </div>${undatedHtml}`;
 }
 
 async function projSetStatus(id, status) {
@@ -2980,30 +3135,35 @@ function projFillCatList() {
   $('pj-cat-list').innerHTML = projCats().map(c => `<option value="${escHtml(c)}"></option>`).join('');
 }
 
-function projOpenAdd() {
+async function projOpenAdd() {
   $('proj-modal-title').textContent = '업무 추가';
   $('pj-id').value = '';
   $('pj-category').value = projState.cat || '';
-  ['pj-section', 'pj-title', 'pj-crit', 'pj-assignee', 'pj-due', 'pj-note'].forEach(id => { $(id).value = ''; });
+  ['pj-section', 'pj-title', 'pj-subtasks', 'pj-crit', 'pj-start', 'pj-due', 'pj-note'].forEach(id => { $(id).value = ''; });
   $('pj-priority').value = '중간'; $('pj-status').value = 'todo';
   $('pj-delete').style.display = 'none';
   projFillCatList();
+  await projEnsureUsers();
+  projFillAssignees('');
   $('proj-modal').style.display = 'flex';
   setTimeout(() => $('pj-title').focus(), 50);
 }
 
-function projOpenEdit(id) {
+async function projOpenEdit(id) {
   const r = (projState.rows || []).find(x => x.id === id);
   if (!r) return;
   $('proj-modal-title').textContent = '업무 수정';
   $('pj-id').value = r.id;
   $('pj-category').value = r.category; $('pj-section').value = r.section || '';
-  $('pj-title').value = r.title; $('pj-crit').value = r.done_criteria || '';
+  $('pj-title').value = r.title; $('pj-subtasks').value = r.subtasks || '';
+  $('pj-crit').value = r.done_criteria || '';
   $('pj-priority').value = r.priority || '';                       // 엑셀에 우선순위가 빈 업무도 있음 — '—' 옵션으로 보존
-  $('pj-assignee').value = r.assignee || ''; $('pj-due').value = r.due_date || '';
+  $('pj-start').value = r.start_date || ''; $('pj-due').value = r.due_date || '';
   $('pj-status').value = r.status; $('pj-note').value = r.note || '';
   $('pj-delete').style.display = '';
   projFillCatList();
+  await projEnsureUsers();
+  projFillAssignees(r.assignee || '');
   $('proj-modal').style.display = 'flex';
 }
 
@@ -3013,10 +3173,14 @@ async function projSave() {
   const title = $('pj-title').value.trim();
   if (!category) { showToast('프로젝트 이름을 입력해주세요'); return; }
   if (!title) { showToast('업무 내용을 입력해주세요'); return; }
+  const start = $('pj-start').value, due = $('pj-due').value;
+  if (start && due && start > due) { showToast('시작일이 마감일보다 늦습니다'); return; }
   const body = {
     category, section: $('pj-section').value.trim(), title,
+    subtasks: $('pj-subtasks').value.trim(),
     done_criteria: $('pj-crit').value.trim(), priority: $('pj-priority').value,
-    assignee: $('pj-assignee').value.trim(), due_date: $('pj-due').value || null,
+    assignee: $('pj-assignee').value,
+    start_date: start || null, due_date: due || null,
     status: $('pj-status').value, note: $('pj-note').value.trim(),
     updated_at: new Date().toISOString(),
   };

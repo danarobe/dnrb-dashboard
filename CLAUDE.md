@@ -163,6 +163,7 @@ AUTHOR_FIELDS(notes/comments=author_id, likes=user_id): POST는 본인 id 필수
 - `project_tasks` 테이블(db 프록시, admin 전용): category(프로젝트)·section·title·done_criteria·priority(높음/중간/낮음/빈값)·assignee·due_date·status(todo/doing/done/hold)·note·sort_order. **초기 데이터 = ~/01_다나로브/다나로브_프로젝트정리.xlsx 39건(2026-08-19 임포트, 해외판매16·숏츠광고9·중국사입14) — 이후 대시보드가 원본, 엑셀은 스냅샷.**
 - UI: 프로젝트별 요약 타일(완료율+진행바, 엑셀 '요약' 시트와 같은 집계) + 프로젝트 탭 + 상태 필터 + 섹션(연속 구간) 그룹 표. **상태는 표에서 셀렉트로 즉시 변경**(PATCH), 업무명 클릭=수정 모달(삭제 포함), 업무 추가 모달. 마감일 지나면 빨간 '지남' 표시.
 - 정렬: 렌더가 **프로젝트(첫 등장 순) → sort_order**로 다시 묶으므로 새 업무 sort_order는 전체 최대+1이면 됨. 탭 onclick은 인덱스(projSetCat) — 이름 문자열 인라인 금지(따옴표 사고). 엑셀 상태 빈값은 todo로 임포트.
+- **UI 개편(2026-08-19, 사용자 요청 3종)**: ① title=대표 설명 한 줄 + **subtasks 컬럼 신설**(줄 단위, 표에서 기본 접힘 — '하위 업무 N개' 토글, 펼침 상태는 projState.open Set) — 기존 여러 줄 title은 첫 줄/나머지로 SQL 분리 마이그레이션(7건). 라벨 '완료 기준'→'꼭 포함할 것'(컬럼명 done_criteria 유지). ② **담당자 = 등록 사용자 셀렉트**(authApi list_users, +모두/—) — 기존 값 범준→조범준·민규→박민규·다나→김다나 SQL 매핑(23건). ③ **간트 뷰**(표/간트 토글): start_date 컬럼 신설, 막대=시작~마감(담당자 색: 조범준 보라·박민규 청록·김다나 핑크 — 회의보드 팀 색과 통일), 마감일만 있으면 마름모, 날짜 없으면 하단 '일정 미정' 칩, 오늘 빨간 선·주간 눈금, 순수 HTML/CSS. 완료 업무는 반투명.
 
 ### 대표 회의보드 (#board, 관리자 전용)
 - 별도 프로젝트 **meeting-board**(React+Vite, ~/meeting-board, 배포 danarobe.github.io/meeting-board)를 **같은 도메인 iframe으로 내장**. 코드 통합 아님 — 회의보드 수정·배포는 그 프로젝트에서 그대로.
