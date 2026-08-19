@@ -1491,7 +1491,14 @@
           <button id="proj-view-table" onclick="projSetView('table')" style="border:none;background:#4f46e5;color:#fff;padding:5px 12px;font-size:.78rem;font-weight:700;cursor:pointer;"><i class="fa-solid fa-table-list"></i> 표</button>
           <button id="proj-view-gantt" onclick="projSetView('gantt')" style="border:none;background:#fff;color:#4b5563;padding:5px 12px;font-size:.78rem;font-weight:700;cursor:pointer;"><i class="fa-solid fa-chart-gantt"></i> 간트</button>
         </span>
-        <button class="btn-analyze" style="margin-left:auto;padding:6px 14px;font-size:.78rem;" onclick="projOpenAdd()"><i class="fa-solid fa-plus"></i> 업무 추가</button>
+        <button onclick="projDownloadXlsx(true)" title="작성 양식(예시 2건 포함) 내려받기"
+          style="margin-left:auto;border:1.5px solid #d1d5db;background:#fff;color:#4b5563;border-radius:8px;padding:5px 10px;font-size:.75rem;font-weight:700;cursor:pointer;"><i class="fa-regular fa-file-lines"></i> 양식</button>
+        <button onclick="document.getElementById('proj-file').click()" title="양식대로 작성한 엑셀 업로드 — 새 업무로 추가됩니다"
+          style="border:1.5px solid #d1d5db;background:#fff;color:#4b5563;border-radius:8px;padding:5px 10px;font-size:.75rem;font-weight:700;cursor:pointer;"><i class="fa-solid fa-file-arrow-up"></i> 업로드</button>
+        <button onclick="projDownloadXlsx(false)" title="현재 업무 목록을 엑셀로 내려받기"
+          style="border:1.5px solid #d1d5db;background:#fff;color:#4b5563;border-radius:8px;padding:5px 10px;font-size:.75rem;font-weight:700;cursor:pointer;"><i class="fa-solid fa-file-arrow-down"></i> 다운로드</button>
+        <input type="file" id="proj-file" accept=".xlsx" style="display:none;" onchange="projUploadXlsx(event)" />
+        <button class="btn-analyze" style="padding:6px 14px;font-size:.78rem;" onclick="projOpenAdd()"><i class="fa-solid fa-plus"></i> 업무 추가</button>
       </div>
       <div id="proj-result"><div class="empty-state"><p>불러오는 중...</p></div></div>
     </div>
@@ -3196,6 +3203,130 @@ async function projSave() {
     showToast(id ? '수정했습니다' : '추가했습니다');
     await projLoad(true);
   } catch (e) { showToast('저장 실패: ' + e.message); }
+}
+
+/* ── 엑셀 양식/다운로드/업로드 ──
+   열 구성(헤더명 기반 인식): 프로젝트·섹션·업무·하위 업무·꼭 포함할 것·우선순위·담당자·시작일·마감일·상태·비고
+   업로드 = 추가만(기존 수정 아님). 같은 프로젝트+업무 조합이 이미 있으면 중복으로 건너뜀.
+   양식의 예시 행은 프로젝트가 '(예시)'로 시작 — 업로드 시 자동 제외. */
+const PROJ_XLSX_HEADERS = ['프로젝트', '섹션', '업무', '하위 업무', '꼭 포함할 것', '우선순위', '담당자', '시작일', '마감일', '상태', '비고'];
+
+async function projDownloadXlsx(template) {
+  try {
+    if (typeof XlsxPopulate === 'undefined') throw new Error('엑셀 라이브러리 로드 실패 — 페이지를 새로고침해주세요');
+    const wb = await XlsxPopulate.fromBlankAsync();
+    const ws = wb.sheet(0).name('업무목록');
+    PROJ_XLSX_HEADERS.forEach((h, i) => ws.cell(1, i + 1).value(h).style({ bold: true, fill: 'EEF2FF' }));
+    [14, 14, 36, 36, 28, 9, 10, 12, 12, 9, 18].forEach((w, i) => ws.column(i + 1).width(w));
+
+    let rows;
+    if (template) {
+      rows = [
+        ['(예시) 해외판매', '1. 몰 구축', '카페24 글로벌몰 기능 및 비용 확인', '- 해외 PG / 결제수단 확인\n- 해외배송 방식 및 배송비 확인', '사용 방식·비용·필요 설정 정리', '높음', '조범준', '2026-08-25', '2026-09-05', '미착수', '전화로 같이 확인'],
+        ['(예시) 숏츠광고', '2. 재가공', 'TikTok 규격으로 영상 재가공', '', 'TikTok 업로드 가능 영상 완성', '중간', '박민규', '', '2026-09-10', '진행중', ''],
+      ];
+    } else {
+      const cats = projCats(), ordered = [];
+      for (const c of cats) ordered.push(...(projState.rows || []).filter(r => r.category === c));
+      rows = ordered.map(r => [r.category, r.section, r.title, r.subtasks, r.done_criteria,
+        r.priority, r.assignee, r.start_date || '', r.due_date || '', PROJ_ST[r.status]?.label || '미착수', r.note]);
+      if (!rows.length) { showToast('내려받을 업무가 없습니다'); return; }
+    }
+    rows.forEach((row, ri) => row.forEach((v, ci) => {
+      if (v !== '' && v != null) ws.cell(ri + 2, ci + 1).value(v).style('wrapText', true);
+    }));
+
+    if (template) {
+      const g = wb.addSheet('작성 안내');
+      g.column(1).width(80);
+      [
+        '작성 안내',
+        "· '업무목록' 시트에 한 줄에 업무 하나씩 작성하세요. 프로젝트·업무 열은 필수입니다.",
+        "· '(예시)'로 시작하는 예시 행은 업로드할 때 자동으로 제외됩니다 (지워도 됩니다).",
+        '· 하위 업무: 한 셀 안에서 줄바꿈(Alt+Enter)으로 여러 개 입력.',
+        '· 우선순위: 높음 / 중간 / 낮음 (비워도 됨)',
+        '· 담당자: 대시보드에 등록된 이름 (조범준·박민규·김다나 등, 여럿이면 모두)',
+        '· 시작일·마감일: 2026-09-05 형식 (간트차트에 막대로 표시됨, 비워도 됨)',
+        '· 상태: 미착수 / 진행중 / 완료 / 보류 (비우면 미착수)',
+        '· 업로드하면 전부 새 업무로 추가됩니다. 같은 프로젝트+업무가 이미 있으면 중복으로 건너뜁니다.',
+      ].forEach((t, i) => g.cell(i + 1, 1).value(t).style('bold', i === 0));
+    }
+
+    const out = await wb.outputAsync();
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([out], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
+    a.download = template ? '프로젝트업무_양식.xlsx' : `프로젝트업무_${new Date().toISOString().slice(0, 10)}.xlsx`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  } catch (e) { showToast('다운로드 실패: ' + e.message); }
+}
+
+async function projUploadXlsx(ev) {
+  const file = ev.target.files[0];
+  ev.target.value = '';                                  // 같은 파일 재선택 가능하게
+  if (!file) return;
+  try {
+    if (typeof XlsxPopulate === 'undefined') throw new Error('엑셀 라이브러리 로드 실패 — 페이지를 새로고침해주세요');
+    const wb = await XlsxPopulate.fromDataAsync(await file.arrayBuffer());
+    const used = wb.sheet(0).usedRange();
+    if (!used) throw new Error('엑셀에 데이터가 없습니다');
+    let rows = wb.sheet(0).range('A1:' + used.endCell().address()).value();
+    if (!Array.isArray(rows)) rows = [[rows]];
+    else if (!Array.isArray(rows[0])) rows = [rows];
+
+    // 헤더명 기반 열 인식 (셀메이트 재고 대조와 같은 관례 — 열 순서 바뀌어도 동작)
+    const header = rows[0].map(v => String(v ?? '').replace(/\s/g, ''));
+    const col = name => header.indexOf(name.replace(/\s/g, ''));
+    const ci = { cat: col('프로젝트'), sec: col('섹션'), title: col('업무'), sub: col('하위 업무'), crit: col('꼭 포함할 것'),
+                 pr: col('우선순위'), asg: col('담당자'), start: col('시작일'), due: col('마감일'), status: col('상태'), note: col('비고') };
+    if (ci.cat < 0 || ci.title < 0) throw new Error("1행 헤더에서 '프로젝트'와 '업무' 열을 찾지 못했습니다 — '양식' 버튼으로 받은 파일로 작성해주세요");
+
+    const txt = (row, i) => i < 0 ? '' : String(row[i] ?? '').trim();
+    const dateOf = (row, i) => {
+      if (i < 0) return null;
+      const v = row[i];
+      if (v == null || v === '') return null;
+      if (typeof v === 'number') {                        // 엑셀 날짜 일련번호
+        const d = XlsxPopulate.numberToDate(v);
+        return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+      }
+      const m = String(v).trim().replace(/[./]/g, '-').match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+      return m ? `${m[1]}-${m[2].padStart(2, '0')}-${m[3].padStart(2, '0')}` : null;
+    };
+    const stMap = { '미착수': 'todo', '진행중': 'doing', '완료': 'done', '보류': 'hold' };
+
+    const existing = new Set((projState.rows || []).map(r => `${r.category}|${r.title}`));
+    let sort = Math.max(0, ...(projState.rows || []).map(r => r.sort_order || 0));
+    const items = [];
+    let skippedDup = 0, skippedEx = 0;
+    for (const row of rows.slice(1)) {
+      const category = txt(row, ci.cat), title = txt(row, ci.title);
+      if (!category && !title) continue;                  // 빈 행
+      if (category.startsWith('(예시)')) { skippedEx++; continue; }
+      if (!category || !title) continue;                  // 필수값 누락 행
+      if (existing.has(`${category}|${title}`)) { skippedDup++; continue; }
+      existing.add(`${category}|${title}`);
+      items.push({
+        category, section: txt(row, ci.sec), title,
+        subtasks: txt(row, ci.sub), done_criteria: txt(row, ci.crit),
+        priority: txt(row, ci.pr), assignee: txt(row, ci.asg),
+        start_date: dateOf(row, ci.start), due_date: dateOf(row, ci.due),
+        status: stMap[txt(row, ci.status)] || 'todo', note: txt(row, ci.note),
+        sort_order: ++sort,
+      });
+    }
+
+    if (!items.length) {
+      showToast(`추가할 업무가 없습니다${skippedDup ? ` (이미 있는 ${skippedDup}건 제외)` : ''}`);
+      return;
+    }
+    if (!confirm(`엑셀에서 업무 ${items.length}건을 추가합니다.` +
+      (skippedDup ? `\n(이미 등록된 ${skippedDup}건은 중복이라 건너뜁니다)` : '') + '\n진행할까요?')) return;
+
+    await dbProxy('project_tasks', { method: 'POST', headers: { Prefer: 'return=minimal' }, body: JSON.stringify(items) });
+    await projLoad(true);
+    showToast(`${items.length}건 추가 완료${skippedDup ? ` · 중복 ${skippedDup}건 제외` : ''}`);
+  } catch (e) { showToast('업로드 실패: ' + e.message); }
 }
 
 async function projDelete() {
