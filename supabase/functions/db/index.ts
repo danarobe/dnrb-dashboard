@@ -23,6 +23,7 @@ const TABLE_ROLES: Record<string, string[]> = {
   disp_season_out: ["admin"],   // 진열 시즌 제외 목록 (관리자 전용 메뉴)
   return_watch: ["admin", "staff"],   // 반품 관리 상품 (관리자 + MD)
   profit_archive: ["admin"],    // 순익 시나리오 기간별 기록
+  project_tasks: ["admin"],     // 프로젝트 관리 업무 (관리자 전용 — 사용자 결정 2026-08-19)
 };
 // 본인 것만 쓰기·수정·삭제 가능한 테이블과 작성자 컬럼 (클라이언트 규칙을 서버에서 강제)
 const AUTHOR_FIELDS: Record<string, string> = {

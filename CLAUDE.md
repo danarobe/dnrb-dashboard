@@ -159,6 +159,11 @@ AUTHOR_FIELDS(notes/comments=author_id, likes=user_id): POST는 본인 id 필수
 - 법인세 = 과세표준 구간세율(2억 9% / 2억~200억 19% / 초과 21%, 연 구간을 기간 손익에 그대로 — 참고용). 손익분기 광고비 = 이분탐색.
 - 손익계산서 + 순이익 카드 + ROAS(200~1000)×취소반품률(10~30) 매트릭스(셀 클릭 상세) + **profit_archive 기록 저장/불러오기/삭제**.
 
+### 프로젝트 관리 (#proj, 관리자 전용)
+- `project_tasks` 테이블(db 프록시, admin 전용): category(프로젝트)·section·title·done_criteria·priority(높음/중간/낮음/빈값)·assignee·due_date·status(todo/doing/done/hold)·note·sort_order. **초기 데이터 = ~/01_다나로브/다나로브_프로젝트정리.xlsx 39건(2026-08-19 임포트, 해외판매16·숏츠광고9·중국사입14) — 이후 대시보드가 원본, 엑셀은 스냅샷.**
+- UI: 프로젝트별 요약 타일(완료율+진행바, 엑셀 '요약' 시트와 같은 집계) + 프로젝트 탭 + 상태 필터 + 섹션(연속 구간) 그룹 표. **상태는 표에서 셀렉트로 즉시 변경**(PATCH), 업무명 클릭=수정 모달(삭제 포함), 업무 추가 모달. 마감일 지나면 빨간 '지남' 표시.
+- 정렬: 렌더가 **프로젝트(첫 등장 순) → sort_order**로 다시 묶으므로 새 업무 sort_order는 전체 최대+1이면 됨. 탭 onclick은 인덱스(projSetCat) — 이름 문자열 인라인 금지(따옴표 사고). 엑셀 상태 빈값은 todo로 임포트.
+
 ### 대표 회의보드 (#board, 관리자 전용)
 - 별도 프로젝트 **meeting-board**(React+Vite, ~/meeting-board, 배포 danarobe.github.io/meeting-board)를 **같은 도메인 iframe으로 내장**. 코드 통합 아님 — 회의보드 수정·배포는 그 프로젝트에서 그대로.
 - **같은 도메인(danarobe.github.io)이라 서드파티 쿠키 문제 없음**(상품 관리 시스템과 다른 점). 회의보드는 자체 로그인 없음(비공개 URL 전제) → 메뉴 노출만 admin 제한(사용자 결정 2026-08-19). `mb_user` localStorage도 도메인 공유로 그대로 동작.
