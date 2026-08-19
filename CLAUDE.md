@@ -162,7 +162,8 @@ AUTHOR_FIELDS(notes/comments=author_id, likes=user_id): POST는 본인 id 필수
 ### 대표 회의보드 (#board, 관리자 전용)
 - 별도 프로젝트 **meeting-board**(React+Vite, ~/meeting-board, 배포 danarobe.github.io/meeting-board)를 **같은 도메인 iframe으로 내장**. 코드 통합 아님 — 회의보드 수정·배포는 그 프로젝트에서 그대로.
 - **같은 도메인(danarobe.github.io)이라 서드파티 쿠키 문제 없음**(상품 관리 시스템과 다른 점). 회의보드는 자체 로그인 없음(비공개 URL 전제) → 메뉴 노출만 admin 제한(사용자 결정 2026-08-19). `mb_user` localStorage도 도메인 공유로 그대로 동작.
-- **iframe src는 메뉴 첫 진입 때 세팅(lazy)** — showMenu('board')에서 `!f.src`일 때만. 다른 메뉴 성능 영향 0. 헤더에 '새 탭에서 열기' 버튼.
+- **iframe src는 메뉴 첫 진입 때 세팅(lazy)** — showMenu('board')에서 `!f.src`일 때만. 다른 메뉴 성능 영향 0. 헤더에 '새 탭에서 열기' 버튼. 높이 `calc(100vh - 150px)`·최소 700px(2026-08-19 확대).
+- 회의보드는 **라이트 테마 고정**(2026-08-19) — meeting-board 쪽 styles.css에서 다크 미디어쿼리를 `@media not all`로 비활성(그 프로젝트 CLAUDE.md 참조). 대시보드가 항상 라이트라 통일.
 
 ### 상품 관리 (외부 링크, 관리자+MD)
 - 메뉴 '운영' 그룹의 **`menu-npm` 버튼 — 별도 프로젝트 newproduct-manager**(https://newproduct-manager.vercel.app/products)를 **새 탭으로 여는 링크일 뿐**, 이 레포에 코드 통합 아님(사용자 결정 2026-08-18 — iframe은 상대 앱 세션 쿠키 SameSite=Lax라 로그인 유지 불가, 코드 통합은 Next.js+Neon이라 재개발 수준이어서 기각). 소스는 OneDrive-개인(2)/work-manager/newproduct-manager, 로그인·배포 전부 별개.
