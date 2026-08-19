@@ -168,11 +168,10 @@ AUTHOR_FIELDS(notes/comments=author_id, likes=user_id): POST는 본인 id 필수
 - **엑셀 양식/업로드/다운로드(2026-08-19)**: 툴바 버튼 3개. 양식=예시 2행('(예시)' 접두 — 업로드 시 자동 제외)+'작성 안내' 시트. 업로드는 **헤더명 기반 열 인식**(셀메이트 관례)·**추가만**(같은 프로젝트+업무 조합은 중복 건너뜀·건수 confirm)·날짜는 문자열(YYYY-MM-DD·점·슬래시)과 엑셀 일련번호(numberToDate, 로컬 날짜로 포맷 — toISOString 금지) 모두 처리·상태 한글→코드 매핑(빈값 todo)·PostgREST 배열 POST 일괄 삽입. 다운로드=현재 목록 그대로(재업로드 가능 양식 동일).
 - **UI 개편(2026-08-19, 사용자 요청 3종)**: ① title=대표 설명 한 줄 + **subtasks 컬럼 신설**(줄 단위, 표에서 기본 접힘 — '하위 업무 N개' 토글, 펼침 상태는 projState.open Set) — 기존 여러 줄 title은 첫 줄/나머지로 SQL 분리 마이그레이션(7건). 라벨 '완료 기준'→'꼭 포함할 것'(컬럼명 done_criteria 유지). ② **담당자 = 등록 사용자 셀렉트**(authApi list_users, +모두/—) — 기존 값 범준→조범준·민규→박민규·다나→김다나 SQL 매핑(23건). ③ **간트 뷰**(표/간트 토글): start_date 컬럼 신설, 막대=시작~마감(담당자 색: 조범준 보라·박민규 청록·김다나 핑크 — 회의보드 팀 색과 통일), 마감일만 있으면 마름모, 날짜 없으면 하단 '일정 미정' 칩, 오늘 빨간 선·주간 눈금, 순수 HTML/CSS. 완료 업무는 반투명.
 
-### 대표 회의보드 (#board, 관리자 전용)
-- 별도 프로젝트 **meeting-board**(React+Vite, ~/meeting-board, 배포 danarobe.github.io/meeting-board)를 **같은 도메인 iframe으로 내장**. 코드 통합 아님 — 회의보드 수정·배포는 그 프로젝트에서 그대로.
-- **같은 도메인(danarobe.github.io)이라 서드파티 쿠키 문제 없음**(상품 관리 시스템과 다른 점). 회의보드는 자체 로그인 없음(비공개 URL 전제) → 메뉴 노출만 admin 제한(사용자 결정 2026-08-19). `mb_user` localStorage도 도메인 공유로 그대로 동작.
-- **iframe src는 메뉴 첫 진입 때 세팅(lazy)** — showMenu('board')에서 `!f.src`일 때만. 다른 메뉴 성능 영향 0. 헤더에 '새 탭에서 열기' 버튼. 높이 `calc(100vh - 150px)`·최소 700px(2026-08-19 확대).
-- 회의보드는 **라이트 테마 고정**(2026-08-19) — meeting-board 쪽 styles.css에서 다크 미디어쿼리를 `@media not all`로 비활성(그 프로젝트 CLAUDE.md 참조). 대시보드가 항상 라이트라 통일.
+### 대표 회의보드 (#board, 관리자 전용) — 자체 기능 (2026-08-19 iframe → 네이티브 전환)
+- **`board_topics` 테이블**(db 프록시, admin 전용 — 대표끼리 서로 수정 가능이라 AUTHOR_FIELDS 미적용): title·detail(코멘트)·conclusion(결론)·status(open/discussed/resolved)·pinned·archived·author_id/author_name(로그인 계정)·discussed_at. **옛 meeting-board의 topics 데이터는 이전 안 함(사용자 결정 — 새로 시작)**, 별도 프로젝트 meeting-board(~/meeting-board, danarobe.github.io/meeting-board)는 그대로 존속.
+- UI 원칙(옛 회의보드 계승): **한 줄 입력+Enter 등록** · **작성자별 그룹(본인 맨 위 '(나)', 그룹 안 핀 먼저+최신순)** · 탭 5개(전체/대기/논의함/결론/보관함, 건수 표시) · 카드 클릭=펼침 → **입력란 하나가 코멘트/결론 겸용**('논의함으로'=detail 저장+discussed, '결론 저장'=conclusion 저장+resolved) + 핀/보관/복원/삭제(confirm). 결론은 초록 박스, 핀은 노란 테두리.
+- 과거 이력: iframe 내장(같은 도메인이라 쿠키 문제 없음) → 네이티브 전환. meeting-board 라이트 테마 고정 이력은 그 프로젝트 CLAUDE.md 참조.
 
 ### 상품 관리 (외부 링크, 관리자+MD)
 - 메뉴 '운영' 그룹의 **`menu-npm` 버튼 — 별도 프로젝트 newproduct-manager**(https://newproduct-manager.vercel.app/products)를 **새 탭으로 여는 링크일 뿐**, 이 레포에 코드 통합 아님(사용자 결정 2026-08-18 — iframe은 상대 앱 세션 쿠키 SameSite=Lax라 로그인 유지 불가, 코드 통합은 Next.js+Neon이라 재개발 수준이어서 기각). 소스는 OneDrive-개인(2)/work-manager/newproduct-manager, 로그인·배포 전부 별개.

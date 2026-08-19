@@ -1550,16 +1550,22 @@
     </div>
   </div>
 
-  <!-- 대표 회의보드 (관리자) — 별도 프로젝트 meeting-board를 같은 도메인 iframe으로 내장.
-       src는 메뉴 첫 진입 때만 세팅(lazy) — 다른 메뉴 사용 시 로드 비용 0. -->
+  <!-- 대표 회의보드 (관리자) — 자체 기능 (board_topics 테이블, 2026-08-19 iframe → 네이티브 전환).
+       회의 때 이야기할 안건을 평소에 기록해두고, 회의 날 한 화면으로 보며 진행. 작성자 = 로그인 계정. -->
   <div class="section-card page-sec" id="sec-board">
     <div class="section-header" style="cursor:default;">
       <h2><span><i class="fa-solid fa-people-group" style="color:#4f46e5;font-size:.9em;"></i></span> 대표 회의보드</h2>
-      <button class="toggle-btn" onclick="window.open('https://danarobe.github.io/meeting-board/','_blank')"><i class="fa-solid fa-arrow-up-right-from-square"></i> 새 탭에서 열기</button>
+      <button class="toggle-btn" onclick="boardLoad(true)"><i class="fa-solid fa-rotate"></i> 새로고침</button>
     </div>
-    <div class="section-body" style="padding:0;">
-      <iframe id="board-frame" title="대표 회의보드"
-        style="width:100%;height:calc(100vh - 150px);min-height:700px;border:none;border-radius:0 0 12px 12px;display:block;background:transparent;"></iframe>
+    <div class="section-body">
+      <div style="display:flex;gap:8px;margin-bottom:12px;">
+        <input id="board-input" placeholder="회의 때 이야기할 안건 — 한 줄 쓰고 Enter"
+          onkeydown="if(event.key==='Enter')boardAdd()"
+          style="flex:1;border:1.5px solid #d1d5db;border-radius:10px;padding:10px 14px;font-size:.88rem;outline:none;" />
+        <button class="btn-analyze" onclick="boardAdd()" style="padding:8px 18px;">등록</button>
+      </div>
+      <div id="board-tabs" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px;"></div>
+      <div id="board-result"><div class="empty-state"><p>불러오는 중...</p></div></div>
     </div>
   </div>
 
@@ -2877,6 +2883,186 @@ async function rwRemoveWatch(no) {
     showToast('해제했습니다');
     rwRender();
   } catch (e) { showToast('' + e.message); }
+}
+
+/* ──────────────────────────────
+   대표 회의보드 (#board, 관리자 전용) — board_topics 테이블 (db 프록시)
+   2026-08-19 iframe(meeting-board) → 자체 기능 전환. 새로 시작(옛 topics 데이터 미이전, 사용자 결정).
+   원칙: 3초 입력(한 줄+Enter) · 작성자별 그룹(본인 맨 위) · 끝난 안건은 보관함으로.
+   상태 흐름: 대기(open) → 논의함(discussed) → 결론(resolved). 관리자끼리 서로 수정 가능.
+────────────────────────────── */
+const boardState = { rows: null, tab: 'active', open: new Set() };
+const BOARD_ST = {
+  open:      { label: '대기',   fg: '#6b7280', bg: '#f3f4f6' },
+  discussed: { label: '논의함', fg: '#1d4ed8', bg: '#dbeafe' },
+  resolved:  { label: '결론',   fg: '#15803d', bg: '#dcfce7' },
+};
+
+async function boardLoad(force) {
+  if (!isAdmin()) return;
+  if (boardState.rows && !force) { boardRender(); return; }
+  try {
+    boardState.rows = await dbProxy('board_topics?select=*&order=created_at.desc') || [];
+  } catch (e) {
+    $('board-result').innerHTML = `<div class="empty-state"><p>불러오기 실패: ${escHtml(e.message)}</p></div>`;
+    return;
+  }
+  boardRender();
+}
+
+function boardSetTab(t) { boardState.tab = t; boardRender(); }
+
+function boardRender() {
+  const rows = boardState.rows || [];
+  const active = rows.filter(r => !r.archived);
+  const cnt = {
+    active: active.length,
+    open: active.filter(r => r.status === 'open').length,
+    discussed: active.filter(r => r.status === 'discussed').length,
+    resolved: active.filter(r => r.status === 'resolved').length,
+    archived: rows.length - active.length,
+  };
+  const TABS = [['active', '전체'], ['open', '대기'], ['discussed', '논의함'], ['resolved', '결론'], ['archived', '보관함']];
+  $('board-tabs').innerHTML = TABS.map(([k, label]) => {
+    const on = boardState.tab === k;
+    return `<button onclick="boardSetTab('${k}')" style="border:1.5px solid ${on ? 'transparent' : '#d1d5db'};background:${on ? '#4f46e5' : '#fff'};color:${on ? '#fff' : '#4b5563'};border-radius:99px;padding:5px 13px;font-size:.78rem;font-weight:700;cursor:pointer;">${label}${cnt[k] ? ` ${cnt[k]}` : ''}</button>`;
+  }).join('');
+
+  const list = boardState.tab === 'archived' ? rows.filter(r => r.archived)
+    : boardState.tab === 'active' ? active
+    : active.filter(r => r.status === boardState.tab);
+  if (!list.length) {
+    $('board-result').innerHTML = `<div class="empty-state"><div class="es-icon"><i class="fa-regular fa-comments"></i></div>
+      <p>${boardState.tab === 'archived' ? '보관된 안건이 없습니다.' : '안건이 없습니다. 위 입력창에 한 줄 쓰고 Enter를 눌러보세요.'}</p></div>`;
+    return;
+  }
+
+  // 작성자별 그룹 — 본인 맨 위, 그룹 안은 핀 먼저 + 최신순
+  const authors = [...new Set(list.map(r => r.author_id))]
+    .sort((a, b) => (a === SESSION.id ? -1 : b === SESSION.id ? 1 : 0));
+  let html = '';
+  for (const aid of authors) {
+    const mine = aid === SESSION.id;
+    const items = list.filter(r => r.author_id === aid)
+      .sort((a, b) => (b.pinned - a.pinned) || (a.created_at < b.created_at ? 1 : -1));
+    html += `<div style="margin-bottom:18px;">
+      <div style="font-size:.8rem;font-weight:800;color:#4338ca;margin-bottom:8px;">${escHtml(items[0].author_name || aid)}${mine ? ' <span style="font-weight:600;color:#9ca3af;">(나)</span>' : ''} · ${items.length}건</div>
+      ${items.map(boardCard).join('')}</div>`;
+  }
+  $('board-result').innerHTML = html;
+}
+
+function boardCard(r) {
+  const st = BOARD_ST[r.status] || BOARD_ST.open;
+  const isOpen = boardState.open.has(r.id);
+  const btn = (label, color, bg, border, fn) =>
+    `<button onclick="${fn}" style="border:1px solid ${border};background:${bg};color:${color};border-radius:8px;padding:4px 12px;font-size:.74rem;font-weight:700;cursor:pointer;">${label}</button>`;
+  const detail = r.detail && r.status !== 'resolved'
+    ? `<div style="font-size:.78rem;color:#6b7280;white-space:pre-wrap;margin-top:5px;">${escHtml(r.detail)}</div>` : '';
+  const concl = r.conclusion && r.status === 'resolved'
+    ? `<div style="font-size:.78rem;color:#15803d;background:#f0fdf4;border-radius:8px;padding:6px 10px;white-space:pre-wrap;margin-top:6px;"><b>결론</b> — ${escHtml(r.conclusion)}</div>` : '';
+  const expand = isOpen ? `
+    <div style="margin-top:9px;border-top:1px dashed #e5e7eb;padding-top:9px;">
+      <textarea id="board-txt-${r.id}" rows="2" placeholder="코멘트(논의함으로) 또는 결론(결론 저장) 입력"
+        style="width:100%;box-sizing:border-box;border:1.5px solid #d1d5db;border-radius:8px;padding:7px 9px;font-size:.8rem;font-family:inherit;resize:vertical;outline:none;"></textarea>
+      <div style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap;align-items:center;">
+        ${btn('논의함으로', '#1d4ed8', '#eff6ff', '#bfdbfe', `boardSaveText('${r.id}','discussed')`)}
+        ${btn('결론 저장', '#15803d', '#f0fdf4', '#bbf7d0', `boardSaveText('${r.id}','resolved')`)}
+        ${btn(r.pinned ? '핀 해제' : '핀 고정', '#b45309', '#fffbeb', '#fde68a', `boardPin('${r.id}')`)}
+        <span style="margin-left:auto;display:flex;gap:6px;">
+          ${r.archived ? btn('복원', '#4b5563', '#fff', '#d1d5db', `boardArchive('${r.id}',false)`)
+                       : btn('보관', '#4b5563', '#fff', '#d1d5db', `boardArchive('${r.id}',true)`)}
+          ${btn('삭제', '#b91c1c', '#fef2f2', '#fecaca', `boardDelete('${r.id}')`)}
+        </span>
+      </div>
+    </div>` : '';
+  return `<div style="background:#fff;border:1.5px solid ${r.pinned ? '#fcd34d' : '#e7e8ee'};border-radius:12px;padding:10px 14px;margin-bottom:8px;">
+    <div onclick="boardToggle('${r.id}')" style="cursor:pointer;display:flex;align-items:center;gap:8px;">
+      <span style="flex:1;font-size:.86rem;font-weight:600;color:${r.status === 'resolved' ? '#9ca3af' : '#1f2937'};">
+        ${r.pinned ? '<i class="fa-solid fa-thumbtack" style="color:#f59e0b;font-size:.72rem;margin-right:4px;"></i>' : ''}${escHtml(r.title)}</span>
+      <span style="background:${st.bg};color:${st.fg};border-radius:99px;padding:1px 9px;font-size:.7rem;font-weight:700;white-space:nowrap;">${st.label}</span>
+      <span style="font-size:.68rem;color:#c4c9d4;white-space:nowrap;">${String(r.created_at || '').slice(5, 10).replace('-', '/')}</span>
+      <i class="fa-solid fa-chevron-${isOpen ? 'up' : 'down'}" style="font-size:.6rem;color:#c4c9d4;"></i>
+    </div>
+    ${detail}${concl}${expand}
+  </div>`;
+}
+
+function boardToggle(id) {
+  if (boardState.open.has(id)) boardState.open.delete(id); else boardState.open.add(id);
+  boardRender();
+  if (boardState.open.has(id)) {
+    const r = (boardState.rows || []).find(x => x.id === id);
+    const ta = $('board-txt-' + id);
+    if (ta && r) { ta.value = r.status === 'resolved' ? (r.conclusion || '') : (r.detail || ''); ta.focus(); }
+  }
+}
+
+async function boardAdd() {
+  const inp = $('board-input');
+  const title = inp.value.trim();
+  if (!title) { showToast('안건을 입력해주세요'); return; }
+  try {
+    await dbProxy('board_topics', {
+      method: 'POST', headers: { Prefer: 'return=minimal' },
+      body: JSON.stringify({ title, author_id: SESSION.id, author_name: SESSION.name }),
+    });
+    inp.value = '';
+    await boardLoad(true);
+  } catch (e) { showToast('등록 실패: ' + e.message); }
+}
+
+async function boardPatch(id, body) {
+  await dbProxy(`board_topics?id=eq.${id}`, {
+    method: 'PATCH', headers: { Prefer: 'return=minimal' },
+    body: JSON.stringify({ ...body, updated_at: new Date().toISOString() }),
+  });
+}
+
+/* 입력란 하나가 두 용도 겸용 — '논의함으로'는 코멘트(detail), '결론 저장'은 결론(conclusion)으로 저장 */
+async function boardSaveText(id, mode) {
+  const txt = ($('board-txt-' + id)?.value || '').trim();
+  if (mode === 'resolved' && !txt) { showToast('결론 내용을 입력해주세요'); return; }
+  try {
+    const body = mode === 'resolved'
+      ? { conclusion: txt, status: 'resolved' }
+      : { detail: txt, status: 'discussed', discussed_at: new Date().toISOString() };
+    await boardPatch(id, body);
+    const r = (boardState.rows || []).find(x => x.id === id);
+    if (r) Object.assign(r, body);
+    boardState.open.delete(id);
+    showToast(mode === 'resolved' ? '결론을 저장했습니다' : '논의함으로 이동했습니다');
+  } catch (e) { showToast('저장 실패: ' + e.message); }
+  boardRender();
+}
+
+async function boardPin(id) {
+  const r = (boardState.rows || []).find(x => x.id === id); if (!r) return;
+  try { await boardPatch(id, { pinned: !r.pinned }); r.pinned = !r.pinned; }
+  catch (e) { showToast('실패: ' + e.message); }
+  boardRender();
+}
+
+async function boardArchive(id, arch) {
+  const r = (boardState.rows || []).find(x => x.id === id); if (!r) return;
+  try {
+    await boardPatch(id, { archived: arch });
+    r.archived = arch;
+    boardState.open.delete(id);
+    showToast(arch ? '보관함으로 옮겼습니다' : '복원했습니다');
+  } catch (e) { showToast('실패: ' + e.message); }
+  boardRender();
+}
+
+async function boardDelete(id) {
+  if (!confirm('이 안건을 삭제할까요? 되돌릴 수 없습니다.')) return;
+  try {
+    await dbProxy(`board_topics?id=eq.${id}`, { method: 'DELETE', headers: { Prefer: 'return=minimal' } });
+    boardState.rows = (boardState.rows || []).filter(x => x.id !== id);
+    boardState.open.delete(id);
+    showToast('삭제했습니다');
+  } catch (e) { showToast('삭제 실패: ' + e.message); }
+  boardRender();
 }
 
 /* ──────────────────────────────
@@ -5151,7 +5337,7 @@ function showMenu(key) {
     $('note-author').textContent = SESSION ? SESSION.name : '';
   }
   if (key === 'users') loadUsers();
-  if (key === 'board') { const f = $('board-frame'); if (f && !f.src) f.src = 'https://danarobe.github.io/meeting-board/'; }
+  if (key === 'board') boardLoad();
   if (key === 'proj') projLoad();
   if (key === 'profit' && isAdmin()) loadProfitArchive();
   if (key === 'rwatch') rwInit();
