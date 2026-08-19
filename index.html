@@ -1539,7 +1539,7 @@
         <label style="font-size:.75rem;font-weight:700;color:#374151;display:flex;flex-direction:column;gap:4px;">마감일
           <input id="pj-due" type="date" style="border:1.5px solid #d1d5db;border-radius:8px;padding:6px;font-size:.78rem;outline:none;" /></label>
       </div>
-      <label style="font-size:.75rem;font-weight:700;color:#374151;display:flex;flex-direction:column;gap:4px;margin-top:10px;">비고 (선택)
+      <label style="font-size:.75rem;font-weight:700;color:#374151;display:flex;flex-direction:column;gap:4px;margin-top:10px;">특이사항 (선택)
         <input id="pj-note" style="border:1.5px solid #d1d5db;border-radius:8px;padding:7px 9px;font-size:.82rem;outline:none;" /></label>
       <div style="display:flex;gap:8px;margin-top:14px;justify-content:flex-end;align-items:center;">
         <button id="pj-delete" onclick="projDelete()" style="display:none;margin-right:auto;border:1px solid #fecaca;background:#fef2f2;color:#b91c1c;border-radius:8px;padding:8px 14px;font-size:.82rem;font-weight:700;cursor:pointer;">삭제</button>
@@ -2991,7 +2991,7 @@ function projRender() {
 
   let html = '<div class="table-wrap" style="max-height:640px;overflow:auto;"><table><thead><tr>' +
     '<th style="text-align:left;">업무</th><th class="m-hide" style="text-align:left;">꼭 포함할 것</th>' +
-    '<th>우선순위</th><th>담당자</th><th class="m-hide">마감일</th><th>상태</th><th class="m-hide" style="text-align:left;">비고</th>' +
+    '<th>우선순위</th><th>담당자</th><th class="m-hide">마감일</th><th>상태</th><th class="m-hide" style="text-align:left;">특이사항</th>' +
     '</tr></thead><tbody>';
   let lastGroup = null;
   for (const r of list) {
@@ -3018,7 +3018,9 @@ function projRender() {
           style="font-size:.75rem;color:${overdue ? '#dc2626' : '#6b7280'};white-space:nowrap;font-weight:${overdue ? '700' : '400'};cursor:pointer;">
         <span style="text-decoration:underline dotted;text-underline-offset:3px;">${r.due_date || '—'}</span>${overdue ? ' 지남' : ''}</td>
       <td>${stSel(r)}</td>
-      <td class="m-hide" style="text-align:left;font-size:.72rem;color:#9ca3af;min-width:90px;">${escHtml(r.note || '')}</td>
+      <td class="m-hide" id="pj-note-${r.id}" onclick="projEditNote('${r.id}')" title="클릭해서 특이사항 수정"
+          style="text-align:left;font-size:.72rem;color:#9ca3af;min-width:90px;cursor:pointer;">
+        <span style="text-decoration:underline dotted;text-underline-offset:3px;">${escHtml(r.note || '') || '—'}</span></td>
     </tr>`;
   }
   html += '</tbody></table></div>';
@@ -3051,6 +3053,35 @@ async function projSaveDue(id, val) {
     if (r) r.due_date = val || null;
     showToast(val ? `마감일을 ${val}로 저장했습니다` : '마감일을 지웠습니다');
   } catch (e) { showToast('마감일 변경 실패: ' + e.message); }
+  projRender();
+}
+
+/* 특이사항 인라인 수정 — 마감일과 같은 방식. Enter=저장, Esc/다른 곳 클릭=취소 */
+function projEditNote(id) {
+  const cell = $('pj-note-' + id);
+  const r = (projState.rows || []).find(x => x.id === id);
+  if (!cell || !r || cell.dataset.editing) return;
+  cell.dataset.editing = '1';
+  cell.innerHTML = `<input type="text" placeholder="특이사항 입력 후 Enter"
+    onkeydown="if(event.key==='Enter'){projSaveNote('${id}', this.value);}else if(event.key==='Escape'){projRender();}"
+    onblur="setTimeout(projRender, 150)" onclick="event.stopPropagation()"
+    style="width:100%;box-sizing:border-box;border:1.5px solid #a5b4fc;border-radius:6px;padding:4px 6px;font-size:.72rem;outline:none;font-family:inherit;" />`;
+  const inp = cell.querySelector('input');
+  inp.value = r.note || '';                       // value로 주입 — 이스케이프 사고 방지
+  inp.focus();
+}
+
+async function projSaveNote(id, val) {
+  const r = (projState.rows || []).find(x => x.id === id);
+  val = String(val).trim();
+  try {
+    await dbProxy(`project_tasks?id=eq.${id}`, {
+      method: 'PATCH', headers: { Prefer: 'return=minimal' },
+      body: JSON.stringify({ note: val, updated_at: new Date().toISOString() }),
+    });
+    if (r) r.note = val;
+    showToast(val ? '특이사항을 저장했습니다' : '특이사항을 지웠습니다');
+  } catch (e) { showToast('저장 실패: ' + e.message); }
   projRender();
 }
 
@@ -3240,7 +3271,7 @@ async function projSave() {
    열 구성(헤더명 기반 인식): 프로젝트·섹션·업무·하위 업무·꼭 포함할 것·우선순위·담당자·시작일·마감일·상태·비고
    업로드 = 추가만(기존 수정 아님). 같은 프로젝트+업무 조합이 이미 있으면 중복으로 건너뜀.
    양식의 예시 행은 프로젝트가 '(예시)'로 시작 — 업로드 시 자동 제외. */
-const PROJ_XLSX_HEADERS = ['프로젝트', '섹션', '업무', '하위 업무', '꼭 포함할 것', '우선순위', '담당자', '시작일', '마감일', '상태', '비고'];
+const PROJ_XLSX_HEADERS = ['프로젝트', '섹션', '업무', '하위 업무', '꼭 포함할 것', '우선순위', '담당자', '시작일', '마감일', '상태', '특이사항'];
 
 async function projDownloadXlsx(template) {
   try {
@@ -3309,7 +3340,8 @@ async function projUploadXlsx(ev) {
     const header = rows[0].map(v => String(v ?? '').replace(/\s/g, ''));
     const col = name => header.indexOf(name.replace(/\s/g, ''));
     const ci = { cat: col('프로젝트'), sec: col('섹션'), title: col('업무'), sub: col('하위 업무'), crit: col('꼭 포함할 것'),
-                 pr: col('우선순위'), asg: col('담당자'), start: col('시작일'), due: col('마감일'), status: col('상태'), note: col('비고') };
+                 pr: col('우선순위'), asg: col('담당자'), start: col('시작일'), due: col('마감일'), status: col('상태'),
+                 note: col('특이사항') >= 0 ? col('특이사항') : col('비고') };   // 옛 양식('비고')도 인식
     if (ci.cat < 0 || ci.title < 0) throw new Error("1행 헤더에서 '프로젝트'와 '업무' 열을 찾지 못했습니다 — '양식' 버튼으로 받은 파일로 작성해주세요");
 
     const txt = (row, i) => i < 0 ? '' : String(row[i] ?? '').trim();
