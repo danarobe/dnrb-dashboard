@@ -473,6 +473,13 @@
 <header class="top-header">
   <h1><i class="fa-solid fa-chart-line"></i> 온라인 쇼핑몰 <span>성과 분석 대시보드 by DNRB</span></h1>
   <div style="display:flex;align-items:center;gap:10px;">
+    <span id="notif-wrap" style="position:relative;display:none;">
+      <button class="btn-copy-link" onclick="notifToggle(event)" title="알림" style="position:relative;padding:6px 11px;">
+        <i class="fa-regular fa-bell"></i>
+        <span id="notif-badge" style="display:none;position:absolute;top:-5px;right:-5px;background:#ef4444;color:#fff;border-radius:99px;font-size:.62rem;font-weight:800;padding:1px 5px;min-width:16px;line-height:1.4;">0</span>
+      </button>
+      <div id="notif-drop" style="display:none;position:absolute;right:0;top:calc(100% + 8px);width:320px;max-height:420px;overflow-y:auto;background:#fff;border:1px solid #e5e7eb;border-radius:12px;box-shadow:0 10px 30px rgba(15,23,42,.18);z-index:230;text-align:left;"></div>
+    </span>
     <span id="user-info" style="font-size:.82rem;color:rgba(255,255,255,.85);"></span>
     <button class="btn-copy-link" onclick="copyLink()">
       <i class="fa-solid fa-link"></i> 링크 복사
@@ -2330,6 +2337,106 @@ async function loadMeetNotes() {
   } catch (e) { el.textContent = '회의 기록 조회 실패: ' + e.message; console.error(e); }
 }
 
+/* ──────────────────────────────
+   @멘션 알림 (2026-08-20) — 댓글·회의보드 코멘트에 "@이름"을 쓰면 그 사용자에게 알림
+   헤더 종 아이콘 + 안읽음 배지. notifications 테이블(본인 것만 조회 — 클라이언트 필터).
+   폴링 없음: 로그인 시 + 메뉴 이동 시(60초 스로틀) + 종 클릭 시 조회 (상시 타이머 금지 원칙).
+────────────────────────────── */
+const notifState = { rows: null, names: null, lastFetch: 0 };
+
+async function notifNames() {
+  if (notifState.names) return notifState.names;
+  try {
+    const d = await authApi({ action: 'list_names', token: SESSION.token });
+    notifState.names = d.users || [];
+  } catch { notifState.names = []; }
+  return notifState.names;
+}
+
+/* 본문에서 @이름 감지 → 그 사용자에게 알림 생성 (본인 제외) */
+async function notifyMentions(text, sourceLabel, linkMenu) {
+  if (!text || !text.includes('@') || !SESSION) return;
+  const users = await notifNames();
+  const targets = users.filter(u => u.name && u.id !== SESSION.id && text.includes('@' + u.name));
+  if (!targets.length) return;
+  const excerpt = text.length > 80 ? text.slice(0, 80) + '…' : text;
+  try {
+    await dbProxy('notifications', {
+      method: 'POST', headers: { Prefer: 'return=minimal' },
+      body: JSON.stringify(targets.map(u => ({
+        user_id: u.id, actor_name: SESSION.name,
+        message: `[${sourceLabel}] ${excerpt}`, link_menu: linkMenu,
+      }))),
+    });
+  } catch (e) { console.error('멘션 알림 생성 실패', e); }
+}
+
+async function notifLoad(force) {
+  if (!SESSION) return;
+  if (!force && Date.now() - notifState.lastFetch < 60000) return;
+  notifState.lastFetch = Date.now();
+  try {
+    notifState.rows = await dbProxy(`notifications?user_id=eq.${encodeURIComponent(SESSION.id)}&order=created_at.desc&limit=30`);
+  } catch { return; }
+  notifBadge();
+}
+
+function notifBadge() {
+  const w = $('notif-wrap'); if (!w) return;
+  w.style.display = SESSION ? 'inline-block' : 'none';
+  const unread = (notifState.rows || []).filter(r => !r.read).length;
+  const b = $('notif-badge');
+  b.style.display = unread ? '' : 'none';
+  b.textContent = unread > 9 ? '9+' : unread;
+}
+
+function notifToggle(ev) {
+  if (ev) ev.stopPropagation();
+  const d = $('notif-drop');
+  if (d.style.display === 'none') { d.style.display = 'block'; notifRenderDrop(); notifLoad(true).then(notifRenderDrop); }
+  else d.style.display = 'none';
+}
+document.addEventListener('click', e => {
+  const w = $('notif-wrap');
+  if (w && !w.contains(e.target)) { const d = $('notif-drop'); if (d) d.style.display = 'none'; }
+});
+
+function notifRenderDrop() {
+  const rows = notifState.rows || [];
+  $('notif-drop').innerHTML = `
+    <div style="display:flex;align-items:center;padding:10px 14px;border-bottom:1px solid #f3f4f6;">
+      <b style="font-size:.8rem;color:#1e1b4b;">알림</b>
+      <button onclick="notifReadAll(event)" style="margin-left:auto;border:none;background:none;color:#4f46e5;font-size:.72rem;font-weight:700;cursor:pointer;">모두 읽음</button>
+    </div>` +
+    (rows.length ? rows.map(r => `
+      <div onclick="notifOpen('${r.id}')" style="padding:10px 14px;border-bottom:1px solid #f8f9fb;cursor:pointer;background:${r.read ? '#fff' : '#eef2ff'};">
+        <div style="font-size:.72rem;color:#6b7280;margin-bottom:2px;"><b style="color:#4338ca;">${escHtml(r.actor_name)}</b>님이 나를 언급했어요 · ${String(r.created_at || '').slice(5, 16).replace('T', ' ')}</div>
+        <div style="font-size:.78rem;color:#374151;white-space:pre-wrap;word-break:break-all;">${escHtml(r.message)}</div>
+      </div>`).join('')
+      : '<div style="padding:18px;text-align:center;color:#9ca3af;font-size:.78rem;">알림이 없습니다</div>');
+}
+
+function notifOpen(id) {
+  const r = (notifState.rows || []).find(x => x.id === id); if (!r) return;
+  if (!r.read) {
+    r.read = true; notifBadge();
+    dbProxy(`notifications?id=eq.${id}`, { method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: JSON.stringify({ read: true }) }).catch(() => {});
+  }
+  $('notif-drop').style.display = 'none';
+  if (r.link_menu) showMenu(r.link_menu);
+}
+
+async function notifReadAll(ev) {
+  if (ev) ev.stopPropagation();
+  try {
+    await dbProxy(`notifications?user_id=eq.${encodeURIComponent(SESSION.id)}&read=eq.false`, {
+      method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: JSON.stringify({ read: true }),
+    });
+    (notifState.rows || []).forEach(r => { r.read = true; });
+    notifBadge(); notifRenderDrop();
+  } catch (e) { showToast('' + e.message); }
+}
+
 /* ── 공유 회의 기록: 좋아요·댓글 ── */
 function toggleNoteComments(noteId) {
   const box = $('note-cm-' + noteId); if (!box) return;
@@ -2366,6 +2473,7 @@ async function addNoteComment(noteId) {
     });
     meetOpenComments.add(noteId);
     loadMeetNotes();
+    notifyMentions(content, '광고 회의록 댓글', 'meet');   // @이름 있으면 그 사용자에게 알림
   } catch (e) { showToast('댓글 등록 실패: ' + e.message); }
 }
 
@@ -2966,6 +3074,7 @@ async function boardSaveText(id, mode) {
     if (r) Object.assign(r, body);
     boardState.open.delete(id);
     showToast(mode === 'resolved' ? '결론을 저장했습니다' : '논의함으로 이동했습니다');
+    notifyMentions(txt, '대표 회의보드', 'board');          // @이름 있으면 그 사용자에게 알림
   } catch (e) { showToast('저장 실패: ' + e.message); }
   boardRender();
 }
@@ -5110,6 +5219,7 @@ function showMenu(key) {
   if (target) target.style.display = 'block';
   document.querySelectorAll('.menu-item').forEach(b => b.classList.toggle('active', b.dataset.menu === key));
   history.replaceState(null, '', '#' + key);
+  notifLoad();   // 메뉴 이동 때 알림 갱신 (60초 스로틀 — 상시 폴링 없음)
   if (key === 'home') { checkCafe24Status(); updateHomeSourceStatus(); updateHomeReasons(); updateHomeClaimsTile(); updateHomeTrafficTile(); renderHomeShortcuts(); homeTrendInit(); }
   if (key === 'meet') {
     loadAdTopics(); loadMeetNotes();
@@ -7412,6 +7522,7 @@ async function deleteCrArchive(id) {
 /* 로그인 후 데이터 로드 시작 */
 function bootApp() {
   applyRole();
+  notifLoad(true);   // @멘션 알림 배지
   if (isAdmin()) loadCrArchive();    // 취소·반품 기록은 관리자만
   if (!isCS()) loadPerfArchive();    // 판매 성과 기록(순매출·마진 집계 포함) — CS팀 제외
   checkCafe24Status();
