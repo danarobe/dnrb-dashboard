@@ -178,7 +178,7 @@ AUTHOR_FIELDS(notes/comments=author_id, likes=user_id): POST는 본인 id 필수
 - 메뉴 '운영' 그룹의 **`menu-npm` 버튼 — 별도 프로젝트 newproduct-manager**(https://newproduct-manager.vercel.app/products)를 **새 탭으로 여는 링크일 뿐**, 이 레포에 코드 통합 아님(사용자 결정 2026-08-18 — iframe은 상대 앱 세션 쿠키 SameSite=Lax라 로그인 유지 불가, 코드 통합은 Next.js+Neon이라 재개발 수준이어서 기각). 소스는 OneDrive-개인(2)/work-manager/newproduct-manager, 로그인·배포 전부 별개.
 
 ### @멘션 알림 (2026-08-20, 전 역할)
-- **댓글·회의보드 코멘트/결론에 `@이름`(등록 사용자 실명, 예: @조범준)을 쓰면 그 사용자에게 알림** — 적용처: ①광고 회의록 댓글(addNoteComment) ②대표 회의보드 코멘트·결론(boardSaveText). 본인 멘션은 제외, 이름은 auth `list_names` 액션(로그인 누구나, id+name만 — list_users는 admin 전용이라 별도 신설)으로 대조.
+- **댓글·코멘트에 `@이름`(등록 사용자 실명, 예: @조범준)을 쓰면 그 사용자에게 알림** — 적용처: ①광고 회의록 댓글(addNoteComment) ②대표 회의보드 코멘트·결론(boardSaveText) ③**프로젝트 관리 특이사항**(projSaveNote 인라인 + projSave 모달, 2026-08-20 추가 — 메시지에 업무명 포함). 본인 멘션은 제외, 이름은 auth `list_names` 액션(로그인 누구나, id+name만 — list_users는 admin 전용이라 별도 신설)으로 대조. **전송 시 보낸 사람에게 "○○님에게 알림을 보냈습니다" 토스트**(전송 여부 피드백). 저장할 때마다 @가 있으면 재전송됨(변경 비교 안 함 — 단순성 우선).
 - `notifications` 테이블(admin+staff+cs): user_id(수신자)·actor_name·message(80자 발췌)·link_menu·read. **남을 수신자로 POST해야 해서 AUTHOR_FIELDS 미적용 — 읽기 본인 필터는 클라이언트**(내부 신뢰 전제, 비공개 회의기록과 동일 수준).
 - UI: 헤더 종 아이콘+빨간 안읽음 배지, 드롭다운(클릭=읽음+해당 메뉴 이동, 모두 읽음). **상시 폴링 없음** — 로그인 시 + 메뉴 이동 시(60초 스로틀) + 종 클릭 시 조회 (성능 점검 원칙 유지).
 
