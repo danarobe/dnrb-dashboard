@@ -1109,6 +1109,7 @@
         <button class="filter-tab active" id="rwtab-risk" onclick="rwSetTab('risk')">위험 상품</button>
         <button class="filter-tab" id="rwtab-all" onclick="rwSetTab('all')">전체 상위 상품</button>
         <button class="filter-tab" id="rwtab-watch" onclick="rwSetTab('watch')">관리 상품</button>
+        <button class="filter-tab" id="rwtab-stopped" onclick="rwSetTab('stopped')">판매 중단</button>
       </div>
 
       <div id="rw-result">
@@ -2807,7 +2808,7 @@ async function deleteAdTopic(id) {
    · 기준일 기본값은 **오늘 −7일**. 반품 신청은 배송완료 후 0~5일에 걸쳐 들어오고(당일 51%·5일 99%)
      승인·수거에 며칠 더 걸려서, 오늘 날짜로 보면 실제의 절반 이하로 나온다(실측 4.97% vs 확정 11.8%).
 ────────────────────────────── */
-const rwState = { data: null, tab: 'risk', watch: null, addNo: null };
+const rwState = { data: null, tab: 'watch', watch: null, addNo: null };   // 기본 탭 = 관리 상품 (명단 즉시 표시, 2026-08-21)
 
 const rwToday = () => new Date().toISOString().slice(0, 10);
 const rwShiftDays = (ymd, n) => new Date(new Date(ymd).getTime() + n * 86400000).toISOString().slice(0, 10);
@@ -2815,7 +2816,9 @@ const rwShiftDays = (ymd, n) => new Date(new Date(ymd).getTime() + n * 86400000)
 function rwInit() {
   if (!$('rwDate').value) $('rwDate').value = rwShiftDays(rwToday(), -4);   // 사용자 결정(2026-08-10): 기본 기준일 = 오늘 − 4일
   rwCheckDate();
-  if (!rwState.watch) rwLoadWatch().then(() => { if (rwState.data) rwRender(); });
+  rwRender();                                             // 명단 로딩 중 상태라도 즉시 그림
+  if (!rwState.watch) rwLoadWatch().then(() => rwRender());   // 명단 도착 즉시 재렌더 (조회와 무관)
+  if (rwState.tab === 'watch' || rwState.tab === 'stopped') rwAutoFetch();
 }
 
 /* 기준일이 너무 최근이면 경고 — 아직 반품이 다 안 들어온 시점 */
@@ -2862,7 +2865,7 @@ async function rwLoadWatch() {
 }
 const rwWatchSet = () => new Set((rwState.watch || []).map(w => Number(w.product_no)));
 
-function rwSetTab(t) { rwState.tab = t; if (t === 'watch') rwAutoFetch(); rwRender(); }
+function rwSetTab(t) { rwState.tab = t; if (t === 'watch' || t === 'stopped') rwAutoFetch(); rwRender(); }
 
 /* 관리 상품 탭 자동 조회 — 조회 버튼을 안 눌러도 7/14/30일 수치가 채워지게.
    서버 10분 캐시가 있어 최근 조회가 있으면 즉시, 없으면 ~30초 걸린다(버튼에 경과초 표시). */
@@ -2888,10 +2891,13 @@ const rwBadge = (rate, del, minQty, riskAt) => {
 function rwRender() {
   const d = rwState.data;
   const wset = rwWatchSet();
-  ['risk', 'all', 'watch'].forEach(t => $('rwtab-' + t).classList.toggle('active', rwState.tab === t));
+  ['risk', 'all', 'watch', 'stopped'].forEach(t => $('rwtab-' + t).classList.toggle('active', rwState.tab === t));
   $('rw-tabs').style.display = 'flex';
+  const wAll = rwState.watch || [];
+  $('rwtab-watch').textContent = '관리 상품' + (wAll.filter(r => !r.discontinued).length ? ` ${wAll.filter(r => !r.discontinued).length}` : '');
+  $('rwtab-stopped').textContent = '판매 중단' + (wAll.filter(r => r.discontinued).length ? ` ${wAll.filter(r => r.discontinued).length}` : '');
 
-  if (rwState.tab === 'watch') { rwRenderWatch(); return; }
+  if (rwState.tab === 'watch' || rwState.tab === 'stopped') { rwRenderWatch(rwState.tab); return; }
   if (!d) { $('rw-result').innerHTML = '<div class="empty-state"><div class="es-icon"><i class="fa-regular fa-folder-open"></i></div><p>먼저 <strong>조회</strong>를 눌러주세요.</p></div>'; return; }
 
   // 위험·전체 탭은 순위권(7일·14일 상위 합집합)만 — extra로 끼워 넣은 관리 상품은 관리 탭 전용
@@ -2954,11 +2960,18 @@ function rwRender() {
 }
 
 /* 관리 상품 탭 — 지정일·사유 + 위험 상품 표와 같은 7/14/30일 순반품률 (조회 후 표시) */
-function rwRenderWatch() {
-  const rows = rwState.watch || [];
+function rwRenderWatch(mode = 'watch') {
+  const stopped = mode === 'stopped';
   $('rw-summary').style.display = 'none';
+  if (rwState.watch === null) {   // 명단 로딩 중 (조회와 무관 — DB에서 바로 옴)
+    $('rw-result').innerHTML = '<div class="empty-state"><p><i class="fa-solid fa-spinner fa-spin"></i> 관리 상품 명단을 불러오는 중...</p></div>';
+    return;
+  }
+  const rows = rwState.watch.filter(r => !!r.discontinued === stopped);
   if (!rows.length) {
-    $('rw-result').innerHTML = '<div class="empty-state"><div class="es-icon"><i class="fa-regular fa-star"></i></div><p>아직 관리 상품이 없습니다. 위험 상품 표에서 <strong>지정</strong>을 눌러 등록하세요.</p></div>';
+    $('rw-result').innerHTML = stopped
+      ? '<div class="empty-state"><div class="es-icon"><i class="fa-solid fa-ban"></i></div><p>판매 중단으로 옮긴 상품이 없습니다. 관리 상품 탭에서 <strong>중단</strong>을 눌러 옮길 수 있어요.</p></div>'
+      : '<div class="empty-state"><div class="es-icon"><i class="fa-regular fa-star"></i></div><p>아직 관리 상품이 없습니다. 위험 상품 표에서 <strong>지정</strong>을 눌러 등록하세요.</p></div>';
     return;
   }
   const d = rwState.data;
@@ -2996,6 +3009,9 @@ function rwRenderWatch() {
       <td class="rw-hm" style="font-size:.75rem;color:#6b7280;">${escHtml(r.created_by || '')}</td>
       <td class="rw-actions" style="white-space:nowrap;">
         <button onclick="rwEditReason(${r.product_no})" style="border:1px solid #c7d2fe;background:#eef2ff;color:#4338ca;border-radius:6px;padding:3px 9px;font-size:.7rem;font-weight:700;cursor:pointer;">수정</button>
+        ${stopped
+          ? `<button onclick="rwSetDiscontinued(${r.product_no}, false)" style="border:1px solid #86efac;background:#f0fdf4;color:#15803d;border-radius:6px;padding:3px 9px;font-size:.7rem;font-weight:700;cursor:pointer;">복원</button>`
+          : `<button onclick="rwSetDiscontinued(${r.product_no}, true)" style="border:1px solid #d1d5db;background:#fff;color:#4b5563;border-radius:6px;padding:3px 9px;font-size:.7rem;font-weight:700;cursor:pointer;">중단</button>`}
         <button onclick="rwRemoveWatch(${r.product_no})" style="border:1px solid #fdba74;background:#fff7ed;color:#c2410c;border-radius:6px;padding:3px 9px;font-size:.7rem;font-weight:700;cursor:pointer;">해제</button></td>
     </tr>`).join('')}</tbody></table></div>`;
 }
@@ -3128,6 +3144,21 @@ async function rwSaveReason(no) {
     showToast('지정 사유를 수정했습니다');
     rwRender();
   } catch (e) { showToast('수정 실패: ' + e.message); }
+}
+
+/* 판매 중단 이동/복원 (2026-08-21) — 관리 상품 탭 ↔ 판매 중단 탭. 데이터는 보존, 플래그만 변경 */
+async function rwSetDiscontinued(no, stop) {
+  if (stop && !confirm('이 상품을 판매 중단으로 옮길까요?\n관리 상품 탭에서 빠지고 [판매 중단] 탭에서 계속 볼 수 있습니다.')) return;
+  try {
+    await dbProxy(`return_watch?product_no=eq.${no}`, {
+      method: 'PATCH', headers: { Prefer: 'return=minimal' },
+      body: JSON.stringify({ discontinued: stop }),
+    });
+    const r = (rwState.watch || []).find(x => Number(x.product_no) === no);
+    if (r) r.discontinued = stop;
+    showToast(stop ? '판매 중단으로 옮겼습니다' : '관리 상품으로 복원했습니다');
+  } catch (e) { showToast('실패: ' + e.message); }
+  rwRender();
 }
 
 async function rwRemoveWatch(no) {
