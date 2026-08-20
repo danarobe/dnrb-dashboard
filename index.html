@@ -1445,11 +1445,13 @@
       <input type="hidden" id="pj-id" />
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:12px;">
         <label style="font-size:.75rem;font-weight:700;color:#374151;display:flex;flex-direction:column;gap:4px;">프로젝트
-          <input id="pj-category" list="pj-cat-list" placeholder="예: 해외판매" style="border:1.5px solid #d1d5db;border-radius:8px;padding:7px 9px;font-size:.82rem;outline:none;" />
+          <input id="pj-category" list="pj-cat-list" placeholder="예: 해외판매" oninput="projFillAfterOptions()" style="border:1.5px solid #d1d5db;border-radius:8px;padding:7px 9px;font-size:.82rem;outline:none;" />
           <datalist id="pj-cat-list"></datalist></label>
         <label style="font-size:.75rem;font-weight:700;color:#374151;display:flex;flex-direction:column;gap:4px;">섹션 (선택)
           <input id="pj-section" placeholder="예: 3. 번역" style="border:1.5px solid #d1d5db;border-radius:8px;padding:7px 9px;font-size:.82rem;outline:none;" /></label>
       </div>
+      <label style="font-size:.75rem;font-weight:700;color:#374151;display:flex;flex-direction:column;gap:4px;margin-top:10px;">위치 — 이 업무를 어디에 둘까요?
+        <select id="pj-after" style="border:1.5px solid #d1d5db;border-radius:8px;padding:7px 6px;font-size:.82rem;outline:none;"></select></label>
       <label style="font-size:.75rem;font-weight:700;color:#374151;display:flex;flex-direction:column;gap:4px;margin-top:10px;">업무 (대표 설명 한 줄)
         <input id="pj-title" placeholder="예: 카페24 글로벌몰 기능 및 비용 확인" style="border:1.5px solid #d1d5db;border-radius:8px;padding:7px 9px;font-size:.82rem;outline:none;" /></label>
       <label style="font-size:.75rem;font-weight:700;color:#374151;display:flex;flex-direction:column;gap:4px;margin-top:10px;">하위 업무 (선택 — 한 줄에 하나씩)
@@ -3128,7 +3130,10 @@ function projRender() {
       <div style="display:${isOpen ? 'block' : 'none'};white-space:pre-wrap;font-size:.75rem;color:#6b7280;background:#f8f9ff;border-radius:8px;padding:7px 10px;margin-top:4px;">${escHtml(r.subtasks)}</div>` : '';
     html += `<tr style="background:${r.status === 'done' ? '#fafafa' : '#fff'};">
       <td style="text-align:left;min-width:190px;${r.status === 'done' ? 'color:#9ca3af;' : ''}">
-        <span onclick="projOpenEdit('${r.id}')" style="cursor:pointer;text-decoration:underline dotted;text-underline-offset:3px;">${escHtml(r.title)}</span>${subHtml}</td>
+        <span onclick="projOpenEdit('${r.id}')" style="cursor:pointer;text-decoration:underline dotted;text-underline-offset:3px;">${escHtml(r.title)}</span>
+        <button onclick="event.stopPropagation();projOpenAdd('${r.id}')" title="이 업무 다음에 새 업무 추가"
+          style="border:none;background:none;color:#c4c9d4;cursor:pointer;font-size:.78rem;padding:0 3px;vertical-align:middle;"
+          onmouseover="this.style.color='#4f46e5'" onmouseout="this.style.color='#c4c9d4'"><i class="fa-solid fa-circle-plus"></i></button>${subHtml}</td>
       <td class="m-hide" style="text-align:left;font-size:.75rem;color:#6b7280;white-space:pre-wrap;min-width:160px;">${escHtml(r.done_criteria || '')}</td>
       <td>${prBadge(r.priority)}</td>
       <td style="font-size:.78rem;white-space:nowrap;"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${projColor(r.assignee)};margin-right:4px;"></span>${escHtml(r.assignee || '') || '<span style="color:#c4c9d4;">—</span>'}</td>
@@ -3322,14 +3327,45 @@ function projFillCatList() {
   $('pj-cat-list').innerHTML = projCats().map(c => `<option value="${escHtml(c)}"></option>`).join('');
 }
 
-async function projOpenAdd() {
-  $('proj-modal-title').textContent = '업무 추가';
+/* ── 위치 지정 (2026-08-20, 사용자 요청 — 원하는 업무 '다음'에 추가/이동) ── */
+/* 같은 프로젝트의 업무를 화면과 같은 순서로 반환 (sort_order → created_at) */
+function projCatItems(cat, excludeId) {
+  return (projState.rows || [])
+    .filter(r => r.category === cat && r.id !== excludeId)
+    .sort((a, b) => (Number(a.sort_order) - Number(b.sort_order)) || (a.created_at < b.created_at ? -1 : 1));
+}
+
+/* 위치 셀렉트 채우기 — 수정 모달이면 '위치 그대로'가 기본, 추가 모달이면 '맨 아래'가 기본 */
+function projFillAfterOptions(selectedId) {
+  const cat = $('pj-category').value.trim();
+  const editing = !!$('pj-id').value;
+  const items = projCatItems(cat, $('pj-id').value);
+  $('pj-after').innerHTML =
+    (editing ? '<option value="__keep">위치 그대로 (기본)</option>' : '') +
+    `<option value="__end">${editing ? '프로젝트 맨 아래로 이동' : '프로젝트 맨 아래 (기본)'}</option>` +
+    items.map(r => `<option value="${r.id}" ${r.id === selectedId ? 'selected' : ''}>“${escHtml(r.title.slice(0, 28))}${r.title.length > 28 ? '…' : ''}” 다음</option>`).join('');
+}
+
+/* 대상 업무 '다음' 순번 계산 — 다음 업무가 있으면 둘 사이 중간값, 없으면 +1 (같은 프로젝트 안이라 안전) */
+function projOrderAfter(afterId) {
+  const after = (projState.rows || []).find(r => r.id === afterId);
+  if (!after) return Math.max(0, ...(projState.rows || []).map(r => Number(r.sort_order) || 0)) + 1;
+  const items = projCatItems(after.category, $('pj-id').value);
+  const next = items[items.findIndex(r => r.id === afterId) + 1];
+  return next ? (Number(after.sort_order) + Number(next.sort_order)) / 2 : Number(after.sort_order) + 1;
+}
+
+async function projOpenAdd(afterId) {
+  const after = afterId ? (projState.rows || []).find(r => r.id === afterId) : null;
+  $('proj-modal-title').textContent = after ? '업무 추가 — 선택한 업무 다음에' : '업무 추가';
   $('pj-id').value = '';
-  $('pj-category').value = projState.cat || '';
+  $('pj-category').value = after ? after.category : (projState.cat || '');
   ['pj-section', 'pj-title', 'pj-subtasks', 'pj-crit', 'pj-start', 'pj-due', 'pj-note'].forEach(id => { $(id).value = ''; });
+  if (after) $('pj-section').value = after.section || '';        // 같은 섹션에 이어지도록 프리필
   $('pj-priority').value = '중간'; $('pj-status').value = 'todo';
   $('pj-delete').style.display = 'none';
   projFillCatList();
+  projFillAfterOptions(after ? after.id : null);
   await projEnsureUsers();
   projFillAssignees('');
   $('proj-modal').style.display = 'flex';
@@ -3349,6 +3385,7 @@ async function projOpenEdit(id) {
   $('pj-status').value = r.status; $('pj-note').value = r.note || '';
   $('pj-delete').style.display = '';
   projFillCatList();
+  projFillAfterOptions(null);                                    // 수정 모달 기본 = 위치 그대로
   await projEnsureUsers();
   projFillAssignees(r.assignee || '');
   $('proj-modal').style.display = 'flex';
@@ -3371,12 +3408,17 @@ async function projSave() {
     status: $('pj-status').value, note: $('pj-note').value.trim(),
     updated_at: new Date().toISOString(),
   };
+  // 위치 반영: __keep=순번 유지(수정 기본) / __end=프로젝트 맨 아래 / 그 외=선택한 업무 다음
+  const pos = $('pj-after').value;
+  const endOrder = () => Math.max(0, ...(projState.rows || []).map(r => Number(r.sort_order) || 0)) + 1;
   try {
     if (id) {
+      if (pos === '__end') body.sort_order = endOrder();
+      else if (pos !== '__keep') body.sort_order = projOrderAfter(pos);
       await dbProxy(`project_tasks?id=eq.${id}`, { method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: JSON.stringify(body) });
     } else {
-      // 정렬은 렌더에서 프로젝트별로 다시 묶으므로, 새 업무는 전체 최대 + 1이면 자기 프로젝트 끝에 붙는다
-      body.sort_order = Math.max(0, ...(projState.rows || []).map(r => r.sort_order || 0)) + 1;
+      // 정렬은 렌더에서 프로젝트별로 다시 묶으므로, '맨 아래'는 전체 최대 + 1이면 자기 프로젝트 끝에 붙는다
+      body.sort_order = pos === '__end' || !pos ? endOrder() : projOrderAfter(pos);
       await dbProxy('project_tasks', { method: 'POST', headers: { Prefer: 'return=minimal' }, body: JSON.stringify(body) });
     }
     $('proj-modal').style.display = 'none';
