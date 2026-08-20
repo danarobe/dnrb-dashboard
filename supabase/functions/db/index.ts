@@ -25,6 +25,7 @@ const TABLE_ROLES: Record<string, string[]> = {
   profit_archive: ["admin"],    // 순익 시나리오 기간별 기록
   project_tasks: ["admin"],     // 프로젝트 관리 업무 (관리자 전용 — 사용자 결정 2026-08-19)
   board_topics: ["admin"],      // 대표 회의보드 안건 (관리자 전용 — 사용자 결정 2026-08-19, 대표끼리 서로 수정 가능이라 AUTHOR_FIELDS 미적용)
+  notifications: ["admin", "staff", "cs"],  // @멘션 알림 (2026-08-20). 남을 수신자로 POST해야 하므로 AUTHOR_FIELDS 미적용 — 읽기는 클라이언트가 본인 필터(내부 신뢰 전제, 비공개 회의기록과 동일 수준)
 };
 // 본인 것만 쓰기·수정·삭제 가능한 테이블과 작성자 컬럼 (클라이언트 규칙을 서버에서 강제)
 const AUTHOR_FIELDS: Record<string, string> = {

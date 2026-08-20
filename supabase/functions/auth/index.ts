@@ -83,6 +83,13 @@ Deno.serve(async (req) => {
       return json({ ok: true });
     }
 
+    // 이름 목록만 — 로그인한 누구나 (@멘션 대상 찾기용, 2026-08-20. 역할·가입일 미포함)
+    if (action === "list_names") {
+      const res = await usersRest(`app_users?select=id,name&order=name.asc`);
+      if (!res.ok) throw new Error("목록 조회 실패 " + res.status);
+      return json({ users: await res.json() });
+    }
+
     // ── 이하 관리자 전용 ──
     if (me.role !== "admin") return json({ error: "접근 권한이 없습니다" }, 403);
 
