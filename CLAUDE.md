@@ -181,6 +181,7 @@ AUTHOR_FIELDS(notes/comments=author_id, likes=user_id): POST는 본인 id 필수
 - **댓글·코멘트에 `@이름`(등록 사용자 실명, 예: @조범준)을 쓰면 그 사용자에게 알림** — 적용처: ①광고 회의록 댓글(addNoteComment) ②대표 회의보드 코멘트·결론(boardSaveText) ③**프로젝트 관리 특이사항**(projSaveNote 인라인 + projSave 모달, 2026-08-20 추가 — 메시지에 업무명 포함). 본인 멘션은 제외, 이름은 auth `list_names` 액션(로그인 누구나, id+name만 — list_users는 admin 전용이라 별도 신설)으로 대조. **전송 시 보낸 사람에게 "○○님에게 알림을 보냈습니다" 토스트**(전송 여부 피드백). 저장할 때마다 @가 있으면 재전송됨(변경 비교 안 함 — 단순성 우선).
 - `notifications` 테이블(admin+staff+cs): user_id(수신자)·actor_name·message(80자 발췌)·link_menu·read. **남을 수신자로 POST해야 해서 AUTHOR_FIELDS 미적용 — 읽기 본인 필터는 클라이언트**(내부 신뢰 전제, 비공개 회의기록과 동일 수준).
 - UI: 헤더 종 아이콘+빨간 안읽음 배지, 드롭다운(클릭=읽음+해당 메뉴 이동, 모두 읽음). **상시 폴링 없음** — 로그인 시 + 메뉴 이동 시(60초 스로틀) + 종 클릭 시 조회 (성능 점검 원칙 유지).
+- **@ 자동완성(2026-08-20)**: `.mention-field` 클래스가 붙은 입력란(위 적용처 4곳)에서 @ 입력 시 사용자 목록 드롭다운(`#mention-drop`, **body 직속 — 섹션·헤더 안은 blur 조상 때문에 fixed 기준 깨짐**). 입력란이 동적 생성이라 **document 위임**(input/keydown capture/focusout). ↑↓+Enter/Tab 또는 클릭으로 선택, **드롭다운 열림 중 Enter는 capture에서 가로채 이름 삽입만**(댓글 등록·특이사항 저장으로 안 샘 — 닫힌 뒤 Enter는 정상 동작 검증됨). @ 앞은 문두·공백·구두점일 때만 발동, 조각 12자 초과·공백 포함 시 해제.
 
 ### 광고 회의록 (#meet, 관리자+MD)
 - 회의 안건(ad_meeting_topics) + 일자별 회의 기록(ad_meeting_notes, 계정별 작성, 공유 토글). 공유 글에 **댓글·좋아요**(본인만 수정·삭제, 서버 강제).
