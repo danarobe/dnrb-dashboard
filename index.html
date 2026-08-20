@@ -83,6 +83,7 @@
     #disp-cfg label { display: flex; flex-direction: column; gap: 4px; font-weight: 600; }
     #disp-cfg input { border: 1.5px solid #d1d5db; border-radius: 7px; padding: 6px 9px; font-size:.82rem; outline: none; }
     .page-sec { display: none; }
+    #proj-result .pj-title { min-width: 190px; }
 
     /* ── 로그인 오버레이 ── */
     #login-overlay {
@@ -125,6 +126,11 @@
          stretch를 무효화해 본문이 '내용물 최대 폭'으로 커진다 → 화면을 넘어 손으로 축소해야 했음 */
       .layout { flex-direction: column; align-items: stretch; }
       .layout .container { margin: 0; width: 100%; max-width: 100%; }
+      .pj-hm { display: none !important; }              /* 프로젝트 표 부가 열 (꼭포함할것·우선순위·특이사항) */
+      /* 업무 열: 좁히고 줄바꿈 허용(기본 td nowrap 해제) + 셀 여백 축소 → 4열이 한 화면에 */
+      #proj-result .pj-title { min-width: 110px; white-space: normal; word-break: keep-all; }
+      #proj-result th, #proj-result td { padding: 8px 6px; }
+
       .side-menu {
         position: sticky; top: 0; z-index: 50; width: 100%;
         flex-direction: row; overflow-x: auto; gap: 8px;
@@ -488,6 +494,8 @@
       .section-body input, .section-body select, .section-body textarea, .section-body label {
         max-width: 100%; min-width: 0 !important;
       }
+      /* 프로젝트 관리 표 — 모바일(≤900px)은 업무·담당자·마감일·상태 4열만 (사용자 요청 2026-08-20:
+         담당자·마감일이 잘려 옆으로 밀어 봐야 했음 → 부가 열을 숨기고 핵심 열을 화면 안에) */
       /* 인라인 flex 행(컨트롤 묶음)이 화면보다 넓으면 줄바꿈 — 간트(.table-wrap 포함 행)는 제외 */
       .section-body div[style*="display:flex"] { flex-wrap: wrap; }
       .section-body canvas { max-width: 100%; }
@@ -3414,8 +3422,8 @@ function projRender() {
   const today = new Date().toISOString().slice(0, 10);
 
   let html = '<div class="table-wrap" style="max-height:640px;overflow:auto;"><table><thead><tr>' +
-    '<th style="text-align:left;">업무</th><th class="m-hide" style="text-align:left;">꼭 포함할 것</th>' +
-    '<th>우선순위</th><th>담당자</th><th class="m-hide">마감일</th><th>상태</th><th class="m-hide" style="text-align:left;">특이사항</th>' +
+    '<th style="text-align:left;">업무</th><th class="pj-hm" style="text-align:left;">꼭 포함할 것</th>' +
+    '<th class="pj-hm">우선순위</th><th>담당자</th><th>마감일</th><th>상태</th><th class="pj-hm" style="text-align:left;">특이사항</th>' +
     '</tr></thead><tbody>';
   let lastGroup = null;
   for (const r of list) {
@@ -3433,19 +3441,19 @@ function projRender() {
         <i class="fa-solid fa-chevron-${isOpen ? 'down' : 'right'}" style="font-size:.6rem;"></i> 하위 업무 ${subN}개</button>
       <div style="display:${isOpen ? 'block' : 'none'};white-space:pre-wrap;font-size:.75rem;color:#6b7280;background:#f8f9ff;border-radius:8px;padding:7px 10px;margin-top:4px;">${escHtml(r.subtasks)}</div>` : '';
     html += `<tr style="background:${r.status === 'done' ? '#fafafa' : '#fff'};">
-      <td style="text-align:left;min-width:190px;${r.status === 'done' ? 'color:#9ca3af;' : ''}">
+      <td class="pj-title" style="text-align:left;${r.status === 'done' ? 'color:#9ca3af;' : ''}">
         <span onclick="projOpenEdit('${r.id}')" style="cursor:pointer;text-decoration:underline dotted;text-underline-offset:3px;">${escHtml(r.title)}</span>
         <button onclick="event.stopPropagation();projOpenAdd('${r.id}')" title="이 업무 다음에 새 업무 추가"
           style="border:none;background:none;color:#c4c9d4;cursor:pointer;font-size:.78rem;padding:0 3px;vertical-align:middle;"
           onmouseover="this.style.color='#4f46e5'" onmouseout="this.style.color='#c4c9d4'"><i class="fa-solid fa-circle-plus"></i></button>${subHtml}</td>
-      <td class="m-hide" style="text-align:left;font-size:.75rem;color:#6b7280;white-space:pre-wrap;min-width:160px;">${escHtml(r.done_criteria || '')}</td>
-      <td>${prBadge(r.priority)}</td>
+      <td class="pj-hm" style="text-align:left;font-size:.75rem;color:#6b7280;white-space:pre-wrap;min-width:160px;">${escHtml(r.done_criteria || '')}</td>
+      <td class="pj-hm">${prBadge(r.priority)}</td>
       <td style="font-size:.78rem;white-space:nowrap;"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${projColor(r.assignee)};margin-right:4px;"></span>${escHtml(r.assignee || '') || '<span style="color:#c4c9d4;">—</span>'}</td>
-      <td class="m-hide" id="pj-due-${r.id}" onclick="projEditDue('${r.id}')" title="클릭해서 마감일 수정"
+      <td id="pj-due-${r.id}" onclick="projEditDue('${r.id}')" title="클릭해서 마감일 수정"
           style="font-size:.75rem;color:${overdue ? '#dc2626' : '#6b7280'};white-space:nowrap;font-weight:${overdue ? '700' : '400'};cursor:pointer;">
         <span style="text-decoration:underline dotted;text-underline-offset:3px;">${r.due_date || '—'}</span>${overdue ? ' 지남' : ''}</td>
       <td>${stSel(r)}</td>
-      <td class="m-hide" id="pj-note-${r.id}" onclick="projEditNote('${r.id}')" title="클릭해서 특이사항 수정"
+      <td class="pj-hm" id="pj-note-${r.id}" onclick="projEditNote('${r.id}')" title="클릭해서 특이사항 수정"
           style="text-align:left;font-size:.72rem;color:#9ca3af;min-width:90px;cursor:pointer;">
         <span style="text-decoration:underline dotted;text-underline-offset:3px;">${escHtml(r.note || '') || '—'}</span></td>
     </tr>`;
