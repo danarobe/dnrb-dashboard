@@ -252,6 +252,13 @@ AUTHOR_FIELDS(notes/comments=author_id, likes=user_id): POST는 본인 id 필수
 5. 긴 안내 문구 축약(홈·반품관리·진열 인트로).
 - 전부 **파이썬 일괄 치환(count assert)** 으로 수행 — 개별 손 수정 금지 수준의 분량. 검증: 화면 잔여 이모지 0, 12개 메뉴 순회 예외 0, 판매 성과 306상품·사유 모달 정상, 콘솔 오류 0.
 
+## 7-4. 성능 점검 (2026-08-19 전수 점검 — 기능 무변경 원칙)
+
+- **Pretendard 구글폰트 링크 제거**: 구글 폰트에 없는 서체라 매 접속 로드 실패(콘솔 오류 4개) + **실패하는 CSS 링크는 첫 페인트를 블로킹**. 대체 서체 목록이 동일 적용되므로 화면 변화 없음. 다시 넣으려면 jsdelivr의 pretendard 패키지 CSS 사용할 것.
+- **preconnect 추가**: cdn.jsdelivr.net(FA·Chart.js·xlsx-populate) + Supabase 호스트.
+- **진열 설정 패널 디바운스**: `dcfg-*` 20개 입력의 oninput이 키 입력마다 dispRender(384행 재계산·재렌더)를 불러 타이핑 렉 → `dispRenderSoon()`(250ms 디바운스)으로 교체. 체크박스(onchange)는 즉시 유지.
+- 점검 결과 건강한 것들(건드리지 말 것): Chart.js 인스턴스 destroy 전부 처리됨(meta/pt/perf/cr), btnBusy 타이머 btnIdle에서 clear, 큰 표는 innerHTML 통짜 생성(빠름), 상시 타이머 없음. 검증: 14개 메뉴 전 순회 JS 오류 0·콘솔 오류 0, 디바운스 연속 5입력→렌더 1회.
+
 ## 8. 남은 일 / 미결정
 
 ### 진행 중 논의 (2026-08-11 세션 종료 시점 — 다음 세션이 이어받을 것)

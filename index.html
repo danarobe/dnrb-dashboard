@@ -4,8 +4,13 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>온라인 쇼핑몰 성과 분석 대시보드 by DNRB</title>
+  <!-- 사전 연결: CDN(아이콘·차트·엑셀)과 Supabase — 첫 화면·첫 조회 단축 -->
+  <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin />
+  <link rel="preconnect" href="https://eeffmbusaqaadeojjlnc.supabase.co" />
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.4.0/css/all.min.css" />
-  <link href="https://fonts.googleapis.com/css2?family=Pretendard:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
+  <!-- Pretendard 링크 제거(2026-08-19): 구글 폰트에 없는 서체라 매번 로드 실패 — 실패하는 CSS는
+       첫 페인트를 막아 로딩만 늦춘다. 글꼴은 아래 font-family 대체 목록(시스템 서체)이 동일하게 적용됨 -->
+
   <script defer src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
   <!-- 암호화된 엑셀(.xlsx) 복호화용 — 네이버페이센터 다운로드 파일 -->
   <script defer src="https://cdn.jsdelivr.net/npm/xlsx-populate@1.21.0/browser/xlsx-populate.min.js"></script>
@@ -1128,27 +1133,27 @@
       <details style="background:#f8f9ff;border:1.5px solid #e0e7ff;border-radius:12px;padding:12px 18px;margin-bottom:16px;">
         <summary style="font-size:.88rem;font-weight:700;color:#4338ca;cursor:pointer;">설정 패널 <span style="font-weight:400;color:#9ca3af;font-size:.75rem;">— 모든 상수 조정 가능, 변경 즉시 재계산</span></summary>
         <div id="disp-cfg" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:10px;margin-top:12px;font-size:.82rem;color:#374151;">
-          <label>BEST 진열 개수 <input type="number" id="dcfg-bestmax" value="10" oninput="dispRender()" /></label>
-          <label>BEST 자격 풀 (21일 순판매 상위) <input type="number" id="dcfg-bestpool" value="20" oninput="dispRender()" /></label>
-          <label>한 페이지 상품 수 <input type="number" id="dcfg-pagesize" value="12" oninput="dispRender()" /></label>
-          <label>페이지당 섞어 넣을 BEST 수 <input type="number" id="dcfg-bestperpage" value="3" oninput="dispRender()" /></label>
-          <label>신상 블록 최대 개수 <input type="number" id="dcfg-newmax" value="12" oninput="dispRender()" /></label>
-          <label>신상 신선도 (일) <input type="number" id="dcfg-freshdays" value="21" oninput="dispRender()" /></label>
-          <label>랭킹 구간 끝 순위 <input type="number" id="dcfg-rankend" value="48" oninput="dispRender()" /></label>
-          <label>7일 가중치 <input type="number" step="0.05" id="dcfg-w7" value="0.7" oninput="dispRender()" /></label>
-          <label>축소추정 계수 <input type="number" step="0.05" id="dcfg-shrink" value="0.3" oninput="dispRender()" /></label>
-          <label>순반품률 사전평균 (비우면 자동=전사 평균) <input type="number" step="0.01" id="dcfg-priorloss" value="" placeholder="자동" oninput="dispRender()" /></label>
-          <label>순반품률 사전표본수 <input type="number" id="dcfg-priorn" value="20" oninput="dispRender()" /></label>
-          <label>반품 건당 비용 (원) <input type="number" id="dcfg-returncost" value="2000" oninput="dispRender()" /></label>
-          <label>결제 수수료율 (%) <input type="number" step="0.1" id="dcfg-feerate" value="3" oninput="dispRender()" /></label>
-          <label>포장·물류비 (건당 원) <input type="number" id="dcfg-shipcost" value="900" oninput="dispRender()" /></label>
-          <label>조기 강등 조회수 하한 (21일) <input type="number" id="dcfg-demote" value="210" oninput="dispRender()" /></label>
+          <label>BEST 진열 개수 <input type="number" id="dcfg-bestmax" value="10" oninput="dispRenderSoon()" /></label>
+          <label>BEST 자격 풀 (21일 순판매 상위) <input type="number" id="dcfg-bestpool" value="20" oninput="dispRenderSoon()" /></label>
+          <label>한 페이지 상품 수 <input type="number" id="dcfg-pagesize" value="12" oninput="dispRenderSoon()" /></label>
+          <label>페이지당 섞어 넣을 BEST 수 <input type="number" id="dcfg-bestperpage" value="3" oninput="dispRenderSoon()" /></label>
+          <label>신상 블록 최대 개수 <input type="number" id="dcfg-newmax" value="12" oninput="dispRenderSoon()" /></label>
+          <label>신상 신선도 (일) <input type="number" id="dcfg-freshdays" value="21" oninput="dispRenderSoon()" /></label>
+          <label>랭킹 구간 끝 순위 <input type="number" id="dcfg-rankend" value="48" oninput="dispRenderSoon()" /></label>
+          <label>7일 가중치 <input type="number" step="0.05" id="dcfg-w7" value="0.7" oninput="dispRenderSoon()" /></label>
+          <label>축소추정 계수 <input type="number" step="0.05" id="dcfg-shrink" value="0.3" oninput="dispRenderSoon()" /></label>
+          <label>순반품률 사전평균 (비우면 자동=전사 평균) <input type="number" step="0.01" id="dcfg-priorloss" value="" placeholder="자동" oninput="dispRenderSoon()" /></label>
+          <label>순반품률 사전표본수 <input type="number" id="dcfg-priorn" value="20" oninput="dispRenderSoon()" /></label>
+          <label>반품 건당 비용 (원) <input type="number" id="dcfg-returncost" value="2000" oninput="dispRenderSoon()" /></label>
+          <label>결제 수수료율 (%) <input type="number" step="0.1" id="dcfg-feerate" value="3" oninput="dispRenderSoon()" /></label>
+          <label>포장·물류비 (건당 원) <input type="number" id="dcfg-shipcost" value="900" oninput="dispRenderSoon()" /></label>
+          <label>조기 강등 조회수 하한 (21일) <input type="number" id="dcfg-demote" value="210" oninput="dispRenderSoon()" /></label>
           <label>신상 보호 — 성과평가 없이 신상 블록 유지 (조기 강등 안 함) <input type="checkbox" id="dcfg-protectnew" onchange="dispRender()" /></label>
-          <label>주력 판정: 조회수 기준 (21일) <input type="number" id="dcfg-coreviews" value="70" oninput="dispRender()" /></label>
-          <label>주력 판정: 상품수 기준 <input type="number" id="dcfg-corecount" value="30" oninput="dispRender()" /></label>
-          <label>트래픽 이상치 배수 <input type="number" id="dcfg-outlier" value="10" oninput="dispRender()" /></label>
-          <label>데이터부족 기준 (조회 중앙값 ×) <input type="number" step="0.05" id="dcfg-evidence" value="0.5" oninput="dispRender()" /></label>
-          <label>데이터부족: 최소 판매량 (21일) <input type="number" id="dcfg-minsales" value="10" oninput="dispRender()" /></label>
+          <label>주력 판정: 조회수 기준 (21일) <input type="number" id="dcfg-coreviews" value="70" oninput="dispRenderSoon()" /></label>
+          <label>주력 판정: 상품수 기준 <input type="number" id="dcfg-corecount" value="30" oninput="dispRenderSoon()" /></label>
+          <label>트래픽 이상치 배수 <input type="number" id="dcfg-outlier" value="10" oninput="dispRenderSoon()" /></label>
+          <label>데이터부족 기준 (조회 중앙값 ×) <input type="number" step="0.05" id="dcfg-evidence" value="0.5" oninput="dispRenderSoon()" /></label>
+          <label>데이터부족: 최소 판매량 (21일) <input type="number" id="dcfg-minsales" value="10" oninput="dispRenderSoon()" /></label>
         </div>
       </details>
 
@@ -3606,6 +3611,11 @@ const dispState = {
   colsCollapsed: false,      // 지표 열(등록일~변동) 접힘 여부
   seasonRows: null,          // 시즌 제외 전체 목록 (모아보기 패널용)
 };
+
+/* 설정 패널 입력용 디바운스 — 키 입력마다 384행 표를 재계산하면 타이핑이 버벅여서,
+   입력이 멈춘 뒤 250ms에 한 번만 재렌더 (결과는 dispRender와 동일) */
+let __dispRenderT = null;
+function dispRenderSoon() { clearTimeout(__dispRenderT); __dispRenderT = setTimeout(dispRender, 250); }
 
 function dispCfg() {
   const n = id => parseFloat($(id).value) || 0;
