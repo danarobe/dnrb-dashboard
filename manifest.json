@@ -1,0 +1,8 @@
+{
+  "name": "DNRB 성과 분석 대시보드",
+  "short_name": "DNRB",
+  "start_url": ".",
+  "display": "standalone",
+  "background_color": "#f6f8fb",
+  "theme_color": "#4f46e5"
+}

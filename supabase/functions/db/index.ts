@@ -26,12 +26,14 @@ const TABLE_ROLES: Record<string, string[]> = {
   project_tasks: ["admin"],     // 프로젝트 관리 업무 (관리자 전용 — 사용자 결정 2026-08-19)
   board_topics: ["admin"],      // 대표 회의보드 안건 (관리자 전용 — 사용자 결정 2026-08-19, 대표끼리 서로 수정 가능이라 AUTHOR_FIELDS 미적용)
   notifications: ["admin", "staff", "cs"],  // @멘션 알림 (2026-08-20). 남을 수신자로 POST해야 하므로 AUTHOR_FIELDS 미적용 — 읽기는 클라이언트가 본인 필터(내부 신뢰 전제, 비공개 회의기록과 동일 수준)
+  push_subscriptions: ["admin", "staff", "cs"],  // 웹 푸시 구독 (기기별, 2026-08-20) — AUTHOR_FIELDS로 본인 것만
 };
 // 본인 것만 쓰기·수정·삭제 가능한 테이블과 작성자 컬럼 (클라이언트 규칙을 서버에서 강제)
 const AUTHOR_FIELDS: Record<string, string> = {
   ad_meeting_notes: "author_id",
   ad_note_comments: "author_id",
   ad_note_likes: "user_id",
+  push_subscriptions: "user_id",   // 푸시 구독은 본인 것만 등록·삭제
 };
 const METHODS = new Set(["GET", "POST", "PATCH", "DELETE"]);
 
