@@ -8,6 +8,11 @@
   <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin />
   <link rel="preconnect" href="https://eeffmbusaqaadeojjlnc.supabase.co" />
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.4.0/css/all.min.css" />
+  <!-- 웹 푸시(휴대폰 알림)용 — 아이폰은 '홈 화면에 추가' 후에만 푸시 허용 가능 (iOS 정책) -->
+  <link rel="manifest" href="./manifest.json" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-title" content="DNRB" />
+  <meta name="theme-color" content="#4f46e5" />
   <!-- Pretendard 링크 제거(2026-08-19): 구글 폰트에 없는 서체라 매번 로드 실패 — 실패하는 CSS는
        첫 페인트를 막아 로딩만 늦춘다. 글꼴은 아래 font-family 대체 목록(시스템 서체)이 동일하게 적용됨 -->
 
@@ -2345,7 +2350,8 @@ async function loadMeetNotes() {
    헤더 종 아이콘 + 안읽음 배지. notifications 테이블(본인 것만 조회 — 클라이언트 필터).
    폴링 없음: 로그인 시 + 메뉴 이동 시(60초 스로틀) + 종 클릭 시 조회 (상시 타이머 금지 원칙).
 ────────────────────────────── */
-const notifState = { rows: null, names: null, lastFetch: 0 };
+const notifState = { rows: null, names: null, lastFetch: 0, view: 'unread' };   // view: unread(기본)/read
+const PUSH_PUBKEY = 'BOwOXWnEz151B3IpLEh9qTKqHhfMPZomqbYAcLgRtmyFRZDKxrQLaedVut5Ui4DYpBoWfpx3xhlj46CMF9NrhJI';
 
 async function notifNames() {
   if (notifState.names) return notifState.names;
@@ -2364,16 +2370,19 @@ async function notifyMentions(text, sourceLabel, linkMenu) {
   if (!targets.length) return;
   const excerpt = text.length > 80 ? text.slice(0, 80) + '…' : text;
   try {
-    await dbProxy('notifications', {
-      method: 'POST', headers: { Prefer: 'return=minimal' },
-      body: JSON.stringify(targets.map(u => ({
-        user_id: u.id, actor_name: SESSION.name,
+    // notify 함수가 앱 내 알림 저장 + 구독 기기로 웹 푸시(휴대폰 알림)까지 한 번에 처리
+    const res = await fetch(fnUrl('notify', {}), {
+      method: 'POST', headers: sbHeaders(),
+      body: JSON.stringify({
+        targets: targets.map(u => u.id), actor_name: SESSION.name,
         message: `[${sourceLabel}] ${excerpt}`, link_menu: linkMenu,
-      }))),
+      }),
     });
+    const d = await res.json();
+    if (d.error) throw new Error(d.error);
     // 보낸 사람에게도 전송 확인 표시 — "된 건가?" 헷갈리지 않게 (2026-08-20)
-    showToast(`${targets.map(u => u.name).join(', ')}님에게 알림을 보냈습니다`);
-  } catch (e) { console.error('멘션 알림 생성 실패', e); }
+    showToast(`${targets.map(u => u.name).join(', ')}님에게 알림을 보냈습니다${d.pushed ? ` (휴대폰 푸시 ${d.pushed}건)` : ''}`);
+  } catch (e) { console.error('멘션 알림 생성 실패', e); showToast('알림 전송 실패: ' + e.message); }
 }
 
 async function notifLoad(force) {
@@ -2406,19 +2415,93 @@ document.addEventListener('click', e => {
   if (w && !w.contains(e.target)) { const d = $('notif-drop'); if (d) d.style.display = 'none'; }
 });
 
+function notifSetView(v, ev) {
+  if (ev) ev.stopPropagation();
+  notifState.view = v;
+  notifRenderDrop();
+}
+
 function notifRenderDrop() {
   const rows = notifState.rows || [];
+  const view = notifState.view;
+  const readN = rows.filter(r => r.read).length;
+  const list = rows.filter(r => view === 'read' ? r.read : !r.read);   // 기본 화면엔 안 읽은 것만
   $('notif-drop').innerHTML = `
-    <div style="display:flex;align-items:center;padding:10px 14px;border-bottom:1px solid #f3f4f6;">
-      <b style="font-size:.8rem;color:#1e1b4b;">알림</b>
-      <button onclick="notifReadAll(event)" style="margin-left:auto;border:none;background:none;color:#4f46e5;font-size:.72rem;font-weight:700;cursor:pointer;">모두 읽음</button>
+    <div style="display:flex;align-items:center;gap:8px;padding:10px 14px;border-bottom:1px solid #f3f4f6;">
+      <b style="font-size:.8rem;color:#1e1b4b;">${view === 'read' ? '읽은 알림' : '알림'}</b>
+      ${view === 'read'
+        ? `<button onclick="notifSetView('unread', event)" style="margin-left:auto;border:none;background:none;color:#4f46e5;font-size:.72rem;font-weight:700;cursor:pointer;"><i class="fa-solid fa-arrow-left"></i> 새 알림으로</button>`
+        : `<button onclick="notifSetView('read', event)" style="margin-left:auto;border:none;background:none;color:#9ca3af;font-size:.72rem;font-weight:700;cursor:pointer;">읽은 알림${readN ? ` ${readN}` : ''}</button>
+           <button onclick="notifReadAll(event)" style="border:none;background:none;color:#4f46e5;font-size:.72rem;font-weight:700;cursor:pointer;">모두 읽음</button>`}
     </div>` +
-    (rows.length ? rows.map(r => `
+    (list.length ? list.map(r => `
       <div onclick="notifOpen('${r.id}')" style="padding:10px 14px;border-bottom:1px solid #f8f9fb;cursor:pointer;background:${r.read ? '#fff' : '#eef2ff'};">
         <div style="font-size:.72rem;color:#6b7280;margin-bottom:2px;"><b style="color:#4338ca;">${escHtml(r.actor_name)}</b>님이 나를 언급했어요 · ${String(r.created_at || '').slice(5, 16).replace('T', ' ')}</div>
         <div style="font-size:.78rem;color:#374151;white-space:pre-wrap;word-break:break-all;">${escHtml(r.message)}</div>
       </div>`).join('')
-      : '<div style="padding:18px;text-align:center;color:#9ca3af;font-size:.78rem;">알림이 없습니다</div>');
+      : `<div style="padding:18px;text-align:center;color:#9ca3af;font-size:.78rem;">${view === 'read' ? '읽은 알림이 없습니다' : '새 알림이 없습니다'}</div>`) +
+    `<div id="notif-push-row" style="display:flex;align-items:center;gap:8px;padding:9px 14px;border-top:1px solid #f3f4f6;background:#fafbff;">
+      <i class="fa-solid fa-mobile-screen" style="color:#818cf8;font-size:.8rem;"></i>
+      <span id="notif-push-label" style="font-size:.72rem;color:#6b7280;flex:1;">휴대폰 알림 확인 중...</span>
+      <button id="notif-push-btn" style="display:none;border:1px solid #c7d2fe;background:#eef2ff;color:#4338ca;border-radius:6px;padding:3px 10px;font-size:.7rem;font-weight:700;cursor:pointer;"></button>
+    </div>`;
+  notifPushRow();
+}
+
+/* 푸시 상태 표시·토글 — 기기(브라우저)마다 따로 켠다 */
+async function notifPushRow() {
+  const label = $('notif-push-label'), btn = $('notif-push-btn');
+  if (!label) return;
+  if (!('serviceWorker' in navigator) || !('PushManager' in window) || !('Notification' in window)) {
+    label.innerHTML = '이 브라우저는 휴대폰 알림 미지원<br><span style="color:#c4c9d4;">아이폰: Safari 공유 → 홈 화면에 추가 후 그 앱에서 켜세요</span>';
+    return;
+  }
+  if (Notification.permission === 'denied') { label.textContent = '알림 권한이 차단됨 — 브라우저 설정에서 허용 필요'; return; }
+  let sub = null;
+  try {
+    const reg = await navigator.serviceWorker.getRegistration('./');
+    sub = reg && await reg.pushManager.getSubscription();
+  } catch {}
+  label.textContent = sub ? '이 기기의 휴대폰 알림: 켜짐' : '이 기기의 휴대폰 알림: 꺼짐';
+  btn.style.display = '';
+  btn.textContent = sub ? '끄기' : '켜기';
+  btn.onclick = ev => { ev.stopPropagation(); sub ? pushDisable() : pushEnable(); };
+}
+
+function pushB64ToU8(base64) {
+  const pad = '='.repeat((4 - base64.length % 4) % 4);
+  const raw = atob((base64 + pad).replace(/-/g, '+').replace(/_/g, '/'));
+  return Uint8Array.from([...raw].map(c => c.charCodeAt(0)));
+}
+
+async function pushEnable() {
+  try {
+    const reg = await navigator.serviceWorker.register('./sw.js');
+    const perm = await Notification.requestPermission();
+    if (perm !== 'granted') { showToast('알림 권한이 허용되지 않았습니다'); notifPushRow(); return; }
+    const sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: pushB64ToU8(PUSH_PUBKEY) });
+    const j = sub.toJSON();
+    await dbProxy('push_subscriptions', {
+      method: 'POST', headers: { Prefer: 'return=minimal,resolution=merge-duplicates' },
+      body: JSON.stringify({ endpoint: j.endpoint, p256dh: j.keys.p256dh, auth: j.keys.auth, user_id: SESSION.id }),
+    });
+    showToast('이 기기에서 휴대폰 알림이 켜졌습니다 — @멘션을 받으면 알림이 와요');
+  } catch (e) { showToast('알림 켜기 실패: ' + e.message); }
+  notifPushRow();
+}
+
+async function pushDisable() {
+  try {
+    const reg = await navigator.serviceWorker.getRegistration('./');
+    const sub = reg && await reg.pushManager.getSubscription();
+    if (sub) {
+      await dbProxy(`push_subscriptions?endpoint=eq.${encodeURIComponent(sub.endpoint)}&user_id=eq.${encodeURIComponent(SESSION.id)}`,
+        { method: 'DELETE', headers: { Prefer: 'return=minimal' } });
+      await sub.unsubscribe();
+    }
+    showToast('이 기기의 휴대폰 알림을 껐습니다');
+  } catch (e) { showToast('' + e.message); }
+  notifPushRow();
 }
 
 function notifOpen(id) {
