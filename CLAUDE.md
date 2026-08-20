@@ -183,6 +183,7 @@ AUTHOR_FIELDS(notes/comments=author_id, likes=user_id): POST는 본인 id 필수
 - UI: 헤더 종 아이콘+빨간 안읽음 배지, 드롭다운(클릭=읽음+해당 메뉴 이동, 모두 읽음). **상시 폴링 없음** — 로그인 시 + 메뉴 이동 시(60초 스로틀) + 종 클릭 시 조회 (성능 점검 원칙 유지).
 - **웹 푸시(휴대폰 알림, 2026-08-20)**: 멘션 전송이 dbProxy 직접 삽입 → **`notify` 엣지 함수**로 변경(앱 내 알림 저장 + 구독 기기 웹 푸시 발송 일괄, npm:web-push@3.6.7 — Deno에서 동작 확인). VAPID 키는 secrets(VAPID_PUBLIC_KEY/PRIVATE_KEY/SUBJECT), 공개키는 index.html `PUSH_PUBKEY` 상수. `push_subscriptions` 테이블(endpoint PK, AUTHOR_FIELDS user_id — 본인 것만). 만료 구독(404/410) 자동 삭제. **레포 루트 `sw.js`(서비스 워커)+`manifest.json`** — 종 드롭다운 하단 '휴대폰 알림 켜기/끄기'(기기별). **아이폰은 Safari 공유→홈 화면에 추가 후 그 앱에서만 켜기 가능**(iOS 정책), 안드로이드는 브라우저에서 바로 됨. 실기기 푸시 수신은 사용자 검증 필요(개발 환경은 알림 권한 차단이라 서버 경로·상태 분기까지만 검증).
 - **알림함 정리(2026-08-20)**: 기본 화면 = **안 읽은 알림만**. '모두 읽음' 후 목록에서 사라지고, 헤더의 **'읽은 알림 N'** 클릭 → 읽은 목록 별도 보기('새 알림으로' 복귀). 최근 30건 보관.
+- **드롭다운은 body 직속 `position:fixed`**(2026-08-20 — 헤더 안에 두면 모바일에서 잘림): notifToggle이 종 버튼 rect 기준으로 배치, **≤480px이면 left/right 10px 화면 폭 맞춤**, maxHeight=뷰포트 잔여. 바깥 클릭 닫기는 드롭다운·종 둘 다 제외하고 판정.
 - **@ 자동완성(2026-08-20)**: `.mention-field` 클래스가 붙은 입력란(위 적용처 4곳)에서 @ 입력 시 사용자 목록 드롭다운(`#mention-drop`, **body 직속 — 섹션·헤더 안은 blur 조상 때문에 fixed 기준 깨짐**). 입력란이 동적 생성이라 **document 위임**(input/keydown capture/focusout). ↑↓+Enter/Tab 또는 클릭으로 선택, **드롭다운 열림 중 Enter는 capture에서 가로채 이름 삽입만**(댓글 등록·특이사항 저장으로 안 샘 — 닫힌 뒤 Enter는 정상 동작 검증됨). @ 앞은 문두·공백·구두점일 때만 발동, 조각 12자 초과·공백 포함 시 해제.
 
 ### 광고 회의록 (#meet, 관리자+MD)
