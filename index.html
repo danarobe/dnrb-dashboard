@@ -130,6 +130,16 @@
       /* 업무 열: 좁히고 줄바꿈 허용(기본 td nowrap 해제) + 셀 여백 축소 → 4열이 한 화면에 */
       #proj-result .pj-title { min-width: 110px; white-space: normal; word-break: keep-all; }
       #proj-result th, #proj-result td { padding: 8px 6px; }
+      /* 전 표 공통(2026-08-20): 셀 여백 축소 + 왼쪽 정렬(텍스트) 열 줄바꿈 허용 + 인라인 최소폭 축소
+         — 상품명·광고명 등 이름 열이 nowrap/min-width로 표를 화면 밖으로 밀던 문제 일괄 해결 */
+      thead th { padding: 8px 5px; font-size: .76rem; }
+      tbody td { padding: 8px 5px; font-size: .8rem; }
+      tbody td[style*="display:flex"] { flex-wrap: wrap; }               /* 셀 안 버튼 묶음 줄바꿈 (직원 관리 등) */
+      #users-list td:first-child { white-space: normal; word-break: break-all; max-width: 84px; }
+      tbody td[style*="text-align:left"], thead th[style*="text-align:left"] { white-space: normal; word-break: keep-all; }
+      tbody td[style*="text-align:left"][style*="min-width"] { min-width: 120px !important; }
+      tbody td.name-cell { max-width: 150px; }
+      #rw-result td.rw-actions { white-space: normal !important; }      /* 관리 버튼 세로 쌓임 */
 
       .side-menu {
         position: sticky; top: 0; z-index: 50; width: 100%;
@@ -1764,7 +1774,7 @@ async function loadUsers() {
   try {
     const d = await authApi({ action: 'list_users', token: SESSION.token });
     $('users-list').innerHTML = `<div class="table-wrap"><table>
-      <thead><tr><th>아이디</th><th>이름</th><th>역할</th><th>등록일</th><th></th></tr></thead><tbody>` +
+      <thead><tr><th>아이디</th><th>이름</th><th>역할</th><th class="m-hide">등록일</th><th></th></tr></thead><tbody>` +
       d.users.map(u => {
         const isMe = u.id === SESSION.id;
         const roleBtn = isMe ? '<span style="font-size:.75rem;color:#9ca3af;">(본인)</span>'
@@ -1778,7 +1788,7 @@ async function loadUsers() {
         return `<tr>
         <td>${escHtml(u.id)}</td><td>${escHtml(u.name)}</td>
         <td>${u.role === 'admin' ? '<b style="color:#4f46e5;">관리자</b>' : u.role === 'cs' ? '<b style="color:#0891b2;">CS팀</b>' : 'MD'}</td>
-        <td>${(u.created_at || '').slice(0, 10)}</td>
+        <td class="m-hide">${(u.created_at || '').slice(0, 10)}</td>
         <td style="display:flex;gap:6px;justify-content:center;">${roleBtn}${delBtn}</td>
       </tr>`; }).join('') + '</tbody></table></div>' +
       '<div style="font-size:.75rem;color:#9ca3af;margin-top:8px;">※ 권한 변경은 해당 팀원이 <b>다시 로그인</b>해야 적용됩니다 · MD는 광고 효율의 광고비·전환값·총매출이 가려집니다 · CS팀은 판매 성과 메뉴만 보입니다 · 관리자 계정을 삭제하려면 먼저 MD로 변경하세요</div>';
@@ -2971,20 +2981,20 @@ function rwRenderWatch() {
     : `<div style="font-size:.75rem;color:#9ca3af;margin-bottom:8px;">
         순반품률을 불러오지 못했습니다 — 위의 <b>조회</b>를 눌러 다시 시도해주세요.</div>`;
   $('rw-result').innerHTML = `${notice}<div class="table-wrap" style="max-height:620px;overflow:auto;"><table>
-    <thead><tr><th>지정일</th><th style="text-align:left;">상품명</th>
-      <th>순반품률<br><span style="font-size:.7rem;font-weight:400;color:#9ca3af;">7일</span></th>
+    <thead><tr><th class="rw-hm">지정일</th><th style="text-align:left;">상품명</th>
+      <th class="rw-hm">순반품률<br><span style="font-size:.7rem;font-weight:400;color:#9ca3af;">7일</span></th>
       <th>순반품률<br><span style="font-size:.7rem;font-weight:400;color:#9ca3af;">14일</span></th>
       <th class="rw-hm">순반품률<br><span style="font-size:.7rem;font-weight:400;color:#9ca3af;">30일</span></th>
       <th style="text-align:left;">지정 사유</th><th class="rw-hm">지정자</th><th>관리</th></tr></thead><tbody>
     ${rows.map(r => `<tr>
-      <td style="font-size:.75rem;color:#6b7280;white-space:nowrap;">${String(r.created_at || '').slice(0, 10)}</td>
+      <td class="rw-hm" style="font-size:.75rem;color:#6b7280;white-space:nowrap;">${String(r.created_at || '').slice(0, 10)}</td>
       <td style="text-align:left;min-width:160px;white-space:normal;">${nameCell(r)}</td>
-      <td>${cellOf(r.product_no, '7')}</td>
+      <td class="rw-hm">${cellOf(r.product_no, '7')}</td>
       <td>${cellOf(r.product_no, '14')}</td>
       <td class="rw-hm">${cellOf(r.product_no, '30')}</td>
       <td id="rw-reason-${r.product_no}" style="text-align:left;font-size:.82rem;color:#374151;white-space:pre-wrap;min-width:150px;">${escHtml(r.reason || '')}</td>
       <td class="rw-hm" style="font-size:.75rem;color:#6b7280;">${escHtml(r.created_by || '')}</td>
-      <td style="white-space:nowrap;">
+      <td class="rw-actions" style="white-space:nowrap;">
         <button onclick="rwEditReason(${r.product_no})" style="border:1px solid #c7d2fe;background:#eef2ff;color:#4338ca;border-radius:6px;padding:3px 9px;font-size:.7rem;font-weight:700;cursor:pointer;">수정</button>
         <button onclick="rwRemoveWatch(${r.product_no})" style="border:1px solid #fdba74;background:#fff7ed;color:#c2410c;border-radius:6px;padding:3px 9px;font-size:.7rem;font-weight:700;cursor:pointer;">해제</button></td>
     </tr>`).join('')}</tbody></table></div>`;
@@ -4727,22 +4737,22 @@ function renderStableResult() {
       <div class="table-wrap" style="max-height:620px;overflow:auto;"><table>
       <thead><tr>
         <th style="text-align:left;">상품명</th><th style="text-align:left;">옵션명</th>
-        <th>기존<br><span style="font-size:.7rem;font-weight:400;color:#9ca3af;">안정재고</span></th>
+        <th class="m-hide">기존<br><span style="font-size:.7rem;font-weight:400;color:#9ca3af;">안정재고</span></th>
         <th>추천<br><span style="font-size:.7rem;font-weight:400;color:#9ca3af;">안정재고</span></th>
         <th>차이</th>
-        <th>1일 평균<br><span style="font-size:.7rem;font-weight:400;color:#9ca3af;">결제수량</span></th>
-        <th>상태</th>
+        <th class="m-hide">1일 평균<br><span style="font-size:.7rem;font-weight:400;color:#9ca3af;">결제수량</span></th>
+        <th class="m-hide">상태</th>
       </tr></thead><tbody>`;
     for (const r of rows) {
       const diff = r.rec === null ? null : r.rec - r.stable;
       html += `<tr${r.changed ? ' style="background:#fdf0f6;"' : ''}>
         <td style="text-align:left;min-width:200px;">${escHtml(r.name)}</td>
         <td style="text-align:left;font-size:.82rem;color:#6b7280;">${escHtml(r.option) || '—'}</td>
-        <td>${fmt(r.stable)}</td>
+        <td class="m-hide">${fmt(r.stable)}</td>
         <td style="font-weight:800;">${r.rec === null ? '—' : fmt(r.rec)}</td>
         <td style="font-weight:700;color:${diff > 0 ? '#dc2626' : diff < 0 ? '#2563eb' : '#9ca3af'};">${diff === null ? '—' : diff > 0 ? '+' + diff : diff}</td>
-        <td>${r.avg.toFixed(1)}</td>
-        <td>${chip(r.status)}${r.changed ? ' <span style="background:#ffe3ef;color:#b93167;border-radius:5px;padding:2px 8px;font-size:.75rem;font-weight:700;">변경 필요</span>' : ''}</td>
+        <td class="m-hide">${r.avg.toFixed(1)}</td>
+        <td class="m-hide">${chip(r.status)}${r.changed ? ' <span style="background:#ffe3ef;color:#b93167;border-radius:5px;padding:2px 8px;font-size:.75rem;font-weight:700;">변경 필요</span>' : ''}</td>
       </tr>`;
     }
     $('stable-result').innerHTML = html + '</tbody></table></div>';
@@ -4753,13 +4763,13 @@ function renderStableResult() {
     let html = `<div class="table-wrap" style="max-height:420px;overflow:auto;"><table>
       <thead><tr>
         <th style="text-align:left;">상품명</th><th style="text-align:left;">옵션</th>
-        <th>기간 결제수량</th><th>1일 평균</th><th>추천 안정재고</th>
+        <th class="m-hide">기간 결제수량</th><th class="m-hide">1일 평균</th><th>추천 안정재고</th>
       </tr></thead><tbody>`;
     for (const it of stableState.newItems) {
       html += `<tr style="background:#fffbe8;">
         <td style="text-align:left;min-width:200px;">${escHtml(it.product_name)}</td>
         <td style="text-align:left;font-size:.82rem;color:#6b7280;">${escHtml(it.option_value) || '—'}</td>
-        <td>${fmt(it.paid_qty)}</td><td>${it.avg.toFixed(1)}</td>
+        <td class="m-hide">${fmt(it.paid_qty)}</td><td class="m-hide">${it.avg.toFixed(1)}</td>
         <td style="font-weight:800;">${fmt(it.rec)}</td>
       </tr>`;
     }
@@ -4818,18 +4828,18 @@ function renderMetaDateAds(dated, s, e) {
   let html = head + `<div class="table-wrap"><table>
     <thead><tr>
       <th>등록일</th><th style="text-align:left;">광고명</th><th>지출 금액</th>
-      <th>구매당 비용</th><th>구매 전환</th><th>구매 전환값</th><th>구매 ROAS</th><th>빈도</th>
+      <th class="m-hide">구매당 비용</th><th class="m-hide">구매 전환</th><th class="m-hide">구매 전환값</th><th>구매 ROAS</th><th class="m-hide">빈도</th>
     </tr></thead><tbody>`;
   ads.forEach(a => {
     html += `<tr onclick="showMetaPreview('${a.ad_id}')" style="cursor:pointer;">
       <td style="font-size:.78rem;color:#4b5563;white-space:nowrap;">${a.reg_dates.map(d => d.slice(5).replace('-', '/')).join(', ')}</td>
       <td style="text-align:left;min-width:220px;color:#4338ca;font-weight:600;">${escHtml(a.ad_name)}</td>
       <td style="font-weight:700;">${fmt(Math.round(a.spend))}원</td>
-      <td>${a.cost_per_purchase ? fmt(Math.round(a.cost_per_purchase)) + '원' : '—'}</td>
-      <td>${fmt(a.purchases)}건</td>
-      <td>${fmt(Math.round(a.purchase_value))}원</td>
+      <td class="m-hide">${a.cost_per_purchase ? fmt(Math.round(a.cost_per_purchase)) + '원' : '—'}</td>
+      <td class="m-hide">${fmt(a.purchases)}건</td>
+      <td class="m-hide">${fmt(Math.round(a.purchase_value))}원</td>
       <td style="font-weight:800;color:${a.roas >= 1 ? '#15803d' : '#b91c1c'};">${a.roas.toFixed(2)}</td>
-      <td>${a.frequency.toFixed(2)}</td>
+      <td class="m-hide">${a.frequency.toFixed(2)}</td>
     </tr>`;
   });
   box.innerHTML = html + '</tbody></table></div>';
@@ -4889,18 +4899,18 @@ async function fetchMetaAds() {
         <div class="table-wrap"><table>
         <thead><tr>
           <th>순위</th><th style="text-align:left;">광고명</th><th>지출 금액</th>
-          <th>구매당 비용</th><th>구매 전환</th><th>구매 전환값</th><th>구매 ROAS</th><th>빈도</th>
+          <th class="m-hide">구매당 비용</th><th class="m-hide">구매 전환</th><th class="m-hide">구매 전환값</th><th>구매 ROAS</th><th class="m-hide">빈도</th>
         </tr></thead><tbody>`;
       ads.forEach((a, i) => {
         html += `<tr onclick="showMetaPreview('${a.ad_id}')" style="cursor:pointer;">
           <td>${i + 1}</td>
           <td style="text-align:left;min-width:220px;color:#4338ca;font-weight:600;">${escHtml(a.ad_name)}</td>
           <td style="font-weight:700;">${fmt(Math.round(a.spend))}원</td>
-          <td>${a.cost_per_purchase ? fmt(Math.round(a.cost_per_purchase)) + '원' : '—'}</td>
-          <td>${fmt(a.purchases)}건</td>
-          <td>${fmt(Math.round(a.purchase_value))}원</td>
+          <td class="m-hide">${a.cost_per_purchase ? fmt(Math.round(a.cost_per_purchase)) + '원' : '—'}</td>
+          <td class="m-hide">${fmt(a.purchases)}건</td>
+          <td class="m-hide">${fmt(Math.round(a.purchase_value))}원</td>
           <td style="font-weight:800;color:${a.roas >= 1 ? '#15803d' : '#b91c1c'};">${a.roas.toFixed(2)}</td>
-          <td>${a.frequency.toFixed(2)}</td>
+          <td class="m-hide">${a.frequency.toFixed(2)}</td>
         </tr>`;
       });
       $('meta-topads').innerHTML = html + '</tbody></table></div>';
@@ -6469,7 +6479,7 @@ function paShow(productNo) {
       <td style="text-align:left;min-width:220px;">
         <span onclick="showMetaPreview('${a.ad_id}')" style="cursor:pointer;color:#4338ca;font-weight:600;text-decoration:underline dotted;text-underline-offset:3px;">${escHtml(a.ad_name)}</span></td>
       <td style="font-weight:700;">${fmt(Math.round(a.spend))}원</td>
-      <td>${a.cost_per_purchase ? fmt(Math.round(a.cost_per_purchase)) + '원' : '—'}</td>
+      <td class="m-hide">${a.cost_per_purchase ? fmt(Math.round(a.cost_per_purchase)) + '원' : '—'}</td>
       <td style="font-weight:800;color:${a.roas >= 1 ? '#15803d' : '#b91c1c'};">${a.roas ? a.roas.toFixed(2) : '—'}</td>
     </tr>`).join('')}</tbody></table></div>
     <div style="font-size:.7rem;color:#9ca3af;margin-top:8px;">광고명을 누르면 소재(영상·이미지)를 볼 수 있습니다</div>`;
@@ -6991,10 +7001,10 @@ function renderPerfResult() {
         <th class="m-hide">환불수량</th>
         <th>순판매량</th>
         ${isStaff() || isCS() ? '' : '<th class="m-hide">판매합계</th>'}
-        ${isCS() ? '' : '<th>ON 광고<br><span style="font-size:.7rem;font-weight:400;color:#9ca3af;">활성 기준</span></th>'}
-        <th>순반품률<br><span style="font-size:.7rem;font-weight:400;color:#9ca3af;">배송완료일 기준</span></th>
+        ${isCS() ? '' : '<th class="m-hide">ON 광고<br><span style="font-size:.7rem;font-weight:400;color:#9ca3af;">활성 기준</span></th>'}
+        <th>순반품률<br class="m-hide"><span class="m-hide" style="font-size:.7rem;font-weight:400;color:#9ca3af;">배송완료일 기준</span></th>
         <th class="m-hide">취소&amp;반품률<br><span style="font-size:.7rem;font-weight:400;color:#9ca3af;">주문일 기준·참고용</span></th>
-        ${isCS() ? '' : '<th>마진율<br><span style="font-size:.7rem;font-weight:400;color:#9ca3af;">공급가×1.1 기준</span></th>'}
+        ${isCS() ? '' : '<th>마진율<br class="m-hide"><span class="m-hide" style="font-size:.7rem;font-weight:400;color:#9ca3af;">공급가×1.1 기준</span></th>'}
       </tr></thead>
       <tbody>`;
 
@@ -7017,7 +7027,7 @@ function renderPerfResult() {
         <td class="m-hide">${sc}</td>
         <td class="m-hide">${fmt(row.paidQty)}</td><td class="m-hide">${fmt(row.refundQty)}</td><td>${fmt(row.salesQty)}</td>
         ${isStaff() || isCS() ? '' : `<td class="m-hide">${row.salesTotal>0?fmt(row.salesTotal)+'원':'—'}</td>`}
-        ${isCS() ? '' : `<td>${(() => {
+        ${isCS() ? '' : `<td class="m-hide">${(() => {
           if (!store.activeAds) return '<span title="Meta 광고 조회 실패 — 잠시 후 다시 조회해주세요" style="color:#d1d5db;font-size:.75rem;">—</span>';
           const n = store.adMatch && store.adMatch.has(row.productNo) ? store.adMatch.get(row.productNo).length : 0;
           return n > 0
