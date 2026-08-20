@@ -1482,7 +1482,7 @@
           <input id="pj-due" type="date" style="border:1.5px solid #d1d5db;border-radius:8px;padding:6px;font-size:.78rem;outline:none;" /></label>
       </div>
       <label style="font-size:.75rem;font-weight:700;color:#374151;display:flex;flex-direction:column;gap:4px;margin-top:10px;">특이사항 (선택)
-        <input id="pj-note" style="border:1.5px solid #d1d5db;border-radius:8px;padding:7px 9px;font-size:.82rem;outline:none;" /></label>
+        <input id="pj-note" class="mention-field" style="border:1.5px solid #d1d5db;border-radius:8px;padding:7px 9px;font-size:.82rem;outline:none;" /></label>
       <div style="display:flex;gap:8px;margin-top:14px;justify-content:flex-end;align-items:center;">
         <button id="pj-delete" onclick="projDelete()" style="display:none;margin-right:auto;border:1px solid #fecaca;background:#fef2f2;color:#b91c1c;border-radius:8px;padding:8px 14px;font-size:.82rem;font-weight:700;cursor:pointer;">삭제</button>
         <button onclick="document.getElementById('proj-modal').style.display='none'"
@@ -1595,6 +1595,9 @@
 <!-- ════════════════════════════════
      JAVASCRIPT
 ════════════════════════════════ -->
+<!-- @멘션 자동완성 드롭다운 — body 직속 (섹션·헤더 안에 두면 blur 조상 때문에 fixed 기준이 깨짐) -->
+<div id="mention-drop" style="display:none;position:fixed;z-index:240;background:#fff;border:1px solid #e5e7eb;border-radius:10px;box-shadow:0 8px 24px rgba(15,23,42,.16);max-height:220px;overflow-y:auto;min-width:150px;"></div>
+
 <script>
 'use strict';
 
@@ -2311,7 +2314,7 @@ async function loadMeetNotes() {
           <div id="note-cm-${n.id}" style="display:${open ? 'block' : 'none'};margin-top:6px;background:#f8f9ff;border-radius:8px;padding:8px 12px;">
             ${commentRows || '<div style="font-size:.75rem;color:#c4c9d4;padding:2px 0;">첫 댓글을 남겨보세요</div>'}
             <div style="display:flex;gap:6px;margin-top:8px;align-items:flex-end;">
-              <textarea id="note-cm-input-${n.id}" rows="1" placeholder="댓글 입력... (Shift+Enter 줄바꿈)"
+              <textarea id="note-cm-input-${n.id}" class="mention-field" rows="1" placeholder="댓글 입력... (Shift+Enter 줄바꿈, @이름=멘션)"
                 onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();addNoteComment('${n.id}');}"
                 oninput="this.style.height='auto';this.style.height=Math.min(this.scrollHeight,140)+'px';"
                 style="flex:1;border:1.5px solid #d1d5db;border-radius:8px;padding:6px 10px;font-size:.82rem;outline:none;resize:none;font-family:inherit;line-height:1.5;max-height:140px;overflow-y:auto;"></textarea>
@@ -2438,6 +2441,78 @@ async function notifReadAll(ev) {
     notifBadge(); notifRenderDrop();
   } catch (e) { showToast('' + e.message); }
 }
+
+/* ── @멘션 자동완성 (2026-08-20) ──
+   .mention-field 입력란에서 @를 치면 등록 사용자 목록이 떠서 클릭 또는 ↑↓+Enter로 선택.
+   입력란들이 동적으로 생성되므로 document 위임 방식. 드롭다운이 열려 있는 동안의 Enter는
+   capture 단계에서 가로채 이름 삽입만 하고, 원래 핸들러(댓글 등록 등)는 실행되지 않는다. */
+const mentionState = { el: null, items: [], idx: 0, token: null };
+
+function mentionHide() {
+  mentionState.el = null;
+  const d = $('mention-drop'); if (d) d.style.display = 'none';
+}
+
+/* 캐럿 앞의 "@조각" 찾기 — @ 앞은 문두·공백·구두점이어야 하고, 조각에 공백이 나오면 종료 */
+function mentionToken(el) {
+  const pos = el.selectionStart ?? el.value.length;
+  const txt = el.value.slice(0, pos);
+  const at = txt.lastIndexOf('@');
+  if (at < 0) return null;
+  if (at > 0 && !/[\s([{,.;:!?'"”)]/.test(txt[at - 1])) return null;
+  const frag = txt.slice(at + 1);
+  if (/[\s@]/.test(frag) || frag.length > 12) return null;
+  return { at, frag, pos };
+}
+
+async function mentionCheck(el) {
+  const token = mentionToken(el);
+  if (!token || !SESSION) { mentionHide(); return; }
+  const users = await notifNames();
+  if (document.activeElement !== el) return;                       // 비동기 사이 포커스 이탈
+  const items = users.map(u => u.name).filter(n => n && n.includes(token.frag));
+  if (!items.length) { mentionHide(); return; }
+  mentionState.el = el; mentionState.items = items; mentionState.idx = 0; mentionState.token = token;
+  const d = $('mention-drop');
+  const r = el.getBoundingClientRect();
+  d.style.left = Math.min(r.left, window.innerWidth - 190) + 'px';
+  d.style.top = Math.min(r.bottom + 4, window.innerHeight - 40) + 'px';
+  d.style.display = 'block';
+  mentionRender();
+}
+
+function mentionRender() {
+  $('mention-drop').innerHTML = mentionState.items.map((n, i) => `
+    <div onmousedown="event.preventDefault();mentionPick(${i})"
+         style="padding:7px 14px;font-size:.8rem;cursor:pointer;white-space:nowrap;
+                background:${i === mentionState.idx ? '#eef2ff' : '#fff'};color:${i === mentionState.idx ? '#4338ca' : '#374151'};font-weight:${i === mentionState.idx ? '700' : '400'};">
+      <i class="fa-regular fa-user" style="font-size:.7rem;margin-right:6px;color:#a5b4fc;"></i>${escHtml(n)}</div>`).join('');
+}
+
+function mentionPick(i) {
+  const { el, items, token } = mentionState;
+  if (!el || !items[i]) return;
+  const v = el.value;
+  el.value = v.slice(0, token.at) + '@' + items[i] + ' ' + v.slice(token.pos);
+  const caret = token.at + items[i].length + 2;
+  el.focus(); el.setSelectionRange(caret, caret);
+  mentionHide();
+  el.dispatchEvent(new Event('input', { bubbles: true }));         // 자동 높이 등 기존 oninput 유지
+}
+
+document.addEventListener('input', e => {
+  if (e.target.classList && e.target.classList.contains('mention-field')) mentionCheck(e.target);
+});
+document.addEventListener('keydown', e => {
+  if (!mentionState.el || mentionState.el !== document.activeElement) return;
+  if (e.key === 'ArrowDown') { e.preventDefault(); e.stopPropagation(); mentionState.idx = (mentionState.idx + 1) % mentionState.items.length; mentionRender(); }
+  else if (e.key === 'ArrowUp') { e.preventDefault(); e.stopPropagation(); mentionState.idx = (mentionState.idx - 1 + mentionState.items.length) % mentionState.items.length; mentionRender(); }
+  else if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); e.stopPropagation(); mentionPick(mentionState.idx); }
+  else if (e.key === 'Escape') { e.stopPropagation(); mentionHide(); }
+}, true);   // capture — 드롭다운 열림 중 Enter가 '댓글 등록/저장'으로 새지 않게 먼저 가로챔
+document.addEventListener('focusout', e => {
+  if (e.target === mentionState.el) setTimeout(() => { if (document.activeElement !== mentionState.el) mentionHide(); }, 120);
+});
 
 /* ── 공유 회의 기록: 좋아요·댓글 ── */
 function toggleNoteComments(noteId) {
@@ -3007,7 +3082,7 @@ function boardCard(r) {
     ? `<div style="font-size:.78rem;color:#15803d;background:#f0fdf4;border-radius:8px;padding:6px 10px;white-space:pre-wrap;margin-top:6px;"><b>결론</b> — ${escHtml(r.conclusion)}</div>` : '';
   const expand = isOpen ? `
     <div style="margin-top:9px;border-top:1px dashed #e5e7eb;padding-top:9px;">
-      <textarea id="board-txt-${r.id}" rows="2" placeholder="코멘트(논의함으로) 또는 결론(결론 저장) 입력"
+      <textarea id="board-txt-${r.id}" class="mention-field" rows="2" placeholder="코멘트(논의함으로) 또는 결론(결론 저장) 입력 — @이름=멘션"
         style="width:100%;box-sizing:border-box;border:1.5px solid #d1d5db;border-radius:8px;padding:7px 9px;font-size:.8rem;font-family:inherit;resize:vertical;outline:none;"></textarea>
       <div style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap;align-items:center;">
         ${btn('논의함으로', '#1d4ed8', '#eff6ff', '#bfdbfe', `boardSaveText('${r.id}','discussed')`)}
@@ -3296,7 +3371,7 @@ function projEditNote(id) {
   const r = (projState.rows || []).find(x => x.id === id);
   if (!cell || !r || cell.dataset.editing) return;
   cell.dataset.editing = '1';
-  cell.innerHTML = `<input type="text" placeholder="특이사항 입력 후 Enter"
+  cell.innerHTML = `<input type="text" class="mention-field" placeholder="특이사항 입력 후 Enter (@이름=멘션)"
     onkeydown="if(event.key==='Enter'){projSaveNote('${id}', this.value);}else if(event.key==='Escape'){projRender();}"
     onblur="setTimeout(projRender, 150)" onclick="event.stopPropagation()"
     style="width:100%;box-sizing:border-box;border:1.5px solid #a5b4fc;border-radius:6px;padding:4px 6px;font-size:.72rem;outline:none;font-family:inherit;" />`;
