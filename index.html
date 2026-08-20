@@ -2368,6 +2368,8 @@ async function notifyMentions(text, sourceLabel, linkMenu) {
         message: `[${sourceLabel}] ${excerpt}`, link_menu: linkMenu,
       }))),
     });
+    // 보낸 사람에게도 전송 확인 표시 — "된 건가?" 헷갈리지 않게 (2026-08-20)
+    showToast(`${targets.map(u => u.name).join(', ')}님에게 알림을 보냈습니다`);
   } catch (e) { console.error('멘션 알림 생성 실패', e); }
 }
 
@@ -3313,6 +3315,7 @@ async function projSaveNote(id, val) {
     });
     if (r) r.note = val;
     showToast(val ? '특이사항을 저장했습니다' : '특이사항을 지웠습니다');
+    if (val.includes('@') && r) notifyMentions(val, `프로젝트 관리 · ${r.title.slice(0, 20)}`, 'proj');
   } catch (e) { showToast('저장 실패: ' + e.message); }
   projRender();
 }
@@ -3532,6 +3535,7 @@ async function projSave() {
     }
     $('proj-modal').style.display = 'none';
     showToast(id ? '수정했습니다' : '추가했습니다');
+    if (body.note.includes('@')) notifyMentions(body.note, `프로젝트 관리 · ${title.slice(0, 20)}`, 'proj');
     await projLoad(true);
   } catch (e) { showToast('저장 실패: ' + e.message); }
 }
