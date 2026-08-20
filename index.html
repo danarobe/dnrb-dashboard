@@ -120,7 +120,11 @@
       #login-card { padding: 26px 22px; }
     }
     @media (max-width: 900px) {
-      .layout { flex-direction: column; }
+      /* align-items:stretch + margin auto 해제 필수 (2026-08-20 실사례) —
+         데스크톱의 flex-start와 .container의 margin:0 auto(가로 auto 마진)는 세로 flex에서
+         stretch를 무효화해 본문이 '내용물 최대 폭'으로 커진다 → 화면을 넘어 손으로 축소해야 했음 */
+      .layout { flex-direction: column; align-items: stretch; }
+      .layout .container { margin: 0; width: 100%; max-width: 100%; }
       .side-menu {
         position: sticky; top: 0; z-index: 50; width: 100%;
         flex-direction: row; overflow-x: auto; gap: 8px;
@@ -469,6 +473,24 @@
     @media (max-width: 700px) {
       .m-hide { display: none !important; }
       .menu-group { display: none; }   /* 가로 스크롤 메뉴에선 소제목 생략 */
+    }
+
+    /* ── 모바일 전폭 맞춤 (2026-08-20) ──
+       일부 메뉴가 화면보다 넓어져 손으로 축소해야 보이던 문제 종결.
+       원인: 고정 min-width 셀렉트, 줄바꿈 없는 긴 안내 문구, 그리드가 넓어진 부모를 그대로 채움.
+       표는 .table-wrap(가로 스크롤)이 처리하므로 제외하고, 나머지는 화면 폭 안으로 수축시킨다. */
+    @media (max-width: 700px) {
+      body { overflow-x: hidden; }                                     /* 최후 방어 — 미세 넘침이 확대·축소를 유발하지 않게 */
+      .page-sec, .section-header, .section-body { min-width: 0; max-width: 100%; }
+      .section-header { flex-wrap: wrap; row-gap: 6px; }
+      .section-body { overflow-wrap: break-word; }
+      .section-body div:not(.table-wrap) { max-width: 100%; min-width: 0; }
+      .section-body input, .section-body select, .section-body textarea, .section-body label {
+        max-width: 100%; min-width: 0 !important;
+      }
+      /* 인라인 flex 행(컨트롤 묶음)이 화면보다 넓으면 줄바꿈 — 간트(.table-wrap 포함 행)는 제외 */
+      .section-body div[style*="display:flex"] { flex-wrap: wrap; }
+      .section-body canvas { max-width: 100%; }
     }
   </style>
 </head>

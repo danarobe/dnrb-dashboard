@@ -262,6 +262,13 @@ AUTHOR_FIELDS(notes/comments=author_id, likes=user_id): POST는 본인 id 필수
 5. 긴 안내 문구 축약(홈·반품관리·진열 인트로).
 - 전부 **파이썬 일괄 치환(count assert)** 으로 수행 — 개별 손 수정 금지 수준의 분량. 검증: 화면 잔여 이모지 0, 12개 메뉴 순회 예외 0, 판매 성과 306상품·사유 모달 정상, 콘솔 오류 0.
 
+## 7-4-b. 모바일 전폭 맞춤 (2026-08-20 — "축소해야 보임" 종결)
+
+- **근본 원인**: ≤900px에서 .layout이 세로 flex로 바뀌는데 ① 데스크톱의 `align-items:flex-start` ② `.container`의 `margin:0 auto`(가로 auto 마진)가 남아 **stretch가 무효화** → 본문 폭 = 내용물 최대 폭(700~900px)이 되어 화면을 넘음. 수정: 미디어 블록에서 `.layout{align-items:stretch}` + `.layout .container{margin:0;width:100%}`.
+- 보조 규칙(≤700px): body overflow-x hidden(최후 방어) · 섹션 내 div/입력/셀렉트 max-width 100%·min-width 0(!important — 인라인 min-width 셀렉트 제압) · **인라인 `display:flex` 행 일괄 flex-wrap** · section-header 줄바꿈 · canvas max-width. 표는 기존 .table-wrap 가로 스크롤 그대로.
+- **검증법 주의**: 이 세션의 브라우저 페인 뷰포트 에뮬레이션이 불안정(호출 간 innerWidth 375→409→763 요동, rect 단위 뒤섞임) → **페이지 안에 375px iframe을 만들어 그 안에서 측정**하는 방식이 신뢰됨(미디어쿼리는 iframe 뷰포트 기준). 최종: 13개 메뉴 전부 넘침 0px, container=viewport 일치.
+- ⚠ 이 과정에서 `</style>` 닫는 태그를 누락해 스크립트 전체가 죽는 사고 1회(즉시 복구) — **style 블록 편집 후 페이지 로드 확인 필수**.
+
 ## 7-4. 성능 점검 (2026-08-19 전수 점검 — 기능 무변경 원칙)
 
 - **Pretendard 구글폰트 링크 제거**: 구글 폰트에 없는 서체라 매 접속 로드 실패(콘솔 오류 4개) + **실패하는 CSS 링크는 첫 페인트를 블로킹**. 대체 서체 목록이 동일 적용되므로 화면 변화 없음. 다시 넣으려면 jsdelivr의 pretendard 패키지 CSS 사용할 것.
