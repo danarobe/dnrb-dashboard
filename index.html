@@ -479,11 +479,10 @@
   <h1><i class="fa-solid fa-chart-line"></i> 온라인 쇼핑몰 <span>성과 분석 대시보드 by DNRB</span></h1>
   <div style="display:flex;align-items:center;gap:10px;">
     <span id="notif-wrap" style="position:relative;display:none;">
-      <button class="btn-copy-link" onclick="notifToggle(event)" title="알림" style="position:relative;padding:6px 11px;">
+      <button id="btn-notif" class="btn-copy-link" onclick="notifToggle(event)" title="알림" style="position:relative;padding:6px 11px;">
         <i class="fa-regular fa-bell"></i>
         <span id="notif-badge" style="display:none;position:absolute;top:-5px;right:-5px;background:#ef4444;color:#fff;border-radius:99px;font-size:.62rem;font-weight:800;padding:1px 5px;min-width:16px;line-height:1.4;">0</span>
       </button>
-      <div id="notif-drop" style="display:none;position:absolute;right:0;top:calc(100% + 8px);width:320px;max-height:420px;overflow-y:auto;background:#fff;border:1px solid #e5e7eb;border-radius:12px;box-shadow:0 10px 30px rgba(15,23,42,.18);z-index:230;text-align:left;"></div>
     </span>
     <span id="user-info" style="font-size:.82rem;color:rgba(255,255,255,.85);"></span>
     <button class="btn-copy-link" onclick="copyLink()">
@@ -1601,6 +1600,8 @@
      JAVASCRIPT
 ════════════════════════════════ -->
 <!-- @멘션 자동완성 드롭다운 — body 직속 (섹션·헤더 안에 두면 blur 조상 때문에 fixed 기준이 깨짐) -->
+<!-- 알림 드롭다운 — body 직속 (헤더 안에 두면 모바일에서 잘림 + blur 조상 함정, 2026-08-20 이동) -->
+<div id="notif-drop" style="display:none;position:fixed;z-index:230;overflow-y:auto;background:#fff;border:1px solid #e5e7eb;border-radius:12px;box-shadow:0 10px 30px rgba(15,23,42,.18);text-align:left;"></div>
 <div id="mention-drop" style="display:none;position:fixed;z-index:240;background:#fff;border:1px solid #e5e7eb;border-radius:10px;box-shadow:0 8px 24px rgba(15,23,42,.16);max-height:220px;overflow-y:auto;min-width:150px;"></div>
 
 <script>
@@ -2407,12 +2408,24 @@ function notifBadge() {
 function notifToggle(ev) {
   if (ev) ev.stopPropagation();
   const d = $('notif-drop');
-  if (d.style.display === 'none') { d.style.display = 'block'; notifRenderDrop(); notifLoad(true).then(notifRenderDrop); }
-  else d.style.display = 'none';
+  if (d.style.display === 'none') {
+    // 종 버튼 아래에 뷰포트 기준으로 배치 — 모바일(≤480px)은 화면 폭에 맞게 펼침 (잘림 방지)
+    const r = $('btn-notif').getBoundingClientRect();
+    if (window.innerWidth <= 480) {
+      d.style.left = '10px'; d.style.right = '10px'; d.style.width = 'auto';
+    } else {
+      d.style.left = 'auto'; d.style.right = Math.max(10, window.innerWidth - r.right) + 'px'; d.style.width = '320px';
+    }
+    d.style.top = (r.bottom + 8) + 'px';
+    d.style.maxHeight = Math.max(200, window.innerHeight - r.bottom - 24) + 'px';
+    d.style.display = 'block';
+    notifRenderDrop();
+    notifLoad(true).then(notifRenderDrop);
+  } else d.style.display = 'none';
 }
 document.addEventListener('click', e => {
-  const w = $('notif-wrap');
-  if (w && !w.contains(e.target)) { const d = $('notif-drop'); if (d) d.style.display = 'none'; }
+  const d = $('notif-drop'), w = $('notif-wrap');
+  if (d && d.style.display !== 'none' && !d.contains(e.target) && !(w && w.contains(e.target))) d.style.display = 'none';
 });
 
 function notifSetView(v, ev) {
