@@ -1484,10 +1484,26 @@
           style="border:1.5px solid #d1d5db;background:#fff;color:#4b5563;border-radius:8px;padding:5px 10px;font-size:.75rem;font-weight:700;cursor:pointer;"><i class="fa-solid fa-file-arrow-up"></i> 업로드</button>
         <button onclick="projDownloadXlsx(false)" title="현재 업무 목록을 엑셀로 내려받기"
           style="border:1.5px solid #d1d5db;background:#fff;color:#4b5563;border-radius:8px;padding:5px 10px;font-size:.75rem;font-weight:700;cursor:pointer;"><i class="fa-solid fa-file-arrow-down"></i> 다운로드</button>
+        <button onclick="projOpenBatches()" title="일괄 등록(엑셀 업로드) 단위로 되돌리기"
+          style="border:1.5px solid #fecaca;background:#fff;color:#b91c1c;border-radius:8px;padding:5px 10px;font-size:.75rem;font-weight:700;cursor:pointer;"><i class="fa-solid fa-file-circle-minus"></i> 업로드 삭제</button>
         <input type="file" id="proj-file" accept=".xlsx" style="display:none;" onchange="projUploadXlsx(event)" />
         <button class="btn-analyze" style="padding:6px 14px;font-size:.78rem;" onclick="projOpenAdd()"><i class="fa-solid fa-plus"></i> 업무 추가</button>
       </div>
       <div id="proj-result"><div class="empty-state"><p>불러오는 중...</p></div></div>
+    </div>
+  </div>
+
+  <!-- 업로드 묶음 삭제 모달 — 같은 시각(초 단위 동일)에 일괄 등록된 업무 = 한 번의 업로드 -->
+  <div id="proj-batch-modal" onclick="if(event.target===this)this.style.display='none'"
+       style="display:none;position:fixed;inset:0;background:rgba(15,23,42,.55);z-index:210;align-items:center;justify-content:center;padding:20px;">
+    <div style="background:#fff;border-radius:16px;max-width:480px;width:100%;padding:18px;max-height:88vh;overflow-y:auto;">
+      <b style="font-size:.88rem;color:#1e1b4b;">업로드(일괄 등록) 삭제</b>
+      <div style="font-size:.75rem;color:#9ca3af;margin:6px 0 12px;">한 번에 등록된 업무 묶음입니다. 잘못 올린 업로드를 통째로 되돌릴 수 있어요. 하나씩 추가한 업무는 여기 나오지 않습니다(업무명 클릭 → 삭제).</div>
+      <div id="proj-batch-list"></div>
+      <div style="display:flex;justify-content:flex-end;margin-top:12px;">
+        <button onclick="document.getElementById('proj-batch-modal').style.display='none'"
+                style="border:1.5px solid #d1d5db;background:#fff;border-radius:8px;padding:8px 14px;font-size:.82rem;cursor:pointer;">닫기</button>
+      </div>
     </div>
   </div>
 
@@ -3913,6 +3929,50 @@ async function projUploadXlsx(ev) {
     await projLoad(true);
     showToast(`${items.length}건 추가 완료${skippedDup ? ` · 중복 ${skippedDup}건 제외` : ''}`);
   } catch (e) { showToast('업로드 실패: ' + e.message); }
+}
+
+/* ── 업로드(일괄 등록) 삭제 (2026-08-21) ──
+   PostgREST 배열 POST는 한 문장이라 created_at(now())이 전 행 동일 → 같은 시각 = 같은 업로드 묶음.
+   별도 컬럼 없이 과거 업로드분까지 식별·삭제 가능. 건수 1인 시각(수동 추가)은 제외. */
+function projBatches() {
+  const by = new Map();
+  for (const r of (projState.rows || [])) {
+    if (!by.has(r.created_at)) by.set(r.created_at, []);
+    by.get(r.created_at).push(r);
+  }
+  return [...by.entries()].filter(([, v]) => v.length > 1)
+    .sort((a, b) => (a[0] < b[0] ? 1 : -1));
+}
+
+function projOpenBatches() {
+  const batches = projBatches();
+  const first = batches.length ? batches[batches.length - 1][0] : null;   // 가장 오래된 = 최초 가져오기
+  $('proj-batch-list').innerHTML = batches.length ? batches.map(([ts, items]) => {
+    const cats = [...new Set(items.map(r => r.category))];
+    const when = String(ts).slice(0, 16).replace('T', ' ');
+    const isFirst = ts === first;
+    return `<div style="display:flex;align-items:center;gap:10px;border:1px solid #e5e7eb;border-radius:10px;padding:10px 12px;margin-bottom:8px;">
+      <div style="flex:1;min-width:0;">
+        <div style="font-size:.8rem;font-weight:700;color:#1e1b4b;">${when} · ${items.length}건${isFirst ? ' <span style="background:#eef2ff;color:#4338ca;border-radius:5px;padding:1px 7px;font-size:.68rem;">최초 가져오기</span>' : ''}</div>
+        <div style="font-size:.72rem;color:#9ca3af;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${cats.map(escHtml).join(' · ')}</div>
+      </div>
+      <button onclick="projDeleteBatch('${ts}')" style="border:1px solid #fecaca;background:#fef2f2;color:#b91c1c;border-radius:8px;padding:5px 12px;font-size:.74rem;font-weight:700;cursor:pointer;flex-shrink:0;">삭제</button>
+    </div>`;
+  }).join('') : '<div style="padding:16px;text-align:center;color:#9ca3af;font-size:.78rem;">일괄 등록된 묶음이 없습니다.</div>';
+  $('proj-batch-modal').style.display = 'flex';
+}
+
+async function projDeleteBatch(ts) {
+  const items = (projState.rows || []).filter(r => r.created_at === ts);
+  if (!items.length) return;
+  const cats = [...new Set(items.map(r => r.category))].join(', ');
+  if (!confirm(`이 업로드로 등록된 업무 ${items.length}건(${cats})을 모두 삭제할까요?\n되돌릴 수 없습니다.`)) return;
+  try {
+    await dbProxy(`project_tasks?created_at=eq.${encodeURIComponent(ts)}`, { method: 'DELETE', headers: { Prefer: 'return=minimal' } });
+    showToast(`${items.length}건 삭제했습니다`);
+    await projLoad(true);
+    projOpenBatches();   // 목록 갱신 (모달 유지)
+  } catch (e) { showToast('삭제 실패: ' + e.message); }
 }
 
 async function projDelete() {
