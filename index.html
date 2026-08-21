@@ -3513,7 +3513,8 @@ function projRender() {
           onmouseover="this.style.color='#4f46e5'" onmouseout="this.style.color='#c4c9d4'"><i class="fa-solid fa-circle-plus"></i></button>${subHtml}</td>
       <td class="pj-hm" style="text-align:left;font-size:.75rem;color:#6b7280;white-space:pre-wrap;min-width:160px;">${escHtml(r.done_criteria || '')}</td>
       <td class="pj-hm">${prBadge(r.priority)}</td>
-      <td style="font-size:.78rem;white-space:nowrap;"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${projColor(r.assignee)};margin-right:4px;"></span>${escHtml(r.assignee || '') || '<span style="color:#c4c9d4;">—</span>'}</td>
+      <td id="pj-asg-${r.id}" onclick="projEditAssignee('${r.id}')" title="클릭해서 담당자 변경"
+          style="font-size:.78rem;white-space:nowrap;cursor:pointer;"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${projColor(r.assignee)};margin-right:4px;"></span><span style="text-decoration:underline dotted;text-underline-offset:3px;">${escHtml(r.assignee || '') || '—'}</span></td>
       <td id="pj-due-${r.id}" onclick="projEditDue('${r.id}')" title="클릭해서 마감일 수정"
           style="font-size:.75rem;color:${overdue ? '#dc2626' : '#6b7280'};white-space:nowrap;font-weight:${overdue ? '700' : '400'};cursor:pointer;">
         <span style="text-decoration:underline dotted;text-underline-offset:3px;">${r.due_date || '—'}</span>${overdue ? ' 지남' : ''}</td>
@@ -3583,6 +3584,39 @@ async function projSaveNote(id, val) {
     showToast(val ? '특이사항을 저장했습니다' : '특이사항을 지웠습니다');
     if (val.includes('@') && r) notifyMentions(val, `프로젝트 관리 · ${r.title.slice(0, 20)}`, 'proj');
   } catch (e) { showToast('저장 실패: ' + e.message); }
+  projRender();
+}
+
+/* 담당자 인라인 수정 (2026-08-21) — 칸 클릭 → 그 자리에서 등록 사용자 선택 */
+async function projEditAssignee(id) {
+  const cell = $('pj-asg-' + id);
+  const r = (projState.rows || []).find(x => x.id === id);
+  if (!cell || !r || cell.dataset.editing) return;
+  cell.dataset.editing = '1';
+  cell.innerHTML = '<i class="fa-solid fa-spinner fa-spin" style="font-size:.7rem;color:#a5b4fc;"></i>';
+  await projEnsureUsers();
+  const names = [...(projState.users || [])];
+  if (!names.includes('모두')) names.push('모두');
+  if (r.assignee && !names.includes(r.assignee)) names.push(r.assignee);
+  cell.innerHTML = `<select onchange="projSaveAssignee('${id}', this.value)"
+      onblur="setTimeout(projRender, 150)" onclick="event.stopPropagation()"
+      style="border:1.5px solid #a5b4fc;border-radius:6px;padding:3px 5px;font-size:.74rem;outline:none;max-width:100%;">
+    <option value="">—</option>
+    ${names.map(n => `<option value="${escHtml(n)}" ${n === r.assignee ? 'selected' : ''}>${escHtml(n)}</option>`).join('')}
+  </select>`;
+  cell.querySelector('select').focus();
+}
+
+async function projSaveAssignee(id, val) {
+  const r = (projState.rows || []).find(x => x.id === id);
+  try {
+    await dbProxy(`project_tasks?id=eq.${id}`, {
+      method: 'PATCH', headers: { Prefer: 'return=minimal' },
+      body: JSON.stringify({ assignee: val, updated_at: new Date().toISOString() }),
+    });
+    if (r) r.assignee = val;
+    showToast(val ? `담당자를 ${val}(으)로 변경했습니다` : '담당자를 지웠습니다');
+  } catch (e) { showToast('변경 실패: ' + e.message); }
   projRender();
 }
 
