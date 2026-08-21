@@ -84,6 +84,7 @@
     #disp-cfg input { border: 1.5px solid #d1d5db; border-radius: 7px; padding: 6px 9px; font-size:.82rem; outline: none; }
     .page-sec { display: none; }
     #proj-result .pj-title { min-width: 190px; }
+    .rw-hs { display: none; }   /* 상태 미니 배지 — 모바일에서만 (미디어 블록에서 표시) */
 
     /* ── 로그인 오버레이 ── */
     #login-overlay {
@@ -140,6 +141,7 @@
       tbody td[style*="text-align:left"][style*="min-width"] { min-width: 120px !important; }
       tbody td.name-cell { max-width: 150px; }
       #rw-result td.rw-actions { white-space: normal !important; }      /* 관리 버튼 세로 쌓임 */
+      .rw-hs { display: inline; }                                       /* 모바일: 상품명 아래 상태 미니 배지 */
 
       .side-menu {
         position: sticky; top: 0; z-index: 50; width: 100%;
@@ -2933,10 +2935,15 @@ function rwRender() {
       <th>순반품률<br><span style="font-size:.7rem;font-weight:400;color:#9ca3af;">7일</span></th>
       <th>순반품률<br><span style="font-size:.7rem;font-weight:400;color:#9ca3af;">14일</span></th>
       <th class="rw-hm">순반품률<br><span style="font-size:.7rem;font-weight:400;color:#9ca3af;">30일</span></th>
-      <th class="rw-hm">위험 사유</th><th>관리</th>
+      <th class="rw-hm">위험 사유</th><th class="rw-hm">상태</th><th>관리</th>
     </tr></thead><tbody>`;
   for (const p of list) {
     const w = p.windows, on = wset.has(p.product_no);
+    const wRow = on ? (rwState.watch || []).find(x => Number(x.product_no) === p.product_no) : null;
+    const stBadge = !wRow ? '<span style="color:#c4c9d4;font-size:.75rem;">—</span>'
+      : wRow.discontinued
+        ? '<span style="background:#f3f4f6;color:#4b5563;border-radius:99px;padding:2px 9px;font-size:.7rem;font-weight:700;">판매중단</span>'
+        : '<span style="background:#dcfce7;color:#15803d;border-radius:99px;padding:2px 9px;font-size:.7rem;font-weight:700;">관리중</span>';
     const reasons = [];
     if (p.product_risk) reasons.push('<span style="background:#fee2e2;color:#b91c1c;border-radius:5px;padding:1px 7px;font-size:.7rem;font-weight:700;">상품 전체</span>');
     if (p.risk_options.length) reasons.push(`<span style="background:#ffedd5;color:#c2410c;border-radius:5px;padding:1px 7px;font-size:.7rem;font-weight:700;">옵션 ${p.risk_options.length}개</span>`);
@@ -2944,12 +2951,13 @@ function rwRender() {
       <td class="rw-hm" style="font-size:.75rem;color:#6b7280;">${p.rank7 || '—'} / ${p.rank14 || '—'}</td>
       <td style="text-align:left;min-width:170px;white-space:normal;">
         <span onclick="rwShowDetail(${p.product_no})" style="cursor:pointer;color:#4338ca;text-decoration:underline dotted;text-underline-offset:3px;">${escHtml(p.product_name)}</span>
-        ${on ? ' <i class="fa-solid fa-star" title="관리 상품" style="color:#f59e0b;font-size:.75rem;"></i>' : ''}</td>
+        ${on ? ' <i class="fa-solid fa-star" title="관리 상품" style="color:#f59e0b;font-size:.75rem;"></i>' : ''}${wRow ? `<span class="rw-hs"> ${stBadge}</span>` : ''}</td>
       <td class="rw-hm" style="font-size:.82rem;">${fmt(p.paid7)} / ${fmt(p.paid14)}</td>
       <td>${rwBadge(w['7'].rate, w['7'].del, d.min_qty, d.risk_at)}<div style="font-size:.7rem;color:#9ca3af;">${fmt(w['7'].ret)}÷${fmt(w['7'].del)}</div></td>
       <td>${rwBadge(w['14'].rate, w['14'].del, d.min_qty, d.risk_at)}<div style="font-size:.7rem;color:#9ca3af;">${fmt(w['14'].ret)}÷${fmt(w['14'].del)}</div></td>
       <td class="rw-hm">${rwBadge(w['30'].rate, w['30'].del, d.min_qty, d.risk_at)}<div style="font-size:.7rem;color:#9ca3af;">${fmt(w['30'].ret)}÷${fmt(w['30'].del)}</div></td>
       <td class="rw-hm" style="text-align:left;">${reasons.join(' ') || '<span style="color:#9ca3af;font-size:.75rem;">—</span>'}</td>
+      <td class="rw-hm">${stBadge}</td>
       <td>${on
         ? `<button onclick="rwRemoveWatch(${p.product_no})" style="border:1px solid #fdba74;background:#fff7ed;color:#c2410c;border-radius:6px;padding:3px 9px;font-size:.7rem;font-weight:700;cursor:pointer;">해제</button>`
         : `<button onclick="rwOpenAdd(${p.product_no})" style="border:1px solid #c7d2fe;background:#eef2ff;color:#4338ca;border-radius:6px;padding:3px 9px;font-size:.7rem;font-weight:700;cursor:pointer;">지정</button>`}</td>
