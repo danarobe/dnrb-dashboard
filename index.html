@@ -3909,15 +3909,31 @@ async function projUploadXlsx(ev) {
     if (!Array.isArray(rows)) rows = [[rows]];
     else if (!Array.isArray(rows[0])) rows = [rows];
 
+    // 서식 있는 텍스트(부분 색·밑줄 등) 셀은 문자열이 아니라 RichText 객체로 읽힌다 —
+    // String()으로 바꾸면 "[object Object]"가 저장되던 버그 수정 (2026-08-21 실사례: 사운드북 업로드)
+    const plain = v => {
+      if (v == null) return '';
+      if (typeof v === 'object') {
+        try {
+          if (typeof v.text === 'function') return String(v.text());          // RichText 전체 텍스트
+          if (typeof v.get === 'function' && typeof v.length === 'number') {  // 폴백: 조각 이어붙이기
+            let t = ''; for (let i = 0; i < v.length; i++) t += String(v.get(i).value() ?? '');
+            return t;
+          }
+        } catch {}
+        return '';
+      }
+      return String(v);
+    };
     // 헤더명 기반 열 인식 — 열 순서 바뀌어도 동작 (셀메이트 CSV 관례)
-    const header = rows[0].map(v => String(v ?? '').replace(/\s/g, ''));
+    const header = rows[0].map(v => plain(v).replace(/\s/g, ''));
     const col = name => header.indexOf(name.replace(/\s/g, ''));
     const ci = { cat: col('프로젝트'), sec: col('섹션'), title: col('업무'), sub: col('하위 업무'), crit: col('꼭 포함할 것'),
                  pr: col('우선순위'), asg: col('담당자'), start: col('시작일'), due: col('마감일'), status: col('상태'),
                  note: col('특이사항') >= 0 ? col('특이사항') : col('비고') };   // 옛 양식('비고')도 인식
     if (ci.cat < 0 || ci.title < 0) throw new Error("1행 헤더에서 '프로젝트'와 '업무' 열을 찾지 못했습니다 — '양식' 버튼으로 받은 파일로 작성해주세요");
 
-    const txt = (row, i) => i < 0 ? '' : String(row[i] ?? '').trim();
+    const txt = (row, i) => i < 0 ? '' : plain(row[i]).trim();
     const dateOf = (row, i) => {
       if (i < 0) return null;
       const v = row[i];
