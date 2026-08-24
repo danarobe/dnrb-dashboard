@@ -4905,16 +4905,25 @@ function renderStableResult() {
         <th class="m-hide">1일 평균<br><span style="font-size:.7rem;font-weight:400;color:#9ca3af;">결제수량</span></th>
         <th class="m-hide">상태</th>
       </tr></thead><tbody>`;
+    // 상품별 그룹 표시 (2026-08-24 사용자 요청 — 신규 편성 표와 같은 방식):
+    // 가나다 정렬이라 같은 상품의 옵션은 이미 붙어 있음 → 첫 행에만 상품명+'옵션 N개'(표시 중 기준), 이후 행 〃, 경계선
+    let prevName = null;
     for (const r of rows) {
       const diff = r.rec === null ? null : r.rec - r.stable;
+      const first = r.name !== prevName;
+      prevName = r.name;
+      const optN = rows.filter(x => x.name === r.name).length;
+      const bt = first ? 'border-top:2px solid #dbe0ea;' : '';
       html += `<tr${r.changed ? ' style="background:#fdf0f6;"' : ''}>
-        <td style="text-align:left;min-width:200px;">${escHtml(r.name)}</td>
-        <td style="text-align:left;font-size:.82rem;color:#6b7280;">${escHtml(r.option) || '—'}</td>
-        <td class="m-hide">${fmt(r.stable)}</td>
-        <td style="font-weight:800;">${r.rec === null ? '—' : fmt(r.rec)}</td>
-        <td style="font-weight:700;color:${diff > 0 ? '#dc2626' : diff < 0 ? '#2563eb' : '#9ca3af'};">${diff === null ? '—' : diff > 0 ? '+' + diff : diff}</td>
-        <td class="m-hide">${r.avg.toFixed(1)}</td>
-        <td class="m-hide">${chip(r.status)}${r.changed ? ' <span style="background:#ffe3ef;color:#b93167;border-radius:5px;padding:2px 8px;font-size:.75rem;font-weight:700;">변경 필요</span>' : ''}</td>
+        <td style="text-align:left;min-width:200px;${bt}">${first
+          ? `${escHtml(r.name)}${optN > 1 ? ` <span style="color:#6d5ae8;font-size:.7rem;font-weight:700;">옵션 ${optN}개</span>` : ''}`
+          : '<span style="color:#c4c9d4;font-size:.75rem;">〃</span>'}</td>
+        <td style="text-align:left;font-size:.82rem;color:#6b7280;${bt}">${escHtml(r.option) || '—'}</td>
+        <td class="m-hide" style="${bt}">${fmt(r.stable)}</td>
+        <td style="font-weight:800;${bt}">${r.rec === null ? '—' : fmt(r.rec)}</td>
+        <td style="font-weight:700;${bt}color:${diff > 0 ? '#dc2626' : diff < 0 ? '#2563eb' : '#9ca3af'};">${diff === null ? '—' : diff > 0 ? '+' + diff : diff}</td>
+        <td class="m-hide" style="${bt}">${r.avg.toFixed(1)}</td>
+        <td class="m-hide" style="${bt}">${chip(r.status)}${r.changed ? ' <span style="background:#ffe3ef;color:#b93167;border-radius:5px;padding:2px 8px;font-size:.75rem;font-weight:700;">변경 필요</span>' : ''}</td>
       </tr>`;
     }
     $('stable-result').innerHTML = html + '</tbody></table></div>';
