@@ -4827,8 +4827,20 @@ async function fetchStableCompare() {
     stableState.newItems = (d.items || [])
       .filter(it => !usedKeys.has(`${it.product_no}|${it.option_value}`))
       .map(it => ({ ...it, avg: it.paid_qty / days, rec: calcStableRec(it.paid_qty / days) }))
-      .filter(it => it.rec >= 1)
-      .sort((a, b) => b.rec - a.rec || b.paid_qty - a.paid_qty);
+      .filter(it => it.rec >= 1);
+    // 같은 상품의 옵션들을 붙여서 나열 (2026-08-24 사용자 요청 — 상품별로 한 번에 조정하기 위함)
+    // 상품 순서 = 그 상품 옵션 중 최대 추천 desc → 총 결제수량 desc, 상품 안 옵션 = 추천 desc
+    {
+      const g = new Map();
+      for (const it of stableState.newItems) {
+        if (!g.has(it.product_no)) g.set(it.product_no, { items: [], maxRec: 0, paid: 0 });
+        const grp = g.get(it.product_no);
+        grp.items.push(it); grp.maxRec = Math.max(grp.maxRec, it.rec); grp.paid += it.paid_qty;
+      }
+      stableState.newItems = [...g.values()]
+        .sort((a, b) => b.maxRec - a.maxRec || b.paid - a.paid)
+        .flatMap(grp => grp.items.sort((x, y) => y.rec - x.rec || y.paid_qty - x.paid_qty));
+    }
 
     renderStableResult();
     showToast(`분석 완료 — 카페24 주문 ${fmt(d.order_count)}건 기준`);
@@ -4915,12 +4927,19 @@ function renderStableResult() {
         <th style="text-align:left;">상품명</th><th style="text-align:left;">옵션</th>
         <th class="m-hide">기간 결제수량</th><th class="m-hide">1일 평균</th><th>추천 안정재고</th>
       </tr></thead><tbody>`;
+    let prevNo = null;
     for (const it of stableState.newItems) {
+      const first = it.product_no !== prevNo;
+      prevNo = it.product_no;
+      const optN = stableState.newItems.filter(x => x.product_no === it.product_no).length;
+      const bt = first ? 'border-top:2px solid #e2c95f;' : '';   // 상품 경계선
       html += `<tr style="background:#fffbe8;">
-        <td style="text-align:left;min-width:200px;">${escHtml(it.product_name)}</td>
-        <td style="text-align:left;font-size:.82rem;color:#6b7280;">${escHtml(it.option_value) || '—'}</td>
-        <td class="m-hide">${fmt(it.paid_qty)}</td><td class="m-hide">${it.avg.toFixed(1)}</td>
-        <td style="font-weight:800;">${fmt(it.rec)}</td>
+        <td style="text-align:left;min-width:200px;${bt}">${first
+          ? `${escHtml(it.product_name)}${optN > 1 ? ` <span style="color:#b45309;font-size:.7rem;font-weight:700;">옵션 ${optN}개</span>` : ''}`
+          : '<span style="color:#d1c48a;font-size:.75rem;">〃</span>'}</td>
+        <td style="text-align:left;font-size:.82rem;color:#6b7280;${bt}">${escHtml(it.option_value) || '—'}</td>
+        <td class="m-hide" style="${bt}">${fmt(it.paid_qty)}</td><td class="m-hide" style="${bt}">${it.avg.toFixed(1)}</td>
+        <td style="font-weight:800;${bt}">${fmt(it.rec)}</td>
       </tr>`;
     }
     $('stable-new').innerHTML = html + '</tbody></table></div>';
