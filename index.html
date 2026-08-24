@@ -1722,7 +1722,7 @@ function loadSession() {
     if (s && s.token && s.exp > Date.now()) SESSION = s;
   } catch {}
 }
-const isStaff = () => SESSION?.role === 'staff';
+const isStaff = () => SESSION?.role === 'staff' || SESSION?.role === 'marketer';   // 마케터 = MD와 동일 권한 (표시명만 다름)
 const isAdmin = () => SESSION?.role === 'admin';
 const isCS    = () => SESSION?.role === 'cs';
 
@@ -1783,7 +1783,7 @@ function applyRole() {
     }
     el.style.display = anyVisible ? '' : 'none';
   });
-  $('user-info').textContent = SESSION ? `${SESSION.name} (${isAdmin() ? '관리자' : isCS() ? 'CS팀' : 'MD'})` : '';
+  $('user-info').textContent = SESSION ? `${SESSION.name} (${isAdmin() ? '관리자' : isCS() ? 'CS팀' : SESSION.role === 'marketer' ? '마케터' : 'MD'})` : '';
   $('btn-logout').style.display = SESSION ? '' : 'none';
 }
 
@@ -1800,13 +1800,14 @@ async function loadUsers() {
           : `<select onchange="setUserRole('${escHtml(u.id)}', this.value)" style="border:1px solid #d1d5db;border-radius:6px;padding:4px 8px;font-size:.82rem;cursor:pointer;font-weight:600;color:#374151;">
               <option value="admin" ${u.role === 'admin' ? 'selected' : ''}>관리자</option>
               <option value="staff" ${u.role === 'staff' ? 'selected' : ''}>MD</option>
+              <option value="marketer" ${u.role === 'marketer' ? 'selected' : ''}>마케터</option>
               <option value="cs" ${u.role === 'cs' ? 'selected' : ''}>CS팀</option>
             </select>`;
         const delBtn = (u.role === 'admin') ? '' :
           `<button onclick="deleteUser('${escHtml(u.id)}')" style="border:1px solid #fecaca;background:#fff;color:#dc2626;border-radius:6px;padding:4px 12px;font-size:.82rem;cursor:pointer;font-weight:600;">삭제</button>`;
         return `<tr>
         <td>${escHtml(u.id)}</td><td>${escHtml(u.name)}</td>
-        <td>${u.role === 'admin' ? '<b style="color:#4f46e5;">관리자</b>' : u.role === 'cs' ? '<b style="color:#0891b2;">CS팀</b>' : 'MD'}</td>
+        <td>${u.role === 'admin' ? '<b style="color:#4f46e5;">관리자</b>' : u.role === 'cs' ? '<b style="color:#0891b2;">CS팀</b>' : u.role === 'marketer' ? '<b style="color:#b45309;">마케터</b>' : 'MD'}</td>
         <td class="m-hide">${(u.created_at || '').slice(0, 10)}</td>
         <td style="display:flex;gap:6px;justify-content:center;">${roleBtn}${delBtn}</td>
       </tr>`; }).join('') + '</tbody></table></div>' +

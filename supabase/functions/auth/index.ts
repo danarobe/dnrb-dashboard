@@ -120,7 +120,7 @@ Deno.serve(async (req) => {
     if (action === "set_role") {
       const id = String(body.id ?? "").trim();
       const role = String(body.role ?? "");
-      if (!["admin", "staff", "cs"].includes(role)) return json({ error: "잘못된 역할입니다" }, 400);
+      if (!["admin", "staff", "marketer", "cs"].includes(role)) return json({ error: "잘못된 역할입니다" }, 400);
       if (id === me.id) return json({ error: "본인의 권한은 변경할 수 없습니다" }, 400);
       if (!await getUser(id)) return json({ error: "존재하지 않는 아이디입니다" }, 404);
       const res = await usersRest(`app_users?id=eq.${encodeURIComponent(id)}`, {

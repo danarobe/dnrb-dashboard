@@ -47,7 +47,10 @@ export async function verifyAuthToken(req: Request): Promise<AuthUser | null> {
   if (!res.ok) return null;
   const row = (await res.json())[0];
   if (!row) return null;
-  return { ...u, name: String(row.name), role: String(row.role) };
+  // 마케터(marketer)는 권한상 MD(staff)와 동일 — 표시용 역할만 다름 (2026-08-24 사용자 결정).
+  // 여기서 정규화하면 모든 함수의 권한 검사가 자동으로 MD와 같아진다. ⚠ util 수정 = 전 함수 재배포!
+  const role = String(row.role) === 'marketer' ? 'staff' : String(row.role);
+  return { ...u, name: String(row.name), role };
 }
 
 export function json(body: unknown, status = 200): Response {
