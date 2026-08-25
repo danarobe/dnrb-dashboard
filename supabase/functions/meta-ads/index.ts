@@ -207,14 +207,18 @@ Deno.serve(async (req) => {
         : preset === "yesterday" ? { start: addDays(t, -1), end: addDays(t, -1) }
         : preset === "last_7d" ? { start: addDays(t, -7), end: addDays(t, -1) }
         : { start: addDays(t, -30), end: addDays(t, -1) };
-      const cacheKey = `meta:hierarchy2:${preset}:${t}`;
+      const cacheKey = `meta:hierarchy3:${preset}:${t}`;
       const hit = await cacheGet(cacheKey, 60 * 1000);
       if (hit) return json(hit);
 
       type Node = Record<string, unknown>;
       const [camps, adsets, adsAct, ins] = await Promise.all([
-        graphGet(`${c.account}/campaigns`, { fields: "id,name,effective_status,daily_budget", limit: "200" }, c.token),
-        graphGet(`${c.account}/adsets`, { fields: "id,name,effective_status,daily_budget,campaign_id", limit: "500" }, c.token),
+        graphGet(`${c.account}/campaigns`, { fields: "id,name,effective_status,daily_budget,lifetime_budget", limit: "200" }, c.token),
+        graphGet(`${c.account}/adsets`, {
+          fields: "id,name,effective_status,daily_budget,lifetime_budget,campaign_id",
+          filtering: JSON.stringify([{ field: "effective_status", operator: "IN", value: ["ACTIVE"] }]),
+          limit: "500",
+        }, c.token),   // 활성 필터 — 무필터 500 한도에 활성 세트가 잘려 상태·예산이 비던 버그 수정(2026-08-25c)
         graphGet(`${c.account}/ads`, {
           fields: "id,name,effective_status,adset_id,campaign_id",
           filtering: JSON.stringify([{ field: "effective_status", operator: "IN", value: ["ACTIVE"] }]),
@@ -231,23 +235,24 @@ Deno.serve(async (req) => {
       const cMap = new Map<string, Node>();
       for (const r of (camps.data ?? []) as Node[]) {
         cMap.set(String(r.id), { id: String(r.id), name: String(r.name ?? ""), status: String(r.effective_status ?? ""),
-          budget: num(r.daily_budget), spend: 0, purchases: 0, value: 0, adsets: new Map<string, Node>() });
+          budget: num(r.daily_budget), budget_life: num(r.lifetime_budget),
+          spend: 0, purchases: 0, value: 0, adsets: new Map<string, Node>() });
       }
       const sMap = new Map<string, Node>();   // adset_id → node (캠페인에도 연결)
       const ensureCamp = (id: string, name = "") => {
         if (!cMap.has(id)) cMap.set(id, { id, name, status: "", budget: 0, spend: 0, purchases: 0, value: 0, adsets: new Map() });
         return cMap.get(id)!;
       };
-      const ensureAdset = (id: string, campId: string, name = "", status = "", budget = 0) => {
+      const ensureAdset = (id: string, campId: string, name = "", status = "", budget = 0, budgetLife = 0) => {
         if (!sMap.has(id)) {
-          const node: Node = { id, name, status, budget, spend: 0, purchases: 0, value: 0, ads: new Map<string, Node>() };
+          const node: Node = { id, name, status, budget, budget_life: budgetLife, spend: 0, purchases: 0, value: 0, ads: new Map<string, Node>() };
           sMap.set(id, node);
           (ensureCamp(campId).adsets as Map<string, Node>).set(id, node);
         }
         return sMap.get(id)!;
       };
       for (const r of (adsets.data ?? []) as Node[]) {
-        ensureAdset(String(r.id), String(r.campaign_id ?? ""), String(r.name ?? ""), String(r.effective_status ?? ""), num(r.daily_budget));
+        ensureAdset(String(r.id), String(r.campaign_id ?? ""), String(r.name ?? ""), String(r.effective_status ?? ""), num(r.daily_budget), num(r.lifetime_budget));
       }
 
       // 광고: 활성 전체 + 기간 중 게재분(인사이트) 합집합

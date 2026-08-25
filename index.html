@@ -5028,7 +5028,8 @@ function admgrSortClick(k) {
 }
 function admgrCmp(a, b) {
   const roasOf = n => n.spend > 0 ? n.value / n.spend : -1;
-  const val = (n, k) => k === 'spend' ? n.spend : k === 'purchases' ? n.purchases : k === 'value' ? n.value : k === 'roas' ? roasOf(n) : n.name;
+  const cpaOf = n => n.purchases > 0 ? n.spend / n.purchases : Infinity;
+  const val = (n, k) => k === 'spend' ? n.spend : k === 'purchases' ? n.purchases : k === 'value' ? n.value : k === 'roas' ? roasOf(n) : k === 'cpa' ? cpaOf(n) : n.name;
   for (const { k, d } of admgrState.sort) {
     const r = k === 'name'
       ? String(val(a, k)).localeCompare(String(val(b, k)), 'ko')
@@ -5113,6 +5114,10 @@ function admgrRender() {
   }
 
   const money = v => `<span class="meta-blur">${fmt(Math.round(v))}원</span>`;
+  const budgetTxt = n => n.budget ? `${money(n.budget)}<div style="font-size:.62rem;color:#9ca3af;">일예산</div>`
+    : n.budget_life ? `${money(n.budget_life)}<div style="font-size:.62rem;color:#9ca3af;">총예산</div>`
+    : '<span style="color:#c4c9d4;">—</span>';
+  const cpaTxt = n => n.purchases > 0 ? money(n.spend / n.purchases) : '<span style="color:#c4c9d4;">—</span>';
   const roasTxt = (sp, val) => sp > 0 ? `<b style="color:${val / sp >= 1 ? '#15803d' : '#b91c1c'};">${(val / sp).toFixed(2)}</b>` : '<span style="color:#c4c9d4;">—</span>';
   const caret = open => `<i class="fa-solid fa-chevron-${open ? 'down' : 'right'}" style="font-size:.6rem;color:#9ca3af;margin-right:6px;"></i>`;
 
@@ -5124,17 +5129,18 @@ function admgrRender() {
   };
   let html = `<div class="table-wrap" style="max-height:640px;overflow:auto;"><table>
     <thead><tr>
-      ${thSort('name', '이름', '', true)}<th>상태</th><th class="m-hide">일예산</th>
-      ${thSort('spend', '지출')}${thSort('purchases', '구매', 'm-hide')}${thSort('value', '전환값', 'm-hide')}${thSort('roas', 'ROAS')}
+      ${thSort('name', '이름', '', true)}<th>상태</th><th class="m-hide">예산</th>
+      ${thSort('spend', '지출')}${thSort('purchases', '구매', 'm-hide')}${thSort('cpa', '구매당 비용', 'm-hide')}${thSort('value', '전환값', 'm-hide')}${thSort('roas', 'ROAS')}
     </tr></thead><tbody>`;
   for (const cRow of campList) {
     const cKey = 'c' + cRow.id, cOpen = q ? true : admgrState.open.has(cKey);   // 검색 중엔 캠페인 자동 펼침
     html += `<tr onclick="admgrToggle('${cKey}')" style="cursor:pointer;background:#eef2ff;">
       <td style="text-align:left;min-width:190px;font-weight:800;color:#1e1b4b;">${caret(cOpen)}${escHtml(cRow.name)}</td>
       <td>${admgrStatus(cRow.status)}</td>
-      <td class="m-hide">${cRow.budget ? money(cRow.budget) : '<span style="color:#c4c9d4;">—</span>'}</td>
+      <td class="m-hide">${budgetTxt(cRow)}</td>
       <td style="font-weight:700;">${money(cRow.spend)}</td>
       <td class="m-hide">${fmt(cRow.purchases)}</td>
+      <td class="m-hide">${cpaTxt(cRow)}</td>
       <td class="m-hide">${money(cRow.value)}</td>
       <td>${roasTxt(cRow.spend, cRow.value)}</td></tr>`;
     if (!cOpen) continue;
@@ -5142,10 +5148,11 @@ function admgrRender() {
       const sKey = 's' + st.id, sOpen = (q && qMode === 'ad') ? true : admgrState.open.has(sKey);   // 광고명 검색은 광고까지 자동 펼침
       html += `<tr onclick="admgrToggle('${sKey}')" style="cursor:pointer;background:#f8f9ff;">
         <td style="text-align:left;padding-left:26px;font-weight:600;color:#374151;">${caret(sOpen)}${escHtml(st.name)}</td>
-        <td>${admgrStatus(st.status)}</td>
-        <td class="m-hide">${st.budget ? money(st.budget) : '<span style="color:#c4c9d4;">—</span>'}</td>
+        <td>${st.status ? admgrStatus(st.status) : '<span style="background:#f3f4f6;color:#9ca3af;border-radius:99px;padding:1px 8px;font-size:.68rem;font-weight:700;">기간 중 게재</span>'}</td>
+        <td class="m-hide">${budgetTxt(st)}</td>
         <td>${money(st.spend)}</td>
         <td class="m-hide">${fmt(st.purchases)}</td>
+        <td class="m-hide">${cpaTxt(st)}</td>
         <td class="m-hide">${money(st.value)}</td>
         <td>${roasTxt(st.spend, st.value)}</td></tr>`;
       if (!sOpen) continue;
@@ -5156,6 +5163,7 @@ function admgrRender() {
           <td class="m-hide"><span style="color:#c4c9d4;">—</span></td>
           <td style="font-size:.82rem;">${money(a.spend)}</td>
           <td class="m-hide" style="font-size:.82rem;">${fmt(a.purchases)}</td>
+          <td class="m-hide" style="font-size:.82rem;">${cpaTxt(a)}</td>
           <td class="m-hide" style="font-size:.82rem;">${money(a.value)}</td>
           <td>${roasTxt(a.spend, a.value)}</td></tr>`;
       }
