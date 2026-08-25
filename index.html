@@ -1618,6 +1618,11 @@
       <div style="font-size:.82rem;color:#6b7280;margin-bottom:12px;">캠페인 → 광고세트 → 광고 현황 (보기 전용 · 60초 캐시 — 메타 호출 한도 보호). 켜고 끄기는 메타 광고관리자에서 하세요.</div>
       <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:12px;">
         <span id="admgr-presets" style="display:flex;gap:6px;"></span>
+        <select id="admgr-qmode" onchange="admgrRender()" style="border:1.5px solid #d1d5db;border-radius:8px;padding:5px 6px;font-size:.76rem;outline:none;">
+          <option value="adset">광고세트명</option><option value="ad">광고명</option>
+        </select>
+        <input id="admgr-q" type="search" placeholder="검색어 입력..." oninput="admgrQSoon()"
+          style="border:1.5px solid #d1d5db;border-radius:8px;padding:5px 10px;font-size:.78rem;outline:none;width:170px;max-width:45vw;" />
         <label style="display:flex;align-items:center;gap:5px;font-size:.78rem;color:#4b5563;cursor:pointer;font-weight:600;">
           <input type="checkbox" id="admgr-active-only" checked onchange="admgrRender()" /> 활성만</label>
         <span id="admgr-asof" style="margin-left:auto;font-size:.72rem;color:#9ca3af;"></span>
@@ -5016,6 +5021,10 @@ const ADMGR_PRESETS = [['today', '오늘'], ['yesterday', '어제'], ['last_7d',
 
 function admgrSetPreset(p) { admgrState.preset = p; admgrFetch(); }
 
+/* 검색 입력 디바운스 — 타이핑마다 트리 재렌더 방지 */
+let __admgrQT = null;
+function admgrQSoon() { clearTimeout(__admgrQT); __admgrQT = setTimeout(admgrRender, 200); }
+
 async function admgrFetch() {
   const btn = $('btn-admgr');
   btnBusy(btn, '불러오는 중');
@@ -5050,7 +5059,18 @@ function admgrRender() {
   // '활성만' = 켜져 있거나 이 기간에 지출이 있는 것 (중간에 꺼진 것도 그날 성과는 보이게 — 광고관리자와 동일 감각)
   const activeOnly = $('admgr-active-only').checked;
   const show = n => !activeOnly || n.status === 'ACTIVE' || n.spend > 0;
-  const campList = d.campaigns.filter(show).sort((x, y) => y.spend - x.spend);
+  // 검색 (2026-08-25): 광고세트명/광고명 기준. 검색 중엔 캠페인 자동 펼침, 광고명 검색은 세트까지 자동 펼침
+  const q = ($('admgr-q').value || '').trim().toLowerCase();
+  const qMode = $('admgr-qmode').value;
+  const campList = d.campaigns.map(cRow => {
+    let adsets = cRow.adsets.filter(show).map(st => ({ ...st, ads: st.ads.filter(show) }));
+    if (q && qMode === 'adset') adsets = adsets.filter(st => st.name.toLowerCase().includes(q));
+    if (q && qMode === 'ad') adsets = adsets
+      .map(st => ({ ...st, ads: st.ads.filter(x => x.name.toLowerCase().includes(q)) }))
+      .filter(st => st.ads.length > 0);
+    return { ...cRow, adsets };
+  }).filter(cRow => q ? cRow.adsets.length > 0 : show(cRow))
+    .sort((x, y) => y.spend - x.spend);
 
   const tSpend = campList.reduce((t, c) => t + c.spend, 0);
   const tPur = campList.reduce((t, c) => t + c.purchases, 0);
@@ -5067,7 +5087,7 @@ function admgrRender() {
   $('admgr-summary').style.display = 'grid';
 
   if (!campList.length) {
-    $('admgr-result').innerHTML = `<div class="empty-state"><div class="es-icon"><i class="fa-regular fa-folder-open"></i></div><p>표시할 캠페인이 없습니다. '활성만'을 해제해보세요.</p></div>`;
+    $('admgr-result').innerHTML = `<div class="empty-state"><div class="es-icon"><i class="fa-regular fa-folder-open"></i></div><p>${q ? '검색 결과가 없습니다.' : "표시할 캠페인이 없습니다. '활성만'을 해제해보세요."}</p></div>`;
     return;
   }
 
@@ -5081,7 +5101,7 @@ function admgrRender() {
       <th>지출</th><th class="m-hide">구매</th><th class="m-hide">전환값</th><th>ROAS</th>
     </tr></thead><tbody>`;
   for (const cRow of campList) {
-    const cKey = 'c' + cRow.id, cOpen = admgrState.open.has(cKey);
+    const cKey = 'c' + cRow.id, cOpen = q ? true : admgrState.open.has(cKey);   // 검색 중엔 캠페인 자동 펼침
     html += `<tr onclick="admgrToggle('${cKey}')" style="cursor:pointer;background:#eef2ff;">
       <td style="text-align:left;min-width:190px;font-weight:800;color:#1e1b4b;">${caret(cOpen)}${escHtml(cRow.name)}</td>
       <td>${admgrStatus(cRow.status)}</td>
@@ -5091,8 +5111,8 @@ function admgrRender() {
       <td class="m-hide">${money(cRow.value)}</td>
       <td>${roasTxt(cRow.spend, cRow.value)}</td></tr>`;
     if (!cOpen) continue;
-    for (const st of cRow.adsets.filter(show).sort((x, y) => y.spend - x.spend)) {
-      const sKey = 's' + st.id, sOpen = admgrState.open.has(sKey);
+    for (const st of cRow.adsets.sort((x, y) => y.spend - x.spend)) {
+      const sKey = 's' + st.id, sOpen = (q && qMode === 'ad') ? true : admgrState.open.has(sKey);   // 광고명 검색은 광고까지 자동 펼침
       html += `<tr onclick="admgrToggle('${sKey}')" style="cursor:pointer;background:#f8f9ff;">
         <td style="text-align:left;padding-left:26px;font-weight:600;color:#374151;">${caret(sOpen)}${escHtml(st.name)}</td>
         <td>${admgrStatus(st.status)}</td>
@@ -5102,7 +5122,7 @@ function admgrRender() {
         <td class="m-hide">${money(st.value)}</td>
         <td>${roasTxt(st.spend, st.value)}</td></tr>`;
       if (!sOpen) continue;
-      for (const a of st.ads.filter(show).sort((x, y) => y.spend - x.spend)) {
+      for (const a of st.ads.sort((x, y) => y.spend - x.spend)) {
         html += `<tr onclick="showMetaPreview('${a.id}')" style="cursor:pointer;">
           <td style="text-align:left;padding-left:48px;font-size:.82rem;color:#4338ca;">${escHtml(a.name)}</td>
           <td>${a.status ? admgrStatus(a.status) : '<span style="background:#f3f4f6;color:#9ca3af;border-radius:99px;padding:1px 8px;font-size:.68rem;font-weight:700;">기간 중 게재</span>'}</td>
