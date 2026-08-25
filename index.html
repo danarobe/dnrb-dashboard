@@ -5180,15 +5180,20 @@ async function admgrBudgetFetch() {
   } catch (e) { b.error = true; }
   finally { b.loading = false; admgrRender(); }
 }
-const admgrChgUp = evs => evs[0].new_value >= evs[0].old_value;   // 최신 이벤트 방향
+const admgrChgUp = evs => evs[0].new_value >= evs[0].old_value;   // 최신 이벤트 방향 (분류 칩 기준)
 const admgrChgCell = r => {
   const b = admgrState.budget;
   const evs = b.byObj && b.byObj.get(r.id);
   if (evs && evs.length) {
-    const up = admgrChgUp(evs);
-    const diff = Math.abs(evs[0].new_value - evs[0].old_value);
-    // 사용자 지정 색: 증액=파란색 ↑ + 금액, 감액=빨간색 ↓ + 금액. 여러 건이면 건수 병기.
-    return `<button onclick="event.stopPropagation();admgrBudgetModal('${r.id}')" title="오늘 예산 변경 ${evs.length}건 — 클릭하면 히스토리·영향 분석" style="border:none;background:${up ? '#dbeafe' : '#fee2e2'};color:${up ? '#1d4ed8' : '#b91c1c'};border-radius:99px;padding:2px 10px;font-size:.72rem;font-weight:800;cursor:pointer;white-space:nowrap;"><i class="fa-solid fa-arrow-${up ? 'up' : 'down'}"></i> <span class="meta-blur">${up ? '+' : '−'}${fmt(diff)}</span>${evs.length > 1 ? ` <span style="opacity:.65;">·${evs.length}건</span>` : ''}</button>`;
+    // 오늘 변경 내역 전부 표시(2026-08-26 사용자 요청): 화살표+금액+시각, 시간순(위=먼저). 클릭=히스토리 모달.
+    // 사용자 지정 색: 증액=파란색 ↑, 감액=빨간색 ↓.
+    const badges = evs.slice().reverse().map(ev => {
+      const up = ev.new_value >= ev.old_value;
+      const k = admgrKst(ev.time);
+      const hm = k ? `${admgrPad2(k.getUTCHours())}:${admgrPad2(k.getUTCMinutes())}` : '';
+      return `<span style="background:${up ? '#dbeafe' : '#fee2e2'};color:${up ? '#1d4ed8' : '#b91c1c'};border-radius:99px;padding:1px 9px;font-size:.68rem;font-weight:800;white-space:nowrap;"><i class="fa-solid fa-arrow-${up ? 'up' : 'down'}" style="font-size:.58rem;"></i> <span class="meta-blur">${up ? '+' : '−'}${fmt(Math.abs(ev.new_value - ev.old_value))}</span> <span style="opacity:.65;font-weight:600;">${hm}</span></span>`;
+    }).join('');
+    return `<div onclick="event.stopPropagation();admgrBudgetModal('${r.id}')" title="오늘 예산 변경 ${evs.length}건 — 클릭하면 히스토리·영향 분석" style="display:flex;flex-direction:column;align-items:center;gap:2px;cursor:pointer;">${badges}</div>`;
   }
   if (b.loading) return '<i class="fa-solid fa-spinner fa-spin" style="color:#e5e7eb;font-size:.65rem;"></i>';
   return admgrDash;
