@@ -199,9 +199,15 @@ Deno.serve(async (req) => {
     // 광고 행 = 활성 광고 전체 ∪ 기간 중 게재된 광고(인사이트 기준 — 중간에 꺼진 광고도 지출이 보임).
     // 60초 서버 캐시 = 새로고침 남발이 호출 한도(실사고 전력)를 못 건드리게 하는 방어선.
     if (action === "hierarchy") {
-      const preset = ["today", "yesterday", "last_7d"].includes(url.searchParams.get("preset") ?? "")
+      const preset = ["today", "yesterday", "last_7d", "last_30d"].includes(url.searchParams.get("preset") ?? "")
         ? url.searchParams.get("preset")! : "today";
-      const cacheKey = `meta:hierarchy2:${preset}`;
+      // 실제 날짜 범위(계정 시간대) — last_7d/last_30d는 Meta 표준대로 '오늘 제외, 어제까지'
+      const t = seoulToday();
+      const range = preset === "today" ? { start: t, end: t }
+        : preset === "yesterday" ? { start: addDays(t, -1), end: addDays(t, -1) }
+        : preset === "last_7d" ? { start: addDays(t, -7), end: addDays(t, -1) }
+        : { start: addDays(t, -30), end: addDays(t, -1) };
+      const cacheKey = `meta:hierarchy2:${preset}:${t}`;
       const hit = await cacheGet(cacheKey, 60 * 1000);
       if (hit) return json(hit);
 
@@ -274,7 +280,7 @@ Deno.serve(async (req) => {
         })),
       }));
       const truncated = [camps, adsets, adsAct, ins].some((r) => ((r.data ?? []) as unknown[]).length >= 500);
-      const body = { preset, fetched_at: new Date().toISOString(), truncated, campaigns };
+      const body = { preset, range, fetched_at: new Date().toISOString(), truncated, campaigns };
       await cacheSet(cacheKey, body);
       return json(body);
     }

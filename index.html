@@ -5017,7 +5017,7 @@ function stableExportNewCSV() {
    제거하려면: 이 블록 + 섹션 + 메뉴 버튼 + MENU_KEYS/applyRole/showMenu 훅 + 서버 hierarchy 액션 (한 커밋 revert)
 ────────────────────────────── */
 const admgrState = { data: null, preset: 'today', open: new Set() };
-const ADMGR_PRESETS = [['today', '오늘'], ['yesterday', '어제'], ['last_7d', '최근 7일']];
+const ADMGR_PRESETS = [['today', '오늘'], ['yesterday', '어제'], ['last_7d', '최근 7일'], ['last_30d', '최근 30일']];   // 7일·30일 = 오늘 제외, 어제까지 (Meta 표준)
 
 function admgrSetPreset(p) { admgrState.preset = p; admgrFetch(); }
 
@@ -5054,7 +5054,8 @@ function admgrRender() {
   $('admgr-presets').innerHTML = ADMGR_PRESETS.map(([v, label]) =>
     `<button onclick="admgrSetPreset('${v}')" style="border:1.5px solid ${admgrState.preset === v ? 'transparent' : '#d1d5db'};background:${admgrState.preset === v ? '#4f46e5' : '#fff'};color:${admgrState.preset === v ? '#fff' : '#4b5563'};border-radius:99px;padding:5px 13px;font-size:.78rem;font-weight:700;cursor:pointer;">${label}</button>`).join('');
   const ageSec = Math.max(0, Math.round((Date.now() - new Date(d.fetched_at).getTime()) / 1000));
-  $('admgr-asof').textContent = `${ageSec < 60 ? ageSec + '초' : Math.round(ageSec / 60) + '분'} 전 기준${d.truncated ? ' · 일부 생략 가능(500개 한도)' : ''}`;
+  const rangeTxt = d.range ? (d.range.start === d.range.end ? d.range.start : `${d.range.start} ~ ${d.range.end}`) + ' · ' : '';
+  $('admgr-asof').textContent = `${rangeTxt}${ageSec < 60 ? ageSec + '초' : Math.round(ageSec / 60) + '분'} 전 기준${d.truncated ? ' · 일부 생략 가능(500개 한도)' : ''}`;
 
   // '활성만' = 켜져 있거나 이 기간에 지출이 있는 것 (중간에 꺼진 것도 그날 성과는 보이게 — 광고관리자와 동일 감각)
   const activeOnly = $('admgr-active-only').checked;
