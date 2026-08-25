@@ -1624,6 +1624,7 @@
           style="border:1.5px solid #d1d5db;border-radius:8px;padding:5px 10px;font-size:.78rem;outline:none;width:170px;max-width:45vw;" />
         <label id="admgr-active-wrap" style="display:flex;align-items:center;gap:5px;font-size:.78rem;color:#4b5563;cursor:pointer;font-weight:600;">
           <input type="checkbox" id="admgr-active-only" checked onchange="admgrRender()" /> 활성만</label>
+        <span id="admgr-chgfilter" style="display:none;gap:6px;flex-wrap:wrap;align-items:center;"></span>
         <span id="admgr-asof" style="margin-left:auto;font-size:.72rem;color:#9ca3af;"></span>
       </div>
       <div id="admgr-sel" style="display:none;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:12px;"></div>
@@ -5044,6 +5045,7 @@ const admgrState = {
   // '최근 변경' 열 (2026-08-26): Meta 활동 로그의 예산 변경 이벤트 — '오늘' 칩에서만 표시.
   // byObj = Map(캠페인·세트 id → 오늘 이벤트[] 최신순), seven = 최근 7일 이벤트(모달에서 요청 시)
   budget: { byObj: null, loading: false, error: false, seven: null, sevenLoading: false },
+  chgFilter: 'all',   // 오늘 변경 필터: all/changed(변경)/up(증액)/down(감액) — 최신 이벤트 방향 기준
 };
 // 다중 정렬 (2026-08-25): sort = [{k,d}...] — 먼저 누른 열이 1순위, 다음 누른 열은 그 안에서 2순위...
 // 클릭: 없으면 오름차순 추가 → 다시 클릭 내림차순 → 한 번 더 해제. 모든 탭 공통 적용.
@@ -5069,7 +5071,7 @@ function admgrCmp(a, b) {
 }
 const ADMGR_PRESETS = [['today', '오늘'], ['yesterday', '어제'], ['last_7d', '최근 7일'], ['last_30d', '최근 30일']];   // 7일·30일 = 오늘 제외, 어제까지 (Meta 표준)
 
-function admgrSetPreset(p) { admgrState.preset = p; admgrFetch(); }
+function admgrSetPreset(p) { admgrState.preset = p; admgrState.chgFilter = 'all'; admgrFetch(); }
 
 /* 검색 입력 디바운스 — 타이핑마다 표 재렌더 방지 */
 let __admgrQT = null;
@@ -5178,12 +5180,15 @@ async function admgrBudgetFetch() {
   } catch (e) { b.error = true; }
   finally { b.loading = false; admgrRender(); }
 }
+const admgrChgUp = evs => evs[0].new_value >= evs[0].old_value;   // 최신 이벤트 방향
 const admgrChgCell = r => {
   const b = admgrState.budget;
   const evs = b.byObj && b.byObj.get(r.id);
   if (evs && evs.length) {
-    const up = evs[0].new_value >= evs[0].old_value;
-    return `<button onclick="event.stopPropagation();admgrBudgetModal('${r.id}')" title="오늘 예산 변경 ${evs.length}건 — 클릭하면 히스토리·영향 분석" style="border:none;background:${up ? '#dcfce7' : '#fee2e2'};color:${up ? '#15803d' : '#b91c1c'};border-radius:99px;padding:2px 10px;font-size:.72rem;font-weight:800;cursor:pointer;white-space:nowrap;"><i class="fa-solid fa-arrow-${up ? 'up' : 'down'}"></i>${evs.length > 1 ? ' ' + evs.length : ''}</button>`;
+    const up = admgrChgUp(evs);
+    const diff = Math.abs(evs[0].new_value - evs[0].old_value);
+    // 사용자 지정 색: 증액=파란색 ↑ + 금액, 감액=빨간색 ↓ + 금액. 여러 건이면 건수 병기.
+    return `<button onclick="event.stopPropagation();admgrBudgetModal('${r.id}')" title="오늘 예산 변경 ${evs.length}건 — 클릭하면 히스토리·영향 분석" style="border:none;background:${up ? '#dbeafe' : '#fee2e2'};color:${up ? '#1d4ed8' : '#b91c1c'};border-radius:99px;padding:2px 10px;font-size:.72rem;font-weight:800;cursor:pointer;white-space:nowrap;"><i class="fa-solid fa-arrow-${up ? 'up' : 'down'}"></i> <span class="meta-blur">${up ? '+' : '−'}${fmt(diff)}</span>${evs.length > 1 ? ` <span style="opacity:.65;">·${evs.length}건</span>` : ''}</button>`;
   }
   if (b.loading) return '<i class="fa-solid fa-spinner fa-spin" style="color:#e5e7eb;font-size:.65rem;"></i>';
   return admgrDash;
@@ -5240,7 +5245,7 @@ function admgrBudgetModalRender() {
         <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
           <span style="font-size:.74rem;color:#6b7280;font-weight:700;white-space:nowrap;">${admgrKstLabel(ev.time)}</span>
           <span style="font-size:.8rem;font-weight:700;color:#1e1b4b;"><span class="meta-blur">${fmt(ev.old_value)}원</span> → <span class="meta-blur">${fmt(ev.new_value)}원</span></span>
-          <span style="background:${up ? '#dcfce7' : '#fee2e2'};color:${up ? '#15803d' : '#b91c1c'};border-radius:99px;padding:1px 9px;font-size:.7rem;font-weight:800;white-space:nowrap;">${up ? '증액' : '감액'} <span class="meta-blur">${up ? '+' : '−'}${fmt(Math.abs(diff))}원</span></span>
+          <span style="background:${up ? '#dbeafe' : '#fee2e2'};color:${up ? '#1d4ed8' : '#b91c1c'};border-radius:99px;padding:1px 9px;font-size:.7rem;font-weight:800;white-space:nowrap;"><i class="fa-solid fa-arrow-${up ? 'up' : 'down'}" style="font-size:.6rem;"></i> ${up ? '증액' : '감액'} <span class="meta-blur">${up ? '+' : '−'}${fmt(Math.abs(diff))}원</span></span>
           ${ev.note ? `<span style="font-size:.68rem;color:#9ca3af;">${escHtml(ev.note)}</span>` : ''}
           ${canImpact ? `<button onclick="admgrBudgetImpact(${i})" style="margin-left:auto;border:1.5px solid #c7d2fe;background:#eef2ff;color:#4338ca;border-radius:99px;padding:2px 10px;font-size:.7rem;font-weight:700;cursor:pointer;white-space:nowrap;">영향 분석</button>` : ''}
         </div>
@@ -5337,6 +5342,7 @@ function admgrPruneSel() {
 function admgrGoSets(campId) { admgrState.selCamps = new Set([campId]); admgrPruneSel(); admgrSetView('adset'); }
 function admgrGoAds(setId) { admgrState.selSets = new Set([setId]); admgrSetView('ad'); }
 function admgrClearSel() { admgrState.selCamps.clear(); admgrState.selSets.clear(); admgrRender(); }
+function admgrChgSet(k) { admgrState.chgFilter = k; admgrRender(); }
 function admgrSelAllDisp() {   // 헤더 체크박스 — 표시된 전체 선택/해제 (탭별 대상 자동)
   const ids = admgrState._dispIds || [];
   const s = admgrState.view === 'test' ? admgrState.test.sel : admgrState.view === 'camp' ? admgrState.selCamps : admgrState.selSets;
@@ -5363,6 +5369,7 @@ function admgrRender() {
   $('admgr-presets').style.display = v === 'test' ? 'none' : 'flex';
   $('admgr-active-wrap').style.display = v === 'test' ? 'none' : 'flex';
   $('admgr-testctrl').style.display = v === 'test' ? 'flex' : 'none';
+  $('admgr-chgfilter').style.display = 'none';   // 오늘+캠페인/세트 탭에서만 아래에서 다시 켠다
   if (v === 'test') { admgrRenderTest(); return; }
 
   const d = admgrState.data;
@@ -5391,6 +5398,27 @@ function admgrRender() {
   }
   const showChg = admgrState.preset === 'today' && v !== 'ad';   // '최근 변경' 열 — 오늘 칩 + 캠페인/세트 탭
   if (showChg) setTimeout(admgrBudgetFetch, 0);
+  // 오늘 예산 변경 분류 칩 (전체/변경/증액/감액) — 최신 이벤트 방향 기준, 건수 표시
+  if (showChg && admgrState.budget.byObj) {
+    const bo = admgrState.budget.byObj;
+    const dirOf = r => { const evs = bo.get(r.id); return !evs || !evs.length ? null : admgrChgUp(evs) ? 'up' : 'down'; };
+    const nUp = rows.filter(r => dirOf(r) === 'up').length;
+    const nDown = rows.filter(r => dirOf(r) === 'down').length;
+    const fchip = (key, label, n) => {
+      const on = admgrState.chgFilter === key;
+      return `<button onclick="admgrChgSet('${key}')" style="border:1.5px solid ${on ? 'transparent' : '#d1d5db'};background:${on ? '#4f46e5' : '#fff'};color:${on ? '#fff' : '#4b5563'};border-radius:99px;padding:4px 11px;font-size:.74rem;font-weight:700;cursor:pointer;white-space:nowrap;">${label}${n == null ? '' : ' ' + n}</button>`;
+    };
+    $('admgr-chgfilter').innerHTML =
+      `<span style="font-size:.72rem;color:#9ca3af;font-weight:600;">오늘 예산:</span>` +
+      fchip('all', '전체', null) +
+      fchip('changed', '변경', nUp + nDown) +
+      fchip('up', `<i class="fa-solid fa-arrow-up" style="${admgrState.chgFilter === 'up' ? '' : 'color:#1d4ed8;'}"></i> 증액`, nUp) +
+      fchip('down', `<i class="fa-solid fa-arrow-down" style="${admgrState.chgFilter === 'down' ? '' : 'color:#b91c1c;'}"></i> 감액`, nDown);
+    $('admgr-chgfilter').style.display = 'flex';
+    if (admgrState.chgFilter !== 'all') {
+      rows = rows.filter(r => admgrState.chgFilter === 'changed' ? dirOf(r) !== null : dirOf(r) === admgrState.chgFilter);
+    }
+  }
   rows = rows.slice().sort(admgrCmp);
   admgrState._dispIds = v === 'ad' ? [] : rows.map(r => r.id);
 
