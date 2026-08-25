@@ -207,7 +207,7 @@ Deno.serve(async (req) => {
         : preset === "yesterday" ? { start: addDays(t, -1), end: addDays(t, -1) }
         : preset === "last_7d" ? { start: addDays(t, -7), end: addDays(t, -1) }
         : { start: addDays(t, -30), end: addDays(t, -1) };
-      const cacheKey = `meta:hierarchy3:${preset}:${t}`;
+      const cacheKey = `meta:hierarchy4:${preset}:${t}`;
       const hit = await cacheGet(cacheKey, 60 * 1000);
       if (hit) return json(hit);
 
@@ -226,7 +226,7 @@ Deno.serve(async (req) => {
         }, c.token),
         graphGet(`${c.account}/insights`, {
           date_preset: preset, level: "ad",
-          fields: "ad_id,ad_name,adset_id,adset_name,campaign_id,campaign_name,spend,actions,action_values,purchase_roas",
+          fields: "ad_id,ad_name,adset_id,adset_name,campaign_id,campaign_name,spend,clicks,actions,action_values,purchase_roas",
           limit: "500",
         }, c.token),
       ]);
@@ -236,16 +236,16 @@ Deno.serve(async (req) => {
       for (const r of (camps.data ?? []) as Node[]) {
         cMap.set(String(r.id), { id: String(r.id), name: String(r.name ?? ""), status: String(r.effective_status ?? ""),
           budget: num(r.daily_budget), budget_life: num(r.lifetime_budget),
-          spend: 0, purchases: 0, value: 0, adsets: new Map<string, Node>() });
+          spend: 0, purchases: 0, value: 0, clicks: 0, adsets: new Map<string, Node>() });
       }
       const sMap = new Map<string, Node>();   // adset_id → node (캠페인에도 연결)
       const ensureCamp = (id: string, name = "") => {
-        if (!cMap.has(id)) cMap.set(id, { id, name, status: "", budget: 0, spend: 0, purchases: 0, value: 0, adsets: new Map() });
+        if (!cMap.has(id)) cMap.set(id, { id, name, status: "", budget: 0, spend: 0, purchases: 0, value: 0, clicks: 0, adsets: new Map() });
         return cMap.get(id)!;
       };
       const ensureAdset = (id: string, campId: string, name = "", status = "", budget = 0, budgetLife = 0) => {
         if (!sMap.has(id)) {
-          const node: Node = { id, name, status, budget, budget_life: budgetLife, spend: 0, purchases: 0, value: 0, ads: new Map<string, Node>() };
+          const node: Node = { id, name, status, budget, budget_life: budgetLife, spend: 0, purchases: 0, value: 0, clicks: 0, ads: new Map<string, Node>() };
           sMap.set(id, node);
           (ensureCamp(campId).adsets as Map<string, Node>).set(id, node);
         }
@@ -259,7 +259,7 @@ Deno.serve(async (req) => {
       const ensureAd = (adId: string, adsetId: string, campId: string, name: string, status: string) => {
         const st = ensureAdset(adsetId, campId);
         const ads = st.ads as Map<string, Node>;
-        if (!ads.has(adId)) ads.set(adId, { id: adId, name, status, spend: 0, purchases: 0, value: 0, roas: 0 });
+        if (!ads.has(adId)) ads.set(adId, { id: adId, name, status, spend: 0, purchases: 0, value: 0, clicks: 0, roas: 0 });
         return ads.get(adId)!;
       };
       for (const r of (adsAct.data ?? []) as Node[]) {
@@ -273,9 +273,10 @@ Deno.serve(async (req) => {
         const st = ensureAdset(String(r.adset_id ?? ""), campId, String(r.adset_name ?? ""));
         if (!st.name) st.name = String(r.adset_name ?? "");
         const ad = ensureAd(String(r.ad_id ?? ""), String(r.adset_id ?? ""), campId, m.ad_name, "");
-        ad.spend = m.spend; ad.purchases = m.purchases; ad.value = m.purchase_value; ad.roas = m.roas;
-        st.spend = num(st.spend) + m.spend; st.purchases = num(st.purchases) + m.purchases; st.value = num(st.value) + m.purchase_value;
-        camp.spend = num(camp.spend) + m.spend; camp.purchases = num(camp.purchases) + m.purchases; camp.value = num(camp.value) + m.purchase_value;
+        const clicks = num(r.clicks);
+        ad.spend = m.spend; ad.purchases = m.purchases; ad.value = m.purchase_value; ad.roas = m.roas; ad.clicks = clicks;
+        st.spend = num(st.spend) + m.spend; st.purchases = num(st.purchases) + m.purchases; st.value = num(st.value) + m.purchase_value; st.clicks = num(st.clicks) + clicks;
+        camp.spend = num(camp.spend) + m.spend; camp.purchases = num(camp.purchases) + m.purchases; camp.value = num(camp.value) + m.purchase_value; camp.clicks = num(camp.clicks) + clicks;
       }
 
       const campaigns = [...cMap.values()].map((cRow) => ({
