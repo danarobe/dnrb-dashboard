@@ -6,6 +6,8 @@
 //   GET ?action=activeads                    → 활성 광고 전체 + 시작~어제 누적 성과 (판매 성과 ON 광고 열)
 //   GET ?action=adstats&ad_id=...           → 소재 기간별 지출·ROAS (오늘/어제/최근3일/최근7일/이전7일/최근14일/최근30일)
 //   GET ?action=preview&ad_id=...           → 소재 미리보기(iframe HTML) + 썸네일
+//   GET ?action=hierarchy&preset=...        → 광고관리자 메뉴: 캠페인/세트/광고 전체 현황 (60초 캐시)
+//   GET ?action=testads                      → 테스트 소재: 세트명에 test(대소문자 무시) 포함 광고 전체 + 등록 이후 누적 성과
 //
 // 필요 secrets: META_ACCESS_TOKEN (비즈니스 설정 > 시스템 사용자 토큰, ads_read 권한),
 //               META_AD_ACCOUNT_ID (act_ 제외 숫자만 또는 act_숫자)
@@ -31,6 +33,28 @@ async function graphGet(path: string, params: Record<string, string>, token: str
     throw new Error(`Meta API ${res.status}: ${msg}`);
   }
   return body;
+}
+
+// paging.next를 따라 전부 수집 — Meta의 limit 500 한도(잘림 사고 전력)를 페이지네이션으로 우회.
+// maxPages는 폭주 방지 상한 (500×8=4,000행이면 이 계정 규모에 충분).
+async function graphGetAll(
+  path: string,
+  params: Record<string, string>,
+  token: string,
+  maxPages = 8,
+): Promise<Record<string, unknown>[]> {
+  const rows: Record<string, unknown>[] = [];
+  let body = await graphGet(path, params, token);
+  for (let i = 0; i < maxPages; i++) {
+    rows.push(...((body.data ?? []) as Record<string, unknown>[]));
+    const next = (body.paging as Record<string, unknown> | undefined)?.next as string | undefined;
+    if (!next) break;
+    const res = await fetch(next);
+    const nb = await res.json();
+    if (!res.ok) break;
+    body = nb;
+  }
+  return rows;
 }
 
 const num = (v: unknown) => {
@@ -287,6 +311,86 @@ Deno.serve(async (req) => {
       }));
       const truncated = [camps, adsets, adsAct, ins].some((r) => ((r.data ?? []) as unknown[]).length >= 500);
       const body = { preset, range, fetched_at: new Date().toISOString(), truncated, campaigns };
+      await cacheSet(cacheKey, body);
+      return json(body);
+    }
+
+    // ── 테스트 소재 현황 (2026-08-26) — 세트명에 "test"(대소문자 무시) 포함 광고세트의 광고 전체 ──
+    // 사내 운영: 소재 등록 → 3일 테스트 → 평가(OFF/유지/증액). 테스트 세트는 이름에 test를 넣는 규칙.
+    // ON/생존/OFF 판정은 클라이언트가 reg_date(계정 시간대 등록일)로 계산 — 생존 = 등록일+4일부터(예: 8/22 등록 → 8/26).
+    // 숨김·추가소재권장·메모는 ad_test_state 테이블(db 프록시)이 담당, 이 액션은 Meta 현황만 준다.
+    // 세트 이름 필터를 Meta에 걸지 않는 이유: CONTAIN은 대소문자 변형(Test/TEST)을 놓칠 수 있어
+    // 전체 세트를 페이지네이션으로 받아 서버에서 /test/i 로 거른다. 60초 캐시가 호출 한도 방어선.
+    if (action === "testads") {
+      const today = seoulToday();
+      // kw = 세트명 검색어 (기본 "test", 대소문자 무시) — 명명 규칙이 바뀌면 클라이언트에서 바꿔 쓸 수 있는 안전장치
+      const kw = (url.searchParams.get("kw") ?? "test").slice(0, 30);
+      const cacheKey = `meta:testads:${kw.toLowerCase()}:${today}`;
+      const hit = await cacheGet(cacheKey, 60 * 1000);
+      if (hit) return json(hit);
+
+      const kwRe = new RegExp(kw.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i");
+      const allSets = await graphGetAll(`${c.account}/adsets`, { fields: "id,name", limit: "500" }, c.token);
+      const testSets = allSets.filter((r) => kwRe.test(String(r.name ?? "")));
+      const setName = new Map(testSets.map((r) => [String(r.id), String(r.name ?? "")]));
+      const setIds = [...setName.keys()].slice(0, 200);   // filtering IN 값 개수·URL 길이 방어
+      if (!setIds.length) {
+        const empty = { fetched_at: new Date().toISOString(), until: today, adset_count: 0, truncated: false, ads: [] };
+        await cacheSet(cacheKey, empty);
+        return json(empty);
+      }
+
+      const adsetFilter = JSON.stringify([{ field: "adset.id", operator: "IN", value: setIds }]);
+      // 광고 목록(꺼진 것 포함 — 테스트 평가가 목적이라 OFF도 봐야 함) + 등록 이후 누적 성과
+      const insParams = {
+        time_range: JSON.stringify({ since: "2024-01-01", until: today }),
+        level: "ad",
+        fields: "ad_id,adset_id,spend,actions,action_values",
+        limit: "500",
+      };
+      const [adRows, insRows] = await Promise.all([
+        graphGetAll(`${c.account}/ads`, {
+          fields: "id,name,status,effective_status,created_time,adset_id",
+          filtering: adsetFilter,
+          limit: "500",
+        }, c.token),
+        // insights의 adset.id IN 필터가 거부되면 무필터 전체를 받아 서버에서 거른다 (성과 누락 방지)
+        graphGetAll(`${c.account}/insights`, { ...insParams, filtering: adsetFilter }, c.token)
+          .catch(() => graphGetAll(`${c.account}/insights`, insParams, c.token, 12)),
+      ]);
+
+      const metric = new Map(insRows
+        .filter((r) => setName.has(String(r.adset_id ?? "")))
+        .map((r) => [String(r.ad_id ?? ""), r]));
+      // created_time(오프셋 포함 ISO) → 한국 날짜. Meta date_preset과 같은 계정 시간대 기준.
+      const regDate = (ct: string) => {
+        const d = new Date(ct);
+        return isNaN(d.getTime()) ? "" : new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Seoul" }).format(d);
+      };
+      const ads = adRows.map((a) => {
+        const id = String(a.id ?? "");
+        const m = metric.get(id);
+        return {
+          id,
+          name: String(a.name ?? ""),
+          adset_id: String(a.adset_id ?? ""),
+          adset_name: setName.get(String(a.adset_id ?? "")) ?? "",
+          status: String(a.status ?? ""),                       // 소재 자체 스위치 (ACTIVE/PAUSED)
+          effective_status: String(a.effective_status ?? ""),   // 실제 상태 (상위 꺼짐·검토중·거부 포함)
+          created_time: String(a.created_time ?? ""),
+          reg_date: regDate(String(a.created_time ?? "")),
+          spend: m ? num(m.spend) : 0,
+          purchases: m ? pickPurchase(m.actions) : 0,
+          value: m ? pickPurchase(m.action_values) : 0,
+        };
+      });
+      const body = {
+        fetched_at: new Date().toISOString(),
+        until: today,
+        adset_count: setIds.length,
+        truncated: setName.size > setIds.length,
+        ads,
+      };
       await cacheSet(cacheKey, body);
       return json(body);
     }
