@@ -22,7 +22,7 @@ const TABLE_ROLES: Record<string, string[]> = {
   ad_note_likes: ["admin", "staff"],      // 공유 회의 기록 좋아요
   disp_season_out: ["admin"],   // 진열 시즌 제외 목록 (관리자 전용 메뉴)
   return_watch: ["admin", "staff"],   // 반품 관리 상품 (관리자 + MD)
-  ad_test_state: ["admin", "staff"],  // 테스트 소재 숨김·추가소재권장·메모 (2026-08-26, 관리자+MD·마케터 — 팀 공동 관리라 AUTHOR_FIELDS 미적용)
+  ad_test_state: ["admin"],  // 테스트 소재 숨김·추가소재권장·메모 (2026-08-26 admin+staff로 신설 → 같은 날 광고관리자 메뉴가 관리자 전용이 되며 admin으로 축소)
   profit_archive: ["admin"],    // 순익 시나리오 기간별 기록
   project_tasks: ["admin"],     // 프로젝트 관리 업무 (관리자 전용 — 사용자 결정 2026-08-19)
   board_topics: ["admin"],      // 대표 회의보드 안건 (관리자 전용 — 사용자 결정 2026-08-19, 대표끼리 서로 수정 가능이라 AUTHOR_FIELDS 미적용)

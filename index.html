@@ -1810,7 +1810,7 @@ function applyRole() {
   $('menu-disp').style.display = isAdmin() && !isCS() ? '' : 'none';
   $('menu-stable').style.display = isAdmin() && !isCS() ? '' : 'none';
   $('menu-adv').style.display = (isAdmin() || isStaff()) && !isCS() ? '' : 'none';   // MD도 광고 효율 접근
-  $('menu-admgr').style.display = (isAdmin() || isStaff()) && !isCS() ? '' : 'none'; // 광고관리자 = 광고 효율과 동일 권한 (2026-08-25)
+  $('menu-admgr').style.display = isAdmin() ? '' : 'none'; // 광고관리자 = 관리자(대표 3인) 전용 (2026-08-26 사용자 지정, 기존 admin+MD에서 축소)
   $('menu-rwatch').style.display = (isAdmin() || isStaff()) && !isCS() ? '' : 'none'; // 반품 관리 = 관리자 + MD
   $('menu-npm').style.display = (isAdmin() || isStaff()) && !isCS() ? '' : 'none';    // 상품 관리(외부 링크) = 관리자 + MD
   $('menu-profit').style.display = isAdmin() && !isCS() ? '' : 'none';
@@ -6332,7 +6332,7 @@ function showMenu(key) {
   // 권한 없는 사용자에게 아무 섹션도 표시되지 않아 화면이 비어버림
   const denied = (key === 'cr' && isStaff())
     || (key === 'rwatch' && isCS())                      // 반품 관리 = 관리자 + MD
-    || (['users', 'disp', 'stable', 'profit', 'board', 'proj'].includes(key) && !isAdmin());
+    || (['users', 'disp', 'stable', 'profit', 'board', 'proj', 'admgr'].includes(key) && !isAdmin());   // admgr = 관리자 전용 (2026-08-26)
   if (denied) { showToast('접근 권한이 없습니다'); key = 'home'; }
   document.querySelectorAll('.page-sec').forEach(el => { el.style.display = 'none'; });
   const target = $('sec-' + key);

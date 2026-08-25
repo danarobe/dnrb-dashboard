@@ -116,6 +116,12 @@ Deno.serve(async (req) => {
   const url = new URL(req.url);
   const action = url.searchParams.get("action") ?? "summary";
 
+  // 광고관리자(#admgr) 메뉴 전용 액션은 관리자만 (2026-08-26 사용자 지정 — 대표 3인 = admin 전원).
+  // 나머지 액션(summary/topads/dateads/activeads/adstats/preview)은 광고 효율·판매 성과가 MD와 공유.
+  if (["hierarchy", "testads", "budgethistory", "hourlystats"].includes(action) && authed.role !== "admin") {
+    return json({ error: "접근 권한이 없습니다" }, 403);
+  }
+
   try {
     if (action === "summary" || action === "topads") {
       const s = url.searchParams.get("start_date");
