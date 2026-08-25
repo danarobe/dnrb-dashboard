@@ -5016,7 +5016,27 @@ function stableExportNewCSV() {
    서버 hierarchy 액션(60초 캐시) 평면 데이터를 클라이언트에서 트리로 조립.
    제거하려면: 이 블록 + 섹션 + 메뉴 버튼 + MENU_KEYS/applyRole/showMenu 훅 + 서버 hierarchy 액션 (한 커밋 revert)
 ────────────────────────────── */
-const admgrState = { data: null, preset: 'today', open: new Set() };
+const admgrState = { data: null, preset: 'today', open: new Set(), sort: [] };
+// 다중 정렬 (2026-08-25): sort = [{k,d}...] — 먼저 누른 열이 1순위, 다음 누른 열은 그 안에서 2순위...
+// 클릭: 없으면 오름차순 추가 → 다시 클릭 내림차순 → 한 번 더 해제. 캠페인·세트·광고 3층 공통 적용.
+function admgrSortClick(k) {
+  const i = admgrState.sort.findIndex(s0 => s0.k === k);
+  if (i < 0) admgrState.sort.push({ k, d: 'asc' });
+  else if (admgrState.sort[i].d === 'asc') admgrState.sort[i].d = 'desc';
+  else admgrState.sort.splice(i, 1);
+  admgrRender();
+}
+function admgrCmp(a, b) {
+  const roasOf = n => n.spend > 0 ? n.value / n.spend : -1;
+  const val = (n, k) => k === 'spend' ? n.spend : k === 'purchases' ? n.purchases : k === 'value' ? n.value : k === 'roas' ? roasOf(n) : n.name;
+  for (const { k, d } of admgrState.sort) {
+    const r = k === 'name'
+      ? String(val(a, k)).localeCompare(String(val(b, k)), 'ko')
+      : (val(a, k) - val(b, k));
+    if (r) return d === 'asc' ? r : -r;
+  }
+  return b.spend - a.spend;   // 기본: 지출 내림차순
+}
 const ADMGR_PRESETS = [['today', '오늘'], ['yesterday', '어제'], ['last_7d', '최근 7일'], ['last_30d', '최근 30일']];   // 7일·30일 = 오늘 제외, 어제까지 (Meta 표준)
 
 function admgrSetPreset(p) { admgrState.preset = p; admgrFetch(); }
@@ -5071,7 +5091,7 @@ function admgrRender() {
       .filter(st => st.ads.length > 0);
     return { ...cRow, adsets };
   }).filter(cRow => q ? cRow.adsets.length > 0 : show(cRow))
-    .sort((x, y) => y.spend - x.spend);
+    .sort(admgrCmp);
 
   const tSpend = campList.reduce((t, c) => t + c.spend, 0);
   const tPur = campList.reduce((t, c) => t + c.purchases, 0);
@@ -5096,10 +5116,16 @@ function admgrRender() {
   const roasTxt = (sp, val) => sp > 0 ? `<b style="color:${val / sp >= 1 ? '#15803d' : '#b91c1c'};">${(val / sp).toFixed(2)}</b>` : '<span style="color:#c4c9d4;">—</span>';
   const caret = open => `<i class="fa-solid fa-chevron-${open ? 'down' : 'right'}" style="font-size:.6rem;color:#9ca3af;margin-right:6px;"></i>`;
 
+  const thSort = (k, label, cls = '', left = false) => {
+    const i = admgrState.sort.findIndex(s0 => s0.k === k);
+    const ind = i < 0 ? '<i class="fa-solid fa-sort" style="font-size:.55rem;color:#d1d5db;margin-left:3px;"></i>'
+      : ` <span style="color:#4f46e5;font-size:.62rem;font-weight:800;">${admgrState.sort[i].d === 'asc' ? '▲' : '▼'}${admgrState.sort.length > 1 ? i + 1 : ''}</span>`;
+    return `<th class="${cls}" onclick="admgrSortClick('${k}')" title="클릭: 오름차순 → 내림차순 → 해제 (여러 열 = 누른 순서대로 우선)" style="cursor:pointer;${left ? 'text-align:left;' : ''}">${label}${ind}</th>`;
+  };
   let html = `<div class="table-wrap" style="max-height:640px;overflow:auto;"><table>
     <thead><tr>
-      <th style="text-align:left;">이름</th><th>상태</th><th class="m-hide">일예산</th>
-      <th>지출</th><th class="m-hide">구매</th><th class="m-hide">전환값</th><th>ROAS</th>
+      ${thSort('name', '이름', '', true)}<th>상태</th><th class="m-hide">일예산</th>
+      ${thSort('spend', '지출')}${thSort('purchases', '구매', 'm-hide')}${thSort('value', '전환값', 'm-hide')}${thSort('roas', 'ROAS')}
     </tr></thead><tbody>`;
   for (const cRow of campList) {
     const cKey = 'c' + cRow.id, cOpen = q ? true : admgrState.open.has(cKey);   // 검색 중엔 캠페인 자동 펼침
@@ -5112,7 +5138,7 @@ function admgrRender() {
       <td class="m-hide">${money(cRow.value)}</td>
       <td>${roasTxt(cRow.spend, cRow.value)}</td></tr>`;
     if (!cOpen) continue;
-    for (const st of cRow.adsets.sort((x, y) => y.spend - x.spend)) {
+    for (const st of cRow.adsets.sort(admgrCmp)) {
       const sKey = 's' + st.id, sOpen = (q && qMode === 'ad') ? true : admgrState.open.has(sKey);   // 광고명 검색은 광고까지 자동 펼침
       html += `<tr onclick="admgrToggle('${sKey}')" style="cursor:pointer;background:#f8f9ff;">
         <td style="text-align:left;padding-left:26px;font-weight:600;color:#374151;">${caret(sOpen)}${escHtml(st.name)}</td>
@@ -5123,7 +5149,7 @@ function admgrRender() {
         <td class="m-hide">${money(st.value)}</td>
         <td>${roasTxt(st.spend, st.value)}</td></tr>`;
       if (!sOpen) continue;
-      for (const a of st.ads.sort((x, y) => y.spend - x.spend)) {
+      for (const a of st.ads.sort(admgrCmp)) {
         html += `<tr onclick="showMetaPreview('${a.id}')" style="cursor:pointer;">
           <td style="text-align:left;padding-left:48px;font-size:.82rem;color:#4338ca;">${escHtml(a.name)}</td>
           <td>${a.status ? admgrStatus(a.status) : '<span style="background:#f3f4f6;color:#9ca3af;border-radius:99px;padding:1px 8px;font-size:.68rem;font-weight:700;">기간 중 게재</span>'}</td>
