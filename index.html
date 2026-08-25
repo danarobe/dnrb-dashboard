@@ -567,6 +567,7 @@
   <button class="menu-item" id="menu-npm" title="상품 관리 시스템 — 새 탭으로 열립니다" onclick="window.open('https://newproduct-manager.vercel.app/products','_blank')"><i class="fa-solid fa-box-open" style="width:18px;text-align:center;color:#818cf8;"></i>상품 관리<i class="fa-solid fa-arrow-up-right-from-square" style="font-size:.62rem;color:#c4c9d4;margin-left:auto;"></i></button>
   <div class="menu-group">경영</div>
   <button class="menu-item" data-menu="adv"  id="menu-adv" onclick="showMenu('adv')"><i class="fa-solid fa-bullhorn" style="width:18px;text-align:center;color:#818cf8;"></i>광고 효율</button>
+  <button class="menu-item" data-menu="admgr" id="menu-admgr" style="display:none;" onclick="showMenu('admgr')"><i class="fa-solid fa-sitemap" style="width:18px;text-align:center;color:#818cf8;"></i>광고관리자</button>
   <button class="menu-item" data-menu="profit" id="menu-profit" onclick="showMenu('profit')"><i class="fa-solid fa-coins" style="width:18px;text-align:center;color:#818cf8;"></i>순익 시나리오</button>
   <div class="menu-group">협업</div>
   <button class="menu-item" data-menu="meet" onclick="showMenu('meet')"><i class="fa-solid fa-clipboard-list" style="width:18px;text-align:center;color:#818cf8;"></i>광고 회의록</button>
@@ -1605,6 +1606,27 @@
   <!-- ════════════════════════════════════════
        SECTION 3 : 광고 효율 & 수익 분석
   ════════════════════════════════════════ -->
+  <!-- ════════════════════════════════════════
+       SECTION : 광고관리자 (관리자+MD, 2026-08-25 — 보기 전용. 제거 시 이 기능 커밋 revert)
+  ════════════════════════════════════════ -->
+  <div class="section-card page-sec" id="sec-admgr">
+    <div class="section-header" style="cursor:default;">
+      <h2><span><i class="fa-solid fa-sitemap" style="color:#4f46e5;font-size:.9em;"></i></span> 광고관리자</h2>
+      <button class="toggle-btn" id="btn-admgr" onclick="admgrFetch()"><i class="fa-solid fa-rotate"></i> 새로고침</button>
+    </div>
+    <div class="section-body">
+      <div style="font-size:.82rem;color:#6b7280;margin-bottom:12px;">캠페인 → 광고세트 → 광고 현황 (보기 전용 · 60초 캐시 — 메타 호출 한도 보호). 켜고 끄기는 메타 광고관리자에서 하세요.</div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:12px;">
+        <span id="admgr-presets" style="display:flex;gap:6px;"></span>
+        <label style="display:flex;align-items:center;gap:5px;font-size:.78rem;color:#4b5563;cursor:pointer;font-weight:600;">
+          <input type="checkbox" id="admgr-active-only" checked onchange="admgrRender()" /> 활성만</label>
+        <span id="admgr-asof" style="margin-left:auto;font-size:.72rem;color:#9ca3af;"></span>
+      </div>
+      <div id="admgr-summary" style="display:none;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:14px;"></div>
+      <div id="admgr-result"><div class="empty-state"><p>불러오는 중...</p></div></div>
+    </div>
+  </div>
+
   <div class="section-card page-sec" id="sec-adv">
     <div class="section-header" onclick="toggleSection('adv')">
       <h2><span><i class="fa-solid fa-bullhorn" style="color:#4f46e5;font-size:.9em;"></i></span> 광고 효율 (Meta 광고관리자)</h2>
@@ -1768,6 +1790,7 @@ function applyRole() {
   $('menu-disp').style.display = isAdmin() && !isCS() ? '' : 'none';
   $('menu-stable').style.display = isAdmin() && !isCS() ? '' : 'none';
   $('menu-adv').style.display = (isAdmin() || isStaff()) && !isCS() ? '' : 'none';   // MD도 광고 효율 접근
+  $('menu-admgr').style.display = (isAdmin() || isStaff()) && !isCS() ? '' : 'none'; // 광고관리자 = 광고 효율과 동일 권한 (2026-08-25)
   $('menu-rwatch').style.display = (isAdmin() || isStaff()) && !isCS() ? '' : 'none'; // 반품 관리 = 관리자 + MD
   $('menu-npm').style.display = (isAdmin() || isStaff()) && !isCS() ? '' : 'none';    // 상품 관리(외부 링크) = 관리자 + MD
   $('menu-profit').style.display = isAdmin() && !isCS() ? '' : 'none';
@@ -4983,6 +5006,129 @@ function stableExportNewCSV() {
 /* ──────────────────────────────
    Meta 광고 성과 (관리자 전용) — meta-ads Edge Function
 ────────────────────────────── */
+/* ──────────────────────────────
+   광고관리자 (#admgr, 관리자+MD, 2026-08-25) — 캠페인→광고세트→광고 트리, 보기 전용
+   서버 hierarchy 액션(60초 캐시) 평면 데이터를 클라이언트에서 트리로 조립.
+   제거하려면: 이 블록 + 섹션 + 메뉴 버튼 + MENU_KEYS/applyRole/showMenu 훅 + 서버 hierarchy 액션 (한 커밋 revert)
+────────────────────────────── */
+const admgrState = { data: null, preset: 'today', open: new Set() };
+const ADMGR_PRESETS = [['today', '오늘'], ['yesterday', '어제'], ['last_7d', '최근 7일']];
+
+function admgrSetPreset(p) { admgrState.preset = p; admgrFetch(); }
+
+async function admgrFetch() {
+  const btn = $('btn-admgr');
+  btnBusy(btn, '불러오는 중');
+  try {
+    admgrState.data = await metaGet({ action: 'hierarchy', preset: admgrState.preset });
+    if (admgrState.data.error === 'not_connected') { $('admgr-result').innerHTML = '<div class="empty-state"><p>Meta 연동이 설정되지 않았습니다.</p></div>'; return; }
+    admgrRender();
+  } catch (e) { showToast('조회 실패: ' + e.message); }
+  finally { btnIdle(btn, '<i class="fa-solid fa-rotate"></i> 새로고침'); }
+}
+
+const admgrStatus = st => st === 'ACTIVE'
+  ? '<span style="background:#dcfce7;color:#15803d;border-radius:99px;padding:1px 8px;font-size:.68rem;font-weight:700;">켜짐</span>'
+  : st.includes('PAUSED')
+    ? '<span style="background:#f3f4f6;color:#6b7280;border-radius:99px;padding:1px 8px;font-size:.68rem;font-weight:700;">꺼짐</span>'
+    : `<span style="background:#fffbeb;color:#92400e;border-radius:99px;padding:1px 8px;font-size:.68rem;font-weight:700;">${escHtml(st || '—')}</span>`;
+
+function admgrToggle(key) {
+  if (admgrState.open.has(key)) admgrState.open.delete(key); else admgrState.open.add(key);
+  admgrRender();
+}
+
+function admgrRender() {
+  const d = admgrState.data;
+  if (!d || !d.ads) return;
+  // 기간 칩
+  $('admgr-presets').innerHTML = ADMGR_PRESETS.map(([v, label]) =>
+    `<button onclick="admgrSetPreset('${v}')" style="border:1.5px solid ${admgrState.preset === v ? 'transparent' : '#d1d5db'};background:${admgrState.preset === v ? '#4f46e5' : '#fff'};color:${admgrState.preset === v ? '#fff' : '#4b5563'};border-radius:99px;padding:5px 13px;font-size:.78rem;font-weight:700;cursor:pointer;">${label}</button>`).join('');
+  // 기준 시각
+  const ageSec = Math.max(0, Math.round((Date.now() - new Date(d.fetched_at).getTime()) / 1000));
+  $('admgr-asof').textContent = `${ageSec < 60 ? ageSec + '초' : Math.round(ageSec / 60) + '분'} 전 기준${d.truncated ? ' · 500개 초과 일부 생략' : ''}`;
+
+  const activeOnly = $('admgr-active-only').checked;
+  const ads = d.ads.filter(a => !activeOnly || a.ad_status === 'ACTIVE');
+  // 트리 조립: 캠페인 → 세트 → 광고 (지출 합산)
+  const camps = new Map();
+  for (const a of ads) {
+    let c = camps.get(a.campaign_id);
+    if (!c) { c = { id: a.campaign_id, name: a.campaign_name, status: a.campaign_status, budget: a.campaign_budget, spend: 0, purchases: 0, value: 0, adsets: new Map() }; camps.set(a.campaign_id, c); }
+    let st = c.adsets.get(a.adset_id);
+    if (!st) { st = { id: a.adset_id, name: a.adset_name, status: a.adset_status, budget: a.adset_budget, spend: 0, purchases: 0, value: 0, ads: [] }; c.adsets.set(a.adset_id, st); }
+    c.spend += a.spend; c.purchases += a.purchases; c.value += a.purchase_value;
+    st.spend += a.spend; st.purchases += a.purchases; st.value += a.purchase_value;
+    st.ads.push(a);
+  }
+  const campList = [...camps.values()].sort((x, y) => y.spend - x.spend);
+
+  // 요약 타일 (MD는 금액 블러 — 광고 효율과 동일 정책)
+  const tSpend = campList.reduce((t, c) => t + c.spend, 0);
+  const tPur = campList.reduce((t, c) => t + c.purchases, 0);
+  const tVal = campList.reduce((t, c) => t + c.value, 0);
+  const tile = (label, val, blur) => `<div style="background:#f8f9ff;border:1.5px solid #e0e7ff;border-radius:12px;padding:12px 14px;">
+    <div style="font-size:.75rem;color:#6b7280;font-weight:600;margin-bottom:4px;">${label}</div>
+    <div class="${blur ? 'meta-blur' : ''}" style="font-size:1.05rem;font-weight:800;color:#1e1b4b;">${val}</div></div>`;
+  $('admgr-summary').innerHTML =
+    tile('지출', fmt(Math.round(tSpend)) + '원', true) +
+    tile('구매', fmt(tPur) + '건', false) +
+    tile('구매 전환값', fmt(Math.round(tVal)) + '원', true) +
+    tile('ROAS', tSpend > 0 ? (tVal / tSpend).toFixed(2) : '—', false) +
+    tile('활성 캠페인', campList.filter(c => c.status === 'ACTIVE').length + '개', false);
+  $('admgr-summary').style.display = 'grid';
+
+  if (!campList.length) {
+    $('admgr-result').innerHTML = '<div class="empty-state"><div class="es-icon"><i class="fa-regular fa-folder-open"></i></div><p>표시할 광고가 없습니다. \'활성만\'을 해제해보세요.</p></div>';
+    return;
+  }
+
+  const money = v => `<span class="meta-blur">${fmt(Math.round(v))}원</span>`;
+  const roasTxt = (sp, val) => sp > 0 ? `<b style="color:${val / sp >= 1 ? '#15803d' : '#b91c1c'};">${(val / sp).toFixed(2)}</b>` : '<span style="color:#c4c9d4;">—</span>';
+  const caret = open => `<i class="fa-solid fa-chevron-${open ? 'down' : 'right'}" style="font-size:.6rem;color:#9ca3af;margin-right:6px;"></i>`;
+
+  let html = `<div class="table-wrap" style="max-height:640px;overflow:auto;"><table>
+    <thead><tr>
+      <th style="text-align:left;">이름</th><th>상태</th><th class="m-hide">일예산</th>
+      <th>지출</th><th class="m-hide">구매</th><th class="m-hide">전환값</th><th>ROAS</th>
+    </tr></thead><tbody>`;
+  for (const cRow of campList) {
+    const cKey = 'c' + cRow.id, cOpen = admgrState.open.has(cKey);
+    html += `<tr onclick="admgrToggle('${cKey}')" style="cursor:pointer;background:#eef2ff;">
+      <td style="text-align:left;min-width:190px;font-weight:800;color:#1e1b4b;">${caret(cOpen)}${escHtml(cRow.name)}</td>
+      <td>${admgrStatus(cRow.status)}</td>
+      <td class="m-hide">${cRow.budget ? money(cRow.budget) : '<span style="color:#c4c9d4;">—</span>'}</td>
+      <td style="font-weight:700;">${money(cRow.spend)}</td>
+      <td class="m-hide">${fmt(cRow.purchases)}</td>
+      <td class="m-hide">${money(cRow.value)}</td>
+      <td>${roasTxt(cRow.spend, cRow.value)}</td></tr>`;
+    if (!cOpen) continue;
+    for (const st of [...cRow.adsets.values()].sort((x, y) => y.spend - x.spend)) {
+      const sKey = 's' + st.id, sOpen = admgrState.open.has(sKey);
+      html += `<tr onclick="admgrToggle('${sKey}')" style="cursor:pointer;background:#f8f9ff;">
+        <td style="text-align:left;padding-left:26px;font-weight:600;color:#374151;">${caret(sOpen)}${escHtml(st.name)}</td>
+        <td>${admgrStatus(st.status)}</td>
+        <td class="m-hide">${st.budget ? money(st.budget) : '<span style="color:#c4c9d4;">—</span>'}</td>
+        <td>${money(st.spend)}</td>
+        <td class="m-hide">${fmt(st.purchases)}</td>
+        <td class="m-hide">${money(st.value)}</td>
+        <td>${roasTxt(st.spend, st.value)}</td></tr>`;
+      if (!sOpen) continue;
+      for (const a of st.ads.sort((x, y) => y.spend - x.spend)) {
+        html += `<tr onclick="showMetaPreview('${a.ad_id}')" style="cursor:pointer;">
+          <td style="text-align:left;padding-left:48px;font-size:.82rem;color:#4338ca;">${escHtml(a.ad_name)}</td>
+          <td>${admgrStatus(a.ad_status)}</td>
+          <td class="m-hide"><span style="color:#c4c9d4;">—</span></td>
+          <td style="font-size:.82rem;">${money(a.spend)}</td>
+          <td class="m-hide" style="font-size:.82rem;">${fmt(a.purchases)}</td>
+          <td class="m-hide" style="font-size:.82rem;">${money(a.purchase_value)}</td>
+          <td>${roasTxt(a.spend, a.purchase_value)}</td></tr>`;
+      }
+    }
+  }
+  $('admgr-result').innerHTML = html + '</tbody></table></div>';
+}
+
 async function metaGet(params) {
   const res = await fetch(fnUrl('meta-ads', params), { headers: sbHeaders() });
   const data = await res.json();
@@ -5596,7 +5742,7 @@ function renderProfitDetail(cur, costs) {
 /* ──────────────────────────────
    좌측 메뉴 내비게이션 + 대시보드(홈)
 ────────────────────────────── */
-const MENU_KEYS = ['home', 'cr', 'an', 'perf', 'rwatch', 'disp', 'stable', 'adv', 'profit', 'meet', 'board', 'proj', 'users'];
+const MENU_KEYS = ['home', 'cr', 'an', 'perf', 'rwatch', 'disp', 'stable', 'adv', 'admgr', 'profit', 'meet', 'board', 'proj', 'users'];
 
 function showMenu(key) {
   if (!MENU_KEYS.includes(key)) key = 'home';
@@ -5622,6 +5768,7 @@ function showMenu(key) {
   if (key === 'users') loadUsers();
   if (key === 'board') boardLoad();
   if (key === 'proj') projLoad();
+  if (key === 'admgr' && !admgrState.data) admgrFetch();
   if (key === 'profit' && isAdmin()) loadProfitArchive();
   if (key === 'rwatch') rwInit();
   if (key === 'perf') perfTrendInit();

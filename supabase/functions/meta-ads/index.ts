@@ -192,6 +192,56 @@ Deno.serve(async (req) => {
       return json({ period: { start: s, end: e }, active_count: rows.length, ads });
     }
 
+    // ── 광고관리자 계층 현황 (2026-08-25, 보기 전용) ──
+    // 캠페인→광고세트→광고 트리를 위한 평면 데이터. 새로고침 1번 = Meta 호출 2번:
+    //   ① /ads 1회 — 전 광고의 이름·상태 + 소속 세트/캠페인(이름·상태·일예산)까지 한 번에
+    //   ② /insights(level=ad) 1회 — 선택 기간 성과
+    // 60초 서버 캐시 = 새로고침 남발이 호출 한도(실사고 전력)를 못 건드리게 하는 방어선.
+    if (action === "hierarchy") {
+      const preset = ["today", "yesterday", "last_7d"].includes(url.searchParams.get("preset") ?? "")
+        ? url.searchParams.get("preset")! : "today";
+      const cacheKey = `meta:hierarchy:${preset}`;
+      const hit = await cacheGet(cacheKey, 60 * 1000);
+      if (hit) return json(hit);
+
+      const [list, ins] = await Promise.all([
+        graphGet(`${c.account}/ads`, {
+          fields: "id,name,effective_status,adset{id,name,effective_status,daily_budget},campaign{id,name,effective_status,daily_budget,objective}",
+          limit: "500",
+        }, c.token),
+        graphGet(`${c.account}/insights`, {
+          date_preset: preset,
+          level: "ad",
+          fields: "ad_id,spend,actions,action_values,purchase_roas",
+          limit: "500",
+        }, c.token),
+      ]);
+      const metric = new Map(((ins.data ?? []) as Record<string, unknown>[])
+        .map((r) => [String(r.ad_id ?? ""), mapAdRow(r)]));
+      type Node = Record<string, unknown>;
+      const rows = ((list.data ?? []) as Node[]).map((a) => {
+        const adset = (a.adset ?? {}) as Node;
+        const camp = (a.campaign ?? {}) as Node;
+        const m = metric.get(String(a.id ?? ""));
+        return {
+          ad_id: String(a.id ?? ""), ad_name: String(a.name ?? ""), ad_status: String(a.effective_status ?? ""),
+          adset_id: String(adset.id ?? ""), adset_name: String(adset.name ?? ""),
+          adset_status: String(adset.effective_status ?? ""), adset_budget: num(adset.daily_budget),
+          campaign_id: String(camp.id ?? ""), campaign_name: String(camp.name ?? ""),
+          campaign_status: String(camp.effective_status ?? ""), campaign_budget: num(camp.daily_budget),
+          spend: m?.spend ?? 0, purchases: m?.purchases ?? 0,
+          purchase_value: m?.purchase_value ?? 0, roas: m?.roas ?? 0,
+        };
+      });
+      const body = {
+        preset, fetched_at: new Date().toISOString(),
+        truncated: ((list.data ?? []) as unknown[]).length >= 500,
+        ads: rows,
+      };
+      await cacheSet(cacheKey, body);
+      return json(body);
+    }
+
     // 소재별 기간 통계 — 오늘/어제/최근3일/최근7일/이전7일/최근14일/최근30일의 지출·ROAS
     // (last_7d 등 date_preset은 오늘을 제외하고 어제까지 집계 — Meta 표준)
     // '이전 7일' = 최근 7일 바로 앞 7일. Meta에 해당 프리셋이 없어 time_range로 직접 지정하며,
