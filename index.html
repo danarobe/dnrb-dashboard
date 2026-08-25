@@ -5117,19 +5117,10 @@ function admgrBuildPaidMatch(res) {
   const prods = (res.products || [])
     .map(pr => ({ no: pr.product_no, name: pr.product_name, key: paNorm(paKey(pr.product_name)), ver: paVerTok(pr.product_name) ? paNorm(paVerTok(pr.product_name)) : null }))
     .filter(pr => pr.key.length >= 3);
-  const groupN = {};
-  for (const pr of prods) groupN[pr.key] = (groupN[pr.key] || 0) + 1;
+  const groups = paGroups(prods);   // 후보 규칙은 판매 성과와 동일 (paPickBest — 기본판 배정 포함)
   const bySet = new Map();
   for (const st of admgrRows().sets) {
-    const an = paNorm(st.name);
-    let best = null;
-    for (const pr of prods) {
-      if (!an.includes(pr.key)) continue;
-      if (groupN[pr.key] > 1) {                     // 동명 계절 버전 존재 → ver 토큰 필수
-        if (!pr.ver || !an.includes(pr.ver)) continue;
-      }
-      if (!best || pr.key.length > best.key.length || (pr.key === best.key && pr.ver && an.includes(pr.ver))) best = pr;
-    }
+    const best = paPickBest(paNorm(st.name), prods, groups);
     if (best) bySet.set(st.id, { qty: qtyByNo.get(best.no) || 0, name: best.name });
   }
   return bySet;
@@ -7108,13 +7099,17 @@ function escHtml(s) {
    호출은 activeads 1번(광고 ~100개, 시작~어제 누적 성과 포함) — 숫자 클릭 팝업은 API 0회.
 ────────────────────────────── */
 const PA_VER = /(?<![a-z])ver/i;
-/* 핵심명 = 앞·뒤 괄호를 전부 벗긴 상품명 */
+/* 핵심명 = 앞·뒤 괄호/대괄호를 전부 벗긴 상품명.
+   2026-08-26 수정: "[Best] (2사이즈) 클레르 블라우스 (5 colors)"처럼 대괄호 태그나
+   앞쪽 괄호가 여러 개면 예전 코드(앞 괄호 1개+뒤 괄호만)로는 핵심명이 안 나와 매칭이 전멸했다(실사례 1383). */
 function paKey(name) {
   let s = String(name || '').trim();
-  const lead = s.match(/^\s*\([^)]*\)\s*(.*)$/);
-  if (lead) s = lead[1];
   for (;;) {
-    const m = s.match(/^(.*?)\s*\([^)]*\)\s*$/);
+    const m = s.match(/^\s*(?:\([^)]*\)|\[[^\]]*\])\s*(.*)$/);
+    if (m) s = m[1]; else break;
+  }
+  for (;;) {
+    const m = s.match(/^(.*?)\s*(?:\([^)]*\)|\[[^\]]*\])\s*$/);
     if (m) s = m[1]; else break;
   }
   return s.trim();
@@ -7144,11 +7139,37 @@ function paJamo(s) {
 /* 비교 정규화: NFC 정규화 → 자모 풀기 → 공백 제거 + 'ver.'→'ver' + 소문자 */
 const paNorm = t => paJamo(String(t || '').normalize('NFC')).replace(/\s+/g, '').replace(/ver\./gi, 'ver').toLowerCase();
 
-/* 광고 → 상품 배정.
+/* 광고 → 상품 배정 (판매 성과 ON 광고 + 광고관리자 실결제 수 공용 규칙).
    · 광고명에 핵심명이 포함되면 후보. 가장 긴 핵심명 하나에만 배정(부분 겹침 오매칭 방지).
-   · **같은 핵심명의 계절 버전이 여러 개면**(예: 여름ver/겨울ver) 광고명의 ver 토큰으로 구분하고,
-     토큰이 없으면 어느 버전인지 알 수 없으므로 배정하지 않는다 (사용자 규칙의 의도 구현 —
-     실측상 광고명은 상품명의 괄호를 그대로 복사하지 않아 '괄호 통째 포함'으로는 다 놓친다). */
+   · **같은 핵심명 상품이 여러 개면**(예: 기모ver/기본판): 광고명에 ver 토큰이 있으면 그 버전에,
+     **토큰이 없으면 'ver 없는 기본판'에 배정 — 단 그룹에 기본판이 딱 하나일 때만**(2026-08-26 개선.
+     예전엔 무조건 ver 토큰 필수라 기본판 광고가 영영 미배정 — 실사례 1383 [Best] 클레르 블라우스).
+     기본판이 여럿이면 판별 불가라 예전처럼 미배정. */
+function paGroups(prods) {
+  const g = {};
+  for (const p of prods) {
+    const e = (g[p.key] = g[p.key] || { n: 0, vers: [], noVer: 0 });
+    e.n++;
+    if (p.ver) e.vers.push(p.ver); else e.noVer++;
+  }
+  return g;
+}
+function paPickBest(an, prods, groups) {
+  let best = null;
+  for (const p of prods) {
+    if (!an.includes(p.key)) continue;
+    const g = groups[p.key];
+    if (g.n > 1) {
+      if (p.ver) { if (!an.includes(p.ver)) continue; }
+      else {
+        if (g.noVer > 1) continue;                          // 기본판이 여럿 → 판별 불가
+        if (g.vers.some(v => an.includes(v))) continue;     // 광고가 특정 ver 명시 → 그 버전 것
+      }
+    }
+    if (!best || p.key.length > best.key.length || (p.key === best.key && p.ver && an.includes(p.ver))) best = p;
+  }
+  return best;
+}
 function paBuildMatch() {
   store.adMatch = new Map();
   const src = store.activeAds;
@@ -7156,18 +7177,9 @@ function paBuildMatch() {
   const prods = store.salesData
     .map(r => ({ no: r.productNo, key: paNorm(paKey(r.productName)), ver: paVerTok(r.productName) ? paNorm(paVerTok(r.productName)) : null }))
     .filter(p => p.key.length >= 3);
-  const groupN = {};
-  for (const p of prods) groupN[p.key] = (groupN[p.key] || 0) + 1;
+  const groups = paGroups(prods);
   for (const ad of src.ads) {
-    const an = paNorm(ad.ad_name);
-    let best = null;
-    for (const p of prods) {
-      if (!an.includes(p.key)) continue;
-      if (groupN[p.key] > 1) {                     // 동명 계절 버전 존재 → ver 토큰 필수
-        if (!p.ver || !an.includes(p.ver)) continue;
-      }
-      if (!best || p.key.length > best.key.length || (p.key === best.key && p.ver && an.includes(p.ver))) best = p;
-    }
+    const best = paPickBest(paNorm(ad.ad_name), prods, groups);
     if (!best) continue;
     if (!store.adMatch.has(best.no)) store.adMatch.set(best.no, []);
     store.adMatch.get(best.no).push(ad);
