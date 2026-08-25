@@ -395,6 +395,86 @@ Deno.serve(async (req) => {
       return json(body);
     }
 
+    // ── 예산 변경 이력 (2026-08-26) — Meta 계정 활동(activities)에서 예산 이벤트만 추출 ──
+    // 광고관리자에서 예산을 바꾸면 Meta가 활동 로그에 남긴다(약 90일 보관): 이벤트 시각·대상·old/new 값.
+    // 우리가 따로 기록할 필요 없이 실제 변경 시각(분 단위)을 그대로 얻는다. 60초 캐시.
+    if (action === "budgethistory") {
+      const s = url.searchParams.get("start_date") ?? seoulToday();
+      const e = url.searchParams.get("end_date") ?? seoulToday();
+      const debug = url.searchParams.get("debug") === "1";
+      const cacheKey = `meta:budgethist:${s}:${e}`;
+      if (!debug) {
+        const hit = await cacheGet(cacheKey, 60 * 1000);
+        if (hit) return json(hit);
+      }
+      const rows = await graphGetAll(`${c.account}/activities`, {
+        fields: "event_type,event_time,object_id,object_name,object_type,extra_data",
+        since: s,
+        until: addDays(e, 1),   // until은 그 날 0시 기준이라 하루 더해 종료일을 포함시킨다
+        limit: "500",
+      }, c.token, 4);
+      if (debug) {   // 이벤트 타입·extra_data 실물 확인용 (검증 후에도 무해하게 유지)
+        return json({ count: rows.length, sample: rows.slice(0, 30) });
+      }
+      // 이벤트 타입 실측(2026-08-26): update_ad_set_budget / update_campaign_budget 두 가지가 금액 변경.
+      // (update_campaign_budget_scheduling_state 같은 비금액 budget 이벤트는 제외.)
+      // extra_data는 중첩 JSON 문자열: {old_value:{old_value:30000,...}, new_value:{new_value:50000, additional_value:"(일일 기준)"}}
+      // object_type은 Meta 옛 명칭이라 헷갈림(CAMPAIGN=광고세트!) — 층 판정은 event_type으로 한다.
+      const events = rows
+        .filter((r) => /^update_(ad_set|campaign)_budget$/.test(String(r.event_type ?? "")))
+        .map((r) => {
+          let extra: Record<string, unknown> = {};
+          try {
+            const raw = r.extra_data;
+            extra = typeof raw === "string" ? JSON.parse(raw) : (raw as Record<string, unknown>) ?? {};
+          } catch { /* extra_data 없음/비JSON — old/new 없이 반환 */ }
+          const ov = (extra.old_value ?? {}) as Record<string, unknown>;
+          const nv = (extra.new_value ?? {}) as Record<string, unknown>;
+          return {
+            time: String(r.event_time ?? ""),
+            level: String(r.event_type ?? "").startsWith("update_ad_set") ? "adset" : "campaign",
+            object_id: String(r.object_id ?? ""),
+            object_name: String(r.object_name ?? ""),
+            old_value: num(ov.old_value ?? extra.old_value),
+            new_value: num(nv.new_value ?? extra.new_value),
+            note: String(nv.additional_value ?? ""),   // "(일일 기준)" 등
+          };
+        })
+        .filter((ev) => ev.old_value > 0 || ev.new_value > 0);
+      const body = { period: { start: s, end: e }, count: events.length, events };
+      await cacheSet(cacheKey, body);
+      return json(body);
+    }
+
+    // ── 시간대별 성과 (2026-08-26) — 예산 변경 영향 분석용: 어제~오늘 시간별 지출·구매 ──
+    // breakdowns=hourly_stats_...advertiser_time_zone = 광고계정 시간대(한국) 기준 시간 버킷.
+    // time_increment=1로 날짜별 분리 → 최대 48행. 5분 캐시.
+    if (action === "hourlystats") {
+      const objId = url.searchParams.get("object_id");
+      if (!objId) return json({ error: "object_id 필수 (광고세트/캠페인 id)" }, 400);
+      const t = seoulToday(), y = addDays(t, -1);
+      const cacheKey = `meta:hourly:${objId}:${t}`;
+      const hit = await cacheGet(cacheKey, 5 * 60 * 1000);
+      if (hit) return json(hit);
+      const body = await graphGet(`${objId}/insights`, {
+        time_range: JSON.stringify({ since: y, until: t }),
+        time_increment: "1",
+        breakdowns: "hourly_stats_aggregated_by_advertiser_time_zone",
+        fields: "spend,actions,action_values",
+        limit: "100",
+      }, c.token);
+      const rows = ((body.data ?? []) as Record<string, unknown>[]).map((r) => ({
+        date: String(r.date_start ?? ""),
+        hour: parseInt(String(r.hourly_stats_aggregated_by_advertiser_time_zone ?? "0").slice(0, 2), 10) || 0,
+        spend: num(r.spend),
+        purchases: pickPurchase(r.actions),
+        value: pickPurchase(r.action_values),
+      }));
+      const out = { today: t, yesterday: y, rows };
+      await cacheSet(cacheKey, out);
+      return json(out);
+    }
+
     // 소재별 기간 통계 — 오늘/어제/최근3일/최근7일/이전7일/최근14일/최근30일의 지출·ROAS
     // (last_7d 등 date_preset은 오늘을 제외하고 어제까지 집계 — Meta 표준)
     // '이전 7일' = 최근 7일 바로 앞 7일. Meta에 해당 프리셋이 없어 time_range로 직접 지정하며,
