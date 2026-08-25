@@ -5040,30 +5040,18 @@ function admgrToggle(key) {
 
 function admgrRender() {
   const d = admgrState.data;
-  if (!d || !d.ads) return;
+  if (!d || !d.campaigns) return;
   // 기간 칩
   $('admgr-presets').innerHTML = ADMGR_PRESETS.map(([v, label]) =>
     `<button onclick="admgrSetPreset('${v}')" style="border:1.5px solid ${admgrState.preset === v ? 'transparent' : '#d1d5db'};background:${admgrState.preset === v ? '#4f46e5' : '#fff'};color:${admgrState.preset === v ? '#fff' : '#4b5563'};border-radius:99px;padding:5px 13px;font-size:.78rem;font-weight:700;cursor:pointer;">${label}</button>`).join('');
-  // 기준 시각
   const ageSec = Math.max(0, Math.round((Date.now() - new Date(d.fetched_at).getTime()) / 1000));
-  $('admgr-asof').textContent = `${ageSec < 60 ? ageSec + '초' : Math.round(ageSec / 60) + '분'} 전 기준${d.truncated ? ' · 500개 초과 일부 생략' : ''}`;
+  $('admgr-asof').textContent = `${ageSec < 60 ? ageSec + '초' : Math.round(ageSec / 60) + '분'} 전 기준${d.truncated ? ' · 일부 생략 가능(500개 한도)' : ''}`;
 
+  // '활성만' = 켜져 있거나 이 기간에 지출이 있는 것 (중간에 꺼진 것도 그날 성과는 보이게 — 광고관리자와 동일 감각)
   const activeOnly = $('admgr-active-only').checked;
-  const ads = d.ads.filter(a => !activeOnly || a.ad_status === 'ACTIVE');
-  // 트리 조립: 캠페인 → 세트 → 광고 (지출 합산)
-  const camps = new Map();
-  for (const a of ads) {
-    let c = camps.get(a.campaign_id);
-    if (!c) { c = { id: a.campaign_id, name: a.campaign_name, status: a.campaign_status, budget: a.campaign_budget, spend: 0, purchases: 0, value: 0, adsets: new Map() }; camps.set(a.campaign_id, c); }
-    let st = c.adsets.get(a.adset_id);
-    if (!st) { st = { id: a.adset_id, name: a.adset_name, status: a.adset_status, budget: a.adset_budget, spend: 0, purchases: 0, value: 0, ads: [] }; c.adsets.set(a.adset_id, st); }
-    c.spend += a.spend; c.purchases += a.purchases; c.value += a.purchase_value;
-    st.spend += a.spend; st.purchases += a.purchases; st.value += a.purchase_value;
-    st.ads.push(a);
-  }
-  const campList = [...camps.values()].sort((x, y) => y.spend - x.spend);
+  const show = n => !activeOnly || n.status === 'ACTIVE' || n.spend > 0;
+  const campList = d.campaigns.filter(show).sort((x, y) => y.spend - x.spend);
 
-  // 요약 타일 (MD는 금액 블러 — 광고 효율과 동일 정책)
   const tSpend = campList.reduce((t, c) => t + c.spend, 0);
   const tPur = campList.reduce((t, c) => t + c.purchases, 0);
   const tVal = campList.reduce((t, c) => t + c.value, 0);
@@ -5075,11 +5063,11 @@ function admgrRender() {
     tile('구매', fmt(tPur) + '건', false) +
     tile('구매 전환값', fmt(Math.round(tVal)) + '원', true) +
     tile('ROAS', tSpend > 0 ? (tVal / tSpend).toFixed(2) : '—', false) +
-    tile('활성 캠페인', campList.filter(c => c.status === 'ACTIVE').length + '개', false);
+    tile('활성 캠페인', d.campaigns.filter(x => x.status === 'ACTIVE').length + '개', false);
   $('admgr-summary').style.display = 'grid';
 
   if (!campList.length) {
-    $('admgr-result').innerHTML = '<div class="empty-state"><div class="es-icon"><i class="fa-regular fa-folder-open"></i></div><p>표시할 광고가 없습니다. \'활성만\'을 해제해보세요.</p></div>';
+    $('admgr-result').innerHTML = `<div class="empty-state"><div class="es-icon"><i class="fa-regular fa-folder-open"></i></div><p>표시할 캠페인이 없습니다. '활성만'을 해제해보세요.</p></div>`;
     return;
   }
 
@@ -5103,7 +5091,7 @@ function admgrRender() {
       <td class="m-hide">${money(cRow.value)}</td>
       <td>${roasTxt(cRow.spend, cRow.value)}</td></tr>`;
     if (!cOpen) continue;
-    for (const st of [...cRow.adsets.values()].sort((x, y) => y.spend - x.spend)) {
+    for (const st of cRow.adsets.filter(show).sort((x, y) => y.spend - x.spend)) {
       const sKey = 's' + st.id, sOpen = admgrState.open.has(sKey);
       html += `<tr onclick="admgrToggle('${sKey}')" style="cursor:pointer;background:#f8f9ff;">
         <td style="text-align:left;padding-left:26px;font-weight:600;color:#374151;">${caret(sOpen)}${escHtml(st.name)}</td>
@@ -5114,15 +5102,15 @@ function admgrRender() {
         <td class="m-hide">${money(st.value)}</td>
         <td>${roasTxt(st.spend, st.value)}</td></tr>`;
       if (!sOpen) continue;
-      for (const a of st.ads.sort((x, y) => y.spend - x.spend)) {
-        html += `<tr onclick="showMetaPreview('${a.ad_id}')" style="cursor:pointer;">
-          <td style="text-align:left;padding-left:48px;font-size:.82rem;color:#4338ca;">${escHtml(a.ad_name)}</td>
-          <td>${admgrStatus(a.ad_status)}</td>
+      for (const a of st.ads.filter(show).sort((x, y) => y.spend - x.spend)) {
+        html += `<tr onclick="showMetaPreview('${a.id}')" style="cursor:pointer;">
+          <td style="text-align:left;padding-left:48px;font-size:.82rem;color:#4338ca;">${escHtml(a.name)}</td>
+          <td>${a.status ? admgrStatus(a.status) : '<span style="background:#f3f4f6;color:#9ca3af;border-radius:99px;padding:1px 8px;font-size:.68rem;font-weight:700;">기간 중 게재</span>'}</td>
           <td class="m-hide"><span style="color:#c4c9d4;">—</span></td>
           <td style="font-size:.82rem;">${money(a.spend)}</td>
           <td class="m-hide" style="font-size:.82rem;">${fmt(a.purchases)}</td>
-          <td class="m-hide" style="font-size:.82rem;">${money(a.purchase_value)}</td>
-          <td>${roasTxt(a.spend, a.purchase_value)}</td></tr>`;
+          <td class="m-hide" style="font-size:.82rem;">${money(a.value)}</td>
+          <td>${roasTxt(a.spend, a.value)}</td></tr>`;
       }
     }
   }

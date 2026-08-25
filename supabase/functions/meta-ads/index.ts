@@ -192,52 +192,89 @@ Deno.serve(async (req) => {
       return json({ period: { start: s, end: e }, active_count: rows.length, ads });
     }
 
-    // ── 광고관리자 계층 현황 (2026-08-25, 보기 전용) ──
-    // 캠페인→광고세트→광고 트리를 위한 평면 데이터. 새로고침 1번 = Meta 호출 2번:
-    //   ① /ads 1회 — 전 광고의 이름·상태 + 소속 세트/캠페인(이름·상태·일예산)까지 한 번에
-    //   ② /insights(level=ad) 1회 — 선택 기간 성과
+    // ── 광고관리자 계층 현황 (2026-08-25, 보기 전용 / 2026-08-25b 상향식→하향식 개편) ──
+    // 처음엔 /ads(limit 500)에서 거꾸로 조립했더니 광고 500개 한도에 잘린 캠페인이 통째로 누락됨(리타겟팅 등 실사례).
+    // 지금은 캠페인·세트 목록을 각각 직접 받아 하향식으로 조립 — 캠페인·세트는 누락 불가.
+    // 새로고침 1번 = Meta 호출 4번: /campaigns + /adsets + /ads(활성만) + insights(level=ad).
+    // 광고 행 = 활성 광고 전체 ∪ 기간 중 게재된 광고(인사이트 기준 — 중간에 꺼진 광고도 지출이 보임).
     // 60초 서버 캐시 = 새로고침 남발이 호출 한도(실사고 전력)를 못 건드리게 하는 방어선.
     if (action === "hierarchy") {
       const preset = ["today", "yesterday", "last_7d"].includes(url.searchParams.get("preset") ?? "")
         ? url.searchParams.get("preset")! : "today";
-      const cacheKey = `meta:hierarchy:${preset}`;
+      const cacheKey = `meta:hierarchy2:${preset}`;
       const hit = await cacheGet(cacheKey, 60 * 1000);
       if (hit) return json(hit);
 
-      const [list, ins] = await Promise.all([
+      type Node = Record<string, unknown>;
+      const [camps, adsets, adsAct, ins] = await Promise.all([
+        graphGet(`${c.account}/campaigns`, { fields: "id,name,effective_status,daily_budget", limit: "200" }, c.token),
+        graphGet(`${c.account}/adsets`, { fields: "id,name,effective_status,daily_budget,campaign_id", limit: "500" }, c.token),
         graphGet(`${c.account}/ads`, {
-          fields: "id,name,effective_status,adset{id,name,effective_status,daily_budget},campaign{id,name,effective_status,daily_budget,objective}",
+          fields: "id,name,effective_status,adset_id,campaign_id",
+          filtering: JSON.stringify([{ field: "effective_status", operator: "IN", value: ["ACTIVE"] }]),
           limit: "500",
         }, c.token),
         graphGet(`${c.account}/insights`, {
-          date_preset: preset,
-          level: "ad",
-          fields: "ad_id,spend,actions,action_values,purchase_roas",
+          date_preset: preset, level: "ad",
+          fields: "ad_id,ad_name,adset_id,adset_name,campaign_id,campaign_name,spend,actions,action_values,purchase_roas",
           limit: "500",
         }, c.token),
       ]);
-      const metric = new Map(((ins.data ?? []) as Record<string, unknown>[])
-        .map((r) => [String(r.ad_id ?? ""), mapAdRow(r)]));
-      type Node = Record<string, unknown>;
-      const rows = ((list.data ?? []) as Node[]).map((a) => {
-        const adset = (a.adset ?? {}) as Node;
-        const camp = (a.campaign ?? {}) as Node;
-        const m = metric.get(String(a.id ?? ""));
-        return {
-          ad_id: String(a.id ?? ""), ad_name: String(a.name ?? ""), ad_status: String(a.effective_status ?? ""),
-          adset_id: String(adset.id ?? ""), adset_name: String(adset.name ?? ""),
-          adset_status: String(adset.effective_status ?? ""), adset_budget: num(adset.daily_budget),
-          campaign_id: String(camp.id ?? ""), campaign_name: String(camp.name ?? ""),
-          campaign_status: String(camp.effective_status ?? ""), campaign_budget: num(camp.daily_budget),
-          spend: m?.spend ?? 0, purchases: m?.purchases ?? 0,
-          purchase_value: m?.purchase_value ?? 0, roas: m?.roas ?? 0,
-        };
-      });
-      const body = {
-        preset, fetched_at: new Date().toISOString(),
-        truncated: ((list.data ?? []) as unknown[]).length >= 500,
-        ads: rows,
+
+      // 캠페인/세트 뼈대
+      const cMap = new Map<string, Node>();
+      for (const r of (camps.data ?? []) as Node[]) {
+        cMap.set(String(r.id), { id: String(r.id), name: String(r.name ?? ""), status: String(r.effective_status ?? ""),
+          budget: num(r.daily_budget), spend: 0, purchases: 0, value: 0, adsets: new Map<string, Node>() });
+      }
+      const sMap = new Map<string, Node>();   // adset_id → node (캠페인에도 연결)
+      const ensureCamp = (id: string, name = "") => {
+        if (!cMap.has(id)) cMap.set(id, { id, name, status: "", budget: 0, spend: 0, purchases: 0, value: 0, adsets: new Map() });
+        return cMap.get(id)!;
       };
+      const ensureAdset = (id: string, campId: string, name = "", status = "", budget = 0) => {
+        if (!sMap.has(id)) {
+          const node: Node = { id, name, status, budget, spend: 0, purchases: 0, value: 0, ads: new Map<string, Node>() };
+          sMap.set(id, node);
+          (ensureCamp(campId).adsets as Map<string, Node>).set(id, node);
+        }
+        return sMap.get(id)!;
+      };
+      for (const r of (adsets.data ?? []) as Node[]) {
+        ensureAdset(String(r.id), String(r.campaign_id ?? ""), String(r.name ?? ""), String(r.effective_status ?? ""), num(r.daily_budget));
+      }
+
+      // 광고: 활성 전체 + 기간 중 게재분(인사이트) 합집합
+      const ensureAd = (adId: string, adsetId: string, campId: string, name: string, status: string) => {
+        const st = ensureAdset(adsetId, campId);
+        const ads = st.ads as Map<string, Node>;
+        if (!ads.has(adId)) ads.set(adId, { id: adId, name, status, spend: 0, purchases: 0, value: 0, roas: 0 });
+        return ads.get(adId)!;
+      };
+      for (const r of (adsAct.data ?? []) as Node[]) {
+        ensureAd(String(r.id), String(r.adset_id ?? ""), String(r.campaign_id ?? ""), String(r.name ?? ""), String(r.effective_status ?? ""));
+      }
+      for (const r of (ins.data ?? []) as Node[]) {
+        const m = mapAdRow(r);
+        const campId = String(r.campaign_id ?? "");
+        const camp = ensureCamp(campId, String(r.campaign_name ?? ""));
+        if (!camp.name) camp.name = String(r.campaign_name ?? "");
+        const st = ensureAdset(String(r.adset_id ?? ""), campId, String(r.adset_name ?? ""));
+        if (!st.name) st.name = String(r.adset_name ?? "");
+        const ad = ensureAd(String(r.ad_id ?? ""), String(r.adset_id ?? ""), campId, m.ad_name, "");
+        ad.spend = m.spend; ad.purchases = m.purchases; ad.value = m.purchase_value; ad.roas = m.roas;
+        st.spend = num(st.spend) + m.spend; st.purchases = num(st.purchases) + m.purchases; st.value = num(st.value) + m.purchase_value;
+        camp.spend = num(camp.spend) + m.spend; camp.purchases = num(camp.purchases) + m.purchases; camp.value = num(camp.value) + m.purchase_value;
+      }
+
+      const campaigns = [...cMap.values()].map((cRow) => ({
+        ...cRow,
+        adsets: [...(cRow.adsets as Map<string, Node>).values()].map((st) => ({
+          ...st, ads: [...(st.ads as Map<string, Node>).values()],
+        })),
+      }));
+      const truncated = [camps, adsets, adsAct, ins].some((r) => ((r.data ?? []) as unknown[]).length >= 500);
+      const body = { preset, fetched_at: new Date().toISOString(), truncated, campaigns };
       await cacheSet(cacheKey, body);
       return json(body);
     }
