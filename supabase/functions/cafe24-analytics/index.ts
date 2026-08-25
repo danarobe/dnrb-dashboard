@@ -595,12 +595,14 @@ Deno.serve(async (req) => {
       return respond({ period: { start: s, end: e }, basis: "item_delivered_date", items });
     }
 
-    // ── 셀메이트 재고 대조용: 기간 내 품목별 결제수량 (관리자 전용) ──
+    // ── 기간 내 품목별 결제수량 (안정재고 편성 + 광고관리자 결제완료 열) ──
     // 결제일 기준으로 주문을 수집해 product_no + option_value 단위로 수량 합산.
     // 주의: 카페24 date_type의 결제일 값은 payment_date가 아니라 `pay_date` (다른 값은 422 반환).
     // items: [{product_no, product_name, option_value, paid_qty}]
+    // 권한: admin+staff (2026-08-26 — 광고관리자 메뉴가 MD·마케터에게도 열려 있고,
+    // 응답은 수량·상품명뿐 금액이 없어 MD가 판매 성과에서 보는 판매수량과 같은 수준)
     if (action === "paiditems") {
-      if (authed.role !== "admin") return json({ error: "접근 권한이 없습니다" }, 403);
+      if (!["admin", "staff"].includes(authed.role)) return json({ error: "접근 권한이 없습니다" }, 403);
       const s = url.searchParams.get("start_date");
       const e = url.searchParams.get("end_date");
       if (!s || !e) return json({ error: "start_date, end_date 필수 (YYYY-MM-DD)" }, 400);

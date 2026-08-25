@@ -5024,6 +5024,9 @@ const admgrState = {
   data: null, preset: 'today', sort: [], view: 'camp',
   selCamps: new Set(), selSets: new Set(), _dispIds: [],
   test: { data: null, state: new Map(), filter: 'all', showHidden: false, sel: new Set(), loaded: false, loading: false },
+  // 광고세트 탭 '결제완료' 열 (2026-08-26): 세트명↔상품명 매칭(판매 성과 pa* 규칙 재사용) + paiditems 기간 결제수량.
+  // key = 기간 문자열, loading = 조회 중인 key(경쟁 응답 버림용), bySet = Map(세트id → {qty, name})
+  paid: { key: null, bySet: null, loading: false, error: false },
 };
 // 다중 정렬 (2026-08-25): sort = [{k,d}...] — 먼저 누른 열이 1순위, 다음 누른 열은 그 안에서 2순위...
 // 클릭: 없으면 오름차순 추가 → 다시 클릭 내림차순 → 한 번 더 해제. 모든 탭 공통 적용.
@@ -5038,7 +5041,7 @@ function admgrCmp(a, b) {
   const roasOf = n => n.spend > 0 ? n.value / n.spend : -1;
   const cpaOf = n => n.purchases > 0 ? n.spend / n.purchases : Infinity;
   const cpcOf = n => n.clicks > 0 ? n.spend / n.clicks : Infinity;
-  const val = (n, k) => k === 'spend' ? n.spend : k === 'purchases' ? n.purchases : k === 'value' ? n.value : k === 'roas' ? roasOf(n) : k === 'cpa' ? cpaOf(n) : k === 'cpc' ? cpcOf(n) : k === 'reg' ? (n.reg_date || '') : n.name;
+  const val = (n, k) => k === 'spend' ? n.spend : k === 'purchases' ? n.purchases : k === 'value' ? n.value : k === 'roas' ? roasOf(n) : k === 'cpa' ? cpaOf(n) : k === 'cpc' ? cpcOf(n) : k === 'paid' ? (n.paid ?? -1) : k === 'reg' ? (n.reg_date || '') : n.name;
   for (const { k, d } of admgrState.sort) {
     const r = (k === 'name' || k === 'reg')
       ? String(val(a, k)).localeCompare(String(val(b, k)), 'ko')
@@ -5085,6 +5088,59 @@ const admgrBudgetTxt = n => n.budget ? `${admgrMoney(n.budget)}<div style="font-
 const admgrTile = (label, val, blur) => `<div style="background:#f8f9ff;border:1.5px solid #e0e7ff;border-radius:12px;padding:12px 14px;">
   <div style="font-size:.75rem;color:#6b7280;font-weight:600;margin-bottom:4px;">${label}</div>
   <div class="${blur ? 'meta-blur' : ''}" style="font-size:1.05rem;font-weight:800;color:#1e1b4b;">${val}</div></div>`;
+
+/* ── 광고세트 '결제완료' 열 (2026-08-26) — 세트명↔상품명 매칭 + 카페24 기간 결제수량 ──
+   기간은 현재 기간 칩(d.range)과 동일. paiditems는 느릴 수 있어(첫 조회 수십 초, 서버 10분 캐시)
+   표를 먼저 그리고 도착하면 다시 채운다. 매칭은 판매 성과 ON 광고와 같은 pa* 규칙
+   (자모 비교·최장 핵심명 우선·동명 계절 버전은 ver 토큰 필수). */
+async function admgrPaidFetch() {
+  const d = admgrState.data;
+  if (!d || !d.range) return;
+  const p = admgrState.paid;
+  const key = d.range.start + '~' + d.range.end;
+  if (p.loading === key || (p.key === key && p.bySet)) return;
+  p.loading = key; p.key = key; p.bySet = null; p.error = false;
+  admgrRender();   // 셀에 '조회 중' 스피너 반영
+  try {
+    const res = await anGet({ action: 'paiditems', start_date: d.range.start, end_date: d.range.end });
+    if (p.loading !== key) return;   // 그 사이 기간이 바뀌었으면 이 응답은 버린다
+    p.bySet = admgrBuildPaidMatch(res);
+  } catch (e) {
+    if (p.loading === key) { p.error = true; showToast('결제완료 수 조회 실패: ' + e.message); }
+  } finally {
+    if (p.loading === key) { p.loading = false; admgrRender(); }
+  }
+}
+function admgrBuildPaidMatch(res) {
+  const qtyByNo = new Map();
+  for (const it of (res.items || [])) qtyByNo.set(it.product_no, (qtyByNo.get(it.product_no) || 0) + it.paid_qty);
+  const prods = (res.products || [])
+    .map(pr => ({ no: pr.product_no, name: pr.product_name, key: paNorm(paKey(pr.product_name)), ver: paVerTok(pr.product_name) ? paNorm(paVerTok(pr.product_name)) : null }))
+    .filter(pr => pr.key.length >= 3);
+  const groupN = {};
+  for (const pr of prods) groupN[pr.key] = (groupN[pr.key] || 0) + 1;
+  const bySet = new Map();
+  for (const st of admgrRows().sets) {
+    const an = paNorm(st.name);
+    let best = null;
+    for (const pr of prods) {
+      if (!an.includes(pr.key)) continue;
+      if (groupN[pr.key] > 1) {                     // 동명 계절 버전 존재 → ver 토큰 필수
+        if (!pr.ver || !an.includes(pr.ver)) continue;
+      }
+      if (!best || pr.key.length > best.key.length || (pr.key === best.key && pr.ver && an.includes(pr.ver))) best = pr;
+    }
+    if (best) bySet.set(st.id, { qty: qtyByNo.get(best.no) || 0, name: best.name });
+  }
+  return bySet;
+}
+const admgrPaidCell = st => {
+  const p = admgrState.paid;
+  const hit = p.bySet && p.bySet.get(st.id);
+  if (hit) return `<span title="${escHtml(hit.name)} — 기간 내 카페24 결제완료 수량" style="font-weight:700;">${fmt(hit.qty)}</span>`;
+  if (p.loading) return '<i class="fa-solid fa-spinner fa-spin" style="color:#c4c9d4;font-size:.7rem;"></i>';
+  return admgrDash;
+};
 
 /* 계층 데이터를 탭별 평면 목록으로 (세트·광고에 상위 이름을 붙여둔다) */
 function admgrRows() {
@@ -5172,6 +5228,11 @@ function admgrRender() {
   else if (v === 'adset') rows = R.sets.filter(st => (!admgrState.selCamps.size || admgrState.selCamps.has(st.campId)) && show(st));
   else rows = R.ads.filter(a => (admgrState.selSets.size ? admgrState.selSets.has(a.setId) : admgrState.selCamps.size ? admgrState.selCamps.has(a.campId) : true) && show(a));
   if (q) rows = rows.filter(r => (r.name || '').toLowerCase().includes(q));
+  if (v === 'adset') {   // 결제완료 열: 정렬용 값 부착 + 데이터 없으면 뒤에서 조회 (표 렌더는 안 막음)
+    const pb = admgrState.paid.bySet;
+    rows = rows.map(st => ({ ...st, paid: pb && pb.get(st.id) ? pb.get(st.id).qty : -1 }));
+    setTimeout(admgrPaidFetch, 0);
+  }
   rows = rows.slice().sort(admgrCmp);
   admgrState._dispIds = v === 'ad' ? [] : rows.map(r => r.id);
 
@@ -5217,7 +5278,7 @@ function admgrRender() {
     <thead><tr>
       ${hasCk ? `<th style="width:34px;"><input type="checkbox" ${allChecked ? 'checked' : ''} onclick="admgrSelAllDisp()" title="표시된 전체 선택/해제" /></th>` : ''}
       ${thSort('name', '이름', '', true)}<th>상태</th><th class="m-hide">예산</th>
-      ${thSort('spend', '지출')}${thSort('purchases', '구매', 'm-hide')}${thSort('cpa', '구매당 비용', 'm-hide')}${thSort('roas', 'ROAS')}${thSort('value', '전환값', 'm-hide')}${thSort('cpc', 'CPC', 'm-hide')}
+      ${thSort('spend', '지출')}${thSort('purchases', '구매', 'm-hide')}${v === 'adset' ? thSort('paid', '결제완료', 'm-hide') : ''}${thSort('cpa', '구매당 비용', 'm-hide')}${thSort('roas', 'ROAS')}${thSort('value', '전환값', 'm-hide')}${thSort('cpc', 'CPC', 'm-hide')}
     </tr></thead><tbody>`;
   for (const r of rows) {
     const checked = hasCk && selSetNow.has(r.id);
@@ -5235,6 +5296,7 @@ function admgrRender() {
       <td class="m-hide">${v === 'ad' ? admgrDash : admgrBudgetTxt(r)}</td>
       <td style="font-weight:700;">${admgrMoney(r.spend)}</td>
       <td class="m-hide">${fmt(r.purchases)}</td>
+      ${v === 'adset' ? `<td class="m-hide">${admgrPaidCell(r)}</td>` : ''}
       <td class="m-hide">${admgrCpaTxt(r)}</td>
       <td>${admgrRoasTxt(r.spend, r.value)}</td>
       <td class="m-hide">${admgrMoney(r.value)}</td>
@@ -5249,6 +5311,7 @@ function admgrRender() {
     <td class="m-hide">${admgrDash}</td>
     <td style="font-weight:800;">${admgrMoney(tot.spend)}</td>
     <td class="m-hide" style="font-weight:700;">${fmt(tot.purchases)}</td>
+    ${v === 'adset' ? `<td class="m-hide">${admgrDash}</td>` : ''}
     <td class="m-hide" style="font-weight:700;">${admgrCpaTxt(tot)}</td>
     <td style="font-weight:800;">${admgrRoasTxt(tot.spend, tot.value)}</td>
     <td class="m-hide" style="font-weight:700;">${admgrMoney(tot.value)}</td>
