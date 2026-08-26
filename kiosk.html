@@ -1,0 +1,527 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="robots" content="noindex" />
+<title>출퇴근 관리</title>
+<!-- ═══════════════════════════════════════════════════════════
+  근무관리 키오스크 — 매장 PC 전용 화면 (work-manager Kiosk.jsx의 이식)
+
+  ⚠️ 6터치 원칙: 이름 탭 → PIN 4자리(자동 진행) → 출근/퇴근. 이걸 깨는 기능 추가 금지.
+  인증: 기기 토큰(localStorage wm_kiosk_token) + PIN 세션 3분 + 매장 IP(서버 검증).
+  Kiosk.jsx 대비 개선: 60초 자동 갱신, 서버 날짜 기준 자정 초기화, 연결 상태 표시,
+  출퇴근 오프라인 재전송 큐(요청별 고유 ID로 서버가 중복 차단).
+═══════════════════════════════════════════════════════════════ -->
+<script src="./config.js"></script>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; font-family:'Apple SD Gothic Neo','Malgun Gothic',sans-serif; }
+  body { min-height:100vh; background:linear-gradient(135deg,#667eea,#764ba2); }
+  .header { text-align:center; color:#fff; padding:28px 16px 18px; position:relative; }
+  .header h1 { font-size:28px; font-weight:700; }
+  .clock { font-size:48px; font-weight:700; letter-spacing:2px; margin:6px 0 2px; }
+  .hdate { font-size:15px; opacity:.9; }
+  .admin-btn { position:absolute; top:16px; right:16px; background:transparent; color:#fff;
+    border:1px solid rgba(255,255,255,.55); border-radius:8px; padding:6px 14px; font-size:13px; cursor:pointer; }
+  .conn { position:absolute; top:16px; left:16px; font-size:12px; color:#fff; display:flex; align-items:center; gap:6px;
+    background:rgba(255,255,255,.14); border-radius:20px; padding:5px 12px; }
+  .conn .dot { width:8px; height:8px; border-radius:50%; background:#4ade80; }
+  .conn.warn .dot { background:#fbbf24; } .conn.bad .dot { background:#f87171; }
+  .leave-banner { margin:0 16px 4px; background:rgba(255,255,255,.14); border-radius:12px; padding:10px 14px; color:#fff; font-size:13px; }
+  .leave-banner .row { display:flex; flex-wrap:wrap; gap:6px; align-items:center; margin:3px 0; }
+  .chip { border-radius:14px; padding:2px 10px; font-size:12px; font-weight:600; color:#fff; }
+  .panel { background:#fff; border-radius:20px 20px 0 0; margin-top:14px; min-height:60vh; padding:22px 18px 60px; }
+  .sec-title { font-size:14px; font-weight:700; color:#64748b; margin:10px 4px 8px; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(140px,1fr)); gap:12px; }
+  .card { border:2px solid #e2e8f0; border-radius:14px; padding:14px 10px; text-align:center; cursor:pointer; background:#fff; }
+  .card:active { transform:scale(.97); }
+  .card.working { border-color:#22c55e; background:#f0fdf4; }
+  .card.done { opacity:.6; }
+  .card .nm { font-size:15px; font-weight:600; }
+  .badge { display:inline-block; font-size:11px; border-radius:10px; padding:2px 9px; margin-top:5px; background:#f1f5f9; color:#64748b; }
+  .badge.working { background:#dcfce7; color:#166534; }
+  .sub { font-size:11px; color:#94a3b8; margin-top:4px; }
+  .overlay { position:fixed; inset:0; background:rgba(15,23,42,.55); display:flex; align-items:center; justify-content:center; padding:18px; z-index:100; }
+  .modal { background:#fff; border-radius:18px; padding:22px; width:100%; max-width:360px; max-height:88vh; overflow:auto; }
+  .modal h3 { font-size:17px; text-align:center; margin-bottom:6px; }
+  .modal .desc { text-align:center; color:#64748b; font-size:13px; margin-bottom:10px; }
+  .modal-time { text-align:center; font-size:36px; font-weight:700; margin:8px 0; }
+  .btn { display:block; width:100%; border:0; border-radius:12px; padding:14px; font-size:15px; font-weight:700; cursor:pointer; margin-top:8px; }
+  .btn-lg { padding:17px; font-size:17px; }
+  .btn-success { background:#22c55e; color:#fff; } .btn-danger { background:#ef4444; color:#fff; }
+  .btn-outline { background:#fff; color:#334155; border:1.5px solid #cbd5e1; font-weight:600; }
+  .btn-primary { background:#6366f1; color:#fff; }
+  .dots { display:flex; justify-content:center; gap:14px; margin:14px 0; }
+  .dot2 { width:18px; height:18px; border-radius:50%; background:#e2e8f0; }
+  .dot2.on { background:#6366f1; }
+  .pin-err { color:#ef4444; font-size:13px; text-align:center; min-height:18px; margin-bottom:4px; }
+  .pad { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; }
+  .pad button { border:0; border-radius:10px; background:#f1f5f9; padding:18px 0; font-size:20px; font-weight:700; cursor:pointer; }
+  .pad .bs { background:#fee2e2; }
+  .pad .ghost { visibility:hidden; }
+  .toast { position:fixed; bottom:32px; left:50%; transform:translateX(-50%); color:#fff; border-radius:12px;
+    padding:12px 22px; font-size:14px; font-weight:600; white-space:nowrap; z-index:200; }
+  .list-item { border:1.5px solid #e2e8f0; border-radius:10px; padding:10px 12px; margin-bottom:8px; font-size:13px;
+    display:flex; justify-content:space-between; align-items:center; cursor:pointer; }
+  label.fld { display:block; font-size:13px; font-weight:600; color:#475569; margin-top:10px; }
+  label.fld input, label.fld select { display:block; width:100%; margin-top:4px; border:1.5px solid #cbd5e1;
+    border-radius:9px; padding:9px 10px; font-size:14px; }
+  .empty { text-align:center; color:#94a3b8; padding:34px 0; font-size:14px; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="conn" id="conn"><span class="dot"></span><span id="conn-t">연결 확인 중</span></div>
+  <button class="admin-btn" onclick="location.href='./index.html'">관리자</button>
+  <h1>출퇴근 관리</h1>
+  <div class="clock" id="clock">--:--:--</div>
+  <div class="hdate" id="hdate"></div>
+</div>
+
+<div class="leave-banner" id="banner" style="display:none;"></div>
+
+<div class="panel">
+  <div id="grid-wrap"><div class="empty">불러오는 중...</div></div>
+</div>
+
+<div id="modal-root"></div>
+<div id="toast-root"></div>
+
+<script>
+'use strict';
+/* ══ 설정·상태 ══ */
+const SB = window.DNRB_CONFIG || {};
+const FN = SB.SUPABASE_URL + '/functions/v1/wm-kiosk';
+const LVT = { annual: '연차', half: '반차', summer: '여름휴가' };
+const LVC = { annual: '#6366f1', half: '#f59e0b', summer: '#0d9488' };
+const DAY = ['일', '월', '화', '수', '목', '금', '토'];
+const S = {
+  emps: [], leaves: [], serverDate: null, thisMonday: null,
+  sel: null, session: null, modal: null,
+  lastOkAt: 0, timers: [],
+};
+
+const $id = s => document.getElementById(s);
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+/* ══ API ══ */
+async function api(body) {
+  const res = await fetch(FN, {
+    method: 'POST',
+    headers: {
+      apikey: SB.SUPABASE_ANON_KEY, Authorization: 'Bearer ' + SB.SUPABASE_ANON_KEY,
+      'Content-Type': 'application/json',
+      'x-kiosk-token': localStorage.getItem('wm_kiosk_token') || '',
+    },
+    body: JSON.stringify(body),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) { const e = new Error(data.message || data.error || '서버 오류'); e.code = data.error; e.data = data; throw e; }
+  return data;
+}
+
+/* ══ 시계 (표시용 — 날짜 판단은 항상 서버 기준) ══ */
+function tickClock() {
+  const d = new Date();
+  $id('clock').textContent = d.toTimeString().slice(0, 8);
+  $id('hdate').textContent = `${d.getFullYear()}년 ${d.getMonth() + 1}월 ${d.getDate()}일 (${DAY[d.getDay()]})`;
+}
+
+/* ══ 연결 상태 ══ */
+function setConn(state, text) {
+  const el = $id('conn');
+  el.className = 'conn' + (state === 'ok' ? '' : state === 'warn' ? ' warn' : ' bad');
+  $id('conn-t').textContent = text;
+}
+
+/* ══ 데이터 로드 ══ */
+async function loadToday() {
+  try {
+    const r = await api({ action: 'today' });
+    S.lastOkAt = Date.now();
+    setConn('ok', '연결됨');
+    if (S.serverDate && S.serverDate !== r.server_date) return dayRollover(r.server_date);
+    S.serverDate = r.server_date;
+    S.emps = r.employees;
+    renderGrid();
+    flushQueue();
+  } catch (e) {
+    if (e.code === 'device_not_registered') return showPairing();
+    setConn(navigator.onLine ? 'warn' : 'bad', navigator.onLine ? '재시도 중' : '오프라인');
+    if (!S.emps.length) $id('grid-wrap').innerHTML = '<div class="empty">서버에 연결할 수 없어요.<br>잠시 후 자동으로 다시 시도합니다.</div>';
+  }
+}
+async function loadLeaves() {
+  try {
+    const r = await api({ action: 'week_leaves' });
+    S.leaves = r.leaves; S.thisMonday = r.this_monday;
+    renderBanner();
+  } catch (_) { /* 배너는 없으면 그만 */ }
+}
+
+/* 자정 넘김: 서버 날짜가 바뀌면 화면 전체 초기화 (PC 시계를 믿지 않는다) */
+function dayRollover(newDate) {
+  for (const k of Object.keys(localStorage)) if (k.startsWith('bday-shown-')) localStorage.removeItem(k);
+  S.serverDate = newDate; S.sel = null; S.session = null;
+  closeModal();
+  loadToday(); loadLeaves();
+}
+
+/* ══ 렌더 ══ */
+function renderGrid() {
+  const secs = [['직원', S.emps.filter(e => e.type === 'employee')], ['아르바이트', S.emps.filter(e => e.type === 'parttime')]];
+  let html = '';
+  for (const [title, list] of secs) {
+    if (!list.length) continue;
+    html += `<div class="sec-title">${title}</div><div class="grid">` + list.map(e => `
+      <div class="card ${e.status}" onclick="openPin(${e.id})">
+        <div class="nm">${esc(e.name)}</div>
+        <div class="badge ${e.status}">${e.status === 'working' ? '근무중' : e.status === 'done' ? '퇴근완료' : '미출근'}</div>
+        ${e.today_in ? `<div class="sub">출근 ${e.today_in}</div>` : ''}
+        <div class="sub">🔒 PIN 필요</div>
+      </div>`).join('') + '</div>';
+  }
+  $id('grid-wrap').innerHTML = html || '<div class="empty">👥<br>등록된 직원이 없습니다.</div>';
+}
+
+function groupConsecutive(leaves) {   // Kiosk.jsx groupConsecutiveLeaves 이식
+  const sorted = [...leaves].sort((a, b) => (a.employee_id - b.employee_id) || a.date.localeCompare(b.date));
+  const out = [];
+  for (const l of sorted) {
+    const last = out[out.length - 1];
+    const nextDay = last && (() => { const d = new Date(last.end + 'T00:00:00'); d.setDate(d.getDate() + 1); return d.toISOString().slice(0, 10); })();
+    if (last && last.employee_id === l.employee_id && last.type === l.type && nextDay === l.date) last.end = l.date;
+    else out.push({ ...l, end: l.date });
+  }
+  return out;
+}
+function fmtMD(s) { const d = new Date(s + 'T00:00:00'); return `${s.slice(5)} (${DAY[d.getDay()]})`; }
+
+function renderBanner() {
+  if (!S.leaves.length || !S.thisMonday) { $id('banner').style.display = 'none'; return; }
+  const nextMon = (() => { const d = new Date(S.thisMonday + 'T00:00:00'); d.setDate(d.getDate() + 7); return d.toISOString().slice(0, 10); })();
+  const mk = list => groupConsecutive(list).map(g =>
+    `<span class="chip" style="background:${LVC[g.type] || '#6366f1'};">${g.date === g.end ? fmtMD(g.date) : fmtMD(g.date) + ' ~ ' + fmtMD(g.end)} ${esc(g.name)} [${LVT[g.type] || g.type}]</span>`).join('');
+  const thisW = S.leaves.filter(l => l.date < nextMon), nextW = S.leaves.filter(l => l.date >= nextMon);
+  let html = '';
+  if (thisW.length) html += `<div class="row">📅 이번 주 휴가 ${mk(thisW)}</div>`;
+  if (nextW.length) html += `<div class="row">📅 다음 주 휴가 ${mk(nextW)}</div>`;
+  $id('banner').innerHTML = html;
+  $id('banner').style.display = html ? 'block' : 'none';
+}
+
+/* ══ 모달 공통 ══ */
+function closeModal() { S.modal = null; $id('modal-root').innerHTML = ''; }
+function overlay(inner, dismissable = true) {
+  S.modal = true;
+  $id('modal-root').innerHTML = `<div class="overlay" ${dismissable ? 'onclick="if(event.target===this)closeModal()"' : ''}><div class="modal">${inner}</div></div>`;
+}
+
+/* ══ 토스트 ══ */
+let toastTimer = null;
+function toast(msg, kind = 'ok') {
+  clearTimeout(toastTimer);
+  $id('toast-root').innerHTML = `<div class="toast" style="background:${kind === 'ok' ? '#22c55e' : kind === 'warn' ? '#f59e0b' : '#ef4444'};">${esc(msg)}</div>`;
+  toastTimer = setTimeout(() => { $id('toast-root').innerHTML = ''; }, 3000);
+}
+
+/* ══ PIN 입력 (6터치의 2~5번째) ══ */
+let pin = '';
+function openPin(id) {
+  S.sel = S.emps.find(e => e.id === id);
+  if (!S.sel) return;
+  pin = '';
+  overlay(`
+    <h3>${esc(S.sel.name)}</h3>
+    <div class="desc">PIN 4자리를 입력하세요</div>
+    <div class="dots" id="dots"></div>
+    <div class="pin-err" id="pin-err"></div>
+    <div class="pad">
+      ${[1, 2, 3, 4, 5, 6, 7, 8, 9].map(n => `<button onclick="pinPress('${n}')">${n}</button>`).join('')}
+      <button class="ghost"></button><button onclick="pinPress('0')">0</button><button class="bs" onclick="pinPress('bs')">⌫</button>
+    </div>
+    <button class="btn btn-outline" onclick="closeModal()">취소</button>`);
+  drawDots();
+}
+function drawDots() {
+  $id('dots').innerHTML = [0, 1, 2, 3].map(i => `<div class="dot2 ${i < pin.length ? 'on' : ''}"></div>`).join('');
+}
+function pinPress(k) {
+  if (k === 'bs') { pin = pin.slice(0, -1); drawDots(); return; }
+  if (pin.length >= 4) return;
+  pin += k; drawDots();
+  if (pin.length === 4) setTimeout(() => { const p = pin; pin = ''; drawDots(); submitPin(p); }, 120);
+}
+window.addEventListener('keydown', e => {
+  if (!S.modal || !$id('dots')) return;
+  if (/^[0-9]$/.test(e.key)) pinPress(e.key);
+  else if (e.key === 'Backspace') pinPress('bs');
+  else if (e.key === 'Escape') closeModal();
+});
+async function submitPin(p) {
+  try {
+    const r = await api({ action: 'verify_pin', employee_id: S.sel.id, pin: p });
+    S.session = r.session;
+    const bkey = `bday-shown-${S.sel.id}-${S.serverDate}`;
+    if (r.is_birthday && !localStorage.getItem(bkey)) { localStorage.setItem(bkey, '1'); return showBirthday(); }
+    showAction();
+  } catch (e) {
+    const el = $id('pin-err'); if (el) el.textContent = e.message;
+  }
+}
+
+/* ══ 생일 축하 ══ */
+function showBirthday() {
+  const emo = ['🎉', '🎊', '🎈', '✨', '🎂', '🎁'];
+  const fall = Array.from({ length: 18 }, (_, i) =>
+    `<span style="position:fixed;top:-30px;left:${(i * 53) % 100}%;font-size:${18 + (i % 3) * 8}px;animation:bf 2.${i % 5}s linear ${i * .12}s infinite;">${emo[i % 6]}</span>`).join('');
+  overlay(`
+    <style>@keyframes bf{to{transform:translateY(110vh) rotate(340deg)}}@keyframes bb{0%,100%{transform:translateY(0)}50%{transform:translateY(-12px)}}</style>
+    ${fall}
+    <div style="text-align:center;">
+      <div style="font-size:64px;animation:bb 1.2s ease-in-out infinite;">🎂</div>
+      <h3 style="margin:10px 0 4px;">${esc(S.sel.name)}님, 생일 축하합니다!</h3>
+      <div class="desc">오늘도 행복한 하루 되세요 🎉</div>
+      <button class="btn btn-primary" onclick="showAction()">감사합니다 🎉</button>
+    </div>`, false);
+}
+
+/* ══ 액션 모달 (6터치의 6번째) ══ */
+function showAction() {
+  const st = S.sel.status;
+  const clockBtn = st === 'done' ? '' :
+    `<button class="btn btn-lg ${st === 'absent' ? 'btn-success' : 'btn-danger'}" id="clock-btn" onclick="doClock()">${st === 'absent' ? '✅ 출근' : '🏁 퇴근'}</button>`;
+  overlay(`
+    <h3>${esc(S.sel.name)}</h3>
+    <div class="desc">${st === 'absent' ? '출근 버튼을 눌러 출근을 등록하세요.' : st === 'working' ? '현재 근무 중입니다. 퇴근하시겠습니까?' : '오늘 퇴근이 완료되었습니다. 수고하셨습니다! 👏'}</div>
+    ${st !== 'done' ? `<div class="modal-time" id="mtime"></div>` : ''}
+    ${clockBtn}
+    <button class="btn btn-outline" onclick="openEditSelect()">🕐 시간 수정 신청</button>
+    <button class="btn btn-outline" onclick="openLeaveForm()">🌴 휴가 신청</button>
+    <button class="btn btn-outline" onclick="openMyLeaves()">📋 내 휴가 현황</button>
+    <button class="btn btn-outline" onclick="closeModal()">${st === 'done' ? '닫기' : '취소'}</button>`);
+  if (st !== 'done') {
+    const t = () => { const el = $id('mtime'); if (el) el.textContent = new Date().toTimeString().slice(0, 8); };
+    t(); S.timers.push(setInterval(t, 1000));
+  }
+}
+
+/* ══ 출퇴근 등록 — 오프라인이면 큐에 담아 재전송 ══ */
+function uuid() { return crypto.randomUUID(); }
+async function doClock() {
+  const btn = $id('clock-btn'); if (btn) { btn.disabled = true; btn.textContent = '처리 중...'; }
+  const isIn = S.sel.status === 'absent';
+  const item = {
+    action: isIn ? 'clock_in' : 'clock_out',
+    session: S.session, request_id: uuid(),
+    client_time: null, queued: false,
+  };
+  try {
+    await api(item);
+    toast(`${S.sel.name}님, ${isIn ? '출근 완료! 오늘도 화이팅! 🙌' : '퇴근 완료! 수고하셨습니다! 👏'}`);
+    closeModal(); loadToday();
+  } catch (e) {
+    if (e.code === 'store_ip_only') {
+      closeModal();
+      overlay(`<h3>매장에서만 등록할 수 있어요</h3>
+        <div class="desc" style="white-space:pre-line;text-align:left;">${esc(e.message)}</div>
+        <button class="btn btn-outline" onclick="closeModal()">닫기</button>`);
+      return;
+    }
+    if (e.code === 'session_expired') { toast('확인 시간이 지났어요. PIN을 다시 입력해주세요.', 'err'); closeModal(); openPin(S.sel.id); return; }
+    if (!navigator.onLine || /fetch|network/i.test(String(e.message))) {
+      // 네트워크 문제 → 큐 적재 (서버 응답으로 거부된 건 큐에 넣지 않는다)
+      item.client_time = kstLocal(); item.queued = true;
+      pushQueue(item);
+      toast(`${isIn ? '출근' : '퇴근'} 확인! (연결되면 자동 전송돼요)`, 'warn');
+      closeModal();
+      return;
+    }
+    toast(e.message, 'err');
+    if (btn) { btn.disabled = false; btn.textContent = isIn ? '✅ 출근' : '🏁 퇴근'; }
+  }
+}
+function kstLocal() {   // 큐 참고용 클라이언트 시각 (서버가 검증 후 사용)
+  const d = new Date();
+  const p = n => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+}
+function pushQueue(item) {
+  const q = JSON.parse(localStorage.getItem('wm_kiosk_queue') || '[]');
+  if (q.length >= 20) { toast('대기 중인 전송이 너무 많아요 — 대표님께 알려주세요', 'err'); return; }
+  q.push({ ...item, at: Date.now() });
+  localStorage.setItem('wm_kiosk_queue', JSON.stringify(q));
+}
+async function flushQueue() {
+  let q = JSON.parse(localStorage.getItem('wm_kiosk_queue') || '[]');
+  if (!q.length) return;
+  q = q.filter(i => Date.now() - i.at < 24 * 3600 * 1000);   // 24h 지난 항목 폐기
+  const rest = [];
+  for (const item of q) {
+    try { await api(item); }
+    catch (e) {
+      if (e.code === 'session_expired' || e.code === 'store_ip_only') continue;   // 재시도 무의미 → 폐기
+      if (!e.code) { rest.push(item); continue; }                                  // 네트워크 → 유지
+      // 그 외 서버 거부(이미 출근 등) → 폐기
+    }
+  }
+  localStorage.setItem('wm_kiosk_queue', JSON.stringify(rest));
+}
+
+/* ══ 시간 수정 신청 ══ */
+async function openEditSelect() {
+  let rows = [];
+  try { rows = await api({ action: 'my_records', session: S.session }); }
+  catch (e) { if (e.code === 'session_expired') { toast('PIN을 다시 입력해주세요', 'err'); closeModal(); openPin(S.sel.id); return; } }
+  overlay(`
+    <h3>시간 수정 신청</h3>
+    <div class="desc">수정할 기록을 선택하세요</div>
+    <div style="max-height:300px;overflow:auto;">
+      ${rows.length ? rows.map(r => `
+        <div class="list-item" onclick='openEditForm(${JSON.stringify(JSON.stringify(r))})'>
+          <span><b>${r.date}</b><br><span style="color:#64748b;">출근 ${r.clock_in ? r.clock_in.substring(11, 16) : '-'} / 퇴근 ${r.clock_out ? r.clock_out.substring(11, 16) : '-'}</span>
+          ${r.is_edited ? ' <span style="color:#d97706;font-size:11px;">수정됨</span>' : ''}</span>
+          <span style="color:#6366f1;">선택 →</span>
+        </div>`).join('') : '<div class="empty">출퇴근 기록이 없습니다.</div>'}
+    </div>
+    <button class="btn btn-outline" onclick="openEditForm(null)">+ 기록 없는 날짜 신청</button>
+    <button class="btn btn-outline" onclick="showAction()">뒤로</button>`);
+}
+function openEditForm(recJson) {
+  const rec = recJson ? JSON.parse(recJson) : null;
+  overlay(`
+    <h3>시간 수정 신청</h3>
+    ${rec ? `<div class="desc">${rec.date} — 현재 출근 ${rec.clock_in ? rec.clock_in.substring(11, 16) : '-'} / 퇴근 ${rec.clock_out ? rec.clock_out.substring(11, 16) : '-'}</div>` : ''}
+    ${rec ? '' : `<label class="fld">날짜 <input type="date" id="ef-date" max="${S.serverDate}" /></label>`}
+    <label class="fld">출근 시각 <input type="time" id="ef-in" step="60" /></label>
+    <label class="fld">퇴근 시각 <span style="font-weight:400;color:#94a3b8;">(아직 퇴근 전이면 비워두세요)</span> <input type="time" id="ef-out" step="60" /></label>
+    <label class="fld">사유 <input id="ef-reason" placeholder="예: 출근 체크를 잊었어요" /></label>
+    <button class="btn btn-primary" onclick='submitEdit(${rec ? JSON.stringify(JSON.stringify(rec)) : 'null'})'>신청하기</button>
+    <button class="btn btn-outline" onclick="openEditSelect()">뒤로</button>`);
+  if (rec) {
+    if (rec.clock_in) $id('ef-in').value = rec.clock_in.substring(11, 16);
+    if (rec.clock_out) $id('ef-out').value = rec.clock_out.substring(11, 16);
+  }
+}
+async function submitEdit(recJson) {
+  const rec = recJson ? JSON.parse(recJson) : null;
+  const date = rec ? rec.date : $id('ef-date').value;
+  const tin = $id('ef-in').value, tout = $id('ef-out').value, reason = $id('ef-reason').value.trim();
+  if (!date || !tin || !reason) { toast('날짜·출근 시각·사유를 입력해주세요', 'err'); return; }
+  try {
+    await api({
+      action: 'request_edit', session: S.session,
+      attendance_id: rec?.id ?? null, date,
+      requested_clock_in: `${date} ${tin}:00`,
+      requested_clock_out: tout ? `${date} ${tout}:00` : null,
+      reason,
+    });
+    toast('수정 신청이 접수되었습니다. 관리자 승인 후 반영됩니다.');
+    closeModal();
+  } catch (e) { toast(e.message, 'err'); }
+}
+
+/* ══ 휴가 신청 ══ */
+function openLeaveForm() {
+  overlay(`
+    <h3>휴가 신청</h3>
+    <label class="fld">시작일 <input type="date" id="lf-date" min="${S.serverDate}" onchange="lfToggleSkip()" /></label>
+    <label class="fld">종료일 (하루면 비워두세요) <input type="date" id="lf-end" onchange="lfToggleSkip()" /></label>
+    <label class="fld" id="lf-skip-wrap" style="display:none;">
+      <span style="display:flex;align-items:center;gap:6px;font-weight:600;"><input type="checkbox" id="lf-skip" checked style="width:auto;" /> 주말·공휴일은 제외하고 신청</span></label>
+    <label class="fld">종류
+      <select id="lf-type">
+        <option value="annual">연차 (1일)</option><option value="half">반차 (0.5일)</option>
+        <option value="summer">여름휴가 (연차 미차감)</option>
+      </select></label>
+    <label class="fld">사유 (선택) <input id="lf-reason" /></label>
+    <button class="btn btn-primary" onclick="submitLeave()">신청하기</button>
+    <button class="btn btn-outline" onclick="showAction()">뒤로</button>`);
+}
+function lfToggleSkip() {
+  const d = $id('lf-date').value, e = $id('lf-end').value;
+  $id('lf-skip-wrap').style.display = e && e !== d ? 'block' : 'none';
+}
+async function submitLeave() {
+  const date = $id('lf-date').value;
+  if (!date) { toast('시작일을 선택해주세요', 'err'); return; }
+  try {
+    const r = await api({
+      action: 'request_leave', session: S.session,
+      date, end_date: $id('lf-end').value || null,
+      type: $id('lf-type').value, reason: $id('lf-reason').value || null,
+      skip_offdays: $id('lf-skip').checked,
+    });
+    const label = LVT[$id('lf-type').value];
+    toast(r.range
+      ? `${label} ${r.inserted}일 신청이 접수되었습니다.${r.skipped?.length ? ` (${r.skipped.length}일은 기존 신청과 겹쳐 제외)` : ''}`
+      : `${label} 신청이 접수되었습니다. 관리자 승인 후 반영됩니다.`);
+    closeModal();
+  } catch (e) {
+    if (e.code === 'session_expired') { toast('PIN을 다시 입력해주세요', 'err'); closeModal(); openPin(S.sel.id); return; }
+    toast(e.message, 'err');
+  }
+}
+
+/* ══ 내 휴가 현황 ══ */
+async function openMyLeaves() {
+  let data = { rows: [], remaining: null };
+  try { data = await api({ action: 'my_leaves', session: S.session }); }
+  catch (e) { if (e.code === 'session_expired') { toast('PIN을 다시 입력해주세요', 'err'); closeModal(); openPin(S.sel.id); return; } }
+  const stc = { pending: ['대기 중', '#d97706', '#fef3c7'], approved: ['승인', '#166534', '#dcfce7'], rejected: ['반려', '#991b1b', '#fee2e2'] };
+  overlay(`
+    <h3>내 휴가 현황</h3>
+    ${data.remaining ? `<div style="background:#eff6ff;border:1.5px solid #bfdbfe;border-radius:10px;padding:10px 14px;text-align:center;font-size:14px;margin-bottom:8px;">
+      잔여 연차 <b style="color:#2563eb;">${data.remaining.remaining}일</b>
+      <span style="color:#64748b;font-size:12px;">(총 ${data.remaining.total}일 중 ${data.remaining.used}일 사용)</span></div>` : ''}
+    <div style="max-height:300px;overflow:auto;">
+      ${data.rows.length ? data.rows.map(l => {
+        const [t, c, b] = stc[l.status] || [l.status, '#64748b', '#f1f5f9'];
+        return `<div class="list-item" style="cursor:default;">
+          <span><b>${l.date}</b> ${LVT[l.type] || l.type}${l.reason ? `<br><span style="color:#94a3b8;font-size:12px;">${esc(l.reason)}</span>` : ''}</span>
+          <span class="chip" style="background:${b};color:${c};">${t}</span></div>`;
+      }).join('') : '<div class="empty">신청 내역이 없습니다.</div>'}
+    </div>
+    <button class="btn btn-outline" onclick="openLeaveForm()">+ 휴가 신청</button>
+    <button class="btn btn-outline" onclick="showAction()">뒤로</button>`);
+}
+
+/* ══ 기기 등록 (최초 1회) ══ */
+function showPairing() {
+  overlay(`
+    <h3>기기 등록</h3>
+    <div class="desc">이 컴퓨터를 출퇴근 기기로 등록합니다.<br>대시보드 → 근무 관리 → 직원 관리에서<br>발급한 8자리 코드를 입력하세요.</div>
+    <label class="fld">등록 코드 <input id="pair-code" inputmode="numeric" maxlength="8" placeholder="8자리 숫자"
+      style="text-align:center;font-size:22px;letter-spacing:4px;" /></label>
+    <div class="pin-err" id="pair-err"></div>
+    <button class="btn btn-primary" onclick="doPair()">등록하기</button>`, false);
+}
+async function doPair() {
+  try {
+    const r = await api({ action: 'register_device', pairing_code: $id('pair-code').value.trim() });
+    localStorage.setItem('wm_kiosk_token', r.device_token);
+    toast(`기기 등록 완료 (${r.label})`);
+    closeModal();
+    boot();
+  } catch (e) { $id('pair-err').textContent = e.message; }
+}
+
+/* ══ 구동 ══ */
+function boot() {
+  tickClock(); setInterval(tickClock, 1000);
+  loadToday(); loadLeaves();
+  // 자동 갱신 — 모달이 열려 있으면 건너뛴다 (PIN 입력 중 화면이 바뀌면 안 됨)
+  setInterval(() => { if (!S.modal) loadToday(); }, 60 * 1000);
+  setInterval(() => { if (!S.modal) loadLeaves(); }, 10 * 60 * 1000);
+  setInterval(flushQueue, 30 * 1000);
+  window.addEventListener('online', () => { flushQueue(); if (!S.modal) loadToday(); });
+  document.addEventListener('visibilitychange', () => { if (!document.hidden && !S.modal) loadToday(); });
+  // 새 배포가 매장 PC에 닿도록: 6시간 이상 조용하면 스스로 새로고침
+  setInterval(() => { if (!S.modal && Date.now() - S.lastOkAt < 120000) location.reload(); }, 6 * 3600 * 1000);
+}
+if (!localStorage.getItem('wm_kiosk_token')) { tickClock(); setInterval(tickClock, 1000); showPairing(); }
+else boot();
+</script>
+</body>
+</html>

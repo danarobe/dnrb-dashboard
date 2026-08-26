@@ -434,6 +434,59 @@ Deno.serve(async (req) => {
       return json(await rest('wm_holidays?select=*&order=date&limit=2000'));
     }
 
+    // ══════════ 키오스크 기기 관리 (5단계) ══════════
+
+    // 페어링 코드 발급 — 10분 유효, 1회용. 매장 PC 키오스크 화면에 입력해 등록한다.
+    if (action === 'device_pair_code') {
+      const label = String(body.label ?? '').trim();
+      if (!label) return json({ error: '기기 이름을 입력해주세요 (예: 매장 카운터 PC)' }, 400);
+      const code = String(Math.floor(10000000 + Math.random() * 90000000));
+      const [row] = await rest('wm_devices', {
+        method: 'POST',
+        body: JSON.stringify({
+          label, pairing_code: code,
+          pairing_exp: new Date(Date.now() + 10 * 60 * 1000).toISOString(),
+        }),
+      });
+      await auditLog(me.id, 'device_pair_code', null, { device_id: row.id, label });
+      return json({ id: row.id, label, pairing_code: code, expires_minutes: 10 });
+    }
+
+    if (action === 'device_list') {
+      const rows = await rest('wm_devices?select=id,label,active,allowed_ips,enforce_ip,last_seen_at,last_ip,pairing_code,pairing_exp,created_at&order=created_at.desc');
+      // 페어링 코드는 발급 응답에서만 보여준다 — 목록에는 대기 여부만
+      return json(rows.map((d: any) => ({
+        ...d,
+        pairing_pending: !!d.pairing_code && !!d.pairing_exp && new Date(d.pairing_exp).getTime() > Date.now(),
+        pairing_code: undefined,
+      })));
+    }
+
+    if (action === 'device_revoke') {
+      const [row] = await rest(`wm_devices?id=eq.${body.id}`, {
+        method: 'PATCH', body: JSON.stringify({ active: false }),
+      });
+      if (!row) return json({ error: '기기 없음' }, 404);
+      await auditLog(me.id, 'device_revoke', null, { device_id: row.id, label: row.label });
+      return json({ ok: true });
+    }
+
+    // 매장 IP 승인 — 회선이 바뀌어 키오스크가 거부될 때 대표가 원격에서 한 번 탭해 복구
+    if (action === 'device_allow_ip') {
+      const ipToAdd = String(body.ip ?? '').trim();
+      if (!/^[0-9a-fA-F.:]{3,45}$/.test(ipToAdd)) return json({ error: 'IP 형식 오류' }, 400);
+      const [dev] = await rest(`wm_devices?id=eq.${body.id}&select=*`);
+      if (!dev) return json({ error: '기기 없음' }, 404);
+      const ips: string[] = dev.allowed_ips || [];
+      if (!ips.includes(ipToAdd)) ips.push(ipToAdd);
+      await rest(`wm_devices?id=eq.${dev.id}`, {
+        method: 'PATCH', headers: { Prefer: 'return=minimal' },
+        body: JSON.stringify({ allowed_ips: ips }),
+      });
+      await auditLog(me.id, 'device_allow_ip', null, { device_id: dev.id, ip: ipToAdd });
+      return json({ ok: true, allowed_ips: ips });
+    }
+
     return json({ error: 'unknown action' }, 400);
   } catch (err) {
     return json({ error: String(err).slice(0, 400) }, 500);

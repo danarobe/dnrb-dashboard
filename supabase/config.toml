@@ -29,3 +29,7 @@ verify_jwt = true
 # 근무관리 — 관리자 전용 (급여·직원·출퇴근·휴가·기기)
 [functions.wm-admin]
 verify_jwt = true
+
+# 근무관리 키오스크 — 기기 토큰 + PIN 세션 (anon key는 인증 아님)
+[functions.wm-kiosk]
+verify_jwt = true

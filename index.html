@@ -1487,6 +1487,14 @@
           급여·계좌를 다루는 화면입니다. 수정하면 즉시 반영돼요. 퇴사 처리는 <b>비활성</b>으로 — 기록 보존을 위해 삭제는 없습니다.
         </div>
         <div id="wm-emp-result"><div class="empty-state"><p>불러오는 중...</p></div></div>
+        <div style="border-top:1px solid #e5e7eb;margin-top:18px;padding-top:14px;">
+          <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+            <b style="font-size:.85rem;">키오스크 기기</b>
+            <button class="toggle-btn" style="font-size:.72rem;" onclick="wmDevicePair()"><i class="fa-solid fa-plus"></i> 새 기기 등록 코드 발급</button>
+            <span style="font-size:.7rem;color:#9ca3af;">출퇴근 등록은 여기 등록된 기기 + 승인된 매장 IP에서만 가능합니다.</span>
+          </div>
+          <div id="wm-dev-result" style="margin-top:10px;"><div class="empty-state" style="padding:12px;"><p>불러오는 중...</p></div></div>
+        </div>
       </div>
 
       <!-- ── 탭: 공휴일 ── -->
@@ -6203,7 +6211,7 @@ function wmSetTab(k) {
   $('wm-tab-' + k).style.display = 'block';
   if (k === 'sal' && !wmState.sal.length) wmLoadSal();
   if (k === 'lv' && !wmState.lv) wmLoadLeaves();
-  if (k === 'emp') wmLoadEmps();
+  if (k === 'emp') { wmLoadEmps(); wmLoadDevices(); }
   if (k === 'hol' && !wmState.hol) wmLoadHolidays();
 }
 
@@ -6701,6 +6709,58 @@ async function wmEmpToggle(id, activate) {
     await wmApi({ action: 'employee_active', id, active: activate });
     showToast(activate ? '활성화 완료' : '비활성 처리 완료');
     wmLoadEmps();
+  } catch (err) { showToast('실패 — ' + err.message); }
+}
+
+/* ── 키오스크 기기 관리 ── */
+async function wmLoadDevices() {
+  try {
+    const rows = await wmApi({ action: 'device_list' });
+    if (!rows.length) { $('wm-dev-result').innerHTML = '<div style="font-size:.75rem;color:#9ca3af;">등록된 기기가 없습니다. 위 버튼으로 등록 코드를 발급해 매장 PC의 키오스크 화면에 입력하세요.</div>'; return; }
+    const body = rows.map(d => `<tr style="${d.active ? '' : 'opacity:.45;'}">
+      <td style="font-weight:600;">${d.label}${d.pairing_pending ? ' <span style="color:#d97706;font-size:.65rem;">(등록 대기 중)</span>' : ''}${d.active ? '' : ' <span style="color:#dc2626;font-size:.65rem;">(해지됨)</span>'}</td>
+      <td style="font-size:.72rem;">${d.last_seen_at ? new Date(d.last_seen_at).toLocaleString('ko-KR', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '-'}</td>
+      <td style="font-size:.72rem;font-family:monospace;">${d.last_ip || '-'}</td>
+      <td style="font-size:.72rem;font-family:monospace;">${(d.allowed_ips || []).join('<br>') || '-'}</td>
+      <td style="white-space:nowrap;">
+        ${d.active && d.last_ip && !(d.allowed_ips || []).includes(d.last_ip)
+          ? `<button class="toggle-btn" style="font-size:.68rem;padding:2px 8px;background:#16a34a;color:#fff;border-color:#16a34a;" onclick="wmDeviceAllowIp('${d.id}','${d.last_ip}')">현재 IP 승인</button>` : ''}
+        ${d.active ? `<button class="toggle-btn" style="font-size:.68rem;padding:2px 8px;color:#dc2626;" onclick="wmDeviceRevoke('${d.id}','${d.label.replace(/'/g, '')}')">해지</button>` : ''}
+      </td>
+    </tr>`).join('');
+    $('wm-dev-result').innerHTML = `<div style="overflow-x:auto;"><table style="width:100%;font-size:.78rem;">
+      <thead><tr><th>기기</th><th>마지막 접속</th><th>최근 IP</th><th>승인된 IP</th><th></th></tr></thead>
+      <tbody>${body}</tbody></table></div>`;
+  } catch (err) {
+    $('wm-dev-result').innerHTML = `<div style="font-size:.75rem;color:#dc2626;">기기 목록을 불러오지 못했어요 — ${err.message}</div>`;
+  }
+}
+
+async function wmDevicePair() {
+  const label = prompt('기기 이름을 입력하세요 (예: 매장 카운터 PC)');
+  if (!label) return;
+  try {
+    const r = await wmApi({ action: 'device_pair_code', label });
+    alert(`등록 코드: ${r.pairing_code}\n\n${r.expires_minutes}분 안에 매장 PC의 키오스크 화면(kiosk.html)에 이 코드를 입력하세요.\n코드는 1회용이며 이 창을 닫으면 다시 볼 수 없습니다.`);
+    wmLoadDevices();
+  } catch (err) { showToast('발급 실패 — ' + err.message); }
+}
+
+async function wmDeviceAllowIp(id, ip) {
+  if (!confirm(`이 기기의 현재 IP(${ip})를 매장 IP로 승인할까요?\n이 IP에서 출퇴근 등록이 가능해집니다.`)) return;
+  try {
+    await wmApi({ action: 'device_allow_ip', id, ip });
+    showToast('IP 승인 완료');
+    wmLoadDevices();
+  } catch (err) { showToast('실패 — ' + err.message); }
+}
+
+async function wmDeviceRevoke(id, label) {
+  if (!confirm(`'${label}' 기기를 해지할까요?\n그 컴퓨터에서는 더 이상 출퇴근 등록이 안 됩니다.`)) return;
+  try {
+    await wmApi({ action: 'device_revoke', id });
+    showToast('해지 완료');
+    wmLoadDevices();
   } catch (err) { showToast('실패 — ' + err.message); }
 }
 
