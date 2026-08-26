@@ -4,6 +4,7 @@
 //
 //   GET  ?action=status   → { allowed, token_set, pin_set }  (버튼 노출 판단용)
 //   GET  ?action=pending  → { pending: [...], recent: [...] }
+//   POST ?action=verify   { pin } → PIN 인증만 (메뉴의 'PIN 인증' 버튼 — 세션 단위 활성화, 2026-08-26)
 //   POST ?action=apply    { object_id, level, new_budget, pin } → 즉시 적용
 //   POST ?action=schedule { object_id, object_name, level, new_budget, pin } → 다음 자정 예약
 //   POST ?action=cancel   { id, pin } → 예약 취소
@@ -154,6 +155,8 @@ Deno.serve(async (req) => {
     const pinErr = await checkPin(authed.id, String(body.pin ?? ""));
     if (pinErr) return json({ error: pinErr }, 403);
     const who = `${authed.name}(${authed.id})`;
+
+    if (action === "verify") return json({ ok: true });   // PIN 검증만 통과하면 됨 (실패·잠금은 checkPin이 처리)
 
     if (action === "cancel") {
       const id = num(body.id);
