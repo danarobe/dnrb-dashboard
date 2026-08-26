@@ -25,3 +25,7 @@ verify_jwt = true
 # Meta 광고관리자 연동 (관리자 전용)
 [functions.meta-ads]
 verify_jwt = true
+
+# 근무관리 — 관리자 전용 (급여·직원·출퇴근·휴가·기기)
+[functions.wm-admin]
+verify_jwt = true

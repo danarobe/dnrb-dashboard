@@ -569,6 +569,7 @@
   <button class="menu-item" data-menu="adv"  id="menu-adv" onclick="showMenu('adv')"><i class="fa-solid fa-bullhorn" style="width:18px;text-align:center;color:#818cf8;"></i>광고 효율</button>
   <button class="menu-item" data-menu="admgr" id="menu-admgr" style="display:none;" onclick="showMenu('admgr')"><i class="fa-solid fa-sitemap" style="width:18px;text-align:center;color:#818cf8;"></i>광고관리자</button>
   <button class="menu-item" data-menu="profit" id="menu-profit" onclick="showMenu('profit')"><i class="fa-solid fa-coins" style="width:18px;text-align:center;color:#818cf8;"></i>순익 시나리오</button>
+  <button class="menu-item" data-menu="wm" id="menu-wm" style="display:none;" onclick="showMenu('wm')"><i class="fa-solid fa-user-clock" style="width:18px;text-align:center;color:#818cf8;"></i>근무 관리</button>
   <div class="menu-group">협업</div>
   <button class="menu-item" data-menu="meet" onclick="showMenu('meet')"><i class="fa-solid fa-clipboard-list" style="width:18px;text-align:center;color:#818cf8;"></i>광고 회의록</button>
   <button class="menu-item" data-menu="board" id="menu-board" style="display:none;" onclick="showMenu('board')"><i class="fa-solid fa-people-group" style="width:18px;text-align:center;color:#818cf8;"></i>대표 회의보드</button>
@@ -1399,6 +1400,61 @@
   </div>
 
   <!-- ════════════════════════════════════════
+       SECTION : 근무 관리 (출퇴근·급여) — 관리자 전용
+       2026-08 근무관리 시스템 Supabase 이전. 2단계는 조회 전용(병행 운영).
+  ════════════════════════════════════════ -->
+  <div class="section-card page-sec" id="sec-wm">
+    <div class="section-header" style="cursor:default;">
+      <h2><span><i class="fa-solid fa-user-clock" style="color:#4f46e5;font-size:.9em;"></i></span> 근무 관리</h2>
+      <button class="toggle-btn" onclick="wmRefresh()"><i class="fa-solid fa-rotate"></i> 새로고침</button>
+    </div>
+    <div class="section-body">
+      <div id="wm-parallel-note" style="font-size:.8rem;color:#92400e;background:#fef3c7;border:1px solid #fde68a;border-radius:8px;padding:9px 12px;margin-bottom:12px;">
+        <b>병행 운영 중 (조회 전용)</b> — 기존 근무관리 프로그램이 여전히 원본입니다. 여기 숫자가 기존과 같은지 확인하는 단계예요. 수정은 아직 기존 프로그램에서 하세요.
+      </div>
+      <div id="wm-tabs" style="display:flex;gap:2px;border-bottom:2px solid #e5e7eb;margin-bottom:14px;flex-wrap:wrap;"></div>
+
+      <!-- ── 탭: 출퇴근 조회 ── -->
+      <div id="wm-tab-att" class="wm-pane">
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin-bottom:12px;">
+          <label style="font-size:.78rem;color:#4b5563;font-weight:600;">연월
+            <input type="month" id="wm-att-ym" onchange="wmLoadAtt()"
+              style="display:block;margin-top:3px;border:1.5px solid #d1d5db;border-radius:8px;padding:5px 10px;font-size:.8rem;outline:none;" /></label>
+          <label style="font-size:.78rem;color:#4b5563;font-weight:600;">직원
+            <select id="wm-att-emp" onchange="wmRenderAtt()"
+              style="display:block;margin-top:3px;border:1.5px solid #d1d5db;border-radius:8px;padding:6px 10px;font-size:.8rem;outline:none;min-width:120px;"></select></label>
+          <span id="wm-att-summary" style="margin-left:auto;font-size:.78rem;color:#6b7280;"></span>
+        </div>
+        <div id="wm-att-pending" style="display:none;margin-bottom:12px;"></div>
+        <div id="wm-att-result"><div class="empty-state"><p>불러오는 중...</p></div></div>
+      </div>
+
+      <!-- ── 탭: 급여 계산 ── -->
+      <div id="wm-tab-sal" class="wm-pane" style="display:none;">
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin-bottom:12px;">
+          <label style="font-size:.78rem;color:#4b5563;font-weight:600;">연월
+            <input type="month" id="wm-sal-ym" onchange="wmLoadSal()"
+              style="display:block;margin-top:3px;border:1.5px solid #d1d5db;border-radius:8px;padding:5px 10px;font-size:.8rem;outline:none;" /></label>
+          <button class="toggle-btn" onclick="wmExportSalary()" style="margin-bottom:1px;"><i class="fa-solid fa-file-excel"></i> 엑셀 다운로드</button>
+          <span id="wm-sal-total" style="margin-left:auto;font-size:.85rem;font-weight:700;color:#4f46e5;"></span>
+        </div>
+        <div id="wm-sal-result"><div class="empty-state"><p>불러오는 중...</p></div></div>
+      </div>
+
+      <!-- ── 급여 명세 모달 ── -->
+      <div id="wm-slip-modal" onclick="if(event.target===this)this.style.display='none'"
+           style="display:none;position:fixed;inset:0;background:rgba(15,23,42,.55);z-index:210;align-items:center;justify-content:center;padding:20px;">
+        <div style="background:#fff;border-radius:16px;max-width:720px;width:100%;max-height:88vh;overflow:auto;padding:20px;">
+          <div id="wm-slip-body"></div>
+          <div style="text-align:right;margin-top:14px;">
+            <button class="toggle-btn" onclick="$('wm-slip-modal').style.display='none'">닫기</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ════════════════════════════════════════
        SECTION : 광고 회의록
   ════════════════════════════════════════ -->
   <div class="section-card page-sec" id="sec-meet">
@@ -1814,6 +1870,7 @@ function applyRole() {
   $('menu-rwatch').style.display = (isAdmin() || isStaff()) && !isCS() ? '' : 'none'; // 반품 관리 = 관리자 + MD
   $('menu-npm').style.display = (isAdmin() || isStaff()) && !isCS() ? '' : 'none';    // 상품 관리(외부 링크) = 관리자 + MD
   $('menu-profit').style.display = isAdmin() && !isCS() ? '' : 'none';
+  $('menu-wm').style.display = isAdmin() && !isCS() ? '' : 'none';   // 근무 관리 = 관리자 전용 (급여·계좌 노출)
   // Meta 광고 성과 패널 — 관리자 + MD (MD는 광고비·전환값·총매출 블러)
   const mp = $('meta-panel'); if (mp) mp.style.display = (isAdmin() || isStaff()) && !isCS() ? 'block' : 'none';
   // 그룹 소제목: 그 그룹의 버튼이 하나도 안 보이면 소제목도 숨김 (CS는 판매 성과만 보이므로 대부분 숨음)
@@ -6014,30 +6071,289 @@ function fillProfitFromStores(ds, de) {
   renderProfit();
 }
 
-/* 근무관리 시스템(로컬 서버 :3001) 인건비 자동 수집 — 근무관리가 켜진 컴퓨터에서만 동작
-   기간에 걸친 달의 월 급여 합계를 가져온다 (정규직=월급 고정, 알바=해당 월 실근무 기준) */
+/* ══════════════════════════════════════
+   근무 관리 (출퇴근·급여) — 관리자 전용
+   2026-08 근무관리 시스템 Supabase 이전. 2단계는 조회 전용(병행 운영).
+   급여 로직은 서버(wm-admin/salary.ts) — work-manager salary.js의 축자 이식이다.
+   ══════════════════════════════════════ */
+const wmState = { tab: 'att', emps: null, att: [], pending: [], sal: [], ym: null };
+
+async function wmApi(body) {
+  const res = await fetch(fnUrl('wm-admin', {}), {
+    method: 'POST', headers: sbHeaders(), body: JSON.stringify(body),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || data.error) throw new Error(data.error || `서버 오류 ${res.status}`);
+  return data;
+}
+
+const WM_TABS = [['att', '출퇴근 조회'], ['sal', '급여 계산']];
+
+function wmRenderTabs() {
+  $('wm-tabs').innerHTML = WM_TABS.map(([k, label]) => {
+    const on = wmState.tab === k;
+    return `<button onclick="wmSetTab('${k}')" style="border:0;background:${on ? '#eef2ff' : 'transparent'};
+      color:${on ? '#4f46e5' : '#6b7280'};font-weight:${on ? 700 : 600};font-size:.8rem;padding:8px 14px;
+      border-bottom:2px solid ${on ? '#4f46e5' : 'transparent'};margin-bottom:-2px;cursor:pointer;border-radius:6px 6px 0 0;">${label}</button>`;
+  }).join('');
+}
+
+function wmSetTab(k) {
+  wmState.tab = k;
+  wmRenderTabs();
+  document.querySelectorAll('.wm-pane').forEach(el => { el.style.display = 'none'; });
+  $('wm-tab-' + k).style.display = 'block';
+  if (k === 'sal' && !wmState.sal.length) wmLoadSal();
+}
+
+function wmInit() {
+  if (!isAdmin()) return;
+  wmRenderTabs();
+  if (wmState.emps) return;                       // 이미 로드됨
+  const now = new Date();
+  const ym = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  $('wm-att-ym').value = ym;
+  $('wm-sal-ym').value = ym;
+  wmLoadAtt();
+}
+
+function wmRefresh() { wmState.emps = null; wmState.sal = []; wmInit(); if (wmState.tab === 'sal') wmLoadSal(); }
+
+async function wmEnsureEmps() {
+  if (!wmState.emps) wmState.emps = await wmApi({ action: 'employee_list' });
+  return wmState.emps;
+}
+
+/* ── 출퇴근 조회 ── */
+async function wmLoadAtt() {
+  const ym = $('wm-att-ym').value;
+  if (!ym) return;
+  $('wm-att-result').innerHTML = '<div class="empty-state"><p>불러오는 중...</p></div>';
+  try {
+    const [y, m] = ym.split('-').map(Number);
+    const [emps, att, pending] = await Promise.all([
+      wmEnsureEmps(),
+      wmApi({ action: 'attendance_list', year: y, month: m }),
+      wmApi({ action: 'edits_pending' }),
+    ]);
+    wmState.att = att; wmState.pending = pending;
+    const sel = $('wm-att-emp');
+    if (sel.options.length <= 1) {
+      sel.innerHTML = '<option value="">전체</option>'
+        + emps.map(e => `<option value="${e.id}">${e.name} (${e.type === 'employee' ? '직원' : '알바'})</option>`).join('');
+    }
+    wmRenderAtt();
+  } catch (err) {
+    $('wm-att-result').innerHTML = `<div class="empty-state"><p>불러오지 못했어요 — ${err.message}</p></div>`;
+  }
+}
+
+/* 식대 판정: salary.js getMealInfo와 동일 기준 (출근 09:00~11:59 + 퇴근 12:00 초과) */
+function wmMeal(ci, co) {
+  if (!ci || !co) return false;
+  const i = ci.substring(11, 16), o = co.substring(11, 16);
+  return i >= '09:00' && i < '12:00' && o > '12:00';
+}
+const WM_DAY = ['일', '월', '화', '수', '목', '금', '토'];
+const wmHM = mins => `${Math.floor(mins / 60)}:${String(mins % 60).padStart(2, '0')}`;
+
+function wmRenderAtt() {
+  const emps = wmState.emps || [];
+  const nameOf = Object.fromEntries(emps.map(e => [e.id, e]));
+  const filt = $('wm-att-emp').value;
+  let rows = wmState.att;
+  if (filt) rows = rows.filter(r => String(r.employee_id) === filt);
+
+  // 승인 대기 신청
+  const pend = wmState.pending || [];
+  $('wm-att-pending').style.display = pend.length ? 'block' : 'none';
+  if (pend.length) {
+    $('wm-att-pending').innerHTML = `<div style="background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:10px 12px;">
+      <b style="font-size:.82rem;color:#92400e;">시간 수정 신청 ${pend.length}건 대기 중</b>
+      <div style="margin-top:6px;font-size:.78rem;color:#78350f;line-height:1.7;">
+        ${pend.map(p => `· ${nameOf[p.employee_id]?.name || p.employee_id} — ${p.date} 출근 ${(p.requested_clock_in || '').substring(11, 16)}${p.requested_clock_out ? ' / 퇴근 ' + p.requested_clock_out.substring(11, 16) : ''} <span style="color:#a16207;">(${p.reason || '사유 없음'})</span>`).join('<br>')}
+      </div>
+      <div style="margin-top:6px;font-size:.72rem;color:#a16207;">※ 승인·거절은 아직 기존 근무관리 프로그램에서 하세요 (3단계에서 여기로 옮깁니다)</div>
+    </div>`;
+  }
+
+  if (!rows.length) {
+    $('wm-att-result').innerHTML = '<div class="empty-state"><p>해당 월 기록이 없습니다.</p></div>';
+    $('wm-att-summary').textContent = '';
+    return;
+  }
+
+  let totalMins = 0, mealDays = 0, openCnt = 0;
+  const body = rows.map(r => {
+    const e = nameOf[r.employee_id] || {};
+    const d = new Date(r.date + 'T00:00:00');
+    const raw = r.work_minutes || 0;
+    const meal = wmMeal(r.clock_in, r.clock_out);
+    const eff = meal ? Math.max(0, raw - 60) : raw;
+    totalMins += eff; if (meal) mealDays++;
+    if (!r.clock_out) openCnt++;
+    return `<tr>
+      <td style="white-space:nowrap;">${r.date} <span style="color:#9ca3af;">(${WM_DAY[d.getDay()]})</span></td>
+      <td style="font-weight:600;">${e.name || '?'}</td>
+      <td><span class="badge badge-${e.type === 'employee' ? 'admin' : 'staff'}" style="font-size:.68rem;">${e.type === 'employee' ? '직원' : '알바'}</span></td>
+      <td>${(r.clock_in || '').substring(11, 16)}</td>
+      <td>${r.clock_out ? r.clock_out.substring(11, 16) : '<span style="color:#f59e0b;font-weight:600;">미퇴근</span>'}</td>
+      <td>${raw ? wmHM(raw) : '-'}</td>
+      <td>${meal ? '<span style="color:#0ea5e9;font-size:.72rem;">60분 공제</span>' : ''}</td>
+      <td style="font-weight:600;">${eff ? wmHM(eff) : '-'}</td>
+      <td style="font-size:.72rem;color:#6b7280;">${r.is_edited ? '<span style="color:#d97706;">수정됨</span> ' : ''}${r.source && r.source !== 'kiosk' && r.source !== 'migration' ? r.source : ''}${r.note || ''}</td>
+    </tr>`;
+  }).join('');
+
+  $('wm-att-summary').textContent =
+    `${rows.length}건 · 실근무 ${(totalMins / 60).toFixed(1)}시간 · 식대 ${mealDays}일${openCnt ? ` · 미퇴근 ${openCnt}건` : ''}`;
+  $('wm-att-result').innerHTML = `<div style="overflow-x:auto;"><table style="width:100%;font-size:.8rem;">
+    <thead><tr>
+      <th>날짜</th><th>이름</th><th>구분</th><th>출근</th><th>퇴근</th><th>총 근무</th><th>식대</th><th>실 근무</th><th>비고</th>
+    </tr></thead><tbody>${body}</tbody></table></div>`;
+}
+
+/* ── 급여 계산 ── */
+async function wmLoadSal() {
+  const ym = $('wm-sal-ym').value;
+  if (!ym) return;
+  $('wm-sal-result').innerHTML = '<div class="empty-state"><p>계산 중...</p></div>';
+  try {
+    const [y, m] = ym.split('-').map(Number);
+    wmState.sal = await wmApi({ action: 'salary_all', year: y, month: m });
+    wmState.ym = ym;
+    wmRenderSal();
+  } catch (err) {
+    $('wm-sal-result').innerHTML = `<div class="empty-state"><p>계산하지 못했어요 — ${err.message}</p></div>`;
+  }
+}
+
+function wmRenderSal() {
+  const rows = wmState.sal;
+  if (!rows.length) { $('wm-sal-result').innerHTML = '<div class="empty-state"><p>데이터가 없습니다.</p></div>'; return; }
+  const total = rows.reduce((s, r) => s + (r.totalPay || 0), 0);
+  $('wm-sal-total').textContent = `합계 ${fmt(total)}원`;
+  const body = rows.map((r, i) => {
+    const e = r.employee, pt = e.type === 'parttime';
+    // 다음 달로 이월된 주 — "왜 이 주 주휴수당이 없지?" 질문의 1순위 원인이라 목록에도 표시
+    const defer = (r.weeklyBreakdown || []).filter(w => w.deferredToNext).length;
+    return `<tr>
+      <td style="font-weight:600;">${e.name}</td>
+      <td><span class="badge badge-${pt ? 'staff' : 'admin'}" style="font-size:.68rem;">${pt ? '알바' : '직원'}</span></td>
+      <td>${r.totalHours || 0}시간</td>
+      <td>${fmt(pt ? r.basePay : r.monthlySalary)}원</td>
+      <td>${pt ? `<span style="color:#16a34a;">${fmt(r.holidayPay)}원</span>${defer ? `<div style="font-size:.68rem;color:#d97706;">${defer}주 다음 달 이월</div>` : ''}` : '-'}</td>
+      <td>${pt && r.mealDays ? `<span style="color:#0ea5e9;">${fmt(r.mealAllowance)}원</span> <span style="font-size:.7rem;color:#9ca3af;">(${r.mealDays}일)</span>` : '-'}</td>
+      <td>${pt && r.transportAllowance ? `<span style="color:#7c3aed;">${fmt(r.transportAllowance)}원</span>` : '-'}</td>
+      <td style="font-weight:700;color:#4f46e5;">${fmt(r.totalPay)}원</td>
+      <td><button class="toggle-btn" style="font-size:.7rem;padding:3px 8px;" onclick="wmShowSlip(${i})">명세서</button></td>
+    </tr>`;
+  }).join('');
+  $('wm-sal-result').innerHTML = `<div style="overflow-x:auto;"><table style="width:100%;font-size:.8rem;">
+    <thead><tr>
+      <th>이름</th><th>구분</th><th>근무시간</th><th>기본급</th><th>주휴수당</th><th>식대</th><th>교통비</th><th>총 지급액</th><th></th>
+    </tr></thead><tbody>${body}</tbody></table></div>`;
+}
+
+function wmShowSlip(i) {
+  const r = wmState.sal[i]; if (!r) return;
+  const e = r.employee, pt = e.type === 'parttime';
+  const ymTxt = (wmState.ym || '').replace('-', '년 ') + '월';
+  // 소득세 3% / 지방소득세 0.3%, 각각 1의 자리 절사 (사용자 규칙)
+  const tax = Math.floor((r.totalPay || 0) * 0.03 / 10) * 10;
+  const localTax = Math.floor((r.totalPay || 0) * 0.003 / 10) * 10;
+  const net = (r.totalPay || 0) - tax - localTax;
+
+  const weeks = (r.weeklyBreakdown || []).map(w => `<tr>
+      <td>${w.weekStart}${w.publicHolidays?.length ? ` <span style="font-size:.68rem;color:#0369a1;background:#e0f2fe;border-radius:4px;padding:1px 5px;">${w.publicHolidays.map(h => h.name).join(', ')}</span>` : ''}</td>
+      <td>${w.weekHoursTotal}시간</td>
+      <td${w.weekHours !== w.weekHoursTotal ? ' style="color:#0ea5e9;"' : ''}>${w.weekHours}시간</td>
+      <td>${w.deferredToNext
+        ? '<span style="background:#fef3c7;color:#92400e;border-radius:4px;padding:1px 6px;font-size:.7rem;">다음 달 이월</span>'
+        : `<span style="background:${w.qualifies ? '#dcfce7' : '#fee2e2'};color:${w.qualifies ? '#166534' : '#991b1b'};border-radius:4px;padding:1px 6px;font-size:.7rem;">${w.qualifies ? '충족' : '미충족'}</span>`}</td>
+      <td style="text-align:right;font-weight:${w.qualifies ? 600 : 400};color:${w.qualifies ? '#16a34a' : '#9ca3af'};">${fmt(w.holidayPay)}원</td>
+    </tr>`).join('');
+
+  $('wm-slip-body').innerHTML = `
+    <div style="text-align:center;border-bottom:2px solid #1e1b4b;padding-bottom:14px;margin-bottom:18px;">
+      <h2 style="font-size:1.3rem;font-weight:700;">급여 명세서</h2>
+      <div style="color:#6b7280;font-size:.82rem;">${ymTxt}분</div>
+    </div>
+    <table style="width:100%;font-size:.82rem;margin-bottom:18px;"><tbody>
+      <tr><td style="color:#6b7280;font-weight:600;width:22%;">성명</td><td style="font-weight:700;">${e.name}</td>
+          <td style="color:#6b7280;font-weight:600;width:22%;">구분</td><td>${pt ? '아르바이트' : '직원'}</td></tr>
+      <tr><td style="color:#6b7280;font-weight:600;">총 근무시간</td><td>${r.totalHours || 0}시간</td>
+          ${pt ? `<td style="color:#6b7280;font-weight:600;">시급</td><td>${fmt(e.hourly_rate)}원</td>` : '<td></td><td></td>'}</tr>
+    </tbody></table>
+    <table style="width:100%;font-size:.82rem;">
+      <thead><tr><th>항목</th><th style="text-align:right;">금액</th></tr></thead>
+      <tbody>
+        ${pt ? `
+        <tr><td>기본급 (${r.totalHours}시간 × ${fmt(e.hourly_rate)}원)</td><td style="text-align:right;">${fmt(r.basePay)}원</td></tr>
+        <tr><td>주휴수당</td><td style="text-align:right;color:#16a34a;font-weight:600;">${fmt(r.holidayPay)}원</td></tr>
+        ${r.mealDays ? `<tr><td>식대 (${r.mealDays}일 × 8,000원)</td><td style="text-align:right;color:#0ea5e9;font-weight:600;">${fmt(r.mealAllowance)}원</td></tr>` : ''}
+        ${r.transportAllowance ? `<tr><td>교통비</td><td style="text-align:right;color:#7c3aed;font-weight:600;">${fmt(r.transportAllowance)}원</td></tr>` : ''}
+        ` : `
+        <tr><td>기본급 (월급)</td><td style="text-align:right;">${fmt(r.monthlySalary)}원</td></tr>
+        <tr><td>근무일수</td><td style="text-align:right;">${r.workDays || 0}일</td></tr>
+        ${r.leaveDays ? `<tr><td>휴가 사용 (${r.leaveDays}일)</td><td style="text-align:right;color:#6b7280;">-</td></tr>` : ''}
+        `}
+        <tr><td>소득세</td><td style="text-align:right;color:#dc2626;">-${fmt(tax)}원</td></tr>
+        <tr><td>지방소득세</td><td style="text-align:right;color:#dc2626;">-${fmt(localTax)}원</td></tr>
+      </tbody>
+    </table>
+    <div style="text-align:right;font-size:.78rem;color:#6b7280;padding-top:10px;">총 지급액: ${fmt(r.totalPay)}원</div>
+    <div style="text-align:right;font-size:1.05rem;font-weight:700;padding-top:4px;">실지급액: ${fmt(net)}원</div>
+    ${pt && weeks ? `
+    <div style="margin-top:22px;">
+      <div style="font-weight:700;font-size:.85rem;margin-bottom:8px;">주휴수당 상세 내역</div>
+      <table style="width:100%;font-size:.78rem;">
+        <thead><tr><th>주차 (시작일)</th><th>주간 근무시간<br><span style="font-weight:400;font-size:.68rem;color:#9ca3af;">(주휴수당 계산용)</span></th><th>${(wmState.ym || '').slice(5)}월 실근무</th><th>주 15시간 충족</th><th style="text-align:right;">주휴수당</th></tr></thead>
+        <tbody>${weeks}</tbody>
+      </table>
+      <div style="margin-top:10px;font-size:.72rem;color:#6b7280;line-height:1.8;">
+        * 주휴수당 = (주간 근무시간 ÷ 40) × 8시간 × 시급 · 주 15시간 이상 근무 시 발생 (근로기준법 제55조)<br>
+        * 월초/월말 주차는 전월·익월과 겹칠 수 있어, 계산에는 그 주 전체 시간을 쓰고 실근무는 이번 달 날짜만 표시합니다.
+      </div>
+    </div>` : ''}
+    ${e.bank_account ? `<div style="margin-top:18px;padding:10px 14px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;">
+      <div style="font-size:.7rem;color:#94a3b8;font-weight:600;margin-bottom:4px;">계좌 정보 (관리자 전용)</div>
+      <div style="font-size:.82rem;color:#334155;">${e.bank_name || ''} <b style="font-family:monospace;">${e.bank_account}</b> ${e.bank_holder ? `<span style="color:#6b7280;">(${e.bank_holder})</span>` : ''}</div>
+    </div>` : ''}`;
+  $('wm-slip-modal').style.display = 'flex';
+}
+
+function wmExportSalary() {
+  if (!wmState.sal.length) { showToast('먼저 급여를 계산해주세요'); return; }
+  const head = ['이름', '구분', '근무시간', '기본급', '주휴수당', '식대', '교통비', '총지급액', '소득세', '지방소득세', '실지급액'];
+  const lines = [head.join(',')];
+  let t = [0, 0, 0, 0, 0, 0, 0];
+  for (const r of wmState.sal) {
+    const e = r.employee, pt = e.type === 'parttime';
+    const base = pt ? (r.basePay || 0) : (r.monthlySalary || 0);
+    const hp = r.holidayPay || 0, ma = r.mealAllowance || 0, ta = r.transportAllowance || 0, tp = r.totalPay || 0;
+    const tax = Math.floor(tp * 0.03 / 10) * 10, lt = Math.floor(tp * 0.003 / 10) * 10;
+    lines.push([e.name, pt ? '알바' : '직원', r.totalHours || 0, base, hp, ma, ta, tp, tax, lt, tp - tax - lt].join(','));
+    t = [t[0] + base, t[1] + hp, t[2] + ma, t[3] + ta, t[4] + tp, t[5] + tax, t[6] + lt];
+  }
+  lines.push(['합계', '', '', t[0], t[1], t[2], t[3], t[4], t[5], t[6], t[4] - t[5] - t[6]].join(','));
+  dlCSV(lines.join('\n'), `${wmState.ym}_급여.csv`);
+}
+
+/* 근무관리 인건비 자동 수집 — 2026-08 서버 이전으로 어느 컴퓨터에서나 동작한다.
+   (예전에는 http://localhost:3001 을 불러서 근무관리가 켜진 PC에서만 됐음)
+   기간에 걸친 달의 월 급여 합계 (정규직=월급 고정, 알바=해당 월 실근무 기준) */
 async function fetchLaborFromWM() {
   const s = $('pfDateStart').value, e = $('pfDateEnd').value;
   if (!s || !e) { showToast('기간을 먼저 선택해주세요'); return; }
-  const months = [];
-  let d = new Date(s.slice(0, 7) + '-01T00:00:00');
-  const end = new Date(e.slice(0, 7) + '-01T00:00:00');
-  while (d <= end) { months.push([d.getFullYear(), d.getMonth() + 1]); d = new Date(d.getFullYear(), d.getMonth() + 1, 1); }
   try {
-    let total = 0, empN = 0;
-    for (const [y, m] of months) {
-      const res = await fetch(`http://localhost:3001/api/salary/all?year=${y}&month=${m}`);
-      if (!res.ok) throw new Error('응답 오류 ' + res.status);
-      const rows = await res.json();
-      total += rows.reduce((t, r) => t + (r.totalPay || 0), 0);
-      empN = rows.length;
-    }
-    $('pf-labor').value = Math.round(total);
+    const r = await wmApi({ action: 'labor_total', start_date: s, end_date: e });
+    $('pf-labor').value = Math.round(r.total);
     profitSaveCosts(); renderProfit();
-    const ymTxt = months.map(([y, m]) => y + '-' + String(m).padStart(2, '0')).join(', ');
-    showToast(`근무관리 인건비 ${fmt(Math.round(total))}원 반영 (직원 ${empN}명 · ${ymTxt} 월 급여 합계 — 기간이 월 일부라면 조정하세요)`);
-  } catch {
-    showToast('근무관리 서버에 연결할 수 없어요 — 근무관리가 실행 중인 컴퓨터(개발 맥북·매장 PC)에서 시도하거나 직접 입력해주세요');
+    const ymTxt = (r.months || []).map(m => m.ym).join(', ');
+    showToast(`근무관리 인건비 ${fmt(Math.round(r.total))}원 반영 (직원 ${r.employee_count}명 · ${ymTxt} 월 급여 합계 — 기간이 월 일부라면 조정하세요)`);
+  } catch (err) {
+    showToast('인건비를 불러오지 못했어요 — ' + err.message);
   }
 }
 
@@ -6323,7 +6639,7 @@ function renderProfitDetail(cur, costs) {
 /* ──────────────────────────────
    좌측 메뉴 내비게이션 + 대시보드(홈)
 ────────────────────────────── */
-const MENU_KEYS = ['home', 'cr', 'an', 'perf', 'rwatch', 'disp', 'stable', 'adv', 'admgr', 'profit', 'meet', 'board', 'proj', 'users'];
+const MENU_KEYS = ['home', 'cr', 'an', 'perf', 'rwatch', 'disp', 'stable', 'adv', 'admgr', 'profit', 'wm', 'meet', 'board', 'proj', 'users'];
 
 function showMenu(key) {
   if (!MENU_KEYS.includes(key)) key = 'home';
@@ -6332,7 +6648,7 @@ function showMenu(key) {
   // 권한 없는 사용자에게 아무 섹션도 표시되지 않아 화면이 비어버림
   const denied = (key === 'cr' && isStaff())
     || (key === 'rwatch' && isCS())                      // 반품 관리 = 관리자 + MD
-    || (['users', 'disp', 'stable', 'profit', 'board', 'proj', 'admgr'].includes(key) && !isAdmin());   // admgr = 관리자 전용 (2026-08-26)
+    || (['users', 'disp', 'stable', 'profit', 'board', 'proj', 'admgr', 'wm'].includes(key) && !isAdmin());   // admgr = 관리자 전용 (2026-08-26), wm = 근무 관리 (급여·계좌 포함)
   if (denied) { showToast('접근 권한이 없습니다'); key = 'home'; }
   document.querySelectorAll('.page-sec').forEach(el => { el.style.display = 'none'; });
   const target = $('sec-' + key);
@@ -6347,6 +6663,7 @@ function showMenu(key) {
     $('note-author').textContent = SESSION ? SESSION.name : '';
   }
   if (key === 'users') loadUsers();
+  if (key === 'wm') wmInit();
   if (key === 'board') boardLoad();
   if (key === 'proj') projLoad();
   if (key === 'admgr' && !admgrState.data) admgrFetch();
