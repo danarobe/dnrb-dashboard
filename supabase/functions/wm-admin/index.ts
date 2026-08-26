@@ -161,9 +161,21 @@ Deno.serve(async (req) => {
 
     if (action === 'employee_list') {
       // 관리자 전용 함수이므로 계좌·급여 포함. pin_hash는 절대 내보내지 않는다.
-      return json(await rest('wm_employees?select=id,name,type,hourly_rate,monthly_salary,'
-        + 'annual_leave_total,transport_allowance,fixed_clock_in,birthday,'
-        + 'bank_name,bank_account,bank_holder,active,pin_set_at&order=type,name'));
+      const year = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Seoul' }).slice(0, 4);
+      const [emps, approved] = await Promise.all([
+        rest('wm_employees?select=id,name,type,hourly_rate,monthly_salary,'
+          + 'annual_leave_total,transport_allowance,fixed_clock_in,birthday,'
+          + 'bank_name,bank_account,bank_holder,active,pin_set_at&order=type,name'),
+        rest(`wm_leaves?status=eq.approved&date=gte.${year}-01-01&date=lte.${year}-12-31&select=employee_id,type,reason&limit=3000`),
+      ]);
+      // 올해 사용 연차 — leaves.js /remaining과 동일 규칙 (여름휴가·사유 하계/여름휴가는 미차감)
+      const used: Record<number, number> = {};
+      for (const l of approved) {
+        if (l.type === 'summer') continue;
+        if (l.reason && (l.reason.includes('하계휴가') || l.reason.includes('여름휴가'))) continue;
+        used[l.employee_id] = (used[l.employee_id] || 0) + (l.type === 'annual' ? 1 : 0.5);
+      }
+      return json(emps.map((e: any) => ({ ...e, annual_used: used[e.id] || 0 })));
     }
 
     if (action === 'attendance_list') {

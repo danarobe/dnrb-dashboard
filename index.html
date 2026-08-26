@@ -1446,7 +1446,7 @@
       <div id="wm-tab-lv" class="wm-pane" style="display:none;">
         <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin-bottom:12px;">
           <label style="font-size:.78rem;color:#4b5563;font-weight:600;">연월
-            <input type="month" id="wm-lv-ym" onchange="wmLoadLeaves()"
+            <input type="month" id="wm-lv-ym" onchange="$('wm-lv-all').checked=false;wmLoadLeaves()"
               style="display:block;margin-top:3px;border:1.5px solid #d1d5db;border-radius:8px;padding:5px 10px;font-size:.8rem;outline:none;" /></label>
           <label style="font-size:.78rem;color:#4b5563;font-weight:600;">상태
             <select id="wm-lv-status" onchange="wmRenderLeaves()"
@@ -1454,9 +1454,12 @@
               <option value="">전체</option><option value="pending">대기</option>
               <option value="approved">승인</option><option value="rejected">반려</option>
             </select></label>
+          <label style="display:flex;align-items:center;gap:5px;font-size:.78rem;color:#4b5563;font-weight:600;cursor:pointer;margin-bottom:7px;">
+            <input type="checkbox" id="wm-lv-all" onchange="wmLoadLeaves()" /> 올해 전체 보기</label>
           <button class="toggle-btn" onclick="wmLeaveFormOpen()" style="margin-bottom:1px;"><i class="fa-solid fa-plus"></i> 휴가 등록</button>
           <span id="wm-lv-summary" style="margin-left:auto;font-size:.78rem;color:#6b7280;"></span>
         </div>
+        <div id="wm-lv-remaining" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px;"></div>
         <div id="wm-lv-form" style="display:none;background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:14px;margin-bottom:12px;">
           <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;">
             <label style="font-size:.75rem;color:#4b5563;font-weight:600;">직원
@@ -6653,11 +6656,21 @@ async function wmLoadLeaves() {
   $('wm-lv-result').innerHTML = '<div class="empty-state"><p>불러오는 중...</p></div>';
   try {
     const [y, m] = ym.split('-').map(Number);
-    const [_, lv] = await Promise.all([wmEnsureEmps(), wmApi({ action: 'leave_list', year: y, month: m })]);
+    const wholeYear = $('wm-lv-all').checked;
+    const [_, lv] = await Promise.all([wmEnsureEmps(),
+      wmApi(wholeYear ? { action: 'leave_list', year: y } : { action: 'leave_list', year: y, month: m })]);
     wmState.lv = lv;
     const sel = $('wm-lvf-emp');
     sel.innerHTML = (wmState.emps || []).filter(e => e.active !== false)
       .map(e => `<option value="${e.id}">${e.name} (${e.type === 'employee' ? '직원' : '알바'})</option>`).join('');
+    // 직원(월급제) 잔여 연차 요약 — 기존 시스템의 잔여 연차 표시 대응
+    $('wm-lv-remaining').innerHTML = (wmState.emps || [])
+      .filter(e => e.type === 'employee' && e.active !== false)
+      .map(e => {
+        const rem = (e.annual_leave_total ?? 0) - (e.annual_used ?? 0);
+        return `<span style="background:${rem <= 2 ? '#fee2e2' : '#eff6ff'};border:1px solid ${rem <= 2 ? '#fecaca' : '#bfdbfe'};border-radius:16px;padding:3px 11px;font-size:.74rem;">
+          ${e.name} <b style="color:${rem <= 2 ? '#dc2626' : '#2563eb'};">잔여 ${rem}일</b> <span style="color:#9ca3af;">(${e.annual_used ?? 0}/${e.annual_leave_total} 사용)</span></span>`;
+      }).join('');
     wmRenderLeaves();
   } catch (err) {
     $('wm-lv-result').innerHTML = `<div class="empty-state"><p>불러오지 못했어요 — ${err.message}</p></div>`;
@@ -6717,7 +6730,7 @@ async function wmLeaveSubmit() {
     showToast(r.range ? `${r.inserted}일 등록 완료${r.skipped?.length ? ` (${r.skipped.length}일은 기존 신청과 겹쳐 제외)` : ''}` : '등록 완료');
     $('wm-lv-form').style.display = 'none';
     $('wm-lvf-end').value = ''; $('wm-lvf-reason').value = '';
-    wmLoadLeaves();
+    wmState.emps = null; wmLoadLeaves();
   } catch (err) { showToast('등록 실패 — ' + err.message); }
 }
 
@@ -6727,7 +6740,7 @@ async function wmLeaveReview(id, status) {
   try {
     await wmApi({ action: 'leave_review', id, status });
     showToast(label + ' 완료');
-    wmLoadLeaves();
+    wmState.emps = null; wmLoadLeaves();
   } catch (err) { showToast(label + ' 실패 — ' + err.message); }
 }
 
@@ -6737,7 +6750,7 @@ async function wmLeaveDelete(id) {
   try {
     await wmApi({ action: 'leave_delete', id });
     showToast('삭제 완료');
-    wmLoadLeaves();
+    wmState.emps = null; wmLoadLeaves();
   } catch (err) { showToast('삭제 실패 — ' + err.message); }
 }
 
@@ -6753,7 +6766,9 @@ async function wmLoadEmps() {
         <td><span class="badge badge-${pt ? 'staff' : 'admin'}" style="font-size:.68rem;">${pt ? '알바' : '직원'}</span></td>
         <td>${pt ? fmt(e.hourly_rate) + '원/시' : fmt(e.monthly_salary) + '원/월'}</td>
         <td>${pt && e.transport_allowance ? fmt(e.transport_allowance) + '원' : '-'}</td>
-        <td>${e.annual_leave_total ?? '-'}</td>
+        <td>${pt
+          ? (e.annual_used ? `<span style="font-size:.72rem;color:#6b7280;">사용 ${e.annual_used}일</span>` : '-')
+          : `<b style="color:${(e.annual_leave_total - e.annual_used) <= 2 ? '#dc2626' : '#2563eb'};">잔여 ${e.annual_leave_total - e.annual_used}</b> <span style="font-size:.7rem;color:#9ca3af;">/ ${e.annual_leave_total} (사용 ${e.annual_used})</span>`}</td>
         <td>${pt ? (e.fixed_clock_in || '-') : '-'}</td>
         <td style="font-size:.72rem;">${e.bank_name || ''} ${e.bank_account || ''}</td>
         <td>${e.pin_set_at ? '<span style="color:#16a34a;font-size:.7rem;">설정됨</span>' : '<span style="color:#9ca3af;font-size:.7rem;">미설정</span>'}</td>

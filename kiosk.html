@@ -495,7 +495,9 @@ function showPairing() {
     <label class="fld">등록 코드 <input id="pair-code" inputmode="numeric" maxlength="8" placeholder="8자리 숫자"
       style="text-align:center;font-size:22px;letter-spacing:4px;" /></label>
     <div class="pin-err" id="pair-err"></div>
-    <button class="btn btn-primary" onclick="doPair()">등록하기</button>`, false);
+    <button class="btn btn-primary" onclick="doPair()">등록하기</button>
+    <button class="btn btn-outline" onclick="location.href='./index.html'">관리자이신가요? 대시보드로 이동 →</button>
+    <div style="text-align:center;font-size:11px;color:#94a3b8;margin-top:8px;">출퇴근 기기 등록은 매장 컴퓨터에서만 하면 됩니다.<br>관리자는 위 버튼으로 어디서든 대시보드에 로그인할 수 있어요.</div>`, false);
 }
 async function doPair() {
   try {
