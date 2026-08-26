@@ -162,12 +162,23 @@ Deno.serve(async (req) => {
     if (action === 'employee_list') {
       // 관리자 전용 함수이므로 계좌·급여 포함. pin_hash는 절대 내보내지 않는다.
       const year = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Seoul' }).slice(0, 4);
-      const [emps, approved] = await Promise.all([
+      const [emps, approved, users] = await Promise.all([
         rest('wm_employees?select=id,name,type,hourly_rate,monthly_salary,'
           + 'annual_leave_total,transport_allowance,fixed_clock_in,birthday,'
-          + 'bank_name,bank_account,bank_holder,active,pin_set_at&order=type,name'),
+          + 'bank_name,bank_account,bank_holder,active,pin_set_at,app_user_id&order=type,name'),
         rest(`wm_leaves?status=eq.approved&date=gte.${year}-01-01&date=lte.${year}-12-31&select=employee_id,type,reason&limit=3000`),
+        rest('app_users?select=id,name'),
       ]);
+      // 연결된 정직원의 이름은 대시보드 계정이 원본 (2026-08-27) — 계정 이름이 바뀌면 여기서 따라간다
+      const uname: Record<string, string> = {};
+      for (const u of users as { id: string; name: string }[]) uname[u.id] = u.name;
+      for (const e of emps as Record<string, unknown>[]) {
+        const uid = String(e.app_user_id ?? '');
+        if (uid && uname[uid] && uname[uid] !== e.name) {
+          await rest(`wm_employees?id=eq.${e.id}`, { method: 'PATCH', body: JSON.stringify({ name: uname[uid] }) });
+          e.name = uname[uid];
+        }
+      }
       // 올해 사용 연차 — leaves.js /remaining과 동일 규칙 (여름휴가·사유 하계/여름휴가는 미차감)
       const used: Record<number, number> = {};
       for (const l of approved) {
@@ -367,9 +378,38 @@ Deno.serve(async (req) => {
       return json({ ok: true });
     }
 
+    // 연결 가능한 대시보드 계정 목록 (2026-08-27) — 아직 근무 관리 직원과 연결되지 않은 비관리자 계정
+    if (action === 'employee_linkable') {
+      const [users, linked] = await Promise.all([
+        rest('app_users?select=id,name,role&role=neq.admin&order=name'),
+        rest('wm_employees?select=app_user_id&app_user_id=not.is.null'),
+      ]);
+      const taken = new Set((linked as { app_user_id: string }[]).map((e) => e.app_user_id));
+      return json((users as { id: string; role: string }[]).filter((u) => !taken.has(u.id)));
+    }
+
+    // 기존 직원 행 ↔ 대시보드 계정 연결 (미연결 정직원용)
+    if (action === 'employee_link') {
+      const id = Number(body.id);
+      const uid = String(body.app_user_id ?? '');
+      const [u] = await rest(`app_users?id=eq.${encodeURIComponent(uid)}&select=id,name,role`);
+      if (!u) return json({ error: '대시보드 계정을 찾을 수 없습니다' }, 400);
+      if (u.role === 'admin') return json({ error: '관리자 계정은 연결할 수 없습니다' }, 400);
+      const dup = await rest(`wm_employees?app_user_id=eq.${encodeURIComponent(uid)}&select=id`);
+      if (dup.length) return json({ error: '이미 다른 직원과 연결된 계정입니다' }, 400);
+      const [row] = await rest(`wm_employees?id=eq.${id}`, {
+        method: 'PATCH', body: JSON.stringify({ app_user_id: uid, name: u.name, type: 'employee' }),
+      });
+      if (!row) return json({ error: '직원 없음' }, 404);
+      await auditLog(me.id, 'employee_link', row.id, { app_user_id: uid });
+      return json({ ok: true });
+    }
+
     // 직원 등록/수정 — ⚠️ 의도적으로 부분 수정: 보낸 필드만 갱신.
     // (기존 Express PUT은 전체 필드를 다시 써서, 일부만 보내면 월급 등이 0으로 초기화되는
     //  사고가 있었다. 그 함정을 여기서 제거한다.)
+    // 신규 등록 규칙 (2026-08-27 사용자 지정): 직접 추가는 **알바만**(type 서버 강제).
+    // 정직원은 app_user_id(대시보드 직원 계정) 연결로만 생성 — 이름은 계정에서 오고 계정이 원본.
     if (action === 'employee_upsert') {
       const FIELDS = ['name', 'type', 'hourly_rate', 'monthly_salary', 'annual_leave_total',
         'transport_allowance', 'fixed_clock_in', 'birthday', 'bank_name', 'bank_account', 'bank_holder'];
@@ -384,10 +424,26 @@ Deno.serve(async (req) => {
 
       let row;
       if (body.id) {
+        const [cur] = await rest(`wm_employees?id=eq.${Number(body.id)}&select=app_user_id`);
+        if (!cur) return json({ error: '직원 없음' }, 404);
+        if (cur.app_user_id) { delete patch.name; delete patch.type; }   // 연결된 정직원의 이름·유형은 계정이 원본
         [row] = await rest(`wm_employees?id=eq.${Number(body.id)}`, { method: 'PATCH', body: JSON.stringify(patch) });
         if (!row) return json({ error: '직원 없음' }, 404);
       } else {
-        if (!patch.name || !patch.type) return json({ error: '이름과 직원 유형은 필수입니다.' }, 400);
+        if (body.app_user_id) {   // 정직원 = 계정 연결 생성
+          const uid = String(body.app_user_id);
+          const [u] = await rest(`app_users?id=eq.${encodeURIComponent(uid)}&select=id,name,role`);
+          if (!u) return json({ error: '대시보드 계정을 찾을 수 없습니다' }, 400);
+          if (u.role === 'admin') return json({ error: '관리자 계정은 연결할 수 없습니다' }, 400);
+          const dup = await rest(`wm_employees?app_user_id=eq.${encodeURIComponent(uid)}&select=id`);
+          if (dup.length) return json({ error: '이미 연결된 계정입니다' }, 400);
+          patch.app_user_id = uid;
+          patch.type = 'employee';
+          patch.name = u.name;
+        } else {
+          patch.type = 'parttime';   // 직접 추가는 알바 고정 (사용자 지정 — 서버 강제)
+        }
+        if (!patch.name) return json({ error: '이름은 필수입니다.' }, 400);
         [row] = await rest('wm_employees', { method: 'POST', body: JSON.stringify(patch) });
       }
       delete row.pin_hash;   // 해시라도 클라이언트로 내보내지 않는다
