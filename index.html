@@ -1806,6 +1806,7 @@
           <div id="admgr-budget-body"></div>
         </div>
       </div>
+      <div id="admgr-bpop" style="display:none;position:fixed;z-index:230;background:#fff;border:1.5px solid #c7d2fe;border-radius:12px;box-shadow:0 8px 24px rgba(15,23,42,.18);padding:12px;width:260px;"></div>
     </div>
   </div>
 
@@ -5209,6 +5210,9 @@ const admgrState = {
   // byObj = Map(캠페인·세트 id → 오늘 이벤트[] 최신순), seven = 최근 7일 이벤트(모달에서 요청 시)
   budget: { byObj: null, loading: false, error: false, seven: null, sevenLoading: false },
   chgFilter: 'all',   // 오늘 변경 필터: all/changed(변경)/up(증액)/down(감액) — 최신 이벤트 방향 기준
+  // 예산 직접 변경 (2026-08-26, meta-budget 함수): st = status 응답(allowed/token_set/pin_set/max_budget),
+  // pin = 성공한 PIN(메모리만 — localStorage 저장 금지), pendingByObj = Map(대상 id → 자정 예약 행)
+  write: { st: null, pin: null, pendingByObj: null },
 };
 // 다중 정렬 (2026-08-25): sort = [{k,d}...] — 먼저 누른 열이 1순위, 다음 누른 열은 그 안에서 2순위...
 // 클릭: 없으면 오름차순 추가 → 다시 클릭 내림차순 → 한 번 더 해제. 모든 탭 공통 적용.
@@ -5250,6 +5254,7 @@ async function admgrFetch() {
     admgrState.data = await metaGet({ action: 'hierarchy', preset: admgrState.preset });
     if (admgrState.data.error === 'not_connected') { $('admgr-result').innerHTML = '<div class="empty-state"><p>Meta 연동이 설정되지 않았습니다.</p></div>'; return; }
     admgrRender();
+    setTimeout(admgrWriteInit, 0);   // 예산 변경 권한·예약 현황 (지정 사용자만 활성화)
   } catch (e) { showToast('조회 실패: ' + e.message); }
   finally { btnIdle(btn, '<i class="fa-solid fa-rotate"></i> 새로고침'); }
 }
@@ -5315,6 +5320,126 @@ const admgrPaidCell = st => {
   if (p.loading) return '<i class="fa-solid fa-spinner fa-spin" style="color:#c4c9d4;font-size:.7rem;"></i>';
   return admgrDash;
 };
+
+/* ── 예산 직접 변경 + 자정 예약 (2026-08-26, 서버 = meta-budget 함수) ──
+   예산 셀 클릭 → 작은 팝업에서 새 일예산 입력 → [즉시 적용] 또는 [자정에 자동 반영].
+   권한: admin + WRITE_USER_IDS(secret, 조범준·박민규) + PIN(매 요청 서버 검증, 15분 5회 잠금).
+   상한 500,000원/하한 1,000원·총예산 대상 거부는 서버가 강제. 자정 적용은 pg_cron(00:00 KST) → run 액션.
+   쓰기 토큰(META_WRITE_TOKEN·ads_management)은 별도 함수(meta-budget)만 사용 — 읽기 함수와 분리. */
+async function metaBudgetGet(params) {
+  const res = await fetch(fnUrl('meta-budget', params), { headers: sbHeaders() });
+  const d = await res.json();
+  if (d.error) throw new Error(d.error);
+  return d;
+}
+async function admgrWriteInit() {
+  if (!isAdmin() || admgrState.write.st) return;
+  try {
+    admgrState.write.st = await metaBudgetGet({ action: 'status' });
+    if (admgrState.write.st.allowed) await admgrWritePending(); else admgrRender();
+  } catch { /* 쓰기 기능 없이 표시 (조회 실패는 치명적이지 않음) */ }
+}
+async function admgrWritePending() {
+  try {
+    const d = await metaBudgetGet({ action: 'pending' });
+    admgrState.write.pendingByObj = new Map((d.pending || []).map(p => [p.object_id, p]));
+    admgrRender();
+  } catch { /* 무시 */ }
+}
+/* 예산 셀 — 지정 사용자면 클릭 편집(일예산 있는 행만), 자정 예약이 있으면 배지 표시 */
+function admgrBudgetCellHtml(r, v) {
+  const w = admgrState.write;
+  let base = admgrBudgetTxt(r);
+  if (w.st && w.st.allowed && r.budget > 0) {
+    base = `<span onclick="event.stopPropagation();admgrBudgetPop(event,'${r.id}','${v === 'camp' ? 'campaign' : 'adset'}')" title="클릭해서 예산 변경" style="cursor:pointer;">${admgrBudgetTxt(r)} <i class="fa-solid fa-pen" style="font-size:.55rem;color:#a5b4fc;"></i></span>`;
+  }
+  const pend = w.pendingByObj && w.pendingByObj.get(r.id);
+  if (pend) base += `<div style="font-size:.62rem;color:#b45309;background:#fef3c7;border-radius:6px;padding:1px 6px;margin-top:2px;display:inline-block;white-space:nowrap;" title="자정(${pend.apply_date} 00:00)에 자동 반영 예약"><i class="fa-regular fa-clock"></i> 자정 <span class="meta-blur">${fmt(pend.new_budget)}원</span></div>`;
+  return base;
+}
+const admgrBP = { id: null, level: null, name: '' };
+function admgrBudgetPop(ev, id, level) {
+  const w = admgrState.write;
+  const R = admgrRows();
+  const node = (level === 'campaign' ? R.camps : R.sets).find(x => x.id === id);
+  admgrBP.id = id; admgrBP.level = level; admgrBP.name = node ? node.name : '';
+  const cur = node ? node.budget : 0;
+  const pend = w.pendingByObj && w.pendingByObj.get(id);
+  const pop = $('admgr-bpop');
+  const warn = w.st.token_set ? '' :
+    `<div style="background:#fffbeb;color:#92400e;border-radius:8px;padding:6px 8px;font-size:.68rem;margin-bottom:8px;">Meta 쓰기 토큰이 아직 설정되지 않았습니다 — 즉시 적용 불가, 예약도 토큰 설정 전엔 자정 반영이 실패합니다.</div>`;
+  pop.innerHTML = `
+    <div style="font-size:.74rem;font-weight:700;color:#1e1b4b;word-break:break-all;margin-bottom:6px;">${escHtml(admgrBP.name)}</div>
+    ${warn}
+    <div style="font-size:.7rem;color:#6b7280;margin-bottom:6px;">현재 일예산 <b class="meta-blur">${fmt(cur)}원</b>${pend ? ` · <span style="color:#b45309;">자정 예약 <span class="meta-blur">${fmt(pend.new_budget)}원</span></span>` : ''}</div>
+    <input id="bpop-amount" type="number" min="1000" max="${w.st.max_budget}" step="1000" value="${pend ? pend.new_budget : cur}"
+      style="width:100%;border:1.5px solid #d1d5db;border-radius:8px;padding:6px 8px;font-size:.82rem;outline:none;margin-bottom:4px;" />
+    <div style="font-size:.64rem;color:#9ca3af;margin-bottom:8px;">1,000원 ~ ${fmt(w.st.max_budget)}원 (상한선 서버 강제)</div>
+    ${w.pin ? '' : `<input id="bpop-pin" type="password" inputmode="numeric" placeholder="예산 변경 PIN"
+      style="width:100%;border:1.5px solid #d1d5db;border-radius:8px;padding:6px 8px;font-size:.8rem;outline:none;margin-bottom:8px;" />`}
+    <div id="bpop-err" style="display:none;font-size:.68rem;color:#b91c1c;margin-bottom:6px;"></div>
+    <div style="display:flex;gap:6px;">
+      <button id="bpop-apply" onclick="admgrBudgetWrite('apply')" ${w.st.token_set ? '' : 'disabled'}
+        style="flex:1;border:none;background:${w.st.token_set ? '#4f46e5' : '#c7d2fe'};color:#fff;border-radius:8px;padding:7px 0;font-size:.76rem;font-weight:800;cursor:${w.st.token_set ? 'pointer' : 'not-allowed'};">즉시 적용</button>
+      <button id="bpop-sched" onclick="admgrBudgetWrite('schedule')"
+        style="flex:1;border:1.5px solid #f59e0b;background:#fffbeb;color:#b45309;border-radius:8px;padding:7px 0;font-size:.76rem;font-weight:800;cursor:pointer;"><i class="fa-regular fa-clock"></i> 자정에 자동 반영</button>
+    </div>
+    ${pend ? `<button onclick="admgrBudgetCancel(${pend.id})" style="width:100%;margin-top:6px;border:1.5px solid #d1d5db;background:#fff;color:#6b7280;border-radius:8px;padding:5px 0;font-size:.72rem;font-weight:700;cursor:pointer;">자정 예약 취소</button>` : ''}`;
+  const r0 = ev.target.closest('td').getBoundingClientRect();
+  pop.style.display = 'block';
+  const pw = 260, ph = pop.offsetHeight || 230;
+  pop.style.left = Math.max(8, Math.min(r0.left, window.innerWidth - pw - 12)) + 'px';
+  pop.style.top = (r0.bottom + 6 + ph > window.innerHeight - 10 ? Math.max(10, r0.top - ph - 6) : r0.bottom + 6) + 'px';
+  setTimeout(() => { const a = $('bpop-amount'); if (a) { a.focus(); a.select(); } }, 0);
+}
+document.addEventListener('click', e => {   // 팝업 바깥 클릭 닫기 (여는 클릭은 표시 전이라 무해)
+  const pop = document.getElementById('admgr-bpop');
+  if (pop && pop.style.display !== 'none' && !pop.contains(e.target)) pop.style.display = 'none';
+}, true);
+function admgrBpopErr(m) { const el = $('bpop-err'); if (el) { el.textContent = m; el.style.display = 'block'; } }
+function admgrBpopPin() { return admgrState.write.pin || ($('bpop-pin') ? $('bpop-pin').value.trim() : ''); }
+async function admgrBudgetWrite(mode) {
+  const w = admgrState.write;
+  const amount = Math.round(Number(($('bpop-amount') || {}).value || 0));
+  const pin = admgrBpopPin();
+  if (!(amount >= 1000 && amount <= w.st.max_budget)) { admgrBpopErr(`1,000원 ~ ${fmt(w.st.max_budget)}원 사이로 입력하세요`); return; }
+  if (!pin) { admgrBpopErr('PIN을 입력하세요'); return; }
+  const btn = $(mode === 'apply' ? 'bpop-apply' : 'bpop-sched');
+  btn.disabled = true;
+  try {
+    const res = await fetch(fnUrl('meta-budget', { action: mode }), {
+      method: 'POST', headers: sbHeaders(),
+      body: JSON.stringify({ object_id: admgrBP.id, object_name: admgrBP.name, level: admgrBP.level, new_budget: amount, pin }),
+    });
+    const d = await res.json();
+    if (!res.ok || d.error) throw new Error(d.error || ('오류 ' + res.status));
+    w.pin = pin;   // 성공한 PIN은 세션 동안만 기억 (새로고침하면 다시 입력)
+    $('admgr-bpop').style.display = 'none';
+    if (mode === 'apply') { showToast(`일예산을 ${fmt(amount)}원으로 변경했습니다`); admgrFetch(); }
+    else showToast(`${d.apply_date} 00:00(자정)에 ${fmt(amount)}원으로 변경 예약했습니다`);
+    admgrWritePending();
+  } catch (e) {
+    if (String(e.message).includes('PIN')) w.pin = null;
+    admgrBpopErr(e.message);
+    btn.disabled = false;
+  }
+}
+async function admgrBudgetCancel(pid) {
+  const pin = admgrBpopPin();
+  if (!pin) { admgrBpopErr('PIN을 입력하세요'); return; }
+  try {
+    const res = await fetch(fnUrl('meta-budget', { action: 'cancel' }), { method: 'POST', headers: sbHeaders(), body: JSON.stringify({ id: pid, pin }) });
+    const d = await res.json();
+    if (!res.ok || d.error) throw new Error(d.error || ('오류 ' + res.status));
+    admgrState.write.pin = pin;
+    $('admgr-bpop').style.display = 'none';
+    showToast('자정 예약을 취소했습니다');
+    admgrWritePending();
+  } catch (e) {
+    if (String(e.message).includes('PIN')) admgrState.write.pin = null;
+    admgrBpopErr(e.message);
+  }
+}
 
 /* ── '최근 변경' 열 + 예산 변경 히스토리·영향 분석 (2026-08-26) ──
    Meta 활동 로그(budgethistory 액션, ~90일 보관)에서 예산 변경 이벤트를 읽는다 — 별도 기록 불필요,
@@ -5648,7 +5773,7 @@ function admgrRender() {
       ${hasCk ? `<td><input type="checkbox" ${checked ? 'checked' : ''} style="pointer-events:none;" /></td>` : ''}
       <td style="text-align:left;min-width:190px;font-weight:${v === 'camp' ? '800' : '600'};color:${v === 'ad' ? '#4338ca' : '#1e1b4b'};">${escHtml(r.name)}${goLink}${sub}</td>
       <td>${statusHtml}</td>
-      <td class="m-hide">${v === 'ad' ? admgrDash : admgrBudgetTxt(r)}</td>
+      <td class="m-hide">${v === 'ad' ? admgrDash : admgrBudgetCellHtml(r, v)}</td>
       ${showChg ? `<td class="m-hide">${admgrChgCell(r)}</td>` : ''}
       <td style="font-weight:700;">${admgrMoney(r.spend)}</td>
       <td class="m-hide">${fmt(r.purchases)}</td>
