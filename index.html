@@ -1410,7 +1410,7 @@
     </div>
     <div class="section-body">
       <div id="wm-parallel-note" style="font-size:.8rem;color:#92400e;background:#fef3c7;border:1px solid #fde68a;border-radius:8px;padding:9px 12px;margin-bottom:12px;">
-        <b>병행 운영 중 (조회 전용)</b> — 기존 근무관리 프로그램이 여전히 원본입니다. 여기 숫자가 기존과 같은지 확인하는 단계예요. 수정은 아직 기존 프로그램에서 하세요.
+        <b>병행 운영 중 (3단계 — 관리 수정은 여기서)</b> — 직원 출퇴근 체크·휴가 신청은 아직 매장 키오스크(기존 프로그램)에서 하지만, <b>승인·직원 정보·공휴일 등 관리자 수정은 이제 이 화면이 원본</b>입니다. 기존 프로그램의 관리 기능은 잠갔어요.
       </div>
       <div id="wm-tabs" style="display:flex;gap:2px;border-bottom:2px solid #e5e7eb;margin-bottom:14px;flex-wrap:wrap;"></div>
 
@@ -1423,6 +1423,7 @@
           <label style="font-size:.78rem;color:#4b5563;font-weight:600;">직원
             <select id="wm-att-emp" onchange="wmRenderAtt()"
               style="display:block;margin-top:3px;border:1.5px solid #d1d5db;border-radius:8px;padding:6px 10px;font-size:.8rem;outline:none;min-width:120px;"></select></label>
+          <button class="toggle-btn" onclick="wmAttFormOpen(null)" style="margin-bottom:1px;"><i class="fa-solid fa-plus"></i> 수동 등록</button>
           <span id="wm-att-summary" style="margin-left:auto;font-size:.78rem;color:#6b7280;"></span>
         </div>
         <div id="wm-att-pending" style="display:none;margin-bottom:12px;"></div>
@@ -1439,6 +1440,103 @@
           <span id="wm-sal-total" style="margin-left:auto;font-size:.85rem;font-weight:700;color:#4f46e5;"></span>
         </div>
         <div id="wm-sal-result"><div class="empty-state"><p>불러오는 중...</p></div></div>
+      </div>
+
+      <!-- ── 탭: 휴가 관리 ── -->
+      <div id="wm-tab-lv" class="wm-pane" style="display:none;">
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin-bottom:12px;">
+          <label style="font-size:.78rem;color:#4b5563;font-weight:600;">연월
+            <input type="month" id="wm-lv-ym" onchange="wmLoadLeaves()"
+              style="display:block;margin-top:3px;border:1.5px solid #d1d5db;border-radius:8px;padding:5px 10px;font-size:.8rem;outline:none;" /></label>
+          <label style="font-size:.78rem;color:#4b5563;font-weight:600;">상태
+            <select id="wm-lv-status" onchange="wmRenderLeaves()"
+              style="display:block;margin-top:3px;border:1.5px solid #d1d5db;border-radius:8px;padding:6px 10px;font-size:.8rem;outline:none;">
+              <option value="">전체</option><option value="pending">대기</option>
+              <option value="approved">승인</option><option value="rejected">반려</option>
+            </select></label>
+          <button class="toggle-btn" onclick="wmLeaveFormOpen()" style="margin-bottom:1px;"><i class="fa-solid fa-plus"></i> 휴가 등록</button>
+          <span id="wm-lv-summary" style="margin-left:auto;font-size:.78rem;color:#6b7280;"></span>
+        </div>
+        <div id="wm-lv-form" style="display:none;background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:14px;margin-bottom:12px;">
+          <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;">
+            <label style="font-size:.75rem;color:#4b5563;font-weight:600;">직원
+              <select id="wm-lvf-emp" style="display:block;margin-top:3px;border:1.5px solid #d1d5db;border-radius:8px;padding:6px 10px;font-size:.8rem;"></select></label>
+            <label style="font-size:.75rem;color:#4b5563;font-weight:600;">시작일
+              <input type="date" id="wm-lvf-date" style="display:block;margin-top:3px;border:1.5px solid #d1d5db;border-radius:8px;padding:5px 10px;font-size:.8rem;" /></label>
+            <label style="font-size:.75rem;color:#4b5563;font-weight:600;">종료일 (선택)
+              <input type="date" id="wm-lvf-end" style="display:block;margin-top:3px;border:1.5px solid #d1d5db;border-radius:8px;padding:5px 10px;font-size:.8rem;" /></label>
+            <label style="font-size:.75rem;color:#4b5563;font-weight:600;">종류
+              <select id="wm-lvf-type" style="display:block;margin-top:3px;border:1.5px solid #d1d5db;border-radius:8px;padding:6px 10px;font-size:.8rem;">
+                <option value="annual">연차 (1일)</option><option value="half">반차 (0.5일)</option>
+                <option value="summer">여름휴가 (연차 미차감)</option>
+              </select></label>
+            <label style="font-size:.75rem;color:#4b5563;font-weight:600;">사유 (선택)
+              <input id="wm-lvf-reason" style="display:block;margin-top:3px;border:1.5px solid #d1d5db;border-radius:8px;padding:6px 10px;font-size:.8rem;width:160px;" /></label>
+            <label style="display:flex;align-items:center;gap:5px;font-size:.75rem;color:#4b5563;font-weight:600;cursor:pointer;margin-bottom:6px;">
+              <input type="checkbox" id="wm-lvf-skip" checked /> 주말·공휴일 제외</label>
+            <button class="toggle-btn" onclick="wmLeaveSubmit()" style="margin-bottom:2px;background:#4f46e5;color:#fff;border-color:#4f46e5;">등록 (즉시 승인)</button>
+            <button class="toggle-btn" onclick="$('wm-lv-form').style.display='none'" style="margin-bottom:2px;">닫기</button>
+          </div>
+        </div>
+        <div id="wm-lv-result"><div class="empty-state"><p>불러오는 중...</p></div></div>
+      </div>
+
+      <!-- ── 탭: 직원 관리 ── -->
+      <div id="wm-tab-emp" class="wm-pane" style="display:none;">
+        <div style="font-size:.75rem;color:#6b7280;margin-bottom:10px;">
+          급여·계좌를 다루는 화면입니다. 수정하면 즉시 반영돼요. 퇴사 처리는 <b>비활성</b>으로 — 기록 보존을 위해 삭제는 없습니다.
+        </div>
+        <div id="wm-emp-result"><div class="empty-state"><p>불러오는 중...</p></div></div>
+      </div>
+
+      <!-- ── 탭: 공휴일 ── -->
+      <div id="wm-tab-hol" class="wm-pane" style="display:none;">
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin-bottom:12px;">
+          <label style="font-size:.78rem;color:#4b5563;font-weight:600;">날짜
+            <input type="date" id="wm-hol-date" style="display:block;margin-top:3px;border:1.5px solid #d1d5db;border-radius:8px;padding:5px 10px;font-size:.8rem;" /></label>
+          <label style="font-size:.78rem;color:#4b5563;font-weight:600;">이름
+            <input id="wm-hol-name" placeholder="예: 임시공휴일" style="display:block;margin-top:3px;border:1.5px solid #d1d5db;border-radius:8px;padding:6px 10px;font-size:.8rem;width:160px;" /></label>
+          <button class="toggle-btn" onclick="wmHolidayAdd()" style="margin-bottom:1px;"><i class="fa-solid fa-plus"></i> 추가</button>
+          <span style="margin-left:auto;font-size:.72rem;color:#9ca3af;">2050년까지 법정 공휴일은 이미 등록돼 있어요 — 임시공휴일(선거일 등)만 추가하면 됩니다.</span>
+        </div>
+        <div id="wm-hol-result"><div class="empty-state"><p>불러오는 중...</p></div></div>
+      </div>
+
+      <!-- ── 직원 편집 모달 ── -->
+      <div id="wm-emp-modal" onclick="if(event.target===this)this.style.display='none'"
+           style="display:none;position:fixed;inset:0;background:rgba(15,23,42,.55);z-index:210;align-items:center;justify-content:center;padding:20px;">
+        <div style="background:#fff;border-radius:16px;max-width:560px;width:100%;max-height:88vh;overflow:auto;padding:20px;">
+          <b id="wm-empf-title" style="font-size:.95rem;"></b>
+          <div id="wm-empf-body" style="margin-top:12px;"></div>
+          <div style="text-align:right;margin-top:14px;display:flex;gap:8px;justify-content:flex-end;">
+            <button class="toggle-btn" onclick="$('wm-emp-modal').style.display='none'">취소</button>
+            <button class="toggle-btn" style="background:#4f46e5;color:#fff;border-color:#4f46e5;" onclick="wmEmpSave()">저장</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── 출퇴근 수동 등록/수정 모달 ── -->
+      <div id="wm-att-modal" onclick="if(event.target===this)this.style.display='none'"
+           style="display:none;position:fixed;inset:0;background:rgba(15,23,42,.55);z-index:210;align-items:center;justify-content:center;padding:20px;">
+        <div style="background:#fff;border-radius:16px;max-width:480px;width:100%;padding:20px;">
+          <b id="wm-attf-title" style="font-size:.95rem;"></b>
+          <div style="display:flex;flex-direction:column;gap:10px;margin-top:12px;font-size:.8rem;">
+            <label style="color:#4b5563;font-weight:600;">직원
+              <select id="wm-attf-emp" style="display:block;margin-top:3px;border:1.5px solid #d1d5db;border-radius:8px;padding:6px 10px;font-size:.8rem;width:100%;"></select></label>
+            <label style="color:#4b5563;font-weight:600;">날짜
+              <input type="date" id="wm-attf-date" style="display:block;margin-top:3px;border:1.5px solid #d1d5db;border-radius:8px;padding:5px 10px;font-size:.8rem;width:100%;" /></label>
+            <label style="color:#4b5563;font-weight:600;">출근
+              <input type="time" id="wm-attf-in" step="60" style="display:block;margin-top:3px;border:1.5px solid #d1d5db;border-radius:8px;padding:5px 10px;font-size:.8rem;width:100%;" /></label>
+            <label style="color:#4b5563;font-weight:600;">퇴근 <span style="font-weight:400;color:#9ca3af;">(비우면 미퇴근)</span>
+              <input type="time" id="wm-attf-out" step="60" style="display:block;margin-top:3px;border:1.5px solid #d1d5db;border-radius:8px;padding:5px 10px;font-size:.8rem;width:100%;" /></label>
+            <label style="color:#4b5563;font-weight:600;">비고 (선택)
+              <input id="wm-attf-note" style="display:block;margin-top:3px;border:1.5px solid #d1d5db;border-radius:8px;padding:6px 10px;font-size:.8rem;width:100%;" /></label>
+          </div>
+          <div style="text-align:right;margin-top:14px;display:flex;gap:8px;justify-content:flex-end;">
+            <button class="toggle-btn" onclick="$('wm-att-modal').style.display='none'">취소</button>
+            <button class="toggle-btn" style="background:#4f46e5;color:#fff;border-color:#4f46e5;" onclick="wmAttSave()">저장</button>
+          </div>
+        </div>
       </div>
 
       <!-- ── 급여 명세 모달 ── -->
@@ -6087,7 +6185,7 @@ async function wmApi(body) {
   return data;
 }
 
-const WM_TABS = [['att', '출퇴근 조회'], ['sal', '급여 계산']];
+const WM_TABS = [['att', '출퇴근 조회'], ['sal', '급여 계산'], ['lv', '휴가 관리'], ['emp', '직원 관리'], ['hol', '공휴일']];
 
 function wmRenderTabs() {
   $('wm-tabs').innerHTML = WM_TABS.map(([k, label]) => {
@@ -6104,6 +6202,9 @@ function wmSetTab(k) {
   document.querySelectorAll('.wm-pane').forEach(el => { el.style.display = 'none'; });
   $('wm-tab-' + k).style.display = 'block';
   if (k === 'sal' && !wmState.sal.length) wmLoadSal();
+  if (k === 'lv' && !wmState.lv) wmLoadLeaves();
+  if (k === 'emp') wmLoadEmps();
+  if (k === 'hol' && !wmState.hol) wmLoadHolidays();
 }
 
 function wmInit() {
@@ -6170,10 +6271,13 @@ function wmRenderAtt() {
   if (pend.length) {
     $('wm-att-pending').innerHTML = `<div style="background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:10px 12px;">
       <b style="font-size:.82rem;color:#92400e;">시간 수정 신청 ${pend.length}건 대기 중</b>
-      <div style="margin-top:6px;font-size:.78rem;color:#78350f;line-height:1.7;">
-        ${pend.map(p => `· ${nameOf[p.employee_id]?.name || p.employee_id} — ${p.date} 출근 ${(p.requested_clock_in || '').substring(11, 16)}${p.requested_clock_out ? ' / 퇴근 ' + p.requested_clock_out.substring(11, 16) : ''} <span style="color:#a16207;">(${p.reason || '사유 없음'})</span>`).join('<br>')}
+      <div style="margin-top:6px;font-size:.78rem;color:#78350f;line-height:2;">
+        ${pend.map(p => `<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+          <span>· ${nameOf[p.employee_id]?.name || p.employee_id} — ${p.date} 출근 ${(p.requested_clock_in || '').substring(11, 16)}${p.requested_clock_out ? ' / 퇴근 ' + p.requested_clock_out.substring(11, 16) : ''} <span style="color:#a16207;">(${p.reason || '사유 없음'})</span></span>
+          <button class="toggle-btn" style="font-size:.68rem;padding:2px 8px;background:#16a34a;color:#fff;border-color:#16a34a;" onclick="wmEditReview(${p.id},'approved')">승인</button>
+          <button class="toggle-btn" style="font-size:.68rem;padding:2px 8px;color:#dc2626;" onclick="wmEditReview(${p.id},'rejected')">거절</button>
+        </div>`).join('')}
       </div>
-      <div style="margin-top:6px;font-size:.72rem;color:#a16207;">※ 승인·거절은 아직 기존 근무관리 프로그램에서 하세요 (3단계에서 여기로 옮깁니다)</div>
     </div>`;
   }
 
@@ -6201,7 +6305,11 @@ function wmRenderAtt() {
       <td>${raw ? wmHM(raw) : '-'}</td>
       <td>${meal ? '<span style="color:#0ea5e9;font-size:.72rem;">60분 공제</span>' : ''}</td>
       <td style="font-weight:600;">${eff ? wmHM(eff) : '-'}</td>
-      <td style="font-size:.72rem;color:#6b7280;">${r.is_edited ? '<span style="color:#d97706;">수정됨</span> ' : ''}${r.source && r.source !== 'kiosk' && r.source !== 'migration' ? r.source : ''}${r.note || ''}</td>
+      <td style="font-size:.72rem;color:#6b7280;">${r.is_edited ? '<span style="color:#d97706;">수정됨</span> ' : ''}${r.source === 'admin' ? '<span style="color:#7c3aed;">관리자입력</span> ' : ''}${r.note || ''}</td>
+      <td style="white-space:nowrap;">
+        <button class="toggle-btn" style="font-size:.68rem;padding:2px 8px;" onclick="wmAttFormOpen(${r.id})">수정</button>
+        <button class="toggle-btn" style="font-size:.68rem;padding:2px 8px;color:#dc2626;" onclick="wmAttDelete(${r.id})">삭제</button>
+      </td>
     </tr>`;
   }).join('');
 
@@ -6209,7 +6317,7 @@ function wmRenderAtt() {
     `${rows.length}건 · 실근무 ${(totalMins / 60).toFixed(1)}시간 · 식대 ${mealDays}일${openCnt ? ` · 미퇴근 ${openCnt}건` : ''}`;
   $('wm-att-result').innerHTML = `<div style="overflow-x:auto;"><table style="width:100%;font-size:.8rem;">
     <thead><tr>
-      <th>날짜</th><th>이름</th><th>구분</th><th>출근</th><th>퇴근</th><th>총 근무</th><th>식대</th><th>실 근무</th><th>비고</th>
+      <th>날짜</th><th>이름</th><th>구분</th><th>출근</th><th>퇴근</th><th>총 근무</th><th>식대</th><th>실 근무</th><th>비고</th><th></th>
     </tr></thead><tbody>${body}</tbody></table></div>`;
 }
 
@@ -6338,6 +6446,302 @@ function wmExportSalary() {
   }
   lines.push(['합계', '', '', t[0], t[1], t[2], t[3], t[4], t[5], t[6], t[4] - t[5] - t[6]].join(','));
   dlCSV(lines.join('\n'), `${wmState.ym}_급여.csv`);
+}
+
+/* ── 3단계: 관리 쓰기 ── */
+
+/* 시간 수정 신청 승인/거절 */
+async function wmEditReview(id, status) {
+  const label = status === 'approved' ? '승인' : '거절';
+  if (!confirm(`이 시간 수정 신청을 ${label}할까요?${status === 'approved' ? '\n(승인하면 출퇴근 기록이 바로 바뀝니다)' : ''}`)) return;
+  try {
+    await wmApi({ action: 'edit_review', id, status });
+    showToast(`${label} 완료`);
+    wmLoadAtt();
+  } catch (err) { showToast(label + ' 실패 — ' + err.message); }
+}
+
+/* 출퇴근 수동 등록/수정 */
+function wmAttFormOpen(id) {
+  const r = id ? wmState.att.find(x => x.id === id) : null;
+  wmState.attEdit = id;
+  $('wm-attf-title').textContent = r ? `출퇴근 수정 — ${(wmState.emps || []).find(e => e.id === r.employee_id)?.name || ''} ${r.date}` : '출퇴근 수동 등록';
+  const sel = $('wm-attf-emp');
+  sel.innerHTML = (wmState.emps || []).filter(e => e.active !== false)
+    .map(e => `<option value="${e.id}">${e.name} (${e.type === 'employee' ? '직원' : '알바'})</option>`).join('');
+  sel.disabled = !!r;
+  if (r) sel.value = r.employee_id;
+  $('wm-attf-date').value = r ? r.date : ($('wm-att-ym').value ? $('wm-att-ym').value + '-01' : '');
+  $('wm-attf-date').disabled = !!r;
+  $('wm-attf-in').value = r ? (r.clock_in || '').substring(11, 16) : '';
+  $('wm-attf-out').value = r && r.clock_out ? r.clock_out.substring(11, 16) : '';
+  $('wm-attf-note').value = r ? (r.note || '') : '';
+  $('wm-att-modal').style.display = 'flex';
+}
+
+async function wmAttSave() {
+  const date = $('wm-attf-date').value, tin = $('wm-attf-in').value, tout = $('wm-attf-out').value;
+  if (!date || !tin) { showToast('날짜와 출근 시각은 필수예요'); return; }
+  const body = {
+    action: 'attendance_upsert',
+    employee_id: Number($('wm-attf-emp').value),
+    date,
+    clock_in: `${date} ${tin}:00`,
+    clock_out: tout ? `${date} ${tout}:00` : null,
+    note: $('wm-attf-note').value || null,
+  };
+  if (wmState.attEdit) body.id = wmState.attEdit;
+  try {
+    await wmApi(body);
+    $('wm-att-modal').style.display = 'none';
+    showToast('저장 완료');
+    wmLoadAtt();
+  } catch (err) { showToast('저장 실패 — ' + err.message); }
+}
+
+async function wmAttDelete(id) {
+  const r = wmState.att.find(x => x.id === id);
+  const name = (wmState.emps || []).find(e => e.id === r?.employee_id)?.name || '';
+  if (!confirm(`${name} ${r?.date} 출퇴근 기록을 삭제할까요?\n급여 계산에서 빠지게 됩니다.`)) return;
+  try {
+    await wmApi({ action: 'attendance_delete', id });
+    showToast('삭제 완료');
+    wmLoadAtt();
+  } catch (err) { showToast('삭제 실패 — ' + err.message); }
+}
+
+/* ── 휴가 관리 ── */
+const WM_LV_TYPE = { annual: '연차', half: '반차', summer: '여름휴가' };
+const WM_LV_STATUS = { pending: ['대기', '#d97706', '#fef3c7'], approved: ['승인', '#166534', '#dcfce7'], rejected: ['반려', '#991b1b', '#fee2e2'] };
+
+async function wmLoadLeaves() {
+  const ym = $('wm-lv-ym').value || $('wm-att-ym').value;
+  if (!$('wm-lv-ym').value) $('wm-lv-ym').value = ym;
+  $('wm-lv-result').innerHTML = '<div class="empty-state"><p>불러오는 중...</p></div>';
+  try {
+    const [y, m] = ym.split('-').map(Number);
+    const [_, lv] = await Promise.all([wmEnsureEmps(), wmApi({ action: 'leave_list', year: y, month: m })]);
+    wmState.lv = lv;
+    const sel = $('wm-lvf-emp');
+    sel.innerHTML = (wmState.emps || []).filter(e => e.active !== false)
+      .map(e => `<option value="${e.id}">${e.name} (${e.type === 'employee' ? '직원' : '알바'})</option>`).join('');
+    wmRenderLeaves();
+  } catch (err) {
+    $('wm-lv-result').innerHTML = `<div class="empty-state"><p>불러오지 못했어요 — ${err.message}</p></div>`;
+  }
+}
+
+function wmRenderLeaves() {
+  const nameOf = Object.fromEntries((wmState.emps || []).map(e => [e.id, e]));
+  const filt = $('wm-lv-status').value;
+  let rows = wmState.lv || [];
+  if (filt) rows = rows.filter(r => r.status === filt);
+  const pendCnt = (wmState.lv || []).filter(r => r.status === 'pending').length;
+  $('wm-lv-summary').textContent = `${rows.length}건${pendCnt ? ` · 대기 ${pendCnt}건` : ''}`;
+  if (!rows.length) { $('wm-lv-result').innerHTML = '<div class="empty-state"><p>해당 조건의 휴가가 없습니다.</p></div>'; return; }
+  const body = rows.map(r => {
+    const e = nameOf[r.employee_id] || {};
+    const [sl, sc, sb] = WM_LV_STATUS[r.status] || [r.status, '#6b7280', '#f3f4f6'];
+    return `<tr>
+      <td style="white-space:nowrap;">${r.date}</td>
+      <td style="font-weight:600;">${e.name || '?'}</td>
+      <td><span class="badge badge-${e.type === 'employee' ? 'admin' : 'staff'}" style="font-size:.68rem;">${e.type === 'employee' ? '직원' : '알바'}</span></td>
+      <td>${WM_LV_TYPE[r.type] || r.type}</td>
+      <td style="font-size:.75rem;color:#6b7280;">${r.reason || ''}</td>
+      <td><span style="background:${sb};color:${sc};border-radius:4px;padding:1px 8px;font-size:.7rem;font-weight:600;">${sl}</span></td>
+      <td style="white-space:nowrap;">
+        ${r.status === 'pending' ? `
+          <button class="toggle-btn" style="font-size:.68rem;padding:2px 8px;background:#16a34a;color:#fff;border-color:#16a34a;" onclick="wmLeaveReview(${r.id},'approved')">승인</button>
+          <button class="toggle-btn" style="font-size:.68rem;padding:2px 8px;color:#dc2626;" onclick="wmLeaveReview(${r.id},'rejected')">반려</button>` : `
+          <button class="toggle-btn" style="font-size:.68rem;padding:2px 8px;color:#dc2626;" onclick="wmLeaveDelete(${r.id})">삭제</button>`}
+      </td>
+    </tr>`;
+  }).join('');
+  $('wm-lv-result').innerHTML = `<div style="overflow-x:auto;"><table style="width:100%;font-size:.8rem;">
+    <thead><tr><th>날짜</th><th>이름</th><th>구분</th><th>종류</th><th>사유</th><th>상태</th><th></th></tr></thead>
+    <tbody>${body}</tbody></table></div>`;
+}
+
+function wmLeaveFormOpen() {
+  $('wm-lv-form').style.display = 'block';
+  const ym = $('wm-lv-ym').value;
+  if (!$('wm-lvf-date').value && ym) $('wm-lvf-date').value = ym + '-01';
+}
+
+async function wmLeaveSubmit() {
+  const date = $('wm-lvf-date').value;
+  if (!date) { showToast('시작일을 선택해주세요'); return; }
+  try {
+    const r = await wmApi({
+      action: 'leave_create',
+      employee_id: Number($('wm-lvf-emp').value),
+      date, end_date: $('wm-lvf-end').value || null,
+      type: $('wm-lvf-type').value,
+      reason: $('wm-lvf-reason').value || null,
+      skip_offdays: $('wm-lvf-skip').checked,
+      auto_approve: true,   // 관리자 직접 등록 = 즉시 승인 (기존 동작과 동일)
+    });
+    showToast(r.range ? `${r.inserted}일 등록 완료${r.skipped?.length ? ` (${r.skipped.length}일은 기존 신청과 겹쳐 제외)` : ''}` : '등록 완료');
+    $('wm-lv-form').style.display = 'none';
+    $('wm-lvf-end').value = ''; $('wm-lvf-reason').value = '';
+    wmLoadLeaves();
+  } catch (err) { showToast('등록 실패 — ' + err.message); }
+}
+
+async function wmLeaveReview(id, status) {
+  const label = status === 'approved' ? '승인' : '반려';
+  if (!confirm(`이 휴가 신청을 ${label}할까요?`)) return;
+  try {
+    await wmApi({ action: 'leave_review', id, status });
+    showToast(label + ' 완료');
+    wmLoadLeaves();
+  } catch (err) { showToast(label + ' 실패 — ' + err.message); }
+}
+
+async function wmLeaveDelete(id) {
+  const r = (wmState.lv || []).find(x => x.id === id);
+  if (!confirm(`${r?.date} 휴가를 삭제할까요?\n연차 잔여일수가 다시 늘어납니다.`)) return;
+  try {
+    await wmApi({ action: 'leave_delete', id });
+    showToast('삭제 완료');
+    wmLoadLeaves();
+  } catch (err) { showToast('삭제 실패 — ' + err.message); }
+}
+
+/* ── 직원 관리 ── */
+async function wmLoadEmps() {
+  $('wm-emp-result').innerHTML = '<div class="empty-state"><p>불러오는 중...</p></div>';
+  try {
+    wmState.emps = await wmApi({ action: 'employee_list' });   // 항상 새로 (수정 직후 반영)
+    const body = wmState.emps.map(e => {
+      const pt = e.type === 'parttime';
+      return `<tr style="${e.active === false ? 'opacity:.45;' : ''}">
+        <td style="font-weight:600;">${e.name}${e.active === false ? ' <span style="font-size:.65rem;color:#dc2626;">(비활성)</span>' : ''}</td>
+        <td><span class="badge badge-${pt ? 'staff' : 'admin'}" style="font-size:.68rem;">${pt ? '알바' : '직원'}</span></td>
+        <td>${pt ? fmt(e.hourly_rate) + '원/시' : fmt(e.monthly_salary) + '원/월'}</td>
+        <td>${pt && e.transport_allowance ? fmt(e.transport_allowance) + '원' : '-'}</td>
+        <td>${e.annual_leave_total ?? '-'}</td>
+        <td>${pt ? (e.fixed_clock_in || '-') : '-'}</td>
+        <td style="font-size:.72rem;">${e.bank_name || ''} ${e.bank_account || ''}</td>
+        <td>${e.pin_set_at ? '<span style="color:#16a34a;font-size:.7rem;">설정됨</span>' : '<span style="color:#9ca3af;font-size:.7rem;">미설정</span>'}</td>
+        <td style="white-space:nowrap;">
+          <button class="toggle-btn" style="font-size:.68rem;padding:2px 8px;" onclick="wmEmpFormOpen(${e.id})">수정</button>
+          <button class="toggle-btn" style="font-size:.68rem;padding:2px 8px;${e.active === false ? '' : 'color:#dc2626;'}" onclick="wmEmpToggle(${e.id},${e.active === false})">${e.active === false ? '복구' : '비활성'}</button>
+        </td>
+      </tr>`;
+    }).join('');
+    $('wm-emp-result').innerHTML = `<div style="overflow-x:auto;"><table style="width:100%;font-size:.8rem;">
+      <thead><tr><th>이름</th><th>구분</th><th>급여</th><th>교통비</th><th>연차</th><th>출근고정</th><th>계좌</th><th>PIN</th><th></th></tr></thead>
+      <tbody>${body}</tbody></table></div>
+      <div style="margin-top:10px;"><button class="toggle-btn" onclick="wmEmpFormOpen(null)"><i class="fa-solid fa-plus"></i> 직원 추가</button></div>`;
+  } catch (err) {
+    $('wm-emp-result').innerHTML = `<div class="empty-state"><p>불러오지 못했어요 — ${err.message}</p></div>`;
+  }
+}
+
+const WM_EMP_FIELDS = [
+  ['name', '이름', 'text'], ['type', '구분', 'select'],
+  ['hourly_rate', '시급 (알바)', 'number'], ['monthly_salary', '월급 (직원)', 'number'],
+  ['annual_leave_total', '연차 총량', 'number'], ['transport_allowance', '교통비 (알바)', 'number'],
+  ['fixed_clock_in', '출근시간 고정 HH:MM (알바)', 'text'], ['birthday', '생일 YYYY-MM-DD', 'text'],
+  ['bank_name', '은행', 'text'], ['bank_account', '계좌번호', 'text'], ['bank_holder', '예금주', 'text'],
+];
+
+function wmEmpFormOpen(id) {
+  const e = id ? (wmState.emps || []).find(x => x.id === id) : null;
+  wmState.empEdit = id;
+  $('wm-empf-title').textContent = e ? `직원 수정 — ${e.name}` : '직원 추가';
+  $('wm-empf-body').innerHTML = WM_EMP_FIELDS.map(([k, label, kind]) => {
+    const v = e ? (e[k] ?? '') : '';
+    if (kind === 'select') {
+      return `<label style="display:block;font-size:.75rem;color:#4b5563;font-weight:600;margin-bottom:8px;">${label}
+        <select id="wm-empf-${k}" style="display:block;margin-top:3px;border:1.5px solid #d1d5db;border-radius:8px;padding:6px 10px;font-size:.8rem;width:100%;">
+          <option value="employee"${v === 'employee' ? ' selected' : ''}>직원 (월급제)</option>
+          <option value="parttime"${v === 'parttime' ? ' selected' : ''}>아르바이트 (시급제)</option>
+        </select></label>`;
+    }
+    return `<label style="display:block;font-size:.75rem;color:#4b5563;font-weight:600;margin-bottom:8px;">${label}
+      <input id="wm-empf-${k}" type="${kind}" value="${String(v).replace(/"/g, '&quot;')}"
+        style="display:block;margin-top:3px;border:1.5px solid #d1d5db;border-radius:8px;padding:6px 10px;font-size:.8rem;width:100%;" /></label>`;
+  }).join('') + `
+    <div style="border-top:1px solid #e5e7eb;margin-top:6px;padding-top:10px;">
+      <label style="display:block;font-size:.75rem;color:#4b5563;font-weight:600;">키오스크 PIN 재설정 (숫자 4자리 — 비우면 유지)
+        <input id="wm-empf-pin" type="text" maxlength="4" inputmode="numeric" placeholder="••••"
+          style="display:block;margin-top:3px;border:1.5px solid #d1d5db;border-radius:8px;padding:6px 10px;font-size:.8rem;width:120px;" /></label>
+      <div style="font-size:.68rem;color:#9ca3af;margin-top:4px;">PIN은 암호화 저장되며 다시 볼 수 없어요. 본인에게 종이로 전달하세요.</div>
+    </div>`;
+  $('wm-emp-modal').style.display = 'flex';
+}
+
+async function wmEmpSave() {
+  const body = { action: 'employee_upsert' };
+  if (wmState.empEdit) body.id = wmState.empEdit;
+  for (const [k, , kind] of WM_EMP_FIELDS) {
+    const raw = $('wm-empf-' + k).value.trim();
+    body[k] = kind === 'number' ? (raw === '' ? 0 : Number(raw)) : (raw || null);
+  }
+  if (!body.name) { showToast('이름은 필수예요'); return; }
+  const pin = $('wm-empf-pin').value.trim();
+  if (pin && !/^\d{4}$/.test(pin)) { showToast('PIN은 숫자 4자리여야 해요'); return; }
+  try {
+    const saved = await wmApi(body);
+    if (pin) await wmApi({ action: 'set_pin', employee_id: saved.id || wmState.empEdit, pin });
+    $('wm-emp-modal').style.display = 'none';
+    showToast('저장 완료' + (pin ? ' (PIN 설정됨)' : ''));
+    wmLoadEmps();
+  } catch (err) { showToast('저장 실패 — ' + err.message); }
+}
+
+async function wmEmpToggle(id, activate) {
+  const e = (wmState.emps || []).find(x => x.id === id);
+  const msg = activate ? `${e?.name} 님을 다시 활성화할까요?`
+    : `${e?.name} 님을 비활성 처리할까요?\n키오스크와 급여 계산에서 빠지지만, 과거 기록은 전부 보존됩니다.`;
+  if (!confirm(msg)) return;
+  try {
+    await wmApi({ action: 'employee_active', id, active: activate });
+    showToast(activate ? '활성화 완료' : '비활성 처리 완료');
+    wmLoadEmps();
+  } catch (err) { showToast('실패 — ' + err.message); }
+}
+
+/* ── 공휴일 ── */
+async function wmLoadHolidays() {
+  $('wm-hol-result').innerHTML = '<div class="empty-state"><p>불러오는 중...</p></div>';
+  try {
+    wmState.hol = await wmApi({ action: 'holiday_list' });
+    const thisYear = new Date().getFullYear();
+    const rows = wmState.hol.filter(h => Number(h.date.slice(0, 4)) <= thisYear + 1);   // 올해+내년만 표시
+    const body = rows.map(h => `<tr>
+      <td style="white-space:nowrap;">${h.date}</td><td>${h.name}</td>
+      <td><button class="toggle-btn" style="font-size:.68rem;padding:2px 8px;color:#dc2626;" onclick="wmHolidayDelete(${h.id})">삭제</button></td>
+    </tr>`).join('');
+    $('wm-hol-result').innerHTML = `<div style="font-size:.72rem;color:#9ca3af;margin-bottom:8px;">전체 ${wmState.hol.length}건 중 올해·내년 ${rows.length}건 표시</div>
+      <div style="overflow-x:auto;"><table style="width:100%;font-size:.8rem;max-width:480px;">
+      <thead><tr><th>날짜</th><th>이름</th><th></th></tr></thead><tbody>${body}</tbody></table></div>`;
+  } catch (err) {
+    $('wm-hol-result').innerHTML = `<div class="empty-state"><p>불러오지 못했어요 — ${err.message}</p></div>`;
+  }
+}
+
+async function wmHolidayAdd() {
+  const date = $('wm-hol-date').value, name = $('wm-hol-name').value.trim();
+  if (!date || !name) { showToast('날짜와 이름을 입력해주세요'); return; }
+  try {
+    await wmApi({ action: 'holiday_create', date, name });
+    showToast('추가 완료');
+    $('wm-hol-name').value = '';
+    wmLoadHolidays();
+  } catch (err) { showToast('추가 실패 — ' + err.message); }
+}
+
+async function wmHolidayDelete(id) {
+  const h = (wmState.hol || []).find(x => x.id === id);
+  if (!confirm(`${h?.date} ${h?.name} 을(를) 삭제할까요?`)) return;
+  try {
+    await wmApi({ action: 'holiday_delete', id });
+    showToast('삭제 완료');
+    wmLoadHolidays();
+  } catch (err) { showToast('삭제 실패 — ' + err.message); }
 }
 
 /* 근무관리 인건비 자동 수집 — 2026-08 서버 이전으로 어느 컴퓨터에서나 동작한다.

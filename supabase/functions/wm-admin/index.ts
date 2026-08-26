@@ -3,7 +3,7 @@
 //
 //   POST { action, ... }  — 로그인 토큰(x-auth-token) 검증 후 role === 'admin'만
 //
-// 액션 (2단계: 조회·급여만 — 쓰기는 3단계):
+// 조회·급여 액션 (2단계):
 //   salary_all      { year, month }               월 전체 급여
 //   salary_one      { employee_id, year, month }  개인 급여
 //   labor_total     { start_date, end_date }      기간 인건비 합계 (대시보드 순익 메뉴용)
@@ -11,8 +11,27 @@
 //   attendance_list { year, month }               월 출퇴근 기록
 //   edits_pending   {}                            승인 대기 중인 시간 수정 신청
 //
+// 쓰기 액션 (3단계):
+//   attendance_upsert { id?, employee_id, date, clock_in, clock_out?, note? }
+//   attendance_delete { id }
+//   edit_review       { id, status }              시간 수정 신청 승인/거절 (승인 시 출퇴근 반영)
+//   leave_list        { year, month?, status? }
+//   leave_create      { employee_id, date, end_date?, type, reason?, skip_offdays?, auto_approve? }
+//   leave_review      { id, status }
+//   leave_delete      { id }
+//   employee_upsert   { id?, ...필드 }            ⚠️ 부분 수정 — 보낸 필드만 갱신 (기존 Express PUT의
+//                                                  "일부만 보내면 나머지 초기화" 함정을 의도적으로 제거)
+//   employee_active   { id, active }              소프트 삭제/복구 (하드 삭제 없음 — 급여 기록 보존)
+//   set_pin           { employee_id, pin }        4자리 → bcrypt 저장 (4단계 배포용)
+//   holiday_create    { date, name, hours? }
+//   holiday_delete    { id }
+//
+// 대시보드가 만들거나 고친 행은 source='admin'(출퇴근) 등으로 표시된다 —
+// 병행 동기화(sync.sh)가 이 표시를 보고 기존 JSON 값으로 덮어쓰지 않는다.
+//
 // 급여 로직은 salary.ts — work-manager salary.js의 축자 이식. 수정 전 그 파일 주석 참조.
 // ═══════════════════════════════════════════════════════════════
+import bcrypt from 'npm:bcryptjs@2.4.3';
 import { handleOptions, json, verifyAuthToken } from '../_shared/util.ts';
 import {
   calcOne, getExtendedRange, sortEmployees,
@@ -22,12 +41,44 @@ import {
 const SB_URL = Deno.env.get('SUPABASE_URL')!;
 const SB_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
 
-async function rest(path: string): Promise<any[]> {
+async function rest(path: string, init: RequestInit = {}): Promise<any[]> {
   const res = await fetch(`${SB_URL}/rest/v1/${path}`, {
-    headers: { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}` },
+    ...init,
+    headers: {
+      apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}`,
+      'Content-Type': 'application/json', Prefer: 'return=representation',
+      ...(init.headers ?? {}),
+    },
   });
   if (!res.ok) throw new Error(`db ${res.status}: ${(await res.text()).slice(0, 200)}`);
-  return await res.json();
+  const text = await res.text();
+  return text ? JSON.parse(text) : [];
+}
+
+/** KST 현재 시각 'YYYY-MM-DD HH:MM:SS' — Edge Function은 UTC로 돌므로 반드시 이걸 쓸 것.
+ *  'sv-SE' 로케일이 정확히 이 형식을 내놓는다. (급여 로직은 시간대 무관 — 거긴 건드리지 말 것) */
+function kstNow(): string {
+  return new Intl.DateTimeFormat('sv-SE', {
+    timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
+  }).format(new Date());
+}
+
+/** attendance_edits.js minutesDiff 그대로 */
+function minutesDiff(a: string, b: string): number {
+  return Math.floor((new Date(b.replace(' ', 'T')).getTime() - new Date(a.replace(' ', 'T')).getTime()) / 60000);
+}
+
+const TS_RE = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/;
+const D_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+async function auditLog(actor: string, action: string, employee_id: number | null, detail: unknown) {
+  try {
+    await rest('wm_kiosk_log', {
+      method: 'POST', headers: { Prefer: 'return=minimal' },
+      body: JSON.stringify({ actor, action, employee_id, detail }),
+    });
+  } catch (_) { /* 로그 실패가 본 동작을 막으면 안 됨 */ }
 }
 
 const ym2 = (y: unknown, m: unknown) => `${y}-${String(m).padStart(2, '0')}`;
@@ -124,6 +175,263 @@ Deno.serve(async (req) => {
 
     if (action === 'edits_pending') {
       return json(await rest('wm_attendance_edits?select=*&status=eq.pending&order=created_at.desc&limit=200'));
+    }
+
+    // ══════════ 쓰기 액션 (3단계) ══════════
+
+    if (action === 'attendance_upsert') {
+      const empId = Number(body.employee_id);
+      const { date, clock_in, clock_out, note } = body;
+      if (!empId || !D_RE.test(String(date)) || !TS_RE.test(String(clock_in))) {
+        return json({ error: '필수 항목 누락 또는 형식 오류 (clock_in은 YYYY-MM-DD HH:MM:SS)' }, 400);
+      }
+      if (clock_out && !TS_RE.test(String(clock_out))) return json({ error: '퇴근 시각 형식 오류' }, 400);
+      const work_minutes = (clock_in && clock_out) ? minutesDiff(clock_in, clock_out) : null;
+      if (work_minutes !== null && work_minutes <= 0) return json({ error: '퇴근이 출근보다 빠릅니다' }, 400);
+
+      let row;
+      if (body.id) {
+        const orig = (await rest(`wm_attendance?id=eq.${Number(body.id)}&select=*`))[0];
+        if (!orig) return json({ error: '기록 없음' }, 404);
+        [row] = await rest(`wm_attendance?id=eq.${Number(body.id)}`, {
+          method: 'PATCH',
+          body: JSON.stringify({
+            clock_in, clock_out: clock_out || null, work_minutes, note: note || null,
+            is_edited: true, edited_at: kstNow(),
+            original_clock_in: orig.original_clock_in || orig.clock_in,
+            original_clock_out: orig.original_clock_out || orig.clock_out,
+            source: 'admin',   // ← 병행 동기화가 이 행을 덮어쓰지 않게 하는 표시
+          }),
+        });
+      } else {
+        const dup = await rest(`wm_attendance?employee_id=eq.${empId}&date=eq.${date}&select=id`);
+        if (dup.length) return json({ error: '해당 날짜에 이미 기록이 있습니다 (수정으로 처리하세요)' }, 400);
+        [row] = await rest('wm_attendance', {
+          method: 'POST',
+          body: JSON.stringify({
+            employee_id: empId, date, clock_in, clock_out: clock_out || null,
+            work_minutes, note: note || null, is_edited: true, edited_at: kstNow(), source: 'admin',
+          }),
+        });
+      }
+      await auditLog(me.id, body.id ? 'attendance_update' : 'attendance_create', empId, { date, clock_in, clock_out });
+      return json(row);
+    }
+
+    if (action === 'attendance_delete') {
+      const id = Number(body.id);
+      const orig = (await rest(`wm_attendance?id=eq.${id}&select=*`))[0];
+      if (!orig) return json({ error: '기록 없음' }, 404);
+      await rest(`wm_attendance?id=eq.${id}`, { method: 'DELETE', headers: { Prefer: 'return=minimal' } });
+      await auditLog(me.id, 'attendance_delete', orig.employee_id, orig);
+      return json({ ok: true });
+    }
+
+    // 시간 수정 신청 승인/거절 — attendance_edits.js PUT /:id/status의 축자 이식
+    if (action === 'edit_review') {
+      const status = String(body.status);
+      if (!['approved', 'rejected'].includes(status)) return json({ error: '유효하지 않은 상태' }, 400);
+      const edit = (await rest(`wm_attendance_edits?id=eq.${Number(body.id)}&select=*`))[0];
+      if (!edit) return json({ error: '없음' }, 404);
+      if (edit.status !== 'pending') return json({ error: '이미 처리된 신청입니다' }, 400);
+
+      await rest(`wm_attendance_edits?id=eq.${edit.id}`, {
+        method: 'PATCH', headers: { Prefer: 'return=minimal' },
+        body: JSON.stringify({ status, reviewed_at: kstNow() }),
+      });
+
+      if (status === 'approved') {
+        // 원본 버그 수정(계획서 7단계 승인분): 퇴근 미기입 신청 승인 시 기존 퇴근시각으로
+        // work_minutes를 재계산한다. 원본은 null로 만들어 근무시간이 사라졌다(2026-07-20 8건).
+        if (edit.attendance_id) {
+          const orig = (await rest(`wm_attendance?id=eq.${edit.attendance_id}&select=*`))[0];
+          const finalOut = edit.requested_clock_out || orig?.clock_out || null;
+          const work_minutes = (edit.requested_clock_in && finalOut)
+            ? minutesDiff(edit.requested_clock_in, finalOut) : null;
+          await rest(`wm_attendance?id=eq.${edit.attendance_id}`, {
+            method: 'PATCH', headers: { Prefer: 'return=minimal' },
+            body: JSON.stringify({
+              clock_in: edit.requested_clock_in,
+              clock_out: finalOut,
+              work_minutes,
+              is_edited: true, edited_at: kstNow(),
+              original_clock_in: orig?.original_clock_in || orig?.clock_in || null,
+              original_clock_out: orig?.original_clock_out || orig?.clock_out || null,
+              source: 'edit_approval',
+            }),
+          });
+        } else {
+          const work_minutes = (edit.requested_clock_in && edit.requested_clock_out)
+            ? minutesDiff(edit.requested_clock_in, edit.requested_clock_out) : null;
+          await rest('wm_attendance', {
+            method: 'POST', headers: { Prefer: 'return=minimal' },
+            body: JSON.stringify({
+              employee_id: edit.employee_id, date: edit.date,
+              clock_in: edit.requested_clock_in, clock_out: edit.requested_clock_out || null,
+              work_minutes, is_edited: true, edited_at: kstNow(),
+              note: `수정 신청 승인 (사유: ${edit.reason})`, source: 'edit_approval',
+            }),
+          });
+        }
+      }
+      await auditLog(me.id, 'edit_' + status, edit.employee_id, { edit_id: edit.id, date: edit.date });
+      return json((await rest(`wm_attendance_edits?id=eq.${edit.id}&select=*`))[0]);
+    }
+
+    if (action === 'leave_list') {
+      const parts = ['select=*', 'order=date.desc', 'limit=1000'];
+      if (body.year && body.month) {
+        const ym = ym2(body.year, body.month);
+        parts.push(`date=gte.${ym}-01`, `date=lt.${nextMonthFirst(ym)}`);
+      } else if (body.year) {
+        parts.push(`date=gte.${body.year}-01-01`, `date=lte.${body.year}-12-31`);
+      }
+      if (body.status) parts.push(`status=eq.${body.status}`);
+      return json(await rest(`wm_leaves?${parts.join('&')}`));
+    }
+
+    // 휴가 등록 — leaves.js POST의 이식 (기간 등록·주말공휴일 제외·중복 건너뛰기 포함)
+    if (action === 'leave_create') {
+      const empId = Number(body.employee_id);
+      const { date, end_date, type, reason, skip_offdays, auto_approve } = body;
+      if (!empId || !date || !type) return json({ error: '필수 항목 누락' }, 400);
+      if (!['annual', 'half', 'summer'].includes(type)) return json({ error: '휴가 종류 오류' }, 400);
+      const status = auto_approve ? 'approved' : 'pending';
+
+      if (end_date && end_date !== date) {
+        if (end_date < date) return json({ error: '종료 날짜가 시작 날짜보다 빠릅니다.' }, 400);
+        const holidaySet = new Set((await rest('wm_holidays?select=date&limit=2000')).map((h: any) => h.date));
+        const dates: string[] = [];
+        for (const d = new Date(`${date}T00:00:00`); ; d.setDate(d.getDate() + 1)) {
+          const s = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+          if (s > end_date) break;
+          if (dates.length >= 62) return json({ error: '기간이 너무 깁니다. (최대 2개월)' }, 400);
+          if (skip_offdays && (d.getDay() === 0 || d.getDay() === 6 || holidaySet.has(s))) continue;
+          dates.push(s);
+        }
+        if (!dates.length) return json({ error: '기간 내 등록할 날짜가 없습니다. (주말·공휴일 제외)' }, 400);
+
+        const existing = new Set(
+          (await rest(`wm_leaves?employee_id=eq.${empId}&status=neq.rejected&select=date`)).map((r: any) => r.date));
+        const toInsert = dates.filter(s => !existing.has(s));
+        const skipped = dates.filter(s => existing.has(s));
+        if (!toInsert.length) return json({ error: '기간 내 모든 날짜에 이미 신청 내역이 있습니다.' }, 400);
+
+        const rows = await rest('wm_leaves', {
+          method: 'POST',
+          body: JSON.stringify(toInsert.map(s => ({ employee_id: empId, date: s, type, status, reason: reason || null }))),
+        });
+        await auditLog(me.id, 'leave_create_range', empId, { from: date, to: end_date, type, inserted: rows.length });
+        return json({ range: true, inserted: rows.length, skipped, rows });
+      }
+
+      const dup = await rest(`wm_leaves?employee_id=eq.${empId}&date=eq.${date}&status=neq.rejected&select=id`);
+      if (dup.length) return json({ error: '해당 날짜에 이미 신청 내역이 있습니다.' }, 400);
+      const [row] = await rest('wm_leaves', {
+        method: 'POST',
+        body: JSON.stringify({ employee_id: empId, date, type, status, reason: reason || null }),
+      });
+      await auditLog(me.id, 'leave_create', empId, { date, type, status });
+      return json(row);
+    }
+
+    if (action === 'leave_review') {
+      const status = String(body.status);
+      if (!['approved', 'rejected'].includes(status)) return json({ error: '유효하지 않은 상태' }, 400);
+      const [row] = await rest(`wm_leaves?id=eq.${Number(body.id)}`, {
+        method: 'PATCH', body: JSON.stringify({ status, reviewed_at: kstNow() }),
+      });
+      if (!row) return json({ error: '없음' }, 404);
+      await auditLog(me.id, 'leave_' + status, row.employee_id, { leave_id: row.id, date: row.date });
+      return json(row);
+    }
+
+    if (action === 'leave_delete') {
+      const id = Number(body.id);
+      const orig = (await rest(`wm_leaves?id=eq.${id}&select=*`))[0];
+      if (!orig) return json({ error: '없음' }, 404);
+      await rest(`wm_leaves?id=eq.${id}`, { method: 'DELETE', headers: { Prefer: 'return=minimal' } });
+      await auditLog(me.id, 'leave_delete', orig.employee_id, orig);
+      return json({ ok: true });
+    }
+
+    // 직원 등록/수정 — ⚠️ 의도적으로 부분 수정: 보낸 필드만 갱신.
+    // (기존 Express PUT은 전체 필드를 다시 써서, 일부만 보내면 월급 등이 0으로 초기화되는
+    //  사고가 있었다. 그 함정을 여기서 제거한다.)
+    if (action === 'employee_upsert') {
+      const FIELDS = ['name', 'type', 'hourly_rate', 'monthly_salary', 'annual_leave_total',
+        'transport_allowance', 'fixed_clock_in', 'birthday', 'bank_name', 'bank_account', 'bank_holder'];
+      const patch: Record<string, unknown> = {};
+      for (const f of FIELDS) if (f in body) patch[f] = body[f];
+      if ('type' in patch && !['employee', 'parttime'].includes(String(patch.type))) {
+        return json({ error: '직원 유형 오류' }, 400);
+      }
+      if ('fixed_clock_in' in patch && patch.fixed_clock_in && !/^\d{2}:\d{2}$/.test(String(patch.fixed_clock_in))) {
+        return json({ error: '출근시간 고정은 HH:MM 형식' }, 400);
+      }
+
+      let row;
+      if (body.id) {
+        [row] = await rest(`wm_employees?id=eq.${Number(body.id)}`, { method: 'PATCH', body: JSON.stringify(patch) });
+        if (!row) return json({ error: '직원 없음' }, 404);
+      } else {
+        if (!patch.name || !patch.type) return json({ error: '이름과 직원 유형은 필수입니다.' }, 400);
+        [row] = await rest('wm_employees', { method: 'POST', body: JSON.stringify(patch) });
+      }
+      delete row.pin_hash;   // 해시라도 클라이언트로 내보내지 않는다
+      await auditLog(me.id, body.id ? 'employee_update' : 'employee_create', row.id, patch);
+      return json(row);
+    }
+
+    // 소프트 삭제/복구 — 하드 삭제 없음. 기존 Express DELETE는 출퇴근·휴가 기록까지
+    // 지워 급여 기록을 파괴했다. 승계 금지.
+    if (action === 'employee_active') {
+      const [row] = await rest(`wm_employees?id=eq.${Number(body.id)}`, {
+        method: 'PATCH', body: JSON.stringify({ active: !!body.active }),
+      });
+      if (!row) return json({ error: '직원 없음' }, 404);
+      await auditLog(me.id, body.active ? 'employee_activate' : 'employee_deactivate', row.id, null);
+      return json({ ok: true, active: row.active });
+    }
+
+    if (action === 'set_pin') {
+      const pin = String(body.pin ?? '');
+      if (!/^\d{4}$/.test(pin)) return json({ error: 'PIN은 숫자 4자리여야 합니다.' }, 400);
+      const hash = bcrypt.hashSync(pin, 10);
+      const [row] = await rest(`wm_employees?id=eq.${Number(body.employee_id)}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ pin_hash: hash, pin_set_at: kstNow() + '+09', pin_fail_count: 0, pin_locked_until: null }),
+      });
+      if (!row) return json({ error: '직원 없음' }, 404);
+      await auditLog(me.id, 'set_pin', row.id, null);   // PIN 값은 로그에도 남기지 않는다
+      return json({ ok: true });
+    }
+
+    if (action === 'holiday_create') {
+      const { date, name } = body;
+      if (!date || !name) return json({ error: '날짜와 이름은 필수입니다.' }, 400);
+      if (!D_RE.test(String(date))) return json({ error: '날짜 형식 오류 (YYYY-MM-DD)' }, 400);
+      // 원본과 동일하게 날짜 단독 중복을 거부 (프리셋의 겹침 4건은 이관 데이터라 그대로)
+      const dup = await rest(`wm_holidays?date=eq.${date}&select=id`);
+      if (dup.length) return json({ error: '해당 날짜에 이미 공휴일이 등록되어 있습니다.' }, 400);
+      const [row] = await rest('wm_holidays', {
+        method: 'POST', body: JSON.stringify({ date, name, hours: Number(body.hours) || 8 }),
+      });
+      await auditLog(me.id, 'holiday_create', null, { date, name });
+      return json(row);
+    }
+
+    if (action === 'holiday_delete') {
+      const id = Number(body.id);
+      const orig = (await rest(`wm_holidays?id=eq.${id}&select=*`))[0];
+      if (!orig) return json({ error: '없는 항목입니다.' }, 404);
+      await rest(`wm_holidays?id=eq.${id}`, { method: 'DELETE', headers: { Prefer: 'return=minimal' } });
+      await auditLog(me.id, 'holiday_delete', null, orig);
+      return json({ ok: true });
+    }
+
+    if (action === 'holiday_list') {
+      return json(await rest('wm_holidays?select=*&order=date&limit=2000'));
     }
 
     return json({ error: 'unknown action' }, 400);
