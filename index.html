@@ -2175,7 +2175,20 @@ async function userDetail(uid) {
     row('생일', e.birthday || '—') +
     row('급여 계좌', (e.bank_name || e.bank_account) ? `${escHtml(e.bank_name || '')} ${escHtml(e.bank_account || '')}<div style="font-size:.72rem;color:#9ca3af;">예금주 ${escHtml(e.bank_holder || '—')}</div>` : '—') +
     row('연차', `총 ${e.annual_leave_total ?? 0}일 <span style="font-size:.72rem;color:#9ca3af;">(사용 ${e.annual_used || 0} · 잔여 ${(e.annual_leave_total || 0) - (e.annual_used || 0)})</span>`) +
-    `<div style="font-size:.68rem;color:#9ca3af;margin-top:10px;">수정은 근무 관리 메뉴 → 직원 관리 탭에서 합니다.</div>`;
+    `<button onclick="userDetailEdit(${e.id})" style="width:100%;margin-top:12px;border:none;background:#4f46e5;color:#fff;border-radius:9px;padding:9px 0;font-size:.8rem;font-weight:800;cursor:pointer;">
+       <i class="fa-solid fa-pen" style="font-size:.85em;margin-right:5px;"></i>근무 관리에서 수정하기</button>
+     <div style="font-size:.68rem;color:#9ca3af;margin-top:8px;text-align:center;">계정(아이디·역할)은 이 화면에서, 급여·연차·계좌·PIN은 근무 관리에서 관리합니다.</div>`;
+}
+
+/* 직원 관리 → 근무 관리 바로가기 (2026-08-27 동선 정리)
+   "이 사람 급여·연차 고치려면 어디로?"가 헷갈리던 문제. 근무 정보 모달에서 한 번에 이동해 수정창까지 연다. */
+async function userDetailEdit(empId) {
+  $('user-detail-modal').style.display = 'none';
+  showMenu('wm');
+  wmSetTab('emp');
+  for (let i = 0; i < 40 && !(wmState.emps || []).length; i++) await new Promise(r => setTimeout(r, 250));
+  if ((wmState.emps || []).some(e => e.id === empId)) wmEmpFormOpen(empId);
+  else showToast('근무 관리에서 해당 직원을 찾지 못했어요');
 }
 
 async function setUserRole(id, role) {
