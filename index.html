@@ -7674,8 +7674,8 @@ const CERT_COMPANY = {   // 재직증명서에 찍히는 회사 정보 — 바�
   ceo: '김다나',            // 대표자명 (2026-08-27 사용자 확인)
   bizno: '545-87-03592',   // 사업자등록번호 (2026-08-27 사용자 확인)
 };
-const myState = { data: null, tab: 'work' };
-const MY_TABS = [['work', '내 근무 현황', 'fa-regular fa-calendar-check'], ['cert', '재직증명서 발급', 'fa-regular fa-file-lines'], ['pw', '비밀번호 변경', 'fa-solid fa-key']];
+const myState = { data: null, tab: 'work', doc: 'cert' };
+const MY_TABS = [['work', '내 근무 현황', 'fa-regular fa-calendar-check'], ['cert', '서류 발급', 'fa-regular fa-file-lines'], ['pw', '비밀번호 변경', 'fa-solid fa-key']];
 
 async function myApi(params, body) {
   const res = await fetch(fnUrl('wm-me', params), {
@@ -7736,7 +7736,7 @@ function myRender() {
       <b style="color:#1e1b4b;">${escHtml(d.name || '')} 님</b> <span style="font-size:.75rem;">(${ROLE_LABEL[d.role] || ''})</span>
       <div style="margin-top:8px;">이 계정은 근무 관리에 등록된 직원과 연결되어 있지 않아 근무 정보·휴가 신청·재직증명서를 표시할 수 없습니다.
       ${isAdmin() ? '' : '<br>담당자에게 문의해주세요.'}</div></div>`;
-    $('my-cert-body').innerHTML = '<div style="background:#f8f9fb;border-radius:12px;padding:16px;font-size:.82rem;color:#6b7280;">근무 관리에 연결된 직원 계정이 아니어서 재직증명서를 발급할 수 없습니다.</div>';
+    $('my-cert-body').innerHTML = '<div style="background:#f8f9fb;border-radius:12px;padding:16px;font-size:.82rem;color:#6b7280;">근무 관리에 연결된 직원 계정이 아니어서 서류를 발급할 수 없습니다.</div>';
     return;
   }
   const a = d.annual, left = a.left, pct = a.total > 0 ? Math.min(100, Math.round(a.used / a.total * 100)) : 0;
@@ -7793,16 +7793,7 @@ function myRender() {
 
 
 
-  $('my-cert-body').innerHTML = `
-    <div>
-      <b style="font-size:.88rem;color:#1e1b4b;"><i class="fa-regular fa-file-lines" style="color:#4f46e5;font-size:.85em;"></i> 재직증명서</b>
-      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin-top:10px;">
-        <label style="font-size:.75rem;color:#4b5563;font-weight:600;">용도
-          <input id="my-cert-use" placeholder="예: 은행 제출용" style="display:block;margin-top:3px;border:1.5px solid #d1d5db;border-radius:8px;padding:6px 10px;font-size:.8rem;width:200px;" /></label>
-        <button class="toggle-btn" style="background:#4f46e5;color:#fff;border-color:#4f46e5;margin-bottom:1px;" onclick="myCertPrint()"><i class="fa-solid fa-print"></i> 발급 (인쇄 · PDF 저장)</button>
-      </div>
-      <div style="font-size:.68rem;color:#9ca3af;margin-top:6px;">새 창이 열리고 인쇄 대화상자가 뜹니다. 'PDF로 저장'을 고르면 파일로 받을 수 있어요. <b>직인은 인쇄 후 실물로 날인</b>하세요.</div>
-    </div>`;
+  myRenderDocs();
   myLvTypeChange();
 }
 
@@ -7841,58 +7832,257 @@ async function myLeaveCancel(id) {
   } catch (e) { showToast('취소 실패 — ' + e.message); }
 }
 
-/* 재직증명서 — 인쇄용 새 창. 직인 자리는 비워두고 인쇄 후 실물 날인(사용자 결정) */
-function myCertPrint() {
+/* ── 서류 발급 (2026-08-27, 기존 '재직증명서 발급' 탭을 3종 서류로 확장) ──
+   재직증명서 / 차량 등록 요청서 / 출장 여비 신청서. 모두 인쇄용 새 창 → 브라우저 'PDF로 저장'.
+   서류 종류 선택은 알약 칩(탭 안의 하위 선택 — 밑줄 탭은 화면 전환용이라는 규칙 유지). */
+const MY_DOCS = [
+  ['cert', '재직증명서', 'fa-regular fa-file-lines'],
+  ['car', '차량 등록 요청서', 'fa-solid fa-car'],
+  ['trip', '출장 여비 신청서', 'fa-solid fa-plane'],
+];
+/* 출장비 규정 (사내 [출장 규정] 원문 기준) — 단가는 1박당 */
+const TRIP_KINDS = {
+  domestic: { label: '국내 출장 (숙박)', per: 10000, note: '식사 제공(법인 카드 결제) + 1박 당 10,000원' },
+  intl_short: { label: '국외 출장 (비행 10시간 이하)', per: 20000, note: '식사 제공(법인 카드 결제) + 1박 당 20,000원' },
+  intl_long: { label: '국외 출장 (비행 10시간 초과)', per: 40000, note: '식사 제공(법인 카드 결제) + 1박 당 40,000원' },
+};
+const TRIP_RULES = [
+  '식사는 법인 카드로 결제하며, 위 출장비는 1박 기준으로 지급합니다.',
+  '연장 근로 수당은 시차와 무관하게 실제 근로한 경과 시간을 기준으로 산정하고, 초과근로시간은 15분 단위로 올림하여 계산합니다.',
+  '출장 중 이동시간(항공 및 차량)은 근로시간에 산입하지 않습니다. 다만 이동 중 사용자의 지시에 따라 업무를 수행한 시간은 근로시간으로 인정합니다.',
+];
+
+function myDocSet(k) { myState.doc = k; myRenderDocs(); }
+
+const myFieldCss = 'display:block;margin-top:3px;border:1.5px solid #d1d5db;border-radius:8px;padding:6px 10px;font-size:.8rem;';
+const myLabel = (text, inner) => `<label style="font-size:.75rem;color:#4b5563;font-weight:600;">${text}${inner}</label>`;
+
+function myRenderDocs() {
+  const box = $('my-cert-body');
+  if (!box) return;
+  const kind = myState.doc || 'cert';
+  const chips = MY_DOCS.map(([k, label, icon]) => {
+    const on = k === kind;
+    return `<button onclick="myDocSet('${k}')" style="border:1.5px solid ${on ? 'transparent' : '#d1d5db'};background:${on ? '#4f46e5' : '#fff'};color:${on ? '#fff' : '#4b5563'};border-radius:99px;padding:6px 14px;font-size:.78rem;font-weight:700;cursor:pointer;white-space:nowrap;"><i class="${icon}" style="font-size:.85em;margin-right:5px;"></i>${label}</button>`;
+  }).join('');
+
+  let form = '';
+  if (kind === 'cert') {
+    form = `<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;">
+      ${myLabel('용도', `<input id="my-cert-use" placeholder="예: 은행 제출용" style="${myFieldCss}width:200px;" />`)}
+      <button class="toggle-btn" style="background:#4f46e5;color:#fff;border-color:#4f46e5;margin-bottom:1px;" onclick="myCertPrint()"><i class="fa-solid fa-print"></i> 발급 (인쇄 · PDF 저장)</button>
+    </div>
+    <div style="font-size:.68rem;color:#9ca3af;margin-top:8px;">재직 사실을 증명하는 문서입니다. <b>직인은 인쇄 후 실물로 날인</b>하세요.</div>`;
+  } else if (kind === 'car') {
+    form = `<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;">
+      ${myLabel('차량 번호', `<input id="my-car-no" placeholder="예: 12가 3456" style="${myFieldCss}width:150px;" />`)}
+      ${myLabel('차종 <span style="color:#9ca3af;font-weight:500;">(선택)</span>', `<input id="my-car-model" placeholder="예: 아반떼" style="${myFieldCss}width:140px;" />`)}
+      ${myLabel('용도', `<input id="my-car-use" placeholder="예: 사옥 주차 등록용" style="${myFieldCss}width:190px;" />`)}
+      <button class="toggle-btn" style="background:#4f46e5;color:#fff;border-color:#4f46e5;margin-bottom:1px;" onclick="myCarPrint()"><i class="fa-solid fa-print"></i> 발급 (인쇄 · PDF 저장)</button>
+    </div>
+    <div style="font-size:.68rem;color:#9ca3af;margin-top:8px;">재직증명서와 같은 양식에 <b>차량 번호</b>가 함께 들어갑니다. 주차 등록 등에 사용하세요.</div>`;
+  } else {
+    const today = (myState.data || {}).today || '';
+    form = `<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin-bottom:10px;">
+      ${myLabel('출장 구분', `<select id="my-trip-kind" onchange="myTripCalc()" style="${myFieldCss}">
+        ${Object.entries(TRIP_KINDS).map(([k, v]) => `<option value="${k}">${v.label}</option>`).join('')}</select>`)}
+      ${myLabel('출장지', `<input id="my-trip-place" placeholder="예: 베트남 호치민" style="${myFieldCss}width:160px;" />`)}
+      ${myLabel('출장 목적', `<input id="my-trip-purpose" placeholder="예: 원단 거래처 미팅" style="${myFieldCss}width:190px;" />`)}
+    </div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin-bottom:10px;">
+      ${myLabel('출발일', `<input type="date" id="my-trip-start" value="${today}" onchange="myTripAutoNights()" style="${myFieldCss}" />`)}
+      ${myLabel('복귀일', `<input type="date" id="my-trip-end" value="${today}" onchange="myTripAutoNights()" style="${myFieldCss}" />`)}
+      ${myLabel('숙박', `<input type="number" id="my-trip-nights" min="0" max="60" value="0" onchange="myTripCalc()" oninput="myTripCalc()" style="${myFieldCss}width:80px;" />`)}
+      <span style="font-size:.75rem;color:#6b7280;font-weight:600;margin-bottom:8px;">박</span>
+      <div id="my-trip-sum" style="margin-left:auto;font-size:.82rem;font-weight:800;color:#1e1b4b;margin-bottom:6px;"></div>
+    </div>
+    <div style="border-top:1px solid #eceef2;padding-top:10px;">
+      <b style="font-size:.8rem;color:#1e1b4b;">초과 근로 내역 <span style="font-size:.7rem;color:#9ca3af;font-weight:600;">실제 근로한 경과 시간 · 15분 단위 올림</span></b>
+      <div id="my-trip-ot" style="margin-top:8px;"></div>
+      <button class="toggle-btn" style="font-size:.72rem;padding:3px 10px;margin-top:6px;" onclick="myTripOtAdd()"><i class="fa-solid fa-plus"></i> 날짜 추가</button>
+    </div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin-top:12px;">
+      ${myLabel('비고 <span style="color:#9ca3af;font-weight:500;">(선택)</span>', `<input id="my-trip-note" placeholder="예: 이동 중 거래처 응대 2건" style="${myFieldCss}width:280px;" />`)}
+      <button class="toggle-btn" style="background:#4f46e5;color:#fff;border-color:#4f46e5;margin-bottom:1px;" onclick="myTripPrint()"><i class="fa-solid fa-print"></i> 발급 (인쇄 · PDF 저장)</button>
+    </div>
+    <div style="font-size:.68rem;color:#9ca3af;margin-top:8px;">출장비는 사내 [출장 규정]의 1박당 단가로 자동 계산됩니다. 식사는 법인 카드로 결제하세요.</div>`;
+  }
+
+  box.innerHTML = `<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px;">${chips}</div><div>${form}</div>`;
+  if (kind === 'trip') { myTripOtRows = myTripOtRows.length ? myTripOtRows : [{ date: (myState.data || {}).today || '', h: '', m: '' }]; myTripOtRender(); myTripCalc(); }
+}
+
+/* ── 출장: 초과 근로 행 ── */
+let myTripOtRows = [];
+function myTripOtAdd() { myTripOtRows.push({ date: (myState.data || {}).today || '', h: '', m: '' }); myTripOtRender(); myTripCalc(); }
+function myTripOtDel(i) { myTripOtRows.splice(i, 1); if (!myTripOtRows.length) myTripOtRows.push({ date: '', h: '', m: '' }); myTripOtRender(); myTripCalc(); }
+function myTripOtSet(i, field, val) { myTripOtRows[i][field] = val; myTripCalc(); }
+function myTripOtRender() {
+  $('my-trip-ot').innerHTML = myTripOtRows.map((r, i) => `<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:6px;">
+    <input type="date" value="${r.date}" onchange="myTripOtSet(${i},'date',this.value)" style="border:1.5px solid #d1d5db;border-radius:8px;padding:5px 8px;font-size:.78rem;" />
+    <input type="number" min="0" max="24" placeholder="시" value="${r.h}" oninput="myTripOtSet(${i},'h',this.value)" style="width:66px;border:1.5px solid #d1d5db;border-radius:8px;padding:5px 8px;font-size:.78rem;" />
+    <span style="font-size:.75rem;color:#6b7280;">시간</span>
+    <input type="number" min="0" max="59" placeholder="분" value="${r.m}" oninput="myTripOtSet(${i},'m',this.value)" style="width:66px;border:1.5px solid #d1d5db;border-radius:8px;padding:5px 8px;font-size:.78rem;" />
+    <span style="font-size:.75rem;color:#6b7280;">분</span>
+    <span id="my-trip-ot-r${i}" style="font-size:.74rem;color:#4338ca;font-weight:700;min-width:96px;"></span>
+    <button class="toggle-btn" style="font-size:.68rem;padding:2px 8px;color:#dc2626;" onclick="myTripOtDel(${i})">삭제</button>
+  </div>`).join('');
+}
+/* 15분 단위 올림 — 규정: "초과근로시간은 15분 단위로 올림하여 계산" */
+const ceil15 = mins => Math.ceil(mins / 15) * 15;
+const hm = mins => `${Math.floor(mins / 60)}시간 ${mins % 60}분`;
+function myTripOtTotals() {
+  const rows = myTripOtRows
+    .map(r => ({ date: r.date, raw: (Number(r.h) || 0) * 60 + (Number(r.m) || 0) }))
+    .filter(r => r.raw > 0)
+    .map(r => ({ ...r, ceil: ceil15(r.raw) }));
+  return { rows, total: rows.reduce((s, r) => s + r.ceil, 0) };
+}
+function myTripCalc() {
+  const kind = ($('my-trip-kind') || {}).value || 'domestic';
+  const nights = Math.max(0, Number(($('my-trip-nights') || {}).value) || 0);
+  const per = TRIP_KINDS[kind].per;
+  const { rows, total } = myTripOtTotals();
+  myTripOtRows.forEach((r, i) => {
+    const el = $('my-trip-ot-r' + i);
+    if (!el) return;
+    const raw = (Number(r.h) || 0) * 60 + (Number(r.m) || 0);
+    el.textContent = raw > 0 ? `→ ${hm(ceil15(raw))}` : '';
+  });
+  const sum = $('my-trip-sum');
+  if (sum) sum.innerHTML = `출장비 <span style="color:#4f46e5;">${fmt(nights * per)}원</span>`
+    + `<span style="font-size:.72rem;color:#9ca3af;font-weight:600;"> (${fmt(per)}원 × ${nights}박)</span>`
+    + (total ? `<span style="font-size:.72rem;color:#6b7280;font-weight:700;"> · 초과근로 ${hm(total)}</span>` : '');
+}
+function myTripAutoNights() {
+  const s = ($('my-trip-start') || {}).value, e = ($('my-trip-end') || {}).value;
+  if (s && e && e >= s) {
+    const n = Math.round((new Date(e + 'T12:00:00Z') - new Date(s + 'T12:00:00Z')) / 86400000);
+    $('my-trip-nights').value = n;
+  }
+  myTripCalc();
+}
+
+/* ── 인쇄 공용 (재직증명서·차량 등록 요청서·출장 여비 공통 양식) ── */
+function myDocOpen(title, docNoPrefix, innerHtml, opt) {
   const d = myState.data;
-  if (!d || !d.linked) { showToast('근무 정보가 없어 발급할 수 없습니다'); return; }
-  const use = ($('my-cert-use').value || '').trim();
   const today = d.today;
   const kdate = s => s ? `${s.slice(0, 4)}년 ${Number(s.slice(5, 7))}월 ${Number(s.slice(8, 10))}일` : '—';
-  const docNo = `DNRB-${today.replace(/-/g, '')}-${String(d.employee_id).padStart(4, '0')}`;
-  const row = (label, val) => `<tr><th>${label}</th><td>${val}</td></tr>`;
-  const html = `<!doctype html><html lang="ko"><head><meta charset="utf-8" /><title>재직증명서 - ${escHtml(d.name)}</title>
+  const docNo = `${docNoPrefix}-${today.replace(/-/g, '')}-${String(d.employee_id).padStart(4, '0')}`;
+  const signBlock = (opt && opt.applicant)
+    ? `<div class="sign"><div style="margin-bottom:6px;">위와 같이 신청합니다.</div>
+         <div>${kdate(today)}</div>
+         <div style="margin-top:10px;">신청자 : ${escHtml(d.name)} <span class="stamp-sm">(서명)</span></div>
+         <div class="co">${CERT_COMPANY.name}${CERT_COMPANY.ceo ? ` 대표이사 ${CERT_COMPANY.ceo}` : ''}<span class="stamp">(직인)</span></div></div>`
+    : `<div class="stmt">${(opt && opt.stmt) || '위와 같이 본사에 재직하고 있음을 증명합니다.'}</div>
+       <div class="date">${kdate(today)}</div>
+       <div class="sign">
+         ${CERT_COMPANY.bizno ? `<div>사업자등록번호 : ${CERT_COMPANY.bizno}</div>` : ''}
+         <div>${CERT_COMPANY.addr}</div>
+         <div class="co">${CERT_COMPANY.name}${CERT_COMPANY.ceo ? ` 대표이사 ${CERT_COMPANY.ceo}` : ''}<span class="stamp">(직인)</span></div>
+       </div>`;
+  const html = `<!doctype html><html lang="ko"><head><meta charset="utf-8" /><title>${escHtml(title)} - ${escHtml(d.name)}</title>
     <style>
       @page { size: A4; margin: 20mm; }
       body { font-family: -apple-system, 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif; color: #111; line-height: 1.7; }
-      h1 { text-align: center; font-size: 30px; letter-spacing: 14px; margin: 10px 0 4px; }
+      h1 { text-align: center; font-size: 30px; letter-spacing: 12px; margin: 10px 0 4px; }
       .docno { text-align: right; font-size: 12px; color: #555; margin-bottom: 22px; }
-      table { width: 100%; border-collapse: collapse; margin-bottom: 20px; }
+      table { width: 100%; border-collapse: collapse; margin-bottom: 18px; }
       th, td { border: 1px solid #333; padding: 9px 12px; font-size: 14px; }
       th { width: 26%; background: #f4f4f6; text-align: center; font-weight: 700; }
-      .stmt { text-align: center; font-size: 15px; margin: 34px 0 30px; }
-      .date { text-align: center; font-size: 15px; margin-bottom: 26px; }
+      table.grid th { width: auto; }
+      table.grid td { text-align: center; }
+      .sec { font-size: 14px; font-weight: 700; margin: 18px 0 8px; }
+      .stmt { text-align: center; font-size: 15px; margin: 30px 0 26px; }
+      .date { text-align: center; font-size: 15px; margin-bottom: 24px; }
       .sign { text-align: center; font-size: 15px; line-height: 2; }
       .sign .co { font-size: 19px; font-weight: 700; letter-spacing: 2px; }
       .stamp { display: inline-block; width: 76px; height: 76px; border: 1px dashed #bbb; border-radius: 6px;
                color: #bbb; font-size: 10px; text-align: center; line-height: 76px; margin-left: 10px; vertical-align: middle; }
-      .foot { margin-top: 26px; font-size: 11px; color: #777; text-align: center; }
-      @media print { .stamp { border-color: #ddd; } }
+      .stamp-sm { display: inline-block; width: 54px; height: 26px; border: 1px dashed #ccc; border-radius: 4px;
+                  color: #bbb; font-size: 10px; text-align: center; line-height: 26px; margin-left: 8px; }
+      ol.rules { font-size: 12px; color: #444; padding-left: 18px; margin: 6px 0 0; }
+      ol.rules li { margin-bottom: 3px; }
+      .foot { margin-top: 24px; font-size: 11px; color: #777; text-align: center; }
     </style></head><body>
-    <h1>재직증명서</h1>
+    <h1>${escHtml(title)}</h1>
     <div class="docno">문서번호 : ${docNo}</div>
-    <table>
-      ${row('성 명', escHtml(d.name))}
-      ${row('생년월일', d.birthday || '—')}
-      ${row('소 속', ROLE_LABEL[d.role] || '—')}
-      ${row('입 사 일', kdate(d.hire_date))}
-      ${row('재직기간', `${kdate(d.hire_date)} ~ 현재 (${myPeriod(d.hire_date)})`)}
-      ${row('용 도', escHtml(use || '제출용'))}
-    </table>
-    <div class="stmt">위와 같이 본사에 재직하고 있음을 증명합니다.</div>
-    <div class="date">${kdate(today)}</div>
-    <div class="sign">
-      ${CERT_COMPANY.bizno ? `<div>사업자등록번호 : ${CERT_COMPANY.bizno}</div>` : ''}
-      <div>${CERT_COMPANY.addr}</div>
-      <div class="co">${CERT_COMPANY.name}${CERT_COMPANY.ceo ? ` 대표이사 ${CERT_COMPANY.ceo}` : ''}<span class="stamp">(직인)</span></div>
-    </div>
-    <div class="foot">본 증명서는 대시보드에서 발급되었으며, 직인 날인 후 유효합니다.</div>
+    ${innerHtml}
+    ${signBlock}
+    <div class="foot">본 문서는 대시보드에서 발급되었으며, 직인 날인 후 유효합니다.</div>
     </body></html>`;
   const w = window.open('', '_blank');
   if (!w) { showToast('팝업이 차단됐어요 — 주소창의 팝업 허용을 켜주세요'); return; }
-  w.document.write(html);
-  w.document.close();
-  w.focus();
+  w.document.write(html); w.document.close(); w.focus();
   setTimeout(() => w.print(), 300);
+}
+
+const myDocRow = (label, val) => `<tr><th>${label}</th><td>${val}</td></tr>`;
+function myDocPersonRows() {
+  const d = myState.data;
+  const kdate = s => s ? `${s.slice(0, 4)}년 ${Number(s.slice(5, 7))}월 ${Number(s.slice(8, 10))}일` : '—';
+  return myDocRow('성 명', escHtml(d.name))
+    + myDocRow('생년월일', d.birthday || '—')
+    + myDocRow('소 속', ROLE_LABEL[d.role] || '—')
+    + myDocRow('입 사 일', kdate(d.hire_date))
+    + myDocRow('재직기간', `${kdate(d.hire_date)} ~ 현재 (${myPeriod(d.hire_date)})`);
+}
+
+function myCertPrint() {
+  const d = myState.data;
+  if (!d || !d.linked) { showToast('근무 정보가 없어 발급할 수 없습니다'); return; }
+  const use = ($('my-cert-use').value || '').trim();
+  myDocOpen('재직증명서', 'DNRB-CERT', `<table>${myDocPersonRows()}${myDocRow('용 도', escHtml(use || '제출용'))}</table>`);
+}
+
+function myCarPrint() {
+  const d = myState.data;
+  if (!d || !d.linked) { showToast('근무 정보가 없어 발급할 수 없습니다'); return; }
+  const no = ($('my-car-no').value || '').trim();
+  if (!no) { showToast('차량 번호를 입력해주세요'); return; }
+  const model = ($('my-car-model').value || '').trim();
+  const use = ($('my-car-use').value || '').trim();
+  const rows = `<table>${myDocPersonRows()}
+    ${myDocRow('차량 번호', `<b>${escHtml(no)}</b>`)}
+    ${model ? myDocRow('차 종', escHtml(model)) : ''}
+    ${myDocRow('용 도', escHtml(use || '차량 등록용'))}</table>`;
+  myDocOpen('차량 등록 요청서', 'DNRB-CAR', rows, { stmt: '위 직원은 본사에 재직 중이며, 상기 차량의 등록을 요청합니다.' });
+}
+
+function myTripPrint() {
+  const d = myState.data;
+  if (!d || !d.linked) { showToast('근무 정보가 없어 발급할 수 없습니다'); return; }
+  const kind = $('my-trip-kind').value;
+  const k = TRIP_KINDS[kind];
+  const place = ($('my-trip-place').value || '').trim();
+  const purpose = ($('my-trip-purpose').value || '').trim();
+  const s = $('my-trip-start').value, e = $('my-trip-end').value;
+  const nights = Math.max(0, Number($('my-trip-nights').value) || 0);
+  const note = ($('my-trip-note').value || '').trim();
+  if (!place) { showToast('출장지를 입력해주세요'); return; }
+  if (!s || !e) { showToast('출장 기간을 선택해주세요'); return; }
+  if (e < s) { showToast('복귀일이 출발일보다 빠릅니다'); return; }
+  const { rows: otRows, total } = myTripOtTotals();
+  const otTable = otRows.length
+    ? `<table class="grid"><thead><tr><th>날짜</th><th>실제 근로 경과시간</th><th>15분 단위 올림</th></tr></thead>
+       <tbody>${otRows.map(r => `<tr><td>${r.date || '—'}</td><td>${hm(r.raw)}</td><td><b>${hm(r.ceil)}</b></td></tr>`).join('')}
+       <tr><th>합 계</th><td>${hm(otRows.reduce((x, r) => x + r.raw, 0))}</td><td><b>${hm(total)}</b></td></tr></tbody></table>`
+    : '<div style="font-size:13px;color:#666;margin-bottom:16px;">해당 없음</div>';
+  const inner = `<div class="sec">1. 신청자</div>
+    <table>${myDocRow('성 명', escHtml(d.name))}${myDocRow('소 속', ROLE_LABEL[d.role] || '—')}${myDocRow('입 사 일', d.hire_date || '—')}</table>
+    <div class="sec">2. 출장 내역</div>
+    <table>${myDocRow('출장 구분', escHtml(k.label))}${myDocRow('출 장 지', escHtml(place))}
+      ${myDocRow('출장 목적', escHtml(purpose || '—'))}${myDocRow('출장 기간', `${s} ~ ${e} (${nights}박)`)}</table>
+    <div class="sec">3. 출장비 산정</div>
+    <table class="grid"><thead><tr><th>구분</th><th>1박 단가</th><th>숙박</th><th>지급액</th></tr></thead>
+      <tbody><tr><td>${escHtml(k.label)}</td><td>${fmt(k.per)}원</td><td>${nights}박</td><td><b>${fmt(k.per * nights)}원</b></td></tr></tbody></table>
+    <div style="font-size:12px;color:#444;margin:-10px 0 16px;">※ 식사는 법인 카드로 결제 (${escHtml(k.note)})</div>
+    <div class="sec">4. 초과 근로 내역</div>
+    ${otTable}
+    ${note ? `<div class="sec">5. 비고</div><div style="font-size:13px;margin-bottom:16px;">${escHtml(note)}</div>` : ''}
+    <div class="sec">${note ? '6' : '5'}. 적용 규정</div>
+    <ol class="rules">${TRIP_RULES.map(r => `<li>${r}</li>`).join('')}</ol>`;
+  myDocOpen('출장 여비 신청서', 'DNRB-TRIP', inner, { applicant: true });
 }
 
 async function myChangePw() {
