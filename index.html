@@ -5654,13 +5654,19 @@ const admgrChgCell = r => {
     // 오늘 변경 내역 전부 표시(2026-08-26 사용자 요청): 화살표+금액+시각, 시간순(위=먼저). 클릭=히스토리 모달.
     // 금액 = 변경 후 '설정된 예산'(new_value — 사용자 확정: 4만→8만이면 +40,000이 아니라 80,000).
     // 사용자 지정 색: 증액=파란색 ↑, 감액=빨간색 ↓. 증감폭은 모달에서 확인.
+    // 맨 위 = 오늘 첫 조정 '직전' 예산(그날의 시작 금액, 2026-08-27 사용자 요청).
+    // evs는 최신순이라 마지막 원소가 오늘의 첫 이벤트 → 그 old_value가 조정 전 금액.
+    const first = evs[evs.length - 1];
+    const startTxt = first && first.old_value > 0
+      ? `<div title="오늘 첫 조정 직전 예산" style="font-size:.62rem;color:#9ca3af;font-weight:700;white-space:nowrap;">시작 <span class="meta-blur">${fmt(first.old_value)}</span></div>`
+      : '';
     const badges = evs.slice().reverse().map(ev => {
       const up = ev.new_value >= ev.old_value;
       const k = admgrKst(ev.time);
       const hm = k ? `${admgrPad2(k.getUTCHours())}:${admgrPad2(k.getUTCMinutes())}` : '';
       return `<span style="background:${up ? '#dbeafe' : '#fee2e2'};color:${up ? '#1d4ed8' : '#b91c1c'};border-radius:99px;padding:1px 9px;font-size:.68rem;font-weight:800;white-space:nowrap;"><i class="fa-solid fa-arrow-${up ? 'up' : 'down'}" style="font-size:.58rem;"></i> <span class="meta-blur">${fmt(ev.new_value)}</span> <span style="opacity:.65;font-weight:600;">${hm}</span></span>`;
     }).join('');
-    return `<div onclick="event.stopPropagation();admgrBudgetModal('${r.id}')" title="오늘 예산 변경 ${evs.length}건 — 클릭하면 히스토리·영향 분석" style="display:flex;flex-direction:column;align-items:center;gap:2px;cursor:pointer;">${badges}</div>`;
+    return `<div onclick="event.stopPropagation();admgrBudgetModal('${r.id}')" title="오늘 예산 변경 ${evs.length}건 — 클릭하면 히스토리·영향 분석" style="display:flex;flex-direction:column;align-items:center;gap:2px;cursor:pointer;">${startTxt}${badges}</div>`;
   }
   if (b.loading) return '<i class="fa-solid fa-spinner fa-spin" style="color:#e5e7eb;font-size:.65rem;"></i>';
   return admgrDash;
