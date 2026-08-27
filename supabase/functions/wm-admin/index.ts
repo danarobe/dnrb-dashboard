@@ -164,7 +164,7 @@ Deno.serve(async (req) => {
       const year = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Seoul' }).slice(0, 4);
       const [emps, approved, users] = await Promise.all([
         rest('wm_employees?select=id,name,type,hourly_rate,monthly_salary,'
-          + 'annual_leave_total,transport_allowance,fixed_clock_in,birthday,'
+          + 'annual_leave_total,transport_allowance,fixed_clock_in,birthday,hire_date,'
           + 'bank_name,bank_account,bank_holder,active,pin_set_at,app_user_id&order=type,name'),
         rest(`wm_leaves?status=eq.approved&date=gte.${year}-01-01&date=lte.${year}-12-31&select=employee_id,type,reason&limit=3000`),
         rest('app_users?select=id,name'),
@@ -412,9 +412,12 @@ Deno.serve(async (req) => {
     // 정직원은 app_user_id(대시보드 직원 계정) 연결로만 생성 — 이름은 계정에서 오고 계정이 원본.
     if (action === 'employee_upsert') {
       const FIELDS = ['name', 'type', 'hourly_rate', 'monthly_salary', 'annual_leave_total',
-        'transport_allowance', 'fixed_clock_in', 'birthday', 'bank_name', 'bank_account', 'bank_holder'];
+        'transport_allowance', 'fixed_clock_in', 'birthday', 'hire_date', 'bank_name', 'bank_account', 'bank_holder'];
       const patch: Record<string, unknown> = {};
       for (const f of FIELDS) if (f in body) patch[f] = body[f];
+      if ('hire_date' in patch && patch.hire_date && !/^\d{4}-\d{2}-\d{2}$/.test(String(patch.hire_date))) {
+        return json({ error: '입사일은 YYYY-MM-DD 형식' }, 400);
+      }
       if ('type' in patch && !['employee', 'parttime'].includes(String(patch.type))) {
         return json({ error: '직원 유형 오류' }, 400);
       }
