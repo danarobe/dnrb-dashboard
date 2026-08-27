@@ -2089,9 +2089,10 @@ async function userDetail(uid) {
     periodTxt = `${months}개월 ${days}일`;
   }
   const pt = e.type === 'parttime';
+  // annual_salary = 계약서 연봉(표시 전용, 급여 계산과 무관). 없으면 월급×12로 근사 표시(예전 방식 유지).
   const pay = pt
     ? `시급 ${fmt(e.hourly_rate)}원`
-    : `연봉 ${fmt((e.monthly_salary || 0) * 12)}원 <span style="font-size:.72rem;color:#9ca3af;">(월 ${fmt(e.monthly_salary || 0)}원)</span>`;
+    : `연봉 ${fmt(e.annual_salary || (e.monthly_salary || 0) * 12)}원 <span style="font-size:.72rem;color:#9ca3af;">(월 ${fmt(e.monthly_salary || 0)}원)</span>`;
   const row = (label, val) => `<div style="display:flex;justify-content:space-between;gap:12px;padding:8px 2px;border-bottom:1px solid #f1f5f9;font-size:.82rem;">
     <span style="color:#6b7280;font-weight:600;white-space:nowrap;">${label}</span><span style="text-align:right;font-weight:600;color:#1e1b4b;">${val}</span></div>`;
   $('user-detail-body').innerHTML =
@@ -6959,7 +6960,8 @@ async function wmLoadEmps() {
 const WM_EMP_FIELDS = [
   ['name', '이름', 'text'], ['type', '구분', 'select'],
   ['hire_date', '입사일 YYYY-MM-DD', 'text'],
-  ['hourly_rate', '시급 (알바)', 'number'], ['monthly_salary', '월급 (직원)', 'number'],
+  ['hourly_rate', '시급 (알바)', 'number'], ['monthly_salary', '월급 (직원, 급여계산용)', 'number'],
+  ['annual_salary', '연봉 (직원, 계약서 표시용 — 비우면 월급×12로 표시)', 'number'],
   ['annual_leave_total', '연차 총량', 'number'], ['transport_allowance', '교통비 (알바)', 'number'],
   ['fixed_clock_in', '출근시간 고정 HH:MM (알바)', 'text'], ['birthday', '생일 YYYY-MM-DD', 'text'],
   ['bank_name', '은행', 'text'], ['bank_account', '계좌번호', 'text'], ['bank_holder', '예금주', 'text'],
@@ -6996,7 +6998,7 @@ function wmEmpFormOpen(id) {
   wmState.empMode = e ? 'edit' : 'pt';
   const linked = !!(e && e.app_user_id);
   $('wm-empf-title').textContent = e ? `직원 수정 — ${e.name}` : '알바 추가';
-  const skip = e ? [] : ['type', 'monthly_salary'];   // 알바 추가: 유형 고정(parttime)·월급 없음
+  const skip = e ? [] : ['type', 'monthly_salary', 'annual_salary'];   // 알바 추가: 유형 고정(parttime)·월급·연봉 없음
   $('wm-empf-body').innerHTML =
     (linked ? `<div style="background:#f0fdf4;color:#15803d;border-radius:8px;padding:6px 9px;font-size:.7rem;margin-bottom:10px;"><i class="fa-solid fa-link"></i> 대시보드 계정(${escHtml(e.app_user_id)})과 연결된 직원 — 이름·유형은 '직원 관리'가 원본이라 여기서 바꿀 수 없어요.</div>` : '')
     + WM_EMP_FIELDS.filter(([k]) => !skip.includes(k))

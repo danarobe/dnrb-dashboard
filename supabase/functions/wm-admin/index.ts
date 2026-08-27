@@ -164,7 +164,7 @@ Deno.serve(async (req) => {
       const year = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Seoul' }).slice(0, 4);
       const [emps, approved, users] = await Promise.all([
         rest('wm_employees?select=id,name,type,hourly_rate,monthly_salary,'
-          + 'annual_leave_total,transport_allowance,fixed_clock_in,birthday,hire_date,'
+          + 'annual_leave_total,transport_allowance,fixed_clock_in,birthday,hire_date,annual_salary,'
           + 'bank_name,bank_account,bank_holder,active,pin_set_at,app_user_id&order=type,name'),
         rest(`wm_leaves?status=eq.approved&date=gte.${year}-01-01&date=lte.${year}-12-31&select=employee_id,type,reason&limit=3000`),
         rest('app_users?select=id,name'),
@@ -411,7 +411,10 @@ Deno.serve(async (req) => {
     // 신규 등록 규칙 (2026-08-27 사용자 지정): 직접 추가는 **알바만**(type 서버 강제).
     // 정직원은 app_user_id(대시보드 직원 계정) 연결로만 생성 — 이름은 계정에서 오고 계정이 원본.
     if (action === 'employee_upsert') {
-      const FIELDS = ['name', 'type', 'hourly_rate', 'monthly_salary', 'annual_leave_total',
+      // annual_salary: 계약서상 연봉 — 급여 계산에 쓰는 monthly_salary와 별개(2026-08-27, "급여 1원도
+      // 달라지면 안 됨" 규칙 보호). 12로 나눠떨어지지 않는 연봉을 월급×12로 정확히 표시할 수 없어
+      // 계약서 원본 금액을 그대로 담아두는 표시 전용 필드 — 실제 지급액(monthly_salary)은 안 건드린다.
+      const FIELDS = ['name', 'type', 'hourly_rate', 'monthly_salary', 'annual_salary', 'annual_leave_total',
         'transport_allowance', 'fixed_clock_in', 'birthday', 'hire_date', 'bank_name', 'bank_account', 'bank_holder'];
       const patch: Record<string, unknown> = {};
       for (const f of FIELDS) if (f in body) patch[f] = body[f];
