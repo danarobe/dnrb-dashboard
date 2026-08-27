@@ -650,16 +650,27 @@
         </div>
       </div>
 
-      <!-- 판매량 급증 TOP5 (최근 7일 vs 직전 7일) -->
-      <div style="background:#fff;border:1.5px solid #fdba74;border-radius:12px;padding:16px 18px;margin-bottom:14px;">
-        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px;">
-          <div style="font-size:.82rem;font-weight:700;color:#9a3412;">판매량 급증 TOP 10</div>
-          <span id="home-trending-period" style="font-size:.75rem;color:#9ca3af;"></span>
+      <!-- 판매량 급증 TOP10 (접기 가능, 기본 펼침 — 2026-08-27 홈 정리) -->
+      <div onclick="homeFold('trending')" style="display:flex;align-items:center;gap:8px;cursor:pointer;user-select:none;padding:9px 4px;margin-bottom:6px;">
+        <i id="hf-caret-trending" class="fa-solid fa-chevron-down" style="font-size:.7rem;color:#9ca3af;transition:transform .18s;"></i>
+        <b style="font-size:.85rem;color:#1e1b4b;">판매량 급증 TOP 10</b>
+        <span style="font-size:.7rem;color:#9ca3af;">최근 7일 vs 직전 7일</span>
+      </div>
+      <div id="hf-body-trending">
+        <div style="background:#fff;border:1.5px solid #fdba74;border-radius:12px;padding:16px 18px;margin-bottom:14px;">
+          <div style="margin-bottom:10px;"><span id="home-trending-period" style="font-size:.75rem;color:#9ca3af;"></span></div>
+          <div id="home-trending" style="font-size:.82rem;color:#6b7280;">—</div>
         </div>
-        <div id="home-trending" style="font-size:.82rem;color:#6b7280;">—</div>
       </div>
 
       <!-- 상단: 조회수 TOP 10 / 주문율 TOP 10 (상품명 전체 표시) -->
+      <!-- 조회수·주문율 TOP10 (기본 접힘) -->
+      <div onclick="homeFold('tops')" style="display:flex;align-items:center;gap:8px;cursor:pointer;user-select:none;padding:9px 4px;margin-bottom:6px;">
+        <i id="hf-caret-tops" class="fa-solid fa-chevron-down" style="font-size:.7rem;color:#9ca3af;transition:transform .18s;"></i>
+        <b style="font-size:.85rem;color:#1e1b4b;">조회수 · 주문율 TOP 10</b>
+        
+      </div>
+      <div id="hf-body-tops">
       <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(420px,1fr));gap:14px;margin-bottom:14px;">
         <div style="background:#fff;border:1.5px solid #e5e7eb;border-radius:12px;padding:16px 18px;">
           <div style="font-size:.82rem;font-weight:700;color:#1e1b4b;margin-bottom:10px;">조회수 TOP 10</div>
@@ -673,6 +684,13 @@
           <div id="home-top-rates" style="font-size:.82rem;color:#6b7280;">—</div>
         </div>
       </div>
+      </div>
+      <div onclick="homeFold('reasons')" style="display:flex;align-items:center;gap:8px;cursor:pointer;user-select:none;padding:9px 4px;margin-bottom:6px;">
+        <i id="hf-caret-reasons" class="fa-solid fa-chevron-down" style="font-size:.7rem;color:#9ca3af;transition:transform .18s;"></i>
+        <b style="font-size:.85rem;color:#1e1b4b;">취소 · 반품 사유 TOP 3</b>
+        
+      </div>
+      <div id="hf-body-reasons">
       <!-- 하단: 취소 사유 TOP 3 / 반품 사유 TOP 3 -->
       <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:14px;">
         <div id="box-cancel-reasons" style="background:#fff;border:1.5px solid #fde68a;border-radius:12px;padding:16px 18px;">
@@ -685,6 +703,7 @@
         </div>
       </div>
 
+      </div>
       <!-- 월별 추이 (직전 3개 완결 월) — 판매 성과와 같은 데이터, CS는 홈 접근 없음 -->
       <div id="home-trend" style="display:none;background:#f8f9fb;border:1px solid #eceef2;border-radius:12px;padding:14px 16px;margin-top:14px;">
         <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:4px;">
@@ -7823,6 +7842,34 @@ async function myChangePw() {
 const MENU_KEYS = ['home', 'cr', 'an', 'perf', 'rwatch', 'disp', 'stable', 'adv', 'admgr', 'profit', 'wm', 'meet', 'board', 'proj', 'users', 'my'];
 
 /* 모바일 메뉴 서랍 (2026-08-27) — 열기/닫기. 데스크톱에선 ☰ 버튼이 숨겨져 호출되지 않는다. */
+/* ── 홈 접기 (2026-08-27 UI 정리) ──
+   홈이 모바일에서 세로 3,864px(약 10화면)까지 늘어나 정작 중요한 KPI가 묻혔다.
+   자주 안 보는 목록은 기본으로 접고, 편 상태는 사람마다 localStorage에 기억한다.
+   ⚠ 월별 추이는 원래 '불러오기' 버튼으로 그리는 지연 로딩이라 접기 대상에서 제외
+      (숨은 캔버스에 차트를 그리면 폭 0으로 깨지는 기존 함정을 피한다). */
+const HOME_FOLD_KEY = 'dnrb_home_folds';
+const HOME_FOLD_DEFAULT = { trending: true, tops: false, reasons: false };   // true = 펼침
+function homeFoldRead() {
+  try { return { ...HOME_FOLD_DEFAULT, ...(JSON.parse(localStorage.getItem(HOME_FOLD_KEY)) || {}) }; }
+  catch { return { ...HOME_FOLD_DEFAULT }; }
+}
+function homeFoldPaint(key, open) {
+  const body = $('hf-body-' + key), caret = $('hf-caret-' + key);
+  if (!body) return;
+  body.style.display = open ? '' : 'none';
+  if (caret) caret.style.transform = open ? '' : 'rotate(-90deg)';
+}
+function homeFold(key) {
+  const st = homeFoldRead();
+  st[key] = !st[key];
+  localStorage.setItem(HOME_FOLD_KEY, JSON.stringify(st));
+  homeFoldPaint(key, st[key]);
+}
+function homeFoldsApply() {
+  const st = homeFoldRead();
+  Object.keys(HOME_FOLD_DEFAULT).forEach(k => homeFoldPaint(k, st[k]));
+}
+
 function menuDrawer(open) {
   const menu = document.querySelector('.side-menu');
   const back = $('menu-backdrop');
@@ -7875,7 +7922,7 @@ function showMenu(key) {
   document.querySelectorAll('.menu-item').forEach(b => b.classList.toggle('active', b.dataset.menu === key));
   history.replaceState(null, '', '#' + key);
   notifLoad();   // 메뉴 이동 때 알림 갱신 (60초 스로틀 — 상시 폴링 없음)
-  if (key === 'home') { checkCafe24Status(); updateHomeSourceStatus(); updateHomeReasons(); updateHomeClaimsTile(); updateHomeTrafficTile(); renderHomeShortcuts(); homeTrendInit(); }
+  if (key === 'home') { homeFoldsApply(); checkCafe24Status(); updateHomeSourceStatus(); updateHomeReasons(); updateHomeClaimsTile(); updateHomeTrafficTile(); renderHomeShortcuts(); homeTrendInit(); }
   if (key === 'meet') {
     loadAdTopics(); loadMeetNotes();
     if (!$('note-date').value) $('note-date').value = new Date().toISOString().slice(0, 10);
