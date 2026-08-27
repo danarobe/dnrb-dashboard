@@ -1412,10 +1412,16 @@
       <button class="toggle-btn" onclick="myLoad()"><i class="fa-solid fa-rotate"></i> 새로고침</button>
     </div>
     <div class="section-body">
-      <div id="my-body"><div class="empty-state"><p>불러오는 중...</p></div></div>
-
-      <!-- 비밀번호 변경 — 근무 정보와 무관하게 누구나 -->
-      <div style="border-top:1px solid #e5e7eb;margin-top:20px;padding-top:16px;">
+      <div id="my-tabs" style="display:flex;gap:2px;border-bottom:2px solid #e5e7eb;margin-bottom:16px;flex-wrap:wrap;"></div>
+      <div id="my-pane-work" class="my-pane">
+        <div id="my-body"><div class="empty-state"><p>불러오는 중...</p></div></div>
+      </div>
+      <div id="my-pane-cert" class="my-pane" style="display:none;">
+        <div id="my-cert-body"><div class="empty-state"><p>불러오는 중...</p></div></div>
+      </div>
+      <div id="my-pane-pw" class="my-pane" style="display:none;">
+        <!-- 비밀번호 변경 — 근무 정보와 무관하게 누구나 -->
+      <div>
         <b style="font-size:.88rem;color:#1e1b4b;"><i class="fa-solid fa-key" style="color:#4f46e5;font-size:.85em;"></i> 비밀번호 변경</b>
         <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin-top:10px;">
           <label style="font-size:.75rem;color:#4b5563;font-weight:600;">현재 비밀번호
@@ -1426,7 +1432,8 @@
             <input type="password" id="my-pw-new2" onkeydown="if(event.key==='Enter')myChangePw()" style="display:block;margin-top:3px;border:1.5px solid #d1d5db;border-radius:8px;padding:6px 10px;font-size:.8rem;width:150px;" /></label>
           <button class="toggle-btn" style="background:#4f46e5;color:#fff;border-color:#4f46e5;margin-bottom:1px;" onclick="myChangePw()">변경</button>
         </div>
-        <div style="font-size:.68rem;color:#9ca3af;margin-top:6px;">4자 이상 · 변경하면 다음 로그인부터 새 비밀번호를 사용합니다.</div>
+        <div style="font-size:.68rem;color:#9ca3af;margin-top:6px;">4자 이상 · 변경하면 다음 로그인부터 새 비밀번호를 사용합니다. <b>매장 출퇴근 키오스크의 4자리 PIN과는 별개</b>라 서로 영향을 주지 않습니다.</div>
+      </div>
       </div>
     </div>
   </div>
@@ -7571,7 +7578,8 @@ const CERT_COMPANY = {   // 재직증명서에 찍히는 회사 정보 — 바�
   ceo: '김다나',            // 대표자명 (2026-08-27 사용자 확인)
   bizno: '545-87-03592',   // 사업자등록번호 (2026-08-27 사용자 확인)
 };
-const myState = { data: null };
+const myState = { data: null, tab: 'work' };
+const MY_TABS = [['work', '내 근무 현황', 'fa-regular fa-calendar-check'], ['cert', '재직증명서 발급', 'fa-regular fa-file-lines'], ['pw', '비밀번호 변경', 'fa-solid fa-key']];
 
 async function myApi(params, body) {
   const res = await fetch(fnUrl('wm-me', params), {
@@ -7603,7 +7611,22 @@ const MY_LV_STATUS = {
   rejected: ['반려', '#b91c1c', '#fee2e2'],
 };
 
+/* 가로 탭 (2026-08-27 사용자 요청 — 세로 나열 → 탭 3개로 분리) */
+function myRenderTabs() {
+  $('my-tabs').innerHTML = MY_TABS.map(([k, label, icon]) => {
+    const on = myState.tab === k;
+    return `<button onclick="mySetTab('${k}')" style="border:none;background:none;cursor:pointer;padding:9px 16px;font-size:.84rem;font-weight:${on ? '800' : '600'};color:${on ? '#4f46e5' : '#6b7280'};border-bottom:2.5px solid ${on ? '#4f46e5' : 'transparent'};margin-bottom:-2px;white-space:nowrap;"><i class="${icon}" style="font-size:.85em;margin-right:5px;"></i>${label}</button>`;
+  }).join('');
+}
+function mySetTab(k) {
+  myState.tab = k;
+  myRenderTabs();
+  MY_TABS.forEach(([key]) => { const el = $('my-pane-' + key); if (el) el.style.display = key === k ? 'block' : 'none'; });
+}
+
 async function myLoad() {
+  myRenderTabs();
+  mySetTab(myState.tab);
   $('my-body').innerHTML = '<div class="empty-state"><p>불러오는 중...</p></div>';
   try {
     myState.data = await myApi({ action: 'me' });
@@ -7620,6 +7643,7 @@ function myRender() {
       <b style="color:#1e1b4b;">${escHtml(d.name || '')} 님</b> <span style="font-size:.75rem;">(${ROLE_LABEL[d.role] || ''})</span>
       <div style="margin-top:8px;">이 계정은 근무 관리에 등록된 직원과 연결되어 있지 않아 근무 정보·휴가 신청·재직증명서를 표시할 수 없습니다.
       ${isAdmin() ? '' : '<br>담당자에게 문의해주세요.'}</div></div>`;
+    $('my-cert-body').innerHTML = '<div style="background:#f8f9fb;border-radius:12px;padding:16px;font-size:.82rem;color:#6b7280;">근무 관리에 연결된 직원 계정이 아니어서 재직증명서를 발급할 수 없습니다.</div>';
     return;
   }
   const a = d.annual, left = a.left, pct = a.total > 0 ? Math.min(100, Math.round(a.used / a.total * 100)) : 0;
@@ -7672,9 +7696,12 @@ function myRender() {
       <div class="table-wrap" style="margin-top:12px;"><table style="font-size:.8rem;">
         <thead><tr><th>날짜</th><th>종류</th><th style="text-align:left;">사유</th><th>상태</th><th></th></tr></thead>
         <tbody>${lvRows}</tbody></table></div>
-    </div>
+    </div>`;
 
-    <div style="border-top:1px solid #e5e7eb;margin-top:20px;padding-top:16px;">
+
+
+  $('my-cert-body').innerHTML = `
+    <div>
       <b style="font-size:.88rem;color:#1e1b4b;"><i class="fa-regular fa-file-lines" style="color:#4f46e5;font-size:.85em;"></i> 재직증명서</b>
       <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin-top:10px;">
         <label style="font-size:.75rem;color:#4b5563;font-weight:600;">용도
