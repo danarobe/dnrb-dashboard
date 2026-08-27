@@ -143,14 +143,28 @@
       #rw-result td.rw-actions { white-space: normal !important; }      /* 관리 버튼 세로 쌓임 */
       .rw-hs { display: inline; }                                       /* 모바일: 상품명 아래 상태 미니 배지 */
 
+      /* 모바일 메뉴 = 서랍(2026-08-27 UI 정리)
+         기존엔 메뉴 16개가 가로 한 줄(스크롤 폭 2,157px)이라 끝 메뉴까지 6화면을 넘겨야 했다.
+         이제 ☰ 버튼으로 왼쪽에서 밀려 나오는 패널에 전부 담고, 항목을 누르면 자동으로 닫힌다. */
       .side-menu {
-        position: sticky; top: 0; z-index: 50; width: 100%;
-        flex-direction: row; overflow-x: auto; gap: 8px;
-        padding: 10px 16px; background: rgba(238, 240, 248, .95);
-        backdrop-filter: blur(6px);
+        position: fixed; top: 0; left: 0; z-index: 300;
+        width: 262px; max-width: 84vw; height: 100vh; overflow-y: auto;
+        flex-direction: column; gap: 4px; padding: 16px 14px 28px;
+        background: #eef0f8; box-shadow: 4px 0 24px rgba(15,23,42,.18);
+        transform: translateX(-102%); transition: transform .22s ease;
       }
-      .menu-item { white-space: nowrap; padding: 9px 14px; font-size:.82rem; }
+      .side-menu.open { transform: none; }
+      .menu-item { white-space: nowrap; padding: 11px 14px; font-size: .86rem; width: 100%; }
+      #menu-backdrop.show { display: block; }
+      #btn-menu { display: inline-flex !important; }
     }
+
+    /* 모바일 메뉴 서랍용 배경 덮개 (2026-08-27) */
+    #menu-backdrop {
+      display: none; position: fixed; inset: 0; z-index: 299;
+      background: rgba(15, 23, 42, .45);
+    }
+    #btn-menu { display: none; }
 
     /* ── 섹션 카드 ── */
     .section-card {
@@ -490,7 +504,7 @@
     /* 모바일 열 숨김 공용 클래스 (④ — 판매 성과·상품 분석) */
     @media (max-width: 700px) {
       .m-hide { display: none !important; }
-      .menu-group { display: none; }   /* 가로 스크롤 메뉴에선 소제목 생략 */
+      /* 서랍 메뉴에선 소제목(분석·운영·경영·협업·내 정보)이 길잡이라 유지한다 (2026-08-27) */
     }
 
     /* ── 모바일 전폭 맞춤 (2026-08-20) ──
@@ -518,6 +532,8 @@
 
 <!-- ══ 헤더 ══ -->
 <header class="top-header">
+  <button id="btn-menu" class="btn-copy-link" onclick="menuDrawer()" title="메뉴" aria-label="메뉴 열기"
+          style="align-items:center;justify-content:center;padding:6px 11px;margin-right:8px;"><i class="fa-solid fa-bars"></i></button>
   <h1><i class="fa-solid fa-chart-line"></i> 온라인 쇼핑몰 <span>성과 분석 대시보드 by DNRB</span></h1>
   <div style="display:flex;align-items:center;gap:10px;">
     <span id="notif-wrap" style="position:relative;display:none;">
@@ -554,6 +570,7 @@
 <div class="layout">
 
 <!-- ══ 좌측 메뉴 ══ -->
+<div id="menu-backdrop" onclick="menuDrawer(false)"></div>
 <nav class="side-menu">
   <div class="menu-group">분석</div>
   <button class="menu-item" data-menu="home" onclick="showMenu('home')"><i class="fa-solid fa-house" style="width:18px;text-align:center;color:#818cf8;"></i>대시보드</button>
@@ -3550,11 +3567,9 @@ function boardRender() {
     resolved: active.filter(r => r.status === 'resolved').length,
     archived: rows.length - active.length,
   };
-  const TABS = [['active', '전체'], ['open', '대기'], ['discussed', '논의함'], ['resolved', '결론'], ['archived', '보관함']];
-  $('board-tabs').innerHTML = TABS.map(([k, label]) => {
-    const on = boardState.tab === k;
-    return `<button onclick="boardSetTab('${k}')" style="border:1.5px solid ${on ? 'transparent' : '#d1d5db'};background:${on ? '#4f46e5' : '#fff'};color:${on ? '#fff' : '#4b5563'};border-radius:99px;padding:5px 13px;font-size:.78rem;font-weight:700;cursor:pointer;">${label}${cnt[k] ? ` ${cnt[k]}` : ''}</button>`;
-  }).join('');
+  const TABS = [['active', '전체', cnt.active], ['open', '대기', cnt.open], ['discussed', '논의함', cnt.discussed],
+    ['resolved', '결론', cnt.resolved], ['archived', '보관함', cnt.archived]];
+  uiTabs('board-tabs', TABS, boardState.tab, 'boardSetTab');
 
   const list = boardState.tab === 'archived' ? rows.filter(r => r.archived)
     : boardState.tab === 'active' ? active
@@ -5879,8 +5894,7 @@ function admgrRender() {
     ['ad', '광고', admgrState.data ? R.ads.length : null],
     ['test', '테스트 소재', testCount],
   ];
-  $('admgr-tabs').innerHTML = tabDefs.map(([key, label, n]) =>
-    `<button onclick="admgrSetView('${key}')" style="border:none;background:none;cursor:pointer;padding:8px 14px;font-size:.82rem;font-weight:${v === key ? '800' : '600'};color:${v === key ? '#4f46e5' : '#6b7280'};border-bottom:2.5px solid ${v === key ? '#4f46e5' : 'transparent'};margin-bottom:-2px;">${label}${n == null ? '' : ` <span style="font-size:.7rem;color:${v === key ? '#818cf8' : '#9ca3af'};">${n}</span>`}</button>`).join('');
+  uiTabs('admgr-tabs', tabDefs.map(([k, label, n]) => [k, label, n == null ? '' : n]), v, 'admgrSetView');
   $('admgr-presets').style.display = v === 'test' ? 'none' : 'flex';
   $('admgr-active-wrap').style.display = v === 'test' ? 'none' : 'flex';
   $('admgr-testctrl').style.display = v === 'test' ? 'flex' : 'none';
@@ -6545,12 +6559,7 @@ async function wmApi(body) {
 const WM_TABS = [['att', '출퇴근 조회'], ['sal', '급여 계산'], ['lv', '휴가 관리'], ['emp', '직원 관리'], ['hol', '공휴일']];
 
 function wmRenderTabs() {
-  $('wm-tabs').innerHTML = WM_TABS.map(([k, label]) => {
-    const on = wmState.tab === k;
-    return `<button onclick="wmSetTab('${k}')" style="border:0;background:${on ? '#eef2ff' : 'transparent'};
-      color:${on ? '#4f46e5' : '#6b7280'};font-weight:${on ? 700 : 600};font-size:.8rem;padding:8px 14px;
-      border-bottom:2px solid ${on ? '#4f46e5' : 'transparent'};margin-bottom:-2px;cursor:pointer;border-radius:6px 6px 0 0;">${label}</button>`;
-  }).join('');
+  uiTabs('wm-tabs', WM_TABS, wmState.tab, 'wmSetTab');
 }
 
 function wmSetTab(k) {
@@ -7613,10 +7622,7 @@ const MY_LV_STATUS = {
 
 /* 가로 탭 (2026-08-27 사용자 요청 — 세로 나열 → 탭 3개로 분리) */
 function myRenderTabs() {
-  $('my-tabs').innerHTML = MY_TABS.map(([k, label, icon]) => {
-    const on = myState.tab === k;
-    return `<button onclick="mySetTab('${k}')" style="border:none;background:none;cursor:pointer;padding:9px 16px;font-size:.84rem;font-weight:${on ? '800' : '600'};color:${on ? '#4f46e5' : '#6b7280'};border-bottom:2.5px solid ${on ? '#4f46e5' : 'transparent'};margin-bottom:-2px;white-space:nowrap;"><i class="${icon}" style="font-size:.85em;margin-right:5px;"></i>${label}</button>`;
-  }).join('');
+  uiTabs('my-tabs', MY_TABS.map(([k, label, icon]) => [k, label, null, icon]), myState.tab, 'mySetTab');
 }
 function mySetTab(k) {
   myState.tab = k;
@@ -7816,7 +7822,45 @@ async function myChangePw() {
 
 const MENU_KEYS = ['home', 'cr', 'an', 'perf', 'rwatch', 'disp', 'stable', 'adv', 'admgr', 'profit', 'wm', 'meet', 'board', 'proj', 'users', 'my'];
 
+/* 모바일 메뉴 서랍 (2026-08-27) — 열기/닫기. 데스크톱에선 ☰ 버튼이 숨겨져 호출되지 않는다. */
+function menuDrawer(open) {
+  const menu = document.querySelector('.side-menu');
+  const back = $('menu-backdrop');
+  const willOpen = open === undefined ? !menu.classList.contains('open') : !!open;
+  menu.classList.toggle('open', willOpen);
+  back.classList.toggle('show', willOpen);
+  document.body.style.overflow = willOpen ? 'hidden' : '';
+}
+
+/* ── 공용 탭 부품 (2026-08-27 UI 정리) ──
+   화면 안에서 '보는 대상'을 바꾸는 탭은 전부 이 함수 하나로 그린다(밑줄형).
+   그동안 회의보드·광고관리자·근무관리·마이페이지가 제각각(밑줄 2px/2.5px·알약칩)이라 어수선했다.
+   ⚠ 필터용 칩(.qp 기간 프리셋, 프로젝트 카테고리 등)은 알약형 그대로 — '화면 전환'과 '거르기'를 모양으로 구분한다.
+   defs: [key, label, badge?, icon?]  ·  onclick: 함수명 문자열 (인자로 key가 들어감) */
+function uiTabs(containerId, defs, activeKey, onclick) {
+  const el = $(containerId);
+  if (!el) return;
+  el.innerHTML = defs.map(d => {
+    const [k, label, badge, icon] = d;
+    const on = k === activeKey;
+    return `<button onclick="${onclick}('${k}')" style="border:none;background:none;cursor:pointer;`
+      + `padding:9px 15px;font-size:.83rem;font-weight:${on ? '800' : '600'};`
+      + `color:${on ? '#4f46e5' : '#6b7280'};border-bottom:2.5px solid ${on ? '#4f46e5' : 'transparent'};`
+      + `margin-bottom:-2px;white-space:nowrap;">`
+      + (icon ? `<i class="${icon}" style="font-size:.85em;margin-right:5px;"></i>` : '')
+      + label
+      + (badge == null || badge === '' ? '' : ` <span style="font-size:.72rem;color:${on ? '#818cf8' : '#9ca3af'};font-weight:700;">${badge}</span>`)
+      + '</button>';
+  }).join('');
+  el.style.display = 'flex';
+  el.style.gap = '2px';
+  el.style.flexWrap = 'wrap';
+  el.style.borderBottom = '2px solid #e5e7eb';
+}
+
 function showMenu(key) {
+  if (window.innerWidth <= 900) menuDrawer(false);   // 메뉴를 고르면 서랍은 닫는다
+
   if (!MENU_KEYS.includes(key)) key = 'home';
   if (isCS() && key !== 'my') key = 'perf';   // CS팀·물류팀은 판매 성과 + 마이페이지만
   // 권한 없는 메뉴는 홈으로 되돌린다 — 여기서 return하면 URL에 #disp 등을 달고 들어온
