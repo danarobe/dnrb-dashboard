@@ -6028,7 +6028,7 @@ function admgrRender() {
     <thead><tr>
       ${hasCk ? `<th style="width:34px;"><input type="checkbox" ${allChecked ? 'checked' : ''} onclick="admgrSelAllDisp()" title="표시된 전체 선택/해제" /></th>` : ''}
       ${thSort('name', '이름', '', true)}<th>상태</th><th class="m-hide">예산</th>${showChg ? '<th class="m-hide" title="오늘 예산 변경 여부 — 아이콘 클릭 시 히스토리·영향 분석">최근 변경</th>' : ''}
-      ${thSort('spend', '지출')}${thSort('purchases', '구매', 'm-hide')}${v === 'adset' ? thSort('paid', '실결제 수', 'm-hide') : ''}${thSort('cpa', '구매당 비용', 'm-hide')}${thSort('roas', 'ROAS')}${thSort('value', '전환값', 'm-hide')}${thSort('cpc', 'CPC', 'm-hide')}
+      ${thSort('spend', '지출')}${thSort('purchases', '구매', 'm-hide')}${v === 'adset' ? thSort('paid', '실결제 수', 'm-hide') : ''}${thSort('cpa', '구매당 비용', 'm-hide')}${thSort('roas', 'ROAS')}${thSort('value', '구매 전환값', 'm-hide')}${thSort('cpc', 'CPC', 'm-hide')}
     </tr></thead><tbody>`;
   for (const r of rows) {
     const checked = hasCk && selSetNow.has(r.id);
