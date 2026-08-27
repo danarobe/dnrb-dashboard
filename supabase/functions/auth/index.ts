@@ -94,7 +94,7 @@ Deno.serve(async (req) => {
     if (me.role !== "admin") return json({ error: "접근 권한이 없습니다" }, 403);
 
     if (action === "list_users") {
-      const res = await usersRest(`app_users?select=id,name,role,created_at&order=created_at.asc`);
+      const res = await usersRest(`app_users?select=id,name,role,created_at,birthday&order=created_at.asc`);
       if (!res.ok) throw new Error("목록 조회 실패 " + res.status);
       return json({ users: await res.json() });
     }

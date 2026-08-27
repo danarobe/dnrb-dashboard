@@ -1833,6 +1833,7 @@
         </div>
       </div>
 
+      <div id="users-bday" style="display:none;margin-bottom:16px;"></div>
       <div id="users-list" style="font-size:.82rem;color:#6b7280;">불러오는 중…</div>
       <!-- 직원 근무 정보 모달 (2026-08-27) — 근무 관리(wm_employees) 연동 데이터 -->
       <div id="user-detail-modal" onclick="if(event.target===this)this.style.display='none'"
@@ -2117,6 +2118,7 @@ async function loadUsers() {
         <td style="display:flex;gap:6px;justify-content:center;">${roleBtn}${delBtn}</td>
       </tr>`; }).join('') + '</tbody></table></div>' +
       '<div style="font-size:.75rem;color:#9ca3af;margin-top:8px;">※ 권한 변경은 해당 팀원이 <b>다시 로그인</b>해야 적용됩니다 · MD는 광고 효율의 광고비·전환값·총매출이 가려집니다 · CS팀·물류팀은 판매 성과 메뉴만 보입니다 · 관리자 계정을 삭제하려면 먼저 MD로 변경하세요 · 이름을 클릭하면 근무 정보(입사일·연봉·계좌·연차)가 열립니다</div>';
+    usersBdayRender(d.users);
   } catch (e) { $('users-list').textContent = '목록 조회 실패: ' + e.message; }
 }
 
@@ -2133,6 +2135,59 @@ async function addUser() {
 /* 직원 근무 정보 모달 (2026-08-27) — 이름 클릭 시 근무 관리(wm_employees) 연동 데이터 표시.
    입사일·근무기간·연봉·생일·급여 계좌·연차 총량. 관리자 행은 클릭 대상 아님(급여 대상 아님). */
 let __udEmps = null;   // 메뉴에 머무는 동안 캐시 (loadUsers가 초기화)
+/* 이번 달 생일 (2026-08-27) — 직원 관리 상단 패널.
+   생일 출처가 두 곳이라 합쳐서 본다: ①근무 관리 직원(wm_employees.birthday, 알바 포함)
+   ②대시보드 계정(app_users.birthday — 대표는 근무 관리에 없어 계정에 보관, 'MM-DD' 형식).
+   같은 사람이 양쪽에 있으면(연결된 정직원) 근무 관리 값을 쓴다. */
+const bdayMMDD = v => {
+  const t = String(v || '').trim();
+  const m = t.match(/(\d{2})-(\d{2})$/);
+  return m ? `${m[1]}-${m[2]}` : null;
+};
+async function usersBdayRender(users) {
+  const box = $('users-bday');
+  if (!box) return;
+  try { if (!__udEmps) __udEmps = await wmApi({ action: 'employee_list' }); } catch { /* 근무 관리 조회 실패해도 계정 생일은 표시 */ }
+  const linked = new Set((__udEmps || []).map(e => e.app_user_id).filter(Boolean));
+  const people = [];
+  for (const e of (__udEmps || [])) {
+    const md = bdayMMDD(e.birthday);
+    if (md) people.push({ name: e.name, md, tag: e.type === 'parttime' ? '알바' : '직원' });
+  }
+  for (const u of (users || [])) {
+    if (linked.has(u.id)) continue;                 // 근무 관리 쪽에서 이미 잡힘
+    const md = bdayMMDD(u.birthday);
+    if (md) people.push({ name: u.name, md, tag: ROLE_LABEL[u.role] || '' });
+  }
+  const today = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Seoul' });   // YYYY-MM-DD
+  const mm = today.slice(5, 7), dd = Number(today.slice(8, 10));
+  const month = people.filter(p => p.md.slice(0, 2) === mm).sort((a, b) => a.md.localeCompare(b.md));
+  const monthNo = Number(mm);
+  if (!month.length) {
+    box.innerHTML = `<div style="background:#f8f9fb;border:1px solid #eceef2;border-radius:12px;padding:12px 14px;font-size:.8rem;color:#9ca3af;">
+      <b style="color:#6b7280;"><i class="fa-solid fa-cake-candles" style="color:#f472b6;"></i> ${monthNo}월 생일</b> — 이번 달 생일인 직원이 없습니다.</div>`;
+    box.style.display = 'block';
+    return;
+  }
+  box.innerHTML = `<div style="background:#fff;border:1.5px solid #fbcfe8;border-radius:12px;padding:14px 16px;">
+    <div style="font-size:.85rem;font-weight:800;color:#9d174d;margin-bottom:10px;">
+      <i class="fa-solid fa-cake-candles" style="color:#f472b6;"></i> ${monthNo}월 생일 <span style="font-size:.72rem;color:#9ca3af;font-weight:600;">${month.length}명</span></div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;">
+      ${month.map(p => {
+        const d = Number(p.md.slice(3, 5));
+        const isToday = d === dd, past = d < dd;
+        const badge = isToday ? '<span style="background:#ec4899;color:#fff;border-radius:99px;padding:1px 8px;font-size:.66rem;font-weight:800;">오늘</span>'
+          : past ? '<span style="font-size:.66rem;color:#c4c9d4;">지남</span>'
+          : `<span style="font-size:.66rem;color:#be185d;font-weight:700;">D-${d - dd}</span>`;
+        return `<div style="display:flex;align-items:center;gap:7px;background:${isToday ? '#fdf2f8' : '#f9fafb'};border:1px solid ${isToday ? '#f9a8d4' : '#eceef2'};border-radius:99px;padding:5px 12px;">
+          <b style="font-size:.8rem;color:#1e1b4b;">${escHtml(p.name)}</b>
+          <span style="font-size:.72rem;color:#6b7280;">${monthNo}/${d}</span>
+          <span style="font-size:.64rem;color:#9ca3af;">${escHtml(p.tag)}</span>${badge}</div>`;
+      }).join('')}
+    </div></div>`;
+  box.style.display = 'block';
+}
+
 async function userDetail(uid) {
   $('user-detail-title').textContent = '근무 정보';
   $('user-detail-body').innerHTML = '<div style="padding:14px;text-align:center;color:#9ca3af;font-size:.78rem;"><i class="fa-solid fa-spinner fa-spin"></i> 불러오는 중...</div>';
