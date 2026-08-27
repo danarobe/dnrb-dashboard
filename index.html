@@ -7850,6 +7850,7 @@ const TRIP_RULES = [
   '식사는 법인 카드로 결제하며, 위 출장비는 1박 기준으로 지급합니다.',
   '연장 근로 수당은 시차와 무관하게 실제 근로한 경과 시간을 기준으로 산정하고, 초과근로시간은 15분 단위로 올림하여 계산합니다.',
   '출장 중 이동시간(항공 및 차량)은 근로시간에 산입하지 않습니다. 다만 이동 중 사용자의 지시에 따라 업무를 수행한 시간은 근로시간으로 인정합니다.',
+  '초과 근로 시간에서 식사시간(1시간) 및 이동시간은 공제합니다.',
 ];
 
 function myDocSet(k) { myState.doc = k; myRenderDocs(); }
@@ -7897,7 +7898,7 @@ function myRenderDocs() {
       <div id="my-trip-sum" style="margin-left:auto;font-size:.82rem;font-weight:800;color:#1e1b4b;margin-bottom:6px;"></div>
     </div>
     <div style="border-top:1px solid #eceef2;padding-top:10px;">
-      <b style="font-size:.8rem;color:#1e1b4b;">초과 근로 내역 <span style="font-size:.7rem;color:#9ca3af;font-weight:600;">실제 근로한 경과 시간 · 15분 단위 올림</span></b>
+      <b style="font-size:.8rem;color:#1e1b4b;">초과 근로 내역 <span style="font-size:.7rem;color:#9ca3af;font-weight:600;">실제 근로한 경과 시간 · 15분 단위 올림 · 식사시간 및 이동시간은 공제됩니다</span></b>
       <div id="my-trip-ot" style="margin-top:8px;"></div>
       <button class="toggle-btn" style="font-size:.72rem;padding:3px 10px;margin-top:6px;" onclick="myTripOtAdd()"><i class="fa-solid fa-plus"></i> 날짜 추가</button>
     </div>
@@ -7909,31 +7910,46 @@ function myRenderDocs() {
   }
 
   box.innerHTML = `<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px;">${chips}</div><div>${form}</div>`;
-  if (kind === 'trip') { myTripOtRows = myTripOtRows.length ? myTripOtRows : [{ date: (myState.data || {}).today || '', h: '', m: '' }]; myTripOtRender(); myTripCalc(); }
+  if (kind === 'trip') { myTripOtRows = myTripOtRows.length ? myTripOtRows : [myTripOtBlank()]; myTripOtRender(); myTripCalc(); }
 }
 
 /* ── 출장: 초과 근로 행 ── */
 let myTripOtRows = [];
-function myTripOtAdd() { myTripOtRows.push({ date: (myState.data || {}).today || '', h: '', m: '' }); myTripOtRender(); myTripCalc(); }
-function myTripOtDel(i) { myTripOtRows.splice(i, 1); if (!myTripOtRows.length) myTripOtRows.push({ date: '', h: '', m: '' }); myTripOtRender(); myTripCalc(); }
+const myTripOtBlank = () => ({ date: (myState.data || {}).today || '', s: '', e: '', meal: false, memo: '' });
+function myTripOtAdd() { myTripOtRows.push(myTripOtBlank()); myTripOtRender(); myTripCalc(); }
+function myTripOtDel(i) { myTripOtRows.splice(i, 1); if (!myTripOtRows.length) myTripOtRows.push(myTripOtBlank()); myTripOtRender(); myTripCalc(); }
 function myTripOtSet(i, field, val) { myTripOtRows[i][field] = val; myTripCalc(); }
 function myTripOtRender() {
-  $('my-trip-ot').innerHTML = myTripOtRows.map((r, i) => `<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:6px;">
-    <input type="date" value="${r.date}" onchange="myTripOtSet(${i},'date',this.value)" style="border:1.5px solid #d1d5db;border-radius:8px;padding:5px 8px;font-size:.78rem;" />
-    <input type="number" min="0" max="24" placeholder="시" value="${r.h}" oninput="myTripOtSet(${i},'h',this.value)" style="width:66px;border:1.5px solid #d1d5db;border-radius:8px;padding:5px 8px;font-size:.78rem;" />
-    <span style="font-size:.75rem;color:#6b7280;">시간</span>
-    <input type="number" min="0" max="59" placeholder="분" value="${r.m}" oninput="myTripOtSet(${i},'m',this.value)" style="width:66px;border:1.5px solid #d1d5db;border-radius:8px;padding:5px 8px;font-size:.78rem;" />
-    <span style="font-size:.75rem;color:#6b7280;">분</span>
-    <span id="my-trip-ot-r${i}" style="font-size:.74rem;color:#4338ca;font-weight:700;min-width:96px;"></span>
+  const inp = 'border:1.5px solid #d1d5db;border-radius:8px;padding:5px 8px;font-size:.78rem;';
+  $('my-trip-ot').innerHTML = myTripOtRows.map((r, i) => `<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:8px;padding-bottom:8px;border-bottom:1px dashed #eceef2;">
+    <input type="date" value="${r.date}" onchange="myTripOtSet(${i},'date',this.value)" style="${inp}" />
+    <input type="time" value="${r.s}" onchange="myTripOtSet(${i},'s',this.value)" style="${inp}" />
+    <span style="font-size:.75rem;color:#6b7280;">~</span>
+    <input type="time" value="${r.e}" onchange="myTripOtSet(${i},'e',this.value)" style="${inp}" />
+    <label style="display:flex;align-items:center;gap:4px;font-size:.74rem;color:#4b5563;font-weight:600;cursor:pointer;white-space:nowrap;">
+      <input type="checkbox" ${r.meal ? 'checked' : ''} onchange="myTripOtSet(${i},'meal',this.checked)" /> 식사시간 포함</label>
+    <input placeholder="업무 내용 (예: 거래처 미팅 자료 정리)" value="${String(r.memo || '').replace(/"/g, '&quot;')}" oninput="myTripOtSet(${i},'memo',this.value)" style="${inp}flex:1;min-width:150px;" />
+    <span id="my-trip-ot-r${i}" style="font-size:.74rem;color:#4338ca;font-weight:700;min-width:104px;"></span>
     <button class="toggle-btn" style="font-size:.68rem;padding:2px 8px;color:#dc2626;" onclick="myTripOtDel(${i})">삭제</button>
   </div>`).join('');
 }
 /* 15분 단위 올림 — 규정: "초과근로시간은 15분 단위로 올림하여 계산" */
 const ceil15 = mins => Math.ceil(mins / 15) * 15;
 const hm = mins => `${Math.floor(mins / 60)}시간 ${mins % 60}분`;
+/* 시작~종료 시각 → 분. 종료가 시작보다 이르면 자정을 넘긴 야근으로 보고 +24시간.
+   식사시간 포함이면 **규정상 실제 근로시간에서 먼저 1시간을 빼고**, 그 값을 15분 단위로 올린다. */
+const MEAL_MIN = 60;
+function myTripOtMinutes(r) {
+  if (!r.s || !r.e) return 0;
+  const [sh, sm] = r.s.split(':').map(Number), [eh, em] = r.e.split(':').map(Number);
+  let mins = (eh * 60 + em) - (sh * 60 + sm);
+  if (mins < 0) mins += 24 * 60;
+  if (r.meal) mins -= MEAL_MIN;
+  return Math.max(0, mins);
+}
 function myTripOtTotals() {
   const rows = myTripOtRows
-    .map(r => ({ date: r.date, raw: (Number(r.h) || 0) * 60 + (Number(r.m) || 0) }))
+    .map(r => ({ ...r, raw: myTripOtMinutes(r) }))
     .filter(r => r.raw > 0)
     .map(r => ({ ...r, ceil: ceil15(r.raw) }));
   return { rows, total: rows.reduce((s, r) => s + r.ceil, 0) };
@@ -7946,7 +7962,7 @@ function myTripCalc() {
   myTripOtRows.forEach((r, i) => {
     const el = $('my-trip-ot-r' + i);
     if (!el) return;
-    const raw = (Number(r.h) || 0) * 60 + (Number(r.m) || 0);
+    const raw = myTripOtMinutes(r);
     el.textContent = raw > 0 ? `→ ${hm(ceil15(raw))}` : '';
   });
   const sum = $('my-trip-sum');
@@ -8064,9 +8080,10 @@ function myTripPrint() {
   if (e < s) { showToast('복귀일이 출발일보다 빠릅니다'); return; }
   const { rows: otRows, total } = myTripOtTotals();
   const otTable = otRows.length
-    ? `<table class="grid"><thead><tr><th>날짜</th><th>실제 근로 경과시간</th><th>15분 단위 올림</th></tr></thead>
-       <tbody>${otRows.map(r => `<tr><td>${r.date || '—'}</td><td>${hm(r.raw)}</td><td><b>${hm(r.ceil)}</b></td></tr>`).join('')}
-       <tr><th>합 계</th><td>${hm(otRows.reduce((x, r) => x + r.raw, 0))}</td><td><b>${hm(total)}</b></td></tr></tbody></table>`
+    ? `<table class="grid"><thead><tr><th>날짜</th><th>근로 시간</th><th>식사</th><th>실제 근로</th><th>15분 올림</th><th>업무 내용</th></tr></thead>
+       <tbody>${otRows.map(r => `<tr><td>${r.date || '—'}</td><td>${r.s} ~ ${r.e}</td><td>${r.meal ? '포함(-1시간)' : '—'}</td>
+         <td>${hm(r.raw)}</td><td><b>${hm(r.ceil)}</b></td><td style="text-align:left;">${escHtml(r.memo || '—')}</td></tr>`).join('')}
+       <tr><th colspan="3">합 계</th><td>${hm(otRows.reduce((x, r) => x + r.raw, 0))}</td><td><b>${hm(total)}</b></td><td></td></tr></tbody></table>`
     : '<div style="font-size:13px;color:#666;margin-bottom:16px;">해당 없음</div>';
   const inner = `<div class="sec">1. 신청자</div>
     <table>${myDocRow('성 명', escHtml(d.name))}${myDocRow('소 속', ROLE_LABEL[d.role] || '—')}${myDocRow('입 사 일', d.hire_date || '—')}</table>
