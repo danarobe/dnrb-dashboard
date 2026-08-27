@@ -5297,6 +5297,20 @@ function admgrSortClick(k) {
   else admgrState.sort.splice(i, 1);
   admgrRender();
 }
+/* Meta ID 비교 — id는 시간순으로 증가하지만 17자리라 Number()로 바꾸면 정밀도가 깨진다(2^53 초과).
+   자릿수 → 사전순으로 문자열 비교해야 정확하다. */
+function admgrIdCmp(x, y) {
+  const a = String(x || ''), b = String(y || '');
+  return a.length !== b.length ? a.length - b.length : a.localeCompare(b);
+}
+/* 기본 정렬 = 메타 광고관리자와 동일한 '최근 생성 순'(2026-08-27 사용자 요청).
+   실측: Meta API가 주는 자연 순서가 created_time 내림차순 = id 내림차순으로 전 캠페인 일치.
+   created가 없는 행(인사이트에서만 온 '기간 중 게재')은 id로 대체 — id도 시간순이라 결과가 같다. */
+function admgrDefaultCmp(a, b) {
+  const ca = a.created || '', cb = b.created || '';
+  if (ca && cb && ca !== cb) return cb.localeCompare(ca);
+  return admgrIdCmp(b.id, a.id);
+}
 function admgrCmp(a, b) {
   const roasOf = n => n.spend > 0 ? n.value / n.spend : -1;
   const cpaOf = n => n.purchases > 0 ? n.spend / n.purchases : Infinity;
@@ -5308,7 +5322,7 @@ function admgrCmp(a, b) {
       : (val(a, k) - val(b, k));
     if (r) return d === 'asc' ? r : -r;
   }
-  return b.spend - a.spend;   // 기본: 지출 내림차순
+  return admgrDefaultCmp(a, b);   // 기본: 최근 생성 순 (메타 광고관리자 기본값)
 }
 const ADMGR_PRESETS = [['today', '오늘'], ['yesterday', '어제'], ['last_7d', '최근 7일'], ['last_30d', '최근 30일']];   // 7일·30일 = 오늘 제외, 어제까지 (Meta 표준)
 
