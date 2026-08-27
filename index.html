@@ -570,6 +570,8 @@
   <button class="menu-item" data-menu="admgr" id="menu-admgr" style="display:none;" onclick="showMenu('admgr')"><i class="fa-solid fa-sitemap" style="width:18px;text-align:center;color:#818cf8;"></i>광고관리자</button>
   <button class="menu-item" data-menu="profit" id="menu-profit" onclick="showMenu('profit')"><i class="fa-solid fa-coins" style="width:18px;text-align:center;color:#818cf8;"></i>순익 시나리오</button>
   <button class="menu-item" data-menu="wm" id="menu-wm" style="display:none;" onclick="showMenu('wm')"><i class="fa-solid fa-user-clock" style="width:18px;text-align:center;color:#818cf8;"></i>근무 관리</button>
+  <div class="menu-group">내 정보</div>
+  <button class="menu-item" data-menu="my" id="menu-my" onclick="showMenu('my')"><i class="fa-solid fa-id-card" style="width:18px;text-align:center;color:#4f46e5;"></i>마이페이지</button>
   <div class="menu-group">협업</div>
   <button class="menu-item" data-menu="meet" onclick="showMenu('meet')"><i class="fa-solid fa-clipboard-list" style="width:18px;text-align:center;color:#818cf8;"></i>광고 회의록</button>
   <button class="menu-item" data-menu="board" id="menu-board" style="display:none;" onclick="showMenu('board')"><i class="fa-solid fa-people-group" style="width:18px;text-align:center;color:#818cf8;"></i>대표 회의보드</button>
@@ -1403,6 +1405,32 @@
        SECTION : 근무 관리 (출퇴근·급여) — 관리자 전용
        2026-08 근무관리 시스템 Supabase 이전. 2단계는 조회 전용(병행 운영).
   ════════════════════════════════════════ -->
+  <!-- ══ 마이페이지 (#my, 2026-08-27) — 직원 본인 정보·휴가 신청·재직증명서·비밀번호 ══ -->
+  <div class="section-card page-sec" id="sec-my">
+    <div class="section-header" style="cursor:default;">
+      <h2><span><i class="fa-solid fa-id-card" style="color:#4f46e5;font-size:.9em;"></i></span> 마이페이지</h2>
+      <button class="toggle-btn" onclick="myLoad()"><i class="fa-solid fa-rotate"></i> 새로고침</button>
+    </div>
+    <div class="section-body">
+      <div id="my-body"><div class="empty-state"><p>불러오는 중...</p></div></div>
+
+      <!-- 비밀번호 변경 — 근무 정보와 무관하게 누구나 -->
+      <div style="border-top:1px solid #e5e7eb;margin-top:20px;padding-top:16px;">
+        <b style="font-size:.88rem;color:#1e1b4b;"><i class="fa-solid fa-key" style="color:#4f46e5;font-size:.85em;"></i> 비밀번호 변경</b>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin-top:10px;">
+          <label style="font-size:.75rem;color:#4b5563;font-weight:600;">현재 비밀번호
+            <input type="password" id="my-pw-old" style="display:block;margin-top:3px;border:1.5px solid #d1d5db;border-radius:8px;padding:6px 10px;font-size:.8rem;width:150px;" /></label>
+          <label style="font-size:.75rem;color:#4b5563;font-weight:600;">새 비밀번호
+            <input type="password" id="my-pw-new" style="display:block;margin-top:3px;border:1.5px solid #d1d5db;border-radius:8px;padding:6px 10px;font-size:.8rem;width:150px;" /></label>
+          <label style="font-size:.75rem;color:#4b5563;font-weight:600;">새 비밀번호 확인
+            <input type="password" id="my-pw-new2" onkeydown="if(event.key==='Enter')myChangePw()" style="display:block;margin-top:3px;border:1.5px solid #d1d5db;border-radius:8px;padding:6px 10px;font-size:.8rem;width:150px;" /></label>
+          <button class="toggle-btn" style="background:#4f46e5;color:#fff;border-color:#4f46e5;margin-bottom:1px;" onclick="myChangePw()">변경</button>
+        </div>
+        <div style="font-size:.68rem;color:#9ca3af;margin-top:6px;">4자 이상 · 변경하면 다음 로그인부터 새 비밀번호를 사용합니다.</div>
+      </div>
+    </div>
+  </div>
+
   <div class="section-card page-sec" id="sec-wm">
     <div class="section-header" style="cursor:default;">
       <h2><span><i class="fa-solid fa-user-clock" style="color:#4f46e5;font-size:.9em;"></i></span> 근무 관리</h2>
@@ -1484,6 +1512,7 @@
             <button class="toggle-btn" onclick="$('wm-lv-form').style.display='none'" style="margin-bottom:2px;">닫기</button>
           </div>
         </div>
+        <div id="wm-lv-pending" style="display:none;margin-bottom:12px;"></div>
         <div id="wm-lv-result"><div class="empty-state"><p>불러오는 중...</p></div></div>
       </div>
 
@@ -1983,7 +2012,7 @@ function applyRole() {
   document.body.classList.toggle('role-cs', isCS());
   // CS팀은 판매 성과 메뉴만 노출
   document.querySelectorAll('.menu-item').forEach(b => {
-    b.style.display = isCS() && b.dataset.menu !== 'perf' ? 'none' : '';
+    b.style.display = isCS() && !['perf', 'my'].includes(b.dataset.menu) ? 'none' : '';   // CS팀·물류팀 = 판매 성과 + 마이페이지
   });
   // 관리자 전용 메뉴는 버튼 자체를 숨김
   $('menu-users').style.display = isAdmin() ? '' : 'none';
@@ -1997,7 +2026,8 @@ function applyRole() {
   $('menu-rwatch').style.display = (isAdmin() || isStaff()) && !isCS() ? '' : 'none'; // 반품 관리 = 관리자 + MD
   $('menu-npm').style.display = (isAdmin() || isStaff()) && !isCS() ? '' : 'none';    // 상품 관리(외부 링크) = 관리자 + MD
   $('menu-profit').style.display = isAdmin() && !isCS() ? '' : 'none';
-  $('menu-wm').style.display = isAdmin() && !isCS() ? '' : 'none';   // 근무 관리 = 관리자 전용 (급여·계좌 노출)
+  $('menu-wm').style.display = isAdmin() && !isCS() ? '' : 'none';
+  $('menu-my').style.display = SESSION ? '' : 'none';   // 마이페이지 = 로그인한 전 직원 (2026-08-27)   // 근무 관리 = 관리자 전용 (급여·계좌 노출)
   // Meta 광고 성과 패널 — 관리자 + MD (MD는 광고비·전환값·총매출 블러)
   const mp = $('meta-panel'); if (mp) mp.style.display = (isAdmin() || isStaff()) && !isCS() ? 'block' : 'none';
   // 그룹 소제목: 그 그룹의 버튼이 하나도 안 보이면 소제목도 숨김 (CS는 판매 성과만 보이므로 대부분 숨음)
@@ -6834,6 +6864,34 @@ async function wmAttDelete(id) {
 const WM_LV_TYPE = { annual: '연차', half: '반차', summer: '여름휴가' };
 const WM_LV_STATUS = { pending: ['대기', '#d97706', '#fef3c7'], approved: ['승인', '#166534', '#dcfce7'], rejected: ['반려', '#991b1b', '#fee2e2'] };
 
+/* 승인 대기 휴가 배너 (2026-08-27) — 직원이 마이페이지에서 다음 달 휴가를 신청하면
+   이번 달 기본 화면에는 안 보여 승인이 누락된다. 월 필터와 무관하게 올해 전체의 pending을 항상 위에 띄운다. */
+async function wmLoadPendingLeaves() {
+  const box = $('wm-lv-pending');
+  if (!box) return;
+  try {
+    const y = Number((($('wm-lv-ym').value || '').slice(0, 4)) || new Date().getFullYear());
+    const all = await wmApi({ action: 'leave_list', year: y });
+    const pend = (all || []).filter(l => l.status === 'pending').sort((a, b) => a.date.localeCompare(b.date));
+    if (!pend.length) { box.style.display = 'none'; box.innerHTML = ''; return; }
+    const nameOf = id => ((wmState.emps || []).find(e => e.id === id) || {}).name || ('직원 ' + id);
+    box.innerHTML = `<div style="background:#fffbeb;border:1.5px solid #fde68a;border-radius:12px;padding:12px 14px;">
+      <b style="font-size:.85rem;color:#b45309;"><i class="fa-regular fa-clock"></i> 승인 대기 ${pend.length}건</b>
+      <span style="font-size:.7rem;color:#9ca3af;margin-left:6px;">직원이 마이페이지·키오스크에서 신청한 건 (조회 월과 무관하게 전부 표시)</span>
+      <div style="margin-top:8px;display:flex;flex-direction:column;gap:6px;">
+        ${pend.map(l => `<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;background:#fff;border-radius:8px;padding:6px 10px;">
+          <b style="font-size:.8rem;">${escHtml(nameOf(l.employee_id))}</b>
+          <span style="font-size:.78rem;color:#374151;">${l.date} ${l.type === 'annual' ? '연차' : l.type === 'half' ? '반차' : '여름휴가'}</span>
+          <span style="font-size:.72rem;color:#9ca3af;">${escHtml(l.reason || '')}</span>
+          <span style="margin-left:auto;display:flex;gap:6px;">
+            <button class="toggle-btn" style="font-size:.7rem;padding:2px 10px;background:#16a34a;color:#fff;border-color:#16a34a;" onclick="wmLeaveReview(${l.id},'approved')">승인</button>
+            <button class="toggle-btn" style="font-size:.7rem;padding:2px 10px;color:#dc2626;" onclick="wmLeaveReview(${l.id},'rejected')">반려</button>
+          </span></div>`).join('')}
+      </div></div>`;
+    box.style.display = 'block';
+  } catch { box.style.display = 'none'; }
+}
+
 async function wmLoadLeaves() {
   const ym = $('wm-lv-ym').value || $('wm-att-ym').value;
   if (!$('wm-lv-ym').value) $('wm-lv-ym').value = ym;
@@ -6844,6 +6902,7 @@ async function wmLoadLeaves() {
     const [_, lv] = await Promise.all([wmEnsureEmps(),
       wmApi(wholeYear ? { action: 'leave_list', year: y } : { action: 'leave_list', year: y, month: m })]);
     wmState.lv = lv;
+    setTimeout(wmLoadPendingLeaves, 0);   // 대기 신청 배너 (월 필터와 무관하게 올해 전체)
     const sel = $('wm-lvf-emp');
     sel.innerHTML = (wmState.emps || []).filter(e => e.active !== false)
       .map(e => `<option value="${e.id}">${e.name} (${e.type === 'employee' ? '직원' : '알바'})</option>`).join('');
@@ -7499,11 +7558,240 @@ function renderProfitDetail(cur, costs) {
 /* ──────────────────────────────
    좌측 메뉴 내비게이션 + 대시보드(홈)
 ────────────────────────────── */
-const MENU_KEYS = ['home', 'cr', 'an', 'perf', 'rwatch', 'disp', 'stable', 'adv', 'admgr', 'profit', 'wm', 'meet', 'board', 'proj', 'users'];
+
+/* ──────────────────────────────
+   마이페이지 (#my, 2026-08-27) — 직원 본인 전용
+   서버 wm-me가 로그인 계정 → wm_employees.app_user_id로 본인 행만 찾아 응답한다(남의 정보 불가).
+   휴가 신청은 wm_leaves에 pending으로 들어가 근무 관리 '휴가 관리' 탭에서 기존과 똑같이 승인·반려된다.
+   재직증명서는 인쇄용 새 창(브라우저 인쇄 → PDF 저장). 직인은 인쇄 후 실물 날인(사용자 결정).
+────────────────────────────── */
+const CERT_COMPANY = {   // 재직증명서에 찍히는 회사 정보 — 바뀌면 여기만 수정
+  name: '주식회사 디앤알비',
+  addr: '경기도 고양시 덕양구 청초로 10 덕은지엘 AA동 1001호',
+  ceo: '',      // 대표자명 (비우면 줄 자체를 생략)
+  bizno: '',    // 사업자등록번호 (비우면 생략)
+};
+const myState = { data: null };
+
+async function myApi(params, body) {
+  const res = await fetch(fnUrl('wm-me', params), {
+    method: body ? 'POST' : 'GET',
+    headers: sbHeaders(),
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  const d = await res.json();
+  if (!res.ok || d.error) throw new Error(d.error || ('오류 ' + res.status));
+  return d;
+}
+
+/* 입사일 → "N년 N개월 N일" (직원 관리 모달과 같은 계산) */
+function myPeriod(hire) {
+  if (!hire) return '';
+  const t = new Date(new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Seoul' }) + 'T12:00:00Z');
+  const h = new Date(hire + 'T12:00:00Z');
+  let months = (t.getUTCFullYear() - h.getUTCFullYear()) * 12 + (t.getUTCMonth() - h.getUTCMonth());
+  let anchor = new Date(h); anchor.setUTCMonth(anchor.getUTCMonth() + months);
+  if (anchor > t) { months--; anchor = new Date(h); anchor.setUTCMonth(anchor.getUTCMonth() + months); }
+  const days = Math.round((t - anchor) / 86400000);
+  const y = Math.floor(months / 12), m = months % 12;
+  return `${y ? y + '년 ' : ''}${m}개월 ${days}일`;
+}
+const MY_LV_TYPE = { annual: '연차', half: '반차', summer: '여름휴가' };
+const MY_LV_STATUS = {
+  pending: ['대기', '#b45309', '#fef3c7'],
+  approved: ['승인', '#15803d', '#dcfce7'],
+  rejected: ['반려', '#b91c1c', '#fee2e2'],
+};
+
+async function myLoad() {
+  $('my-body').innerHTML = '<div class="empty-state"><p>불러오는 중...</p></div>';
+  try {
+    myState.data = await myApi({ action: 'me' });
+    myRender();
+  } catch (e) {
+    $('my-body').innerHTML = `<div class="empty-state"><p>불러오지 못했어요 — ${escHtml(e.message)}</p></div>`;
+  }
+}
+
+function myRender() {
+  const d = myState.data;
+  if (!d.linked) {
+    $('my-body').innerHTML = `<div style="background:#f8f9fb;border-radius:12px;padding:16px;font-size:.82rem;color:#6b7280;">
+      <b style="color:#1e1b4b;">${escHtml(d.name || '')} 님</b> <span style="font-size:.75rem;">(${ROLE_LABEL[d.role] || ''})</span>
+      <div style="margin-top:8px;">이 계정은 근무 관리에 등록된 직원과 연결되어 있지 않아 근무 정보·휴가 신청·재직증명서를 표시할 수 없습니다.
+      ${isAdmin() ? '' : '<br>담당자에게 문의해주세요.'}</div></div>`;
+    return;
+  }
+  const a = d.annual, left = a.left, pct = a.total > 0 ? Math.min(100, Math.round(a.used / a.total * 100)) : 0;
+  const tile = (label, val, color) => `<div style="background:#f8f9ff;border:1.5px solid #e0e7ff;border-radius:12px;padding:12px 14px;">
+    <div style="font-size:.74rem;color:#6b7280;font-weight:600;margin-bottom:4px;">${label}</div>
+    <div style="font-size:1.05rem;font-weight:800;color:${color || '#1e1b4b'};">${val}</div></div>`;
+
+  const lv = d.leaves || [];
+  const lvRows = lv.length ? lv.map(l => {
+    const st = MY_LV_STATUS[l.status] || ['-', '#6b7280', '#f3f4f6'];
+    return `<tr>
+      <td style="white-space:nowrap;">${l.date}</td>
+      <td>${MY_LV_TYPE[l.type] || l.type}</td>
+      <td style="text-align:left;font-size:.75rem;color:#6b7280;">${escHtml(l.reason || '—')}</td>
+      <td><span style="background:${st[2]};color:${st[1]};border-radius:99px;padding:1px 9px;font-size:.68rem;font-weight:700;">${st[0]}</span></td>
+      <td>${l.status === 'pending' ? `<button class="toggle-btn" style="font-size:.68rem;padding:2px 8px;color:#dc2626;" onclick="myLeaveCancel(${l.id})">취소</button>` : ''}</td>
+    </tr>`;
+  }).join('') : '<tr><td colspan="5" style="color:#9ca3af;font-size:.78rem;padding:14px;">올해 신청한 휴가가 없습니다.</td></tr>';
+
+  $('my-body').innerHTML = `
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:18px;">
+      ${tile('소속 팀', ROLE_LABEL[d.role] || '—')}
+      ${tile('입사일', d.hire_date ? `${d.hire_date}<div style="font-size:.7rem;color:#9ca3af;font-weight:600;">근무 ${myPeriod(d.hire_date)}</div>` : '—')}
+      ${tile('올해 연차', `${a.total}일`)}
+      ${tile('사용', `${a.used}일${a.pending ? `<div style="font-size:.7rem;color:#b45309;font-weight:600;">대기 ${a.pending}일</div>` : ''}`)}
+      ${tile('잔여', `${left}일`, left <= 2 ? '#dc2626' : '#2563eb')}
+    </div>
+    <div style="background:#f1f5f9;border-radius:99px;height:8px;overflow:hidden;margin-bottom:20px;">
+      <div style="width:${pct}%;height:100%;background:${left <= 2 ? '#dc2626' : '#4f46e5'};"></div></div>
+
+    <div style="border-top:1px solid #e5e7eb;padding-top:16px;">
+      <b style="font-size:.88rem;color:#1e1b4b;"><i class="fa-regular fa-calendar-plus" style="color:#4f46e5;font-size:.85em;"></i> 휴가 신청</b>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin-top:10px;">
+        <label style="font-size:.75rem;color:#4b5563;font-weight:600;">종류
+          <select id="my-lv-type" onchange="myLvTypeChange()" style="display:block;margin-top:3px;border:1.5px solid #d1d5db;border-radius:8px;padding:6px 10px;font-size:.8rem;">
+            <option value="annual">연차 (1일)</option><option value="half">반차 (0.5일)</option>
+          </select></label>
+        <label style="font-size:.75rem;color:#4b5563;font-weight:600;">날짜
+          <input type="date" id="my-lv-date" value="${d.today}" style="display:block;margin-top:3px;border:1.5px solid #d1d5db;border-radius:8px;padding:5px 10px;font-size:.8rem;" /></label>
+        <label id="my-lv-endwrap" style="font-size:.75rem;color:#4b5563;font-weight:600;">종료일 <span style="color:#9ca3af;font-weight:500;">(연속 사용 시)</span>
+          <input type="date" id="my-lv-end" style="display:block;margin-top:3px;border:1.5px solid #d1d5db;border-radius:8px;padding:5px 10px;font-size:.8rem;" /></label>
+        <label style="font-size:.75rem;color:#4b5563;font-weight:600;">사유
+          <input id="my-lv-reason" placeholder="예: 개인 사정" style="display:block;margin-top:3px;border:1.5px solid #d1d5db;border-radius:8px;padding:6px 10px;font-size:.8rem;width:170px;" /></label>
+        <label id="my-lv-skipwrap" style="display:flex;align-items:center;gap:5px;font-size:.75rem;color:#4b5563;font-weight:600;cursor:pointer;margin-bottom:7px;">
+          <input type="checkbox" id="my-lv-skip" checked /> 주말·공휴일 제외</label>
+        <button class="toggle-btn" style="background:#4f46e5;color:#fff;border-color:#4f46e5;margin-bottom:1px;" onclick="myLeaveSubmit()">신청</button>
+      </div>
+      <div style="font-size:.68rem;color:#9ca3af;margin-top:6px;">신청하면 '대기' 상태로 등록되고, 승인·반려는 관리자가 근무 관리에서 처리합니다. 대기 중인 신청은 직접 취소할 수 있어요.</div>
+
+      <div class="table-wrap" style="margin-top:12px;"><table style="font-size:.8rem;">
+        <thead><tr><th>날짜</th><th>종류</th><th style="text-align:left;">사유</th><th>상태</th><th></th></tr></thead>
+        <tbody>${lvRows}</tbody></table></div>
+    </div>
+
+    <div style="border-top:1px solid #e5e7eb;margin-top:20px;padding-top:16px;">
+      <b style="font-size:.88rem;color:#1e1b4b;"><i class="fa-regular fa-file-lines" style="color:#4f46e5;font-size:.85em;"></i> 재직증명서</b>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin-top:10px;">
+        <label style="font-size:.75rem;color:#4b5563;font-weight:600;">용도
+          <input id="my-cert-use" placeholder="예: 은행 제출용" style="display:block;margin-top:3px;border:1.5px solid #d1d5db;border-radius:8px;padding:6px 10px;font-size:.8rem;width:200px;" /></label>
+        <button class="toggle-btn" style="background:#4f46e5;color:#fff;border-color:#4f46e5;margin-bottom:1px;" onclick="myCertPrint()"><i class="fa-solid fa-print"></i> 발급 (인쇄 · PDF 저장)</button>
+      </div>
+      <div style="font-size:.68rem;color:#9ca3af;margin-top:6px;">새 창이 열리고 인쇄 대화상자가 뜹니다. 'PDF로 저장'을 고르면 파일로 받을 수 있어요. <b>직인은 인쇄 후 실물로 날인</b>하세요.</div>
+    </div>`;
+  myLvTypeChange();
+}
+
+/* 반차는 기간 신청 불가 — 종료일·주말제외 숨김 */
+function myLvTypeChange() {
+  const half = $('my-lv-type') && $('my-lv-type').value === 'half';
+  if ($('my-lv-endwrap')) $('my-lv-endwrap').style.display = half ? 'none' : '';
+  if ($('my-lv-skipwrap')) $('my-lv-skipwrap').style.display = half ? 'none' : 'flex';
+}
+
+async function myLeaveSubmit() {
+  const type = $('my-lv-type').value;
+  const date = $('my-lv-date').value;
+  const end = (type === 'half') ? '' : $('my-lv-end').value;
+  if (!date) { showToast('날짜를 선택해주세요'); return; }
+  const days = end && end !== date ? '기간' : '하루';
+  if (!confirm(`${date}${end && end !== date ? ` ~ ${end}` : ''} ${MY_LV_TYPE[type]}를 신청할까요? (${days})`)) return;
+  try {
+    const r = await myApi({ action: 'leave_request' }, {
+      date, end_date: end || undefined, type,
+      reason: $('my-lv-reason').value.trim(),
+      skip_offdays: $('my-lv-skip') ? $('my-lv-skip').checked : false,
+    });
+    showToast(`휴가 신청 완료 — ${r.inserted}일 접수${r.skipped && r.skipped.length ? ` (이미 신청한 ${r.skipped.length}일 제외)` : ''}`);
+    $('my-lv-reason').value = ''; $('my-lv-end').value = '';
+    myLoad();
+  } catch (e) { showToast('신청 실패 — ' + e.message); }
+}
+
+async function myLeaveCancel(id) {
+  if (!confirm('이 휴가 신청을 취소할까요?')) return;
+  try {
+    await myApi({ action: 'leave_cancel' }, { id });
+    showToast('신청을 취소했습니다');
+    myLoad();
+  } catch (e) { showToast('취소 실패 — ' + e.message); }
+}
+
+/* 재직증명서 — 인쇄용 새 창. 직인 자리는 비워두고 인쇄 후 실물 날인(사용자 결정) */
+function myCertPrint() {
+  const d = myState.data;
+  if (!d || !d.linked) { showToast('근무 정보가 없어 발급할 수 없습니다'); return; }
+  const use = ($('my-cert-use').value || '').trim();
+  const today = d.today;
+  const kdate = s => s ? `${s.slice(0, 4)}년 ${Number(s.slice(5, 7))}월 ${Number(s.slice(8, 10))}일` : '—';
+  const docNo = `DNRB-${today.replace(/-/g, '')}-${String(d.employee_id).padStart(4, '0')}`;
+  const row = (label, val) => `<tr><th>${label}</th><td>${val}</td></tr>`;
+  const html = `<!doctype html><html lang="ko"><head><meta charset="utf-8" /><title>재직증명서 - ${escHtml(d.name)}</title>
+    <style>
+      @page { size: A4; margin: 20mm; }
+      body { font-family: -apple-system, 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif; color: #111; line-height: 1.7; }
+      h1 { text-align: center; font-size: 30px; letter-spacing: 14px; margin: 10px 0 4px; }
+      .docno { text-align: right; font-size: 12px; color: #555; margin-bottom: 22px; }
+      table { width: 100%; border-collapse: collapse; margin-bottom: 20px; }
+      th, td { border: 1px solid #333; padding: 9px 12px; font-size: 14px; }
+      th { width: 26%; background: #f4f4f6; text-align: center; font-weight: 700; }
+      .stmt { text-align: center; font-size: 15px; margin: 34px 0 30px; }
+      .date { text-align: center; font-size: 15px; margin-bottom: 26px; }
+      .sign { text-align: center; font-size: 15px; line-height: 2; }
+      .sign .co { font-size: 19px; font-weight: 700; letter-spacing: 2px; }
+      .stamp { display: inline-block; width: 76px; height: 76px; border: 1px dashed #bbb; border-radius: 6px;
+               color: #bbb; font-size: 10px; text-align: center; line-height: 76px; margin-left: 10px; vertical-align: middle; }
+      .foot { margin-top: 26px; font-size: 11px; color: #777; text-align: center; }
+      @media print { .stamp { border-color: #ddd; } }
+    </style></head><body>
+    <h1>재직증명서</h1>
+    <div class="docno">문서번호 : ${docNo}</div>
+    <table>
+      ${row('성 명', escHtml(d.name))}
+      ${row('생년월일', d.birthday || '—')}
+      ${row('소 속', ROLE_LABEL[d.role] || '—')}
+      ${row('입 사 일', kdate(d.hire_date))}
+      ${row('재직기간', `${kdate(d.hire_date)} ~ 현재 (${myPeriod(d.hire_date)})`)}
+      ${row('용 도', escHtml(use || '제출용'))}
+    </table>
+    <div class="stmt">위와 같이 본사에 재직하고 있음을 증명합니다.</div>
+    <div class="date">${kdate(today)}</div>
+    <div class="sign">
+      ${CERT_COMPANY.bizno ? `<div>사업자등록번호 : ${CERT_COMPANY.bizno}</div>` : ''}
+      <div>${CERT_COMPANY.addr}</div>
+      <div class="co">${CERT_COMPANY.name}${CERT_COMPANY.ceo ? ` 대표이사 ${CERT_COMPANY.ceo}` : ''}<span class="stamp">(직인)</span></div>
+    </div>
+    <div class="foot">본 증명서는 대시보드에서 발급되었으며, 직인 날인 후 유효합니다.</div>
+    </body></html>`;
+  const w = window.open('', '_blank');
+  if (!w) { showToast('팝업이 차단됐어요 — 주소창의 팝업 허용을 켜주세요'); return; }
+  w.document.write(html);
+  w.document.close();
+  w.focus();
+  setTimeout(() => w.print(), 300);
+}
+
+async function myChangePw() {
+  const oldPw = $('my-pw-old').value, np = $('my-pw-new').value, np2 = $('my-pw-new2').value;
+  if (!oldPw || !np) { showToast('현재 비밀번호와 새 비밀번호를 입력해주세요'); return; }
+  if (np.length < 4) { showToast('새 비밀번호는 4자 이상이어야 해요'); return; }
+  if (np !== np2) { showToast('새 비밀번호가 서로 다릅니다'); return; }
+  try {
+    await authApi({ action: 'change_password', token: SESSION.token, old_password: oldPw, new_password: np });
+    $('my-pw-old').value = ''; $('my-pw-new').value = ''; $('my-pw-new2').value = '';
+    showToast('비밀번호를 변경했습니다');
+  } catch (e) { showToast('변경 실패 — ' + e.message); }
+}
+
+const MENU_KEYS = ['home', 'cr', 'an', 'perf', 'rwatch', 'disp', 'stable', 'adv', 'admgr', 'profit', 'wm', 'meet', 'board', 'proj', 'users', 'my'];
 
 function showMenu(key) {
   if (!MENU_KEYS.includes(key)) key = 'home';
-  if (isCS()) key = 'perf';   // CS팀은 판매 성과만 접근 가능
+  if (isCS() && key !== 'my') key = 'perf';   // CS팀·물류팀은 판매 성과 + 마이페이지만
   // 권한 없는 메뉴는 홈으로 되돌린다 — 여기서 return하면 URL에 #disp 등을 달고 들어온
   // 권한 없는 사용자에게 아무 섹션도 표시되지 않아 화면이 비어버림
   const denied = (key === 'cr' && isStaff())
@@ -7523,6 +7811,7 @@ function showMenu(key) {
     $('note-author').textContent = SESSION ? SESSION.name : '';
   }
   if (key === 'users') loadUsers();
+  if (key === 'my') myLoad();
   if (key === 'wm') wmInit();
   if (key === 'board') boardLoad();
   if (key === 'proj') projLoad();
