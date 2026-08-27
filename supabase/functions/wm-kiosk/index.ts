@@ -64,6 +64,23 @@ async function rest(path: string, init: RequestInit = {}): Promise<any[]> {
   return text ? JSON.parse(text) : [];
 }
 
+/* 휴가 신청 시 관리자 전원에게 앱 알림 (2026-08-27 사용자 요청 — 마이페이지 신청과 동일하게 맞춤).
+   6터치 흐름·응답 형태는 그대로. 알림 실패가 신청 자체를 막지 않도록 호출부에서 try로 감싼다. */
+async function notifyAdminsLeave(name: string, dates: string[], type: string, reason?: string | null) {
+  const admins = await rest('app_users?role=eq.admin&select=id');
+  if (!admins.length || !dates.length) return;
+  const label = type === 'annual' ? '연차' : type === 'half' ? '반차' : '여름휴가';
+  const when = dates.length > 1 ? `${dates[0]} 외 ${dates.length - 1}일` : dates[0];
+  await rest('notifications', {
+    method: 'POST',
+    body: JSON.stringify(admins.map((a: any) => ({
+      user_id: a.id, actor_name: name,
+      message: `휴가 신청 — ${when} ${label}${reason ? ` (${reason})` : ''}`,
+      link_menu: 'wm', read: false,
+    }))),
+  });
+}
+
 function kstNow(): string {
   return new Intl.DateTimeFormat('sv-SE', {
     timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit', day: '2-digit',
@@ -388,6 +405,7 @@ Deno.serve(async (req) => {
           body: JSON.stringify(toInsert.map(s => ({ employee_id: eid, date: s, type, status: 'pending', reason: reason || null }))),
         });
         await log(dev.id, eid, 'request_leave', true, ip, { from: date, to: end_date, inserted: rows.length });
+        try { await notifyAdminsLeave(sess.name, toInsert, type, reason); } catch { /* 알림 실패는 무시 */ }
         return json({ range: true, inserted: rows.length, skipped, rows });
       }
 
@@ -398,6 +416,7 @@ Deno.serve(async (req) => {
         body: JSON.stringify({ employee_id: eid, date, type, status: 'pending', reason: reason || null }),
       });
       await log(dev.id, eid, 'request_leave', true, ip, { date, type });
+      try { await notifyAdminsLeave(sess.name, [date], type, reason); } catch { /* 알림 실패는 무시 */ }
       return json(row);
     }
 
