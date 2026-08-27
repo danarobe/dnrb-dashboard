@@ -38,7 +38,7 @@ const fmtD = (d: Date) =>
 function usedDays(rows: { type: string; reason?: string | null }[]): number {
   let used = 0;
   for (const l of rows) {
-    if (l.type === "summer") continue;
+    if (l.type === "summer" || l.type === "sick") continue;   // 병가는 무급·연차 미차감
     if (l.reason && (l.reason.includes("하계휴가") || l.reason.includes("여름휴가"))) continue;
     used += l.type === "annual" ? 1 : 0.5;
   }
@@ -98,7 +98,7 @@ Deno.serve(async (req) => {
       const type = String(body.type ?? "");
       const reason = String(body.reason ?? "").slice(0, 200);
       if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return json({ error: "날짜를 선택해주세요" }, 400);
-      if (!["annual", "half"].includes(type)) return json({ error: "휴가 종류는 연차 또는 반차만 가능합니다" }, 400);
+      if (!["annual", "half", "sick"].includes(type)) return json({ error: "휴가 종류가 올바르지 않습니다" }, 400);
 
       let dates: string[] = [date];
       if (endDate && endDate !== date) {

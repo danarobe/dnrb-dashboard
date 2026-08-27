@@ -167,17 +167,50 @@ export function calcParttime(
   };
 }
 
-export function calcEmployee(emp: WmEmployee, records: WmAttendance[], approvedLeaves: WmLeave[]) {
+/** 그 달의 소정근로일수 = 평일(월~금) − 공휴일. 무급 병가 일할 공제의 분모 (2026-08-27) */
+export function workingDaysOf(ym: string, holidays: WmHoliday[] = []): number {
+  const [y, m] = ym.split('-').map(Number);
+  const holiSet = new Set(holidays.map(h => h.date));
+  const last = new Date(Date.UTC(y, m, 0)).getUTCDate();
+  let n = 0;
+  for (let d = 1; d <= last; d++) {
+    const dt = new Date(Date.UTC(y, m - 1, d));
+    const dow = dt.getUTCDay();
+    if (dow === 0 || dow === 6) continue;
+    const ds = `${ym}-${String(d).padStart(2, '0')}`;
+    if (holiSet.has(ds)) continue;
+    n++;
+  }
+  return n;
+}
+
+/** 월급제 급여.
+ *  ⚠ 무급 병가 공제 (2026-08-27 신설): 병가(type='sick')는 무급이므로 그 날치를 월급에서 뺀다.
+ *     공제액 = round(월급 ÷ 그 달 소정근로일수 × 병가일수)  — '소정근로일 기준' 일할계산.
+ *     병가가 0건이면 공제 0이라 기존 급여와 1원도 달라지지 않는다(기존 계산 보존).
+ *     연차·반차·여름휴가는 유급이므로 종전대로 공제 없음. */
+export function calcEmployee(
+  emp: WmEmployee, records: WmAttendance[], approvedLeaves: WmLeave[],
+  ym: string | null = null, holidays: WmHoliday[] = [],
+) {
   const totalHours = records.reduce((s, r) => s + (r.work_minutes || 0) / 60, 0);
-  const leaveDays = approvedLeaves.reduce((s, l) => s + (l.type === 'half' ? 0.5 : 1), 0);
+  const paidLeaves = approvedLeaves.filter(l => l.type !== 'sick');
+  const leaveDays = paidLeaves.reduce((s, l) => s + (l.type === 'half' ? 0.5 : 1), 0);
+  const sickDays = approvedLeaves.filter(l => l.type === 'sick').length;
+  const workingDays = ym ? workingDaysOf(ym, holidays) : 0;
+  const sickDeduction = (sickDays > 0 && workingDays > 0)
+    ? Math.round(emp.monthly_salary / workingDays * sickDays) : 0;
   return {
     monthlySalary: emp.monthly_salary,
     workDays: records.length,
     leaveDays,
+    sickDays,
+    sickDeduction,
+    workingDays,
     totalHours: Math.round(totalHours * 100) / 100,
     mealAllowance: 0,
     mealDays: 0,
-    totalPay: emp.monthly_salary,
+    totalPay: emp.monthly_salary - sickDeduction,
   };
 }
 
@@ -197,5 +230,5 @@ export function calcOne(
   }
   const records = attendance.filter(r => r.employee_id === emp.id && r.date.startsWith(ym));
   const approvedLeaves = leaves.filter(r => r.employee_id === emp.id && r.date.startsWith(ym) && r.status === 'approved');
-  return { employee: emp, ...calcEmployee(emp, records, approvedLeaves) };
+  return { employee: emp, ...calcEmployee(emp, records, approvedLeaves, ym, holidays) };
 }

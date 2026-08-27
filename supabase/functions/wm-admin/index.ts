@@ -182,7 +182,7 @@ Deno.serve(async (req) => {
       // 올해 사용 연차 — leaves.js /remaining과 동일 규칙 (여름휴가·사유 하계/여름휴가는 미차감)
       const used: Record<number, number> = {};
       for (const l of approved) {
-        if (l.type === 'summer') continue;
+        if (l.type === 'summer' || l.type === 'sick') continue;   // 병가는 무급·연차 미차감 (2026-08-27)
         if (l.reason && (l.reason.includes('하계휴가') || l.reason.includes('여름휴가'))) continue;
         used[l.employee_id] = (used[l.employee_id] || 0) + (l.type === 'annual' ? 1 : 0.5);
       }
@@ -318,7 +318,7 @@ Deno.serve(async (req) => {
       const empId = Number(body.employee_id);
       const { date, end_date, type, reason, skip_offdays, auto_approve } = body;
       if (!empId || !date || !type) return json({ error: '필수 항목 누락' }, 400);
-      if (!['annual', 'half', 'summer'].includes(type)) return json({ error: '휴가 종류 오류' }, 400);
+      if (!['annual', 'half', 'summer', 'sick'].includes(type)) return json({ error: '휴가 종류 오류' }, 400);   // sick = 병가(무급, 2026-08-27)
       const status = auto_approve ? 'approved' : 'pending';
 
       if (end_date && end_date !== date) {

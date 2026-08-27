@@ -1546,6 +1546,7 @@
               <select id="wm-lvf-type" style="display:block;margin-top:3px;border:1.5px solid #d1d5db;border-radius:8px;padding:6px 10px;font-size:.8rem;">
                 <option value="annual">연차 (1일)</option><option value="half">반차 (0.5일)</option>
                 <option value="summer">여름휴가 (연차 미차감)</option>
+                <option value="sick">병가 (무급 · 연차 미차감)</option>
               </select></label>
             <label style="font-size:.75rem;color:#4b5563;font-weight:600;">사유 (선택)
               <input id="wm-lvf-reason" style="display:block;margin-top:3px;border:1.5px solid #d1d5db;border-radius:8px;padding:6px 10px;font-size:.8rem;width:160px;" /></label>
@@ -6858,6 +6859,8 @@ function wmShowSlip(i) {
         <tr><td>기본급 (월급)</td><td style="text-align:right;">${fmt(r.monthlySalary)}원</td></tr>
         <tr><td>근무일수</td><td style="text-align:right;">${r.workDays || 0}일</td></tr>
         ${r.leaveDays ? `<tr><td>휴가 사용 (${r.leaveDays}일)</td><td style="text-align:right;color:#6b7280;">-</td></tr>` : ''}
+        ${r.sickDays ? `<tr><td>병가 <b style="color:#dc2626;">무급</b> (${r.sickDays}일)<div style="font-size:.68rem;color:#9ca3af;">월급 ÷ 소정근로일 ${r.workingDays}일 × ${r.sickDays}일</div></td>
+          <td style="text-align:right;color:#dc2626;font-weight:700;">-${fmt(r.sickDeduction)}원</td></tr>` : ''}
         `}
         <tr><td>소득세</td><td style="text-align:right;color:#dc2626;">-${fmt(tax)}원</td></tr>
         <tr><td>지방소득세</td><td style="text-align:right;color:#dc2626;">-${fmt(localTax)}원</td></tr>
@@ -6964,7 +6967,7 @@ async function wmAttDelete(id) {
 }
 
 /* ── 휴가 관리 ── */
-const WM_LV_TYPE = { annual: '연차', half: '반차', summer: '여름휴가' };
+const WM_LV_TYPE = { annual: '연차', half: '반차', summer: '여름휴가', sick: '병가(무급)' };
 const WM_LV_STATUS = { pending: ['대기', '#d97706', '#fef3c7'], approved: ['승인', '#166534', '#dcfce7'], rejected: ['반려', '#991b1b', '#fee2e2'] };
 
 /* 승인 대기 휴가 배너 (2026-08-27) — 직원이 마이페이지에서 다음 달 휴가를 신청하면
@@ -6984,7 +6987,7 @@ async function wmLoadPendingLeaves() {
       <div style="margin-top:8px;display:flex;flex-direction:column;gap:6px;">
         ${pend.map(l => `<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;background:#fff;border-radius:8px;padding:6px 10px;">
           <b style="font-size:.8rem;">${escHtml(nameOf(l.employee_id))}</b>
-          <span style="font-size:.78rem;color:#374151;">${l.date} ${l.type === 'annual' ? '연차' : l.type === 'half' ? '반차' : '여름휴가'}</span>
+          <span style="font-size:.78rem;color:#374151;">${l.date} ${WM_LV_TYPE[l.type] || l.type}</span>
           <span style="font-size:.72rem;color:#9ca3af;">${escHtml(l.reason || '')}</span>
           <span style="margin-left:auto;display:flex;gap:6px;">
             <button class="toggle-btn" style="font-size:.7rem;padding:2px 10px;background:#16a34a;color:#fff;border-color:#16a34a;" onclick="wmLeaveReview(${l.id},'approved')">승인</button>
@@ -7700,7 +7703,7 @@ function myPeriod(hire) {
   const y = Math.floor(months / 12), m = months % 12;
   return `${y ? y + '년 ' : ''}${m}개월 ${days}일`;
 }
-const MY_LV_TYPE = { annual: '연차', half: '반차', summer: '여름휴가' };
+const MY_LV_TYPE = { annual: '연차', half: '반차', summer: '여름휴가', sick: '병가(무급)' };
 const MY_LV_STATUS = {
   pending: ['대기', '#b45309', '#fef3c7'],
   approved: ['승인', '#15803d', '#dcfce7'],
@@ -7773,6 +7776,7 @@ function myRender() {
         <label style="font-size:.75rem;color:#4b5563;font-weight:600;">종류
           <select id="my-lv-type" onchange="myLvTypeChange()" style="display:block;margin-top:3px;border:1.5px solid #d1d5db;border-radius:8px;padding:6px 10px;font-size:.8rem;">
             <option value="annual">연차 (1일)</option><option value="half">반차 (0.5일)</option>
+            <option value="sick">병가 (무급 · 연차 미차감)</option>
           </select></label>
         <label style="font-size:.75rem;color:#4b5563;font-weight:600;">날짜
           <input type="date" id="my-lv-date" value="${d.today}" style="display:block;margin-top:3px;border:1.5px solid #d1d5db;border-radius:8px;padding:5px 10px;font-size:.8rem;" /></label>
