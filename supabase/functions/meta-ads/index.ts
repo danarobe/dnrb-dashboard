@@ -117,8 +117,9 @@ Deno.serve(async (req) => {
   const action = url.searchParams.get("action") ?? "summary";
 
   // 광고관리자(#admgr) 메뉴 전용 액션은 관리자만 (2026-08-26 사용자 지정 — 대표 3인 = admin 전원).
-  // 나머지 액션(summary/topads/dateads/activeads/adstats/preview)은 광고 효율·판매 성과가 MD와 공유.
-  if (["hierarchy", "testads", "budgethistory", "hourlystats"].includes(action) && authed.role !== "admin") {
+  // 단 **testads(테스트 소재)는 MD·마케터도 허용**(2026-08-27 사용자 지정 — 광고관리자 화면에서
+  // 테스트 소재 탭만 열어준다). 나머지(hierarchy/budgethistory/hourlystats)는 계속 admin 전용.
+  if (["hierarchy", "budgethistory", "hourlystats"].includes(action) && authed.role !== "admin") {
     return json({ error: "접근 권한이 없습니다" }, 403);
   }
 

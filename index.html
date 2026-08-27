@@ -1546,7 +1546,7 @@
               <select id="wm-lvf-type" style="display:block;margin-top:3px;border:1.5px solid #d1d5db;border-radius:8px;padding:6px 10px;font-size:.8rem;">
                 <option value="annual">연차 (1일)</option><option value="half">반차 (0.5일)</option>
                 <option value="summer">여름휴가 (연차 미차감)</option>
-                <option value="sick">병가 (무급 · 연차 미차감)</option>
+                <option value="sick">병가 (무급/연차미차감/진단서제출)</option>
               </select></label>
             <label style="font-size:.75rem;color:#4b5563;font-weight:600;">사유 (선택)
               <input id="wm-lvf-reason" style="display:block;margin-top:3px;border:1.5px solid #d1d5db;border-radius:8px;padding:6px 10px;font-size:.8rem;width:160px;" /></label>
@@ -1869,7 +1869,7 @@
       <button class="toggle-btn" id="btn-admgr" onclick="admgrRefresh()"><i class="fa-solid fa-rotate"></i> 새로고침</button>
     </div>
     <div class="section-body">
-      <div style="font-size:.82rem;color:#6b7280;margin-bottom:12px;">캠페인 · 광고세트 · 광고를 탭으로 나눠 보는 현황판 (보기 전용 · 60초 캐시 — 메타 호출 한도 보호). 캠페인·세트에 체크하면 다음 탭이 그 선택만 보여줍니다. 켜고 끄기는 메타 광고관리자에서 하세요.</div>
+      <div id="admgr-intro" style="font-size:.82rem;color:#6b7280;margin-bottom:12px;">캠페인 · 광고세트 · 광고를 탭으로 나눠 보는 현황판 (보기 전용 · 60초 캐시 — 메타 호출 한도 보호). 캠페인·세트에 체크하면 다음 탭이 그 선택만 보여줍니다. 켜고 끄기는 메타 광고관리자에서 하세요.</div>
       <div id="admgr-tabs" style="display:flex;gap:2px;border-bottom:2px solid #e5e7eb;margin-bottom:12px;flex-wrap:wrap;"></div>
       <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:12px;">
         <span id="admgr-presets" style="display:flex;gap:6px;flex-wrap:wrap;"></span>
@@ -2067,7 +2067,7 @@ function applyRole() {
   $('menu-disp').style.display = isAdmin() && !isCS() ? '' : 'none';
   $('menu-stable').style.display = isAdmin() && !isCS() ? '' : 'none';
   $('menu-adv').style.display = (isAdmin() || isStaff()) && !isCS() ? '' : 'none';   // MD도 광고 효율 접근
-  $('menu-admgr').style.display = isAdmin() ? '' : 'none'; // 광고관리자 = 관리자(대표 3인) 전용 (2026-08-26 사용자 지정, 기존 admin+MD에서 축소)
+  $('menu-admgr').style.display = (isAdmin() || isStaff()) && !isCS() ? '' : 'none'; // 광고관리자 = 관리자 전체 + **MD·마케터는 테스트 소재 탭만** (2026-08-27 사용자 지정)
   $('menu-rwatch').style.display = (isAdmin() || isStaff()) && !isCS() ? '' : 'none'; // 반품 관리 = 관리자 + MD
   $('menu-npm').style.display = (isAdmin() || isStaff()) && !isCS() ? '' : 'none';    // 상품 관리(외부 링크) = 관리자 + MD
   $('menu-profit').style.display = isAdmin() && !isCS() ? '' : 'none';
@@ -5935,6 +5935,7 @@ function admgrRows() {
 
 /* ── 탭·선택 ── */
 function admgrSetView(v) {
+  if (!isAdmin()) v = 'test';   // MD·마케터는 테스트 소재 고정
   admgrState.view = v;
   admgrState.sort = [];
   $('admgr-q').value = '';
@@ -5971,17 +5972,20 @@ function admgrSelAllDisp() {   // 헤더 체크박스 — 표시된 전체 선�
 }
 
 function admgrRender() {
+  if (!isAdmin() && admgrState.view !== 'test') admgrState.view = 'test';   // 어떤 경로로 들어와도 테스트 소재 고정
+  const intro = $('admgr-intro');
+  if (intro && !isAdmin()) intro.textContent = '광고 등록 후 테스트한 소재의 현황판입니다. 광고세트명에 test를 넣어 등록하면 여기에 자동으로 나타나요.';
   const v = admgrState.view;
   const t = admgrState.test;
   const R = admgrRows();
   // 탭 (건수 포함 — 조회 전이면 숫자 생략)
   const testCount = t.loaded ? (t.data.ads || []).filter(a => !(t.state.get(a.id) || {}).hidden).length : null;
-  const tabDefs = [
+  const tabDefs = isAdmin() ? [
     ['camp', '캠페인', admgrState.data ? R.camps.length : null],
     ['adset', '광고세트', admgrState.data ? R.sets.length : null],
     ['ad', '광고', admgrState.data ? R.ads.length : null],
     ['test', '테스트 소재', testCount],
-  ];
+  ] : [['test', '테스트 소재', testCount]];   // MD·마케터는 테스트 소재만 (2026-08-27 사용자 지정)
   uiTabs('admgr-tabs', tabDefs.map(([k, label, n]) => [k, label, n == null ? '' : n]), v, 'admgrSetView');
   $('admgr-presets').style.display = v === 'test' ? 'none' : 'flex';
   $('admgr-active-wrap').style.display = v === 'test' ? 'none' : 'flex';
@@ -7776,7 +7780,7 @@ function myRender() {
         <label style="font-size:.75rem;color:#4b5563;font-weight:600;">종류
           <select id="my-lv-type" onchange="myLvTypeChange()" style="display:block;margin-top:3px;border:1.5px solid #d1d5db;border-radius:8px;padding:6px 10px;font-size:.8rem;">
             <option value="annual">연차 (1일)</option><option value="half">반차 (0.5일)</option>
-            <option value="sick">병가 (무급 · 연차 미차감)</option>
+            <option value="sick">병가 (무급/연차미차감/진단서제출)</option>
           </select></label>
         <label style="font-size:.75rem;color:#4b5563;font-weight:600;">날짜
           <input type="date" id="my-lv-date" value="${d.today}" style="display:block;margin-top:3px;border:1.5px solid #d1d5db;border-radius:8px;padding:5px 10px;font-size:.8rem;" /></label>
@@ -8193,7 +8197,7 @@ function showMenu(key) {
   // 권한 없는 사용자에게 아무 섹션도 표시되지 않아 화면이 비어버림
   const denied = (key === 'cr' && isStaff())
     || (key === 'rwatch' && isCS())                      // 반품 관리 = 관리자 + MD
-    || (['users', 'disp', 'stable', 'profit', 'board', 'proj', 'admgr', 'wm'].includes(key) && !isAdmin());   // admgr = 관리자 전용 (2026-08-26), wm = 근무 관리 (급여·계좌 포함)
+    || (['users', 'disp', 'stable', 'profit', 'board', 'proj', 'wm'].includes(key) && !isAdmin());   // admgr은 MD·마케터도 진입(테스트 소재 탭만, 2026-08-27), wm = 근무 관리 (급여·계좌 포함)
   if (denied) { showToast('접근 권한이 없습니다'); key = 'home'; }
   document.querySelectorAll('.page-sec').forEach(el => { el.style.display = 'none'; });
   const target = $('sec-' + key);
@@ -8212,7 +8216,11 @@ function showMenu(key) {
   if (key === 'wm') wmInit();
   if (key === 'board') boardLoad();
   if (key === 'proj') projLoad();
-  if (key === 'admgr' && !admgrState.data) admgrFetch();
+  if (key === 'admgr') {
+    // MD·마케터는 테스트 소재만 — 캠페인 계층(hierarchy)은 서버에서도 admin 전용이라 아예 부르지 않는다
+    if (!isAdmin()) { admgrState.view = 'test'; if (!admgrState.test.loaded) admgrTestFetch(); else admgrRender(); }
+    else if (!admgrState.data) admgrFetch();
+  }
   if (key === 'profit' && isAdmin()) loadProfitArchive();
   if (key === 'rwatch') rwInit();
   if (key === 'perf') perfTrendInit();
