@@ -106,15 +106,83 @@ Deno.serve(async (req) => {
   const opt = handleOptions(req);
   if (opt) return opt;
 
+  const url = new URL(req.url);
+  const action = url.searchParams.get("action") ?? "summary";
+
+  // ── 서버 간 연동 syncexport (2026-08-28) — 상품관리 시스템(newproduct-manager)이 읽어가는 창구 ──
+  // 사용자 토큰 대신 NPM_SYNC_SECRET(secret) 헤더로 인증. 이 액션만, 읽기 전용:
+  // 테스트 세트(이름 test)의 광고 전체 + ad_test_state 판정(verdict)·숨김을 합쳐서 반환.
+  // 상품관리는 이걸로 ①업로드완료→광고테스트 자동 진입 ②우수/OFF/애매 평가 자동 반영을 한다.
+  if (action === "syncexport") {
+    const secret = Deno.env.get("NPM_SYNC_SECRET") ?? "";
+    if (!secret || req.headers.get("x-sync-secret") !== secret) return json({ error: "접근 권한이 없습니다" }, 403);
+    const c2 = creds();
+    if (!c2) return json({ error: "not_connected" }, 200);
+    try {
+      const cacheKey = `meta:syncexport:${seoulToday()}`;
+      const hit = await cacheGet(cacheKey, 60 * 1000);
+      if (hit) return json(hit);
+
+      const allSets = await graphGetAll(`${c2.account}/adsets`, { fields: "id,name", limit: "500" }, c2.token);
+      const testSets = allSets.filter((r) => /test/i.test(String(r.name ?? "")));
+      const setName = new Map(testSets.map((r) => [String(r.id), String(r.name ?? "")]));
+      const setIds = [...setName.keys()].slice(0, 200);
+
+      let adRows: Record<string, unknown>[] = [];
+      if (setIds.length) {
+        const adsetFilter = JSON.stringify([{ field: "adset.id", operator: "IN", value: setIds }]);
+        adRows = await graphGetAll(`${c2.account}/ads`, {
+          fields: "id,name,status,effective_status,created_time,adset_id",
+          filtering: adsetFilter,
+          limit: "500",
+        }, c2.token);
+      }
+
+      // ad_test_state 판정 합치기 (service_role 직접 조회 — RLS 통과)
+      const stRes = await fetch(`${Deno.env.get("SUPABASE_URL")}/rest/v1/ad_test_state?select=ad_id,verdict,hidden`, {
+        headers: {
+          apikey: Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+          Authorization: `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!}`,
+        },
+      });
+      const stRows = stRes.ok ? (await stRes.json()) as { ad_id: string; verdict: string | null; hidden: boolean }[] : [];
+      const st = new Map(stRows.map((r) => [r.ad_id, r]));
+      const regDate = (ct: string) => {
+        const d = new Date(ct);
+        return isNaN(d.getTime()) ? "" : new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Seoul" }).format(d);
+      };
+      const body = {
+        fetched_at: new Date().toISOString(),
+        truncated: setName.size > setIds.length,
+        ads: adRows.map((a) => {
+          const id = String(a.id ?? "");
+          const meta = st.get(id);
+          return {
+            id,
+            name: String(a.name ?? ""),
+            adset_id: String(a.adset_id ?? ""),
+            adset_name: setName.get(String(a.adset_id ?? "")) ?? "",
+            status: String(a.status ?? ""),
+            effective_status: String(a.effective_status ?? ""),
+            reg_date: regDate(String(a.created_time ?? "")),
+            verdict: meta?.verdict ?? null,
+            hidden: !!meta?.hidden,
+          };
+        }),
+      };
+      await cacheSet(cacheKey, body);
+      return json(body);
+    } catch (e) {
+      return json({ error: String((e as Error)?.message ?? e) }, 500);
+    }
+  }
+
   // 관리자 + MD(staff) 허용 — MD는 UI에서 광고비·전환값·총매출 블러 (CS는 차단)
   const authed = await verifyAuthToken(req);
   if (!authed || !["admin", "staff"].includes(authed.role)) return json({ error: "접근 권한이 없습니다" }, 403);
 
   const c = creds();
   if (!c) return json({ error: "not_connected", message: "Meta 연동이 설정되지 않았습니다 (META_ACCESS_TOKEN / META_AD_ACCOUNT_ID)" }, 200);
-
-  const url = new URL(req.url);
-  const action = url.searchParams.get("action") ?? "summary";
 
   // 광고관리자(#admgr) 메뉴 전용 액션은 관리자만 (2026-08-26 사용자 지정 — 대표 3인 = admin 전원).
   // 단 **testads(테스트 소재)는 MD·마케터도 허용**(2026-08-27 사용자 지정 — 광고관리자 화면에서
