@@ -6208,8 +6208,10 @@ async function admgrTestAsset(adId, field) {
   try { await admgrTestSave(adId, { [field]: cur[field] ? null : new Date().toISOString() }); admgrRender(); }
   catch (e) { showToast('저장 실패: ' + e.message); }
 }
-function admgrTestFilter(k) { admgrState.test.filter = k; admgrState.test.showHidden = false; admgrState.test.sel.clear(); admgrRender(); }
-function admgrTestToggleHidden() { const t = admgrState.test; t.showHidden = !t.showHidden; t.sel.clear(); admgrRender(); }
+// 필터·목록 전환은 다른 행 집합이라 맨 위부터 (판정·체크·메모 재렌더는 스크롤 유지 — admgrRenderTest 끝부분)
+function admgrTestScrollTop() { const w = $('admgr-result').querySelector('.table-wrap'); if (w) w.scrollTop = 0; }
+function admgrTestFilter(k) { admgrState.test.filter = k; admgrState.test.showHidden = false; admgrState.test.sel.clear(); admgrRender(); admgrTestScrollTop(); }
+function admgrTestToggleHidden() { const t = admgrState.test; t.showHidden = !t.showHidden; t.sel.clear(); admgrRender(); admgrTestScrollTop(); }
 function admgrTestSel(id) { const s = admgrState.test.sel; s.has(id) ? s.delete(id) : s.add(id); admgrRender(); }
 
 // ad_test_state 저장 (upsert) — 숨김·판정·추가소재·메모 공용 (안 바꾸는 필드도 현재값으로 실어 upsert 덮어쓰기 손실 방지)
@@ -6399,7 +6401,11 @@ function admgrRenderTest() {
       <td>${admgrAssetCell(a)}</td>
       <td class="m-hide" onclick="event.stopPropagation();admgrTestMemo(event,'${a.id}')" title="클릭해서 메모 수정" style="cursor:text;text-align:left;max-width:180px;font-size:.74rem;color:${a.meta.memo ? '#374151' : '#c4c9d4'};">${a.meta.memo ? escHtml(a.meta.memo) : '메모 —'}</td></tr>`;
   }
+  // 재렌더 시 표 스크롤 유지 — 판정·체크·메모 저장마다 innerHTML을 갈아끼우므로, 안 지키면 맨 위로 튄다 (2026-08-28 사용자 지적)
+  const oldWrap = $('admgr-result').querySelector('.table-wrap');
+  const keep = oldWrap ? { top: oldWrap.scrollTop, left: oldWrap.scrollLeft } : null;
   $('admgr-result').innerHTML = html + '</tbody></table></div>';
+  if (keep) { const w = $('admgr-result').querySelector('.table-wrap'); w.scrollTop = keep.top; w.scrollLeft = keep.left; }
 }
 
 async function metaGet(params) {
