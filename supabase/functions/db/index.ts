@@ -57,7 +57,9 @@ Deno.serve(async (req) => {
 
     const authorField = AUTHOR_FIELDS[table];
     if (authorField) {
-      if (m === "PATCH" || m === "DELETE") {
+      // 관리자는 공유 회의 기록(ad_meeting_notes)을 남의 것도 수정 가능 (2026-08-28 사용자 지정 — PATCH만, 삭제·공유토글은 계속 본인만)
+      const adminNoteEdit = table === "ad_meeting_notes" && m === "PATCH" && me.role === "admin";
+      if ((m === "PATCH" || m === "DELETE") && !adminNoteEdit) {
         const qs = new URLSearchParams(p.split("?")[1] ?? "");
         if (qs.get(authorField) !== `eq.${me.id}`) return json({ error: "본인 것만 수정·삭제할 수 있습니다" }, 403);
       }

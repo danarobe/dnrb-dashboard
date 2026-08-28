@@ -2774,10 +2774,12 @@ async function loadMeetNotes() {
         const badge = n.shared
           ? '<span style="background:#dcfce7;color:#15803d;border-radius:6px;padding:1px 8px;font-size:.7rem;font-weight:700;">공유됨</span>'
           : '<span style="background:#fef3c7;color:#a16207;border-radius:6px;padding:1px 8px;font-size:.7rem;font-weight:700;">비공개 · 나만 보임</span>';
-        const btns = mine ? `
-          <button onclick="toggleShareNote('${n.id}', ${!n.shared})" style="border:1px solid ${n.shared ? '#fde68a' : '#bbf7d0'};background:${n.shared ? '#fffbeb' : '#f0fdf4'};color:${n.shared ? '#a16207' : '#15803d'};border-radius:6px;padding:3px 10px;font-size:.75rem;cursor:pointer;font-weight:700;">${n.shared ? '공유 해제' : '공유'}</button>
-          <button onclick="editMeetNote('${n.id}')" style="border:1px solid #e5e7eb;background:#fff;color:#6b7280;border-radius:6px;padding:3px 10px;font-size:.75rem;cursor:pointer;">수정</button>
-          <button onclick="deleteMeetNote('${n.id}')" style="border:none;background:none;color:#d1d5db;font-size:.82rem;cursor:pointer;">✕</button>` : '';
+        // 수정 버튼: 본인 것 + 관리자는 남의 공유 기록도 (2026-08-28 사용자 지정). 공유 토글·삭제는 계속 본인만.
+        const canEdit = mine || (isAdmin() && n.shared);
+        const btns = `
+          ${mine ? `<button onclick="toggleShareNote('${n.id}', ${!n.shared})" style="border:1px solid ${n.shared ? '#fde68a' : '#bbf7d0'};background:${n.shared ? '#fffbeb' : '#f0fdf4'};color:${n.shared ? '#a16207' : '#15803d'};border-radius:6px;padding:3px 10px;font-size:.75rem;cursor:pointer;font-weight:700;">${n.shared ? '공유 해제' : '공유'}</button>` : ''}
+          ${canEdit ? `<button onclick="editMeetNote('${n.id}', ${mine})" style="border:1px solid #e5e7eb;background:#fff;color:#6b7280;border-radius:6px;padding:3px 10px;font-size:.75rem;cursor:pointer;">수정</button>` : ''}
+          ${mine ? `<button onclick="deleteMeetNote('${n.id}')" style="border:none;background:none;color:#d1d5db;font-size:.82rem;cursor:pointer;">✕</button>` : ''}`;
 
         // 공유 글에만 좋아요·댓글 (비공개 글은 나만 보므로 의미 없음)
         let social = '';
@@ -2817,6 +2819,7 @@ async function loadMeetNotes() {
         return `<div id="note-card-${n.id}" style="background:#fff;border:1px solid ${n.shared ? '#e5e7eb' : '#fde68a'};border-radius:10px;padding:10px 14px;margin-bottom:8px;">
           <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px;">
             <b style="color:#1e1b4b;font-size:.82rem;">${escHtml(n.author_name)}</b>${badge}
+            ${n.edited_by_name ? `<span style="background:#eef2ff;color:#4338ca;border-radius:6px;padding:1px 8px;font-size:.7rem;font-weight:700;"><i class="fa-solid fa-pen" style="font-size:.6rem;"></i> ${escHtml(n.edited_by_name)} 수정</span>` : ''}
             <span style="font-size:.7rem;color:#c4c9d4;">${(n.updated_at || n.created_at || '').slice(0, 16).replace('T', ' ')}</span>
             <span style="margin-left:auto;display:flex;gap:6px;">${btns}</span>
           </div>
@@ -3182,23 +3185,26 @@ async function toggleShareNote(id, share) {
   } catch (e) { showToast('변경 실패: ' + e.message); }
 }
 
-function editMeetNote(id) {
+function editMeetNote(id, mine = true) {
   const body = $('note-body-' + id); if (!body) return;
   const raw = JSON.parse($('meet-notes').dataset.raw || '{}')[id] ?? body.innerText;
   body.innerHTML = `<textarea id="note-edit-${id}" class="mention-field" rows="4" style="width:100%;box-sizing:border-box;border:1.5px solid #c7d2fe;border-radius:8px;padding:8px 10px;font-size:.82rem;font-family:inherit;outline:none;resize:vertical;">${escHtml(raw)}</textarea>
     <div style="display:flex;gap:6px;margin-top:6px;">
-      <button onclick="saveMeetNote('${id}')" class="btn-analyze" style="padding:5px 14px;font-size:.82rem;">저장</button>
+      <button onclick="saveMeetNote('${id}', ${mine})" class="btn-analyze" style="padding:5px 14px;font-size:.82rem;">저장</button>
       <button onclick="loadMeetNotes()" style="border:1px solid #e5e7eb;background:#fff;border-radius:6px;padding:5px 12px;font-size:.82rem;cursor:pointer;">취소</button>
     </div>`;
 }
 
-async function saveMeetNote(id) {
+async function saveMeetNote(id, mine = true) {
   const content = $('note-edit-' + id).value.trim();
   if (!content) { showToast('내용을 입력해주세요'); return; }
   try {
-    await meetRest(`ad_meeting_notes?id=eq.${id}&author_id=eq.${encodeURIComponent(SESSION.id)}`, {
+    // 본인 글은 작성자 필터로, 남의 공유 글은 관리자만(서버 db 프록시가 admin PATCH 허용).
+    // 관리자가 남의 글을 고치면 edited_by_name에 이름을 남겨 '○○ 수정' 배지 표시, 작성자 본인이 다시 고치면 배지 해제.
+    const filter = mine ? `&author_id=eq.${encodeURIComponent(SESSION.id)}` : '';
+    await meetRest(`ad_meeting_notes?id=eq.${id}${filter}`, {
       method: 'PATCH', headers: { Prefer: 'return=minimal' },
-      body: JSON.stringify({ content, updated_at: new Date().toISOString() }),
+      body: JSON.stringify({ content, updated_at: new Date().toISOString(), edited_by_name: mine ? null : SESSION.name }),
     });
     showToast('수정됐습니다');
     loadMeetNotes();
