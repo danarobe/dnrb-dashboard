@@ -5416,6 +5416,7 @@ const admgrState = {
   data: null, preset: 'today', sort: [], view: 'camp',
   selCamps: new Set(), selSets: new Set(), _dispIds: [],
   test: { data: null, state: new Map(), filter: 'all', showHidden: false, sel: new Set(), loaded: false, loading: false },
+  offad: { data: null, loading: false, loaded: false, start: null, end: null },   // 기존광고 중 OFF (기간은 첫 조회 때 최근 7일로 채움)
   // 광고세트 탭 '실결제 수' 열 (2026-08-26): 세트명↔상품명 매칭(판매 성과 pa* 규칙 재사용) + paiditems 기간 결제수량.
   // key = 기간 문자열, loading = 조회 중인 key(경쟁 응답 버림용), bySet = Map(세트id → {qty, name})
   paid: { key: null, bySet: null, loading: false, error: false },
@@ -5455,9 +5456,9 @@ function admgrCmp(a, b) {
   const roasOf = n => n.spend > 0 ? n.value / n.spend : -1;
   const cpaOf = n => n.purchases > 0 ? n.spend / n.purchases : Infinity;
   const cpcOf = n => n.clicks > 0 ? n.spend / n.clicks : Infinity;
-  const val = (n, k) => k === 'spend' ? n.spend : k === 'purchases' ? n.purchases : k === 'value' ? n.value : k === 'roas' ? roasOf(n) : k === 'cpa' ? cpaOf(n) : k === 'cpc' ? cpcOf(n) : k === 'paid' ? (n.paid ?? -1) : k === 'reg' ? (n.reg_date || '') : k === 'aname' ? (n.adset_name || '') : n.name;
+  const val = (n, k) => k === 'spend' ? n.spend : k === 'purchases' ? n.purchases : k === 'value' ? n.value : k === 'roas' ? roasOf(n) : k === 'cpa' ? cpaOf(n) : k === 'cpc' ? cpcOf(n) : k === 'paid' ? (n.paid ?? -1) : k === 'reg' ? (n.reg_date || '') : k === 'aname' ? (n.adset_name || '') : k === 'offd' ? (n.off_date || '') : n.name;
   for (const { k, d } of admgrState.sort) {
-    const r = (k === 'name' || k === 'reg' || k === 'aname')
+    const r = (k === 'name' || k === 'reg' || k === 'aname' || k === 'offd')
       ? String(val(a, k)).localeCompare(String(val(b, k)), 'ko')
       : (val(a, k) - val(b, k));
     if (r) return d === 'asc' ? r : -r;
@@ -5472,7 +5473,7 @@ function admgrSetPreset(p) { admgrState.preset = p; admgrState.chgFilter = 'all'
 let __admgrQT = null;
 function admgrQSoon() { clearTimeout(__admgrQT); __admgrQT = setTimeout(admgrRender, 200); }
 
-function admgrRefresh() { admgrState.view === 'test' ? admgrTestFetch() : admgrFetch(); }
+function admgrRefresh() { admgrState.view === 'test' ? admgrTestFetch() : admgrState.view === 'offad' ? admgrOffFetch() : admgrFetch(); }
 
 async function admgrFetch() {
   const btn = $('btn-admgr');
@@ -5944,6 +5945,7 @@ function admgrSetView(v) {
   admgrState.sort = [];
   $('admgr-q').value = '';
   if (v === 'test' && !admgrState.test.loaded) admgrTestFetch();
+  if (v === 'offad' && !admgrState.offad.loaded) admgrOffFetch();
   admgrRender();
 }
 function admgrSelCamp(id) {
@@ -5989,16 +5991,19 @@ function admgrRender() {
     ['adset', '광고세트', admgrState.data ? R.sets.length : null],
     ['ad', '광고', admgrState.data ? R.ads.length : null],
     ['test', '테스트 소재', testCount],
+    ['offad', '기존광고 중 OFF', admgrState.offad.loaded ? admgrState.offad.data.count : null],
   ] : [['test', '테스트 소재', testCount]];   // MD·마케터는 테스트 소재만 (2026-08-27 사용자 지정)
   uiTabs('admgr-tabs', tabDefs.map(([k, label, n]) => [k, label, n == null ? '' : n]), v, 'admgrSetView');
-  $('admgr-presets').style.display = v === 'test' ? 'none' : 'flex';
-  $('admgr-active-wrap').style.display = v === 'test' ? 'none' : 'flex';
-  $('admgr-testctrl').style.display = v === 'test' ? 'flex' : 'none';
+  const ownCtrl = v === 'test' || v === 'offad';   // 자체 컨트롤을 쓰는 탭 (기간 칩·활성만 숨김)
+  $('admgr-presets').style.display = ownCtrl ? 'none' : 'flex';
+  $('admgr-active-wrap').style.display = ownCtrl ? 'none' : 'flex';
+  $('admgr-testctrl').style.display = ownCtrl ? 'flex' : 'none';
   $('admgr-chgfilter').style.display = 'none';   // 오늘+캠페인/세트 탭에서만 아래에서 다시 켠다
   const wc0 = $('admgr-writectrl');
-  if (admgrState.write.st && admgrState.write.st.allowed && v !== 'test') { wc0.innerHTML = admgrWriteCtrlHtml(); wc0.style.display = 'flex'; }
+  if (admgrState.write.st && admgrState.write.st.allowed && !ownCtrl) { wc0.innerHTML = admgrWriteCtrlHtml(); wc0.style.display = 'flex'; }
   else wc0.style.display = 'none';
   if (v === 'test') { admgrRenderTest(); return; }
+  if (v === 'offad') { admgrRenderOff(); return; }
 
   const d = admgrState.data;
   $('admgr-sel').style.display = 'none';
@@ -6406,6 +6411,107 @@ function admgrRenderTest() {
   const keep = oldWrap ? { top: oldWrap.scrollTop, left: oldWrap.scrollLeft } : null;
   $('admgr-result').innerHTML = html + '</tbody></table></div>';
   if (keep) { const w = $('admgr-result').querySelector('.table-wrap'); w.scrollTop = keep.top; w.scrollLeft = keep.left; }
+}
+
+/* ── 기존광고 중 OFF 탭 (2026-08-28) — 기간 내 OFF로 바뀐 광고세트(테스트 세트 제외) + 등록 이후 누적 성과.
+   서버 offsets 액션: Meta 활동 로그(약 90일 보관)의 세트 스위치 OFF 이벤트 기준 — 캠페인을 통째로 끈 경우는 안 잡힘. */
+function admgrOffDates() {   // 기간 기본값 = 최근 7일 (state가 비어 있을 때만 채움)
+  const o = admgrState.offad;
+  if (!o.end) o.end = admgrToday();
+  if (!o.start) o.start = admgrDateAdd(o.end, -6);
+  return o;
+}
+async function admgrOffFetch() {
+  const o = admgrOffDates();
+  if (o.loading) return;
+  if (o.start > o.end) { showToast('시작일이 종료일보다 늦습니다'); return; }
+  o.loading = true;
+  const btn = $('btn-admgr');
+  btnBusy(btn, '불러오는 중');
+  try {
+    const data = await metaGet({ action: 'offsets', start_date: o.start, end_date: o.end });
+    if (data.error === 'not_connected') { $('admgr-result').innerHTML = '<div class="empty-state"><p>Meta 연동이 설정되지 않았습니다.</p></div>'; return; }
+    o.data = data;
+    o.loaded = true;
+    admgrRender();
+  } catch (e) { showToast('조회 실패: ' + e.message); }
+  finally { o.loading = false; btnIdle(btn, '<i class="fa-solid fa-rotate"></i> 새로고침'); }
+}
+function admgrOffSetDate(which, v) { admgrState.offad[which] = v; }
+function admgrOffPreset(days) {
+  const o = admgrState.offad;
+  o.end = admgrToday();
+  o.start = admgrDateAdd(o.end, -(days - 1));
+  admgrOffFetch();
+}
+
+function admgrRenderOff() {
+  const o = admgrOffDates();
+  $('admgr-sel').style.display = 'none';
+  // 컨트롤: 기간 지정 + 프리셋 칩 + 조회 (입력값은 state에 보관 — 재렌더에도 유지)
+  const chip = (label, days) => `<button onclick="admgrOffPreset(${days})" style="border:1.5px solid #d1d5db;background:#fff;color:#4b5563;border-radius:99px;padding:5px 13px;font-size:.78rem;font-weight:700;cursor:pointer;">${label}</button>`;
+  const dinp = (id, which, v) => `<input type="date" id="${id}" value="${v}" onchange="admgrOffSetDate('${which}',this.value)" style="border:1.5px solid #d1d5db;border-radius:8px;padding:4px 8px;font-size:.78rem;" />`;
+  $('admgr-testctrl').innerHTML =
+    `<span style="font-size:.78rem;font-weight:700;color:#4b5563;">기간</span> ${dinp('admgr-off-s', 'start', o.start)} <span style="color:#9ca3af;">~</span> ${dinp('admgr-off-e', 'end', o.end)}
+    <button onclick="admgrOffFetch()" style="border:none;background:#4f46e5;color:#fff;border-radius:99px;padding:5px 15px;font-size:.78rem;font-weight:700;cursor:pointer;">조회</button>
+    ${chip('최근 7일', 7)}${chip('최근 14일', 14)}${chip('최근 30일', 30)}`;
+
+  if (!o.loaded) {
+    $('admgr-summary').style.display = 'none';
+    $('admgr-asof').textContent = '';
+    $('admgr-result').innerHTML = `<div class="empty-state"><p>${o.loading ? '기간 내 OFF된 광고세트를 찾는 중...' : '기간을 정하고 조회를 눌러주세요.'}</p></div>`;
+    return;
+  }
+  const d = o.data;
+  const ageSec = Math.max(0, Math.round((Date.now() - new Date(d.fetched_at).getTime()) / 1000));
+  $('admgr-asof').textContent = `${d.period.start} ~ ${d.period.end} OFF 전환 · 성과는 등록 이후 누적 · ${ageSec < 60 ? ageSec + '초' : Math.round(ageSec / 60) + '분'} 전 기준${d.truncated ? ' · 일부 생략(200개 한도)' : ''} · 테스트 세트 제외, 세트를 직접 끈 것 기준 (활동 로그 약 90일 보관)`;
+
+  const q = ($('admgr-q').value || '').trim().toLowerCase();
+  let rows = (d.sets || []).slice();
+  if (q) rows = rows.filter(s0 => s0.name.toLowerCase().includes(q));
+  rows.sort((a, b) => admgrState.sort.length ? admgrCmp(a, b) : String(b.off_time).localeCompare(String(a.off_time)));   // 기본: 최근 OFF 순
+
+  const tSpend = rows.reduce((s0, r) => s0 + r.spend, 0);
+  const tPur = rows.reduce((s0, r) => s0 + r.purchases, 0);
+  const tVal = rows.reduce((s0, r) => s0 + r.value, 0);
+  $('admgr-summary').innerHTML =
+    admgrTile('기간 내 OFF 세트', rows.length + '개', false) +
+    admgrTile('누적 지출 (표시분 합)', fmt(Math.round(tSpend)) + '원', false) +
+    admgrTile('구매 (합)', fmt(tPur) + '건', false) +
+    admgrTile('구매당 비용 (합산)', tPur > 0 ? fmt(Math.round(tSpend / tPur)) + '원' : '—', false) +
+    admgrTile('ROAS (합산)', tSpend > 0 ? (tVal / tSpend).toFixed(2) : '—', false);
+  $('admgr-summary').style.display = 'grid';
+
+  if (!rows.length) {
+    $('admgr-result').innerHTML = `<div class="empty-state"><div class="es-icon"><i class="fa-regular fa-folder-open"></i></div><p>${q ? '검색 결과가 없습니다.' : '이 기간에 OFF로 바뀐 광고세트가 없습니다.'}</p></div>`;
+    return;
+  }
+
+  const thSort = (k, label, cls = '', left = false) => {
+    const i = admgrState.sort.findIndex(s0 => s0.k === k);
+    const ind = i < 0 ? '<i class="fa-solid fa-sort" style="font-size:.55rem;color:#d1d5db;margin-left:3px;"></i>'
+      : ` <span style="color:#4f46e5;font-size:.62rem;font-weight:800;">${admgrState.sort[i].d === 'asc' ? '▲' : '▼'}${admgrState.sort.length > 1 ? i + 1 : ''}</span>`;
+    return `<th class="${cls}" onclick="admgrSortClick('${k}')" title="클릭: 오름차순 → 내림차순 → 해제" style="cursor:pointer;${left ? 'text-align:left;' : ''}">${label}${ind}</th>`;
+  };
+  let html = `<div class="table-wrap" style="max-height:640px;overflow:auto;"><table>
+    <thead><tr>
+      ${thSort('name', '광고세트명', '', true)}${thSort('reg', '등록일', 'm-hide')}${thSort('offd', 'OFF일')}
+      ${thSort('spend', '누적 지출')}${thSort('purchases', '구매', 'm-hide')}${thSort('cpa', '구매당 비용', 'm-hide')}${thSort('roas', 'ROAS')}
+    </tr></thead><tbody>`;
+  for (const s0 of rows) {
+    const offHm = s0.off_time ? new Date(s0.off_time).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'Asia/Seoul' }) : '';
+    html += `<tr>
+      <td style="text-align:left;min-width:190px;">
+        <span style="font-weight:600;color:#1f2937;">${escHtml(s0.name)}</span>
+        ${s0.reactivated ? '<span style="background:#dcfce7;color:#15803d;border-radius:99px;padding:1px 8px;font-size:.64rem;font-weight:700;margin-left:5px;white-space:nowrap;">현재 다시 켜짐</span>' : ''}</td>
+      <td class="m-hide" style="white-space:nowrap;">${s0.reg_date || '—'}</td>
+      <td style="white-space:nowrap;" title="${offHm ? 'OFF 시각 ' + offHm : ''}">${s0.off_date || '—'}<div style="font-size:.62rem;color:#9ca3af;">${offHm}</div></td>
+      <td style="font-weight:700;">${admgrMoneyPlain(s0.spend)}</td>
+      <td class="m-hide">${fmt(s0.purchases)}</td>
+      <td class="m-hide">${admgrCpaPlain(s0)}</td>
+      <td>${admgrRoasTxt(s0.spend, s0.value)}</td></tr>`;
+  }
+  $('admgr-result').innerHTML = html + '</tbody></table></div>';
 }
 
 async function metaGet(params) {

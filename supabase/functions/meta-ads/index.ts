@@ -119,7 +119,7 @@ Deno.serve(async (req) => {
   // 광고관리자(#admgr) 메뉴 전용 액션은 관리자만 (2026-08-26 사용자 지정 — 대표 3인 = admin 전원).
   // 단 **testads(테스트 소재)는 MD·마케터도 허용**(2026-08-27 사용자 지정 — 광고관리자 화면에서
   // 테스트 소재 탭만 열어준다). 나머지(hierarchy/budgethistory/hourlystats)는 계속 admin 전용.
-  if (["hierarchy", "budgethistory", "hourlystats"].includes(action) && authed.role !== "admin") {
+  if (["hierarchy", "budgethistory", "hourlystats", "offsets"].includes(action) && authed.role !== "admin") {
     return json({ error: "접근 권한이 없습니다" }, 403);
   }
 
@@ -400,6 +400,99 @@ Deno.serve(async (req) => {
         adset_count: setIds.length,
         truncated: setName.size > setIds.length,
         ads,
+      };
+      await cacheSet(cacheKey, body);
+      return json(body);
+    }
+
+    // ── 기존광고 중 OFF (2026-08-28) — 기간 내 비활성(OFF)으로 바뀐 광고세트 + 등록 이후 누적 성과 ──
+    // Meta 활동 로그(약 90일 보관)의 update_ad_set_run_status 이벤트로 잡는다:
+    // extra_data.run_status.new_value 1=활성, 그 외(실측 7)=비활성. activities는 최신순이라 세트별 처음 만난 이벤트가 기간 내 마지막 상태.
+    // 기간 내 마지막 이벤트가 비활성인 세트만 채택(껐다 다시 켠 세트 제외), 테스트 세트(이름 test)는 제외.
+    // 세트 스위치를 직접 끈 것 기준 — 캠페인을 통째로 끈 경우는 세트 이벤트가 없어 안 잡힌다.
+    if (action === "offsets") {
+      const s = url.searchParams.get("start_date") ?? addDays(seoulToday(), -7);
+      const e = url.searchParams.get("end_date") ?? seoulToday();
+      const cacheKey = `meta:offsets:${s}:${e}`;
+      const hit = await cacheGet(cacheKey, 60 * 1000);
+      if (hit) return json(hit);
+
+      const [acts, allSets] = await Promise.all([
+        graphGetAll(`${c.account}/activities`, {
+          fields: "event_type,event_time,object_id,extra_data",
+          since: s,
+          until: addDays(e, 1),   // until은 그 날 0시 기준이라 하루 더해 종료일 포함
+          limit: "500",
+        }, c.token, 8),
+        // 세트 상세는 전체 목록으로 (ids 배치 조회는 삭제된 세트가 섞이면 통째로 실패 — 목록엔 삭제분이 안 나와 자연히 걸러짐)
+        graphGetAll(`${c.account}/adsets`, { fields: "id,name,status,effective_status,created_time", limit: "500" }, c.token),
+      ]);
+
+      // 세트별 기간 내 마지막 run_status 이벤트
+      const last = new Map<string, { off: boolean; time: string }>();
+      for (const r of acts) {
+        if (String(r.event_type ?? "") !== "update_ad_set_run_status") continue;
+        const id = String(r.object_id ?? "");
+        if (last.has(id)) continue;
+        let nv = 0;
+        try {
+          const raw = r.extra_data;
+          const extra = typeof raw === "string" ? JSON.parse(raw) : (raw as Record<string, unknown>) ?? {};
+          nv = num(((extra.run_status ?? {}) as Record<string, unknown>).new_value);
+        } catch { /* extra_data 없음/비JSON — 건너뜀 */ }
+        if (!nv) continue;
+        last.set(id, { off: nv !== 1, time: String(r.event_time ?? "") });
+      }
+
+      const info = new Map(allSets.map((r) => [String(r.id), r]));
+      const offAll = [...last.entries()]
+        .filter(([id, v]) => v.off && info.has(id) && !/test/i.test(String(info.get(id)?.name ?? "")))
+        .map(([id]) => id);
+      const offIds = offAll.slice(0, 200);   // IN 필터 값 개수·URL 길이 방어
+
+      const kstDate = (iso: string) => {
+        const d = new Date(iso);
+        return isNaN(d.getTime()) ? "" : new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Seoul" }).format(d);
+      };
+
+      let metric = new Map<string, Record<string, unknown>>();
+      if (offIds.length) {
+        const setFilter = JSON.stringify([{ field: "adset.id", operator: "IN", value: offIds }]);
+        const insParams = {
+          time_range: JSON.stringify({ since: "2024-01-01", until: seoulToday() }),   // 등록 이후 누적 (테스트 소재와 동일 기준)
+          level: "adset",
+          fields: "adset_id,spend,actions,action_values",
+          limit: "500",
+        };
+        const insRows = await graphGetAll(`${c.account}/insights`, { ...insParams, filtering: setFilter }, c.token)
+          .catch(() => [] as Record<string, unknown>[]);   // 필터 거부 시 성과 없이라도 목록은 반환
+        metric = new Map(insRows.map((r) => [String(r.adset_id ?? ""), r]));
+      }
+
+      const sets = offIds.map((id) => {
+        const d0 = info.get(id) ?? {};
+        const ev = last.get(id)!;
+        const m = metric.get(id);
+        return {
+          id,
+          name: String(d0.name ?? ""),
+          created_time: String(d0.created_time ?? ""),
+          reg_date: kstDate(String(d0.created_time ?? "")),
+          off_time: ev.time,
+          off_date: kstDate(ev.time),
+          reactivated: String(d0.effective_status ?? "") === "ACTIVE",   // 기간 내 마지막은 OFF였지만 이후 다시 켜진 세트
+          spend: m ? num(m.spend) : 0,
+          purchases: m ? pickPurchase(m.actions) : 0,
+          value: m ? pickPurchase(m.action_values) : 0,
+        };
+      });
+
+      const body = {
+        fetched_at: new Date().toISOString(),
+        period: { start: s, end: e },
+        count: sets.length,
+        truncated: offAll.length > offIds.length,
+        sets,
       };
       await cacheSet(cacheKey, body);
       return json(body);
