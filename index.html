@@ -5407,9 +5407,9 @@ function stableExportNewCSV() {
    광고관리자 (#admgr, 관리자+MD — 2026-08-25 신설, 2026-08-26 탭 방식 개편 + 테스트 소재 탭)
    메타 광고관리자처럼 캠페인/광고세트/광고 탭으로 나눠 보고, 캠페인·세트 행에 체크하면
    다음 탭이 그 선택만 보여준다 (서버 hierarchy 액션, 60초 캐시 — 탭 전환·선택은 재조회 없음).
-   테스트 소재 탭: 세트명에 test(대소문자 무시)가 든 광고 전체 — 서버 testads 액션(등록 이후 누적 성과).
-   상태 자동 판정: ON(켜짐·테스트 중) / 생존(켜짐 유지 + 등록일+4일부터 — 예: 8/22 등록 → 8/26부터) / OFF(꺼짐 — 소재 꺼짐·상위 꺼짐 구분) / 검토중·거부.
-   숨김(목록에서 제거·복원)·추가소재권장·메모는 ad_test_state 테이블(db 프록시, admin+staff 공동 관리).
+   테스트 소재 탭: 세트명에 test(대소문자 무시)가 든 광고 전체 — 서버 testads 액션(등록 이후 누적 성과). 표의 대표명은 광고세트명(소재명은 부제).
+   상태(2026-08-28 개편): OFF(빨간불)·검토중·거부는 메타에서 자동 감지, 애매(주황불)·우수(초록불)는 관리자가 직접 지정(verdict), 켜져 있고 미지정 = 평가중.
+   숨김(목록에서 제거·복원)·판정(verdict)·추가소재 요청/제작완료(asset_req_at/asset_done_at)·메모는 ad_test_state 테이블(db 프록시, admin+staff 공동 관리).
    제거하려면: 이 블록 + 섹션 + 메뉴 버튼 + MENU_KEYS/applyRole/showMenu 훅 + 서버 hierarchy·testads 액션 + ad_test_state 테이블
 ────────────────────────────── */
 const admgrState = {
@@ -5455,9 +5455,9 @@ function admgrCmp(a, b) {
   const roasOf = n => n.spend > 0 ? n.value / n.spend : -1;
   const cpaOf = n => n.purchases > 0 ? n.spend / n.purchases : Infinity;
   const cpcOf = n => n.clicks > 0 ? n.spend / n.clicks : Infinity;
-  const val = (n, k) => k === 'spend' ? n.spend : k === 'purchases' ? n.purchases : k === 'value' ? n.value : k === 'roas' ? roasOf(n) : k === 'cpa' ? cpaOf(n) : k === 'cpc' ? cpcOf(n) : k === 'paid' ? (n.paid ?? -1) : k === 'reg' ? (n.reg_date || '') : n.name;
+  const val = (n, k) => k === 'spend' ? n.spend : k === 'purchases' ? n.purchases : k === 'value' ? n.value : k === 'roas' ? roasOf(n) : k === 'cpa' ? cpaOf(n) : k === 'cpc' ? cpcOf(n) : k === 'paid' ? (n.paid ?? -1) : k === 'reg' ? (n.reg_date || '') : k === 'aname' ? (n.adset_name || '') : n.name;
   for (const { k, d } of admgrState.sort) {
-    const r = (k === 'name' || k === 'reg')
+    const r = (k === 'name' || k === 'reg' || k === 'aname')
       ? String(val(a, k)).localeCompare(String(val(b, k)), 'ko')
       : (val(a, k) - val(b, k));
     if (r) return d === 'asc' ? r : -r;
@@ -6163,49 +6163,68 @@ function admgrDPlus(a) {
   if (!a.reg_date) return null;
   return Math.max(0, Math.round((new Date(admgrToday() + 'T12:00:00Z') - new Date(a.reg_date + 'T12:00:00Z')) / 86400000));
 }
-// 상태 판정 — 생존 = 켜짐 유지 + 등록일+4일부터 (사용자 확정: 8/22 등록 → 8/26부터 생존)
-function admgrTestStatusOf(a) {
+// 상태 판정 (2026-08-28 개편) — OFF·검토중·거부는 메타 자동 감지, 애매·우수는 직접 지정(verdict), 켜져 있고 미지정 = 평가중
+function admgrTestStatusOf(a, meta) {
   const es = a.effective_status;
-  if (es === 'ACTIVE') return (a.reg_date && admgrToday() >= admgrDateAdd(a.reg_date, 4)) ? 'live' : 'on';
   if (['PENDING_REVIEW', 'IN_PROCESS', 'PENDING_BILLING_INFO'].includes(es)) return 'review';
   if (['DISAPPROVED', 'WITH_ISSUES'].includes(es)) return 'rejected';
-  return 'off';
+  if (es !== 'ACTIVE') return 'off';
+  if (meta.verdict === 'good') return 'good';
+  if (meta.verdict === 'meh') return 'meh';
+  return 'eval';
 }
+const admgrDot = c => `<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${c};margin-right:4px;"></span>`;
 function admgrTestBadge(a) {
-  const pill = (bg, col, txt) => `<span style="background:${bg};color:${col};border-radius:99px;padding:1px 9px;font-size:.68rem;font-weight:700;">${txt}</span>`;
-  if (a.st === 'on') return pill('#dcfce7', '#15803d', 'ON');
-  if (a.st === 'live') return pill('#dbeafe', '#1d4ed8', '생존');
+  const pill = (bg, col, txt, dot) => `<span style="background:${bg};color:${col};border-radius:99px;padding:1px 9px;font-size:.68rem;font-weight:700;white-space:nowrap;">${dot ? admgrDot(dot) : ''}${txt}</span>`;
+  if (a.st === 'eval') return pill('#e0e7ff', '#4338ca', '평가중');
+  if (a.st === 'good') return pill('#dcfce7', '#15803d', '우수', '#22c55e');
+  if (a.st === 'meh') return pill('#ffedd5', '#c2410c', '애매', '#f97316');
   if (a.st === 'review') return pill('#fffbeb', '#92400e', '검토중');
   if (a.st === 'rejected') return pill('#fee2e2', '#b91c1c', '거부·문제');
   // OFF — 소재 스위치를 끈 건지, 캠페인·세트가 꺼져서인지 구분
-  return pill('#f3f4f6', '#6b7280', 'OFF') + `<div style="font-size:.6rem;color:#9ca3af;">${a.status === 'PAUSED' ? '소재 꺼짐' : '상위 꺼짐'}</div>`;
+  return pill('#fee2e2', '#b91c1c', 'OFF', '#ef4444') + `<div style="font-size:.6rem;color:#9ca3af;">${a.status === 'PAUSED' ? '소재 꺼짐' : '상위 꺼짐'}</div>`;
 }
-function admgrRecCell(a) {
-  if (a.meta.recommend) return `<button onclick="event.stopPropagation();admgrTestRecommend('${a.id}')" title="클릭하면 표시 해제" style="border:none;background:#fef3c7;color:#92400e;border-radius:99px;padding:2px 10px;font-size:.7rem;font-weight:800;cursor:pointer;white-space:nowrap;"><i class="fa-solid fa-star" style="font-size:.6rem;"></i> 추가소재권장</button>`;
-  if (a.st === 'live') return `<button onclick="event.stopPropagation();admgrTestRecommend('${a.id}')" style="border:1.5px dashed #d1d5db;background:#fff;color:#9ca3af;border-radius:99px;padding:2px 10px;font-size:.7rem;font-weight:700;cursor:pointer;white-space:nowrap;">표시하기</button>`;
-  return admgrDash;
+// 판정 버튼 — 켜진 소재에만 표시, 켜진 판정을 다시 누르면 해제(평가중으로 복귀)
+function admgrVerdictBtns(a) {
+  if (!['eval', 'meh', 'good'].includes(a.st)) return '';
+  const b = (v, label, on, col) => `<button onclick="event.stopPropagation();admgrTestVerdict('${a.id}','${v}')" title="${on ? '클릭하면 해제 (평가중으로)' : label + '로 지정'}" style="border:1px solid ${on ? 'transparent' : '#d1d5db'};background:${on ? col : '#fff'};color:${on ? '#fff' : '#6b7280'};border-radius:99px;padding:1px 8px;font-size:.64rem;font-weight:700;cursor:pointer;">${label}</button>`;
+  return `<div style="display:flex;gap:3px;justify-content:center;margin-top:3px;">${b('meh', '애매', a.st === 'meh', '#f97316')}${b('good', '우수', a.st === 'good', '#16a34a')}</div>`;
+}
+async function admgrTestVerdict(adId, v) {
+  const cur = admgrState.test.state.get(adId) || {};
+  try { await admgrTestSave(adId, { verdict: cur.verdict === v ? null : v }); admgrRender(); }
+  catch (e) { showToast('저장 실패: ' + e.message); }
+}
+// 추가소재 열 — 우수 소재에서 요청/제작완료 체크(날짜 자동 기록). 우수가 아니어도 기존 체크가 있으면 계속 표시
+function admgrAssetCell(a) {
+  const m = a.meta;
+  if (a.st !== 'good' && !m.asset_req_at && !m.asset_done_at) return admgrDash;
+  const d = iso => iso ? `<span style="font-size:.6rem;color:#9ca3af;margin-left:2px;">${iso.slice(5, 10).replace('-', '/')}</span>` : '';
+  const row = (field, label, iso) => `<label onclick="event.stopPropagation();" style="display:flex;align-items:center;gap:4px;cursor:pointer;font-size:.7rem;font-weight:600;color:${iso ? '#374151' : '#9ca3af'};white-space:nowrap;"><input type="checkbox" ${iso ? 'checked' : ''} onchange="admgrTestAsset('${a.id}','${field}')" style="margin:0;" />${label}${d(iso)}</label>`;
+  return `<div style="display:inline-flex;flex-direction:column;gap:2px;text-align:left;">${row('asset_req_at', '요청', m.asset_req_at)}${row('asset_done_at', '제작완료', m.asset_done_at)}</div>`;
+}
+async function admgrTestAsset(adId, field) {
+  const cur = admgrState.test.state.get(adId) || {};
+  try { await admgrTestSave(adId, { [field]: cur[field] ? null : new Date().toISOString() }); admgrRender(); }
+  catch (e) { showToast('저장 실패: ' + e.message); }
 }
 function admgrTestFilter(k) { admgrState.test.filter = k; admgrState.test.showHidden = false; admgrState.test.sel.clear(); admgrRender(); }
 function admgrTestToggleHidden() { const t = admgrState.test; t.showHidden = !t.showHidden; t.sel.clear(); admgrRender(); }
 function admgrTestSel(id) { const s = admgrState.test.sel; s.has(id) ? s.delete(id) : s.add(id); admgrRender(); }
 
-// ad_test_state 저장 (upsert) — 숨김·추가소재권장·메모 공용
+// ad_test_state 저장 (upsert) — 숨김·판정·추가소재·메모 공용 (안 바꾸는 필드도 현재값으로 실어 upsert 덮어쓰기 손실 방지)
 async function admgrTestSave(adId, patch) {
   const t = admgrState.test;
   const a = ((t.data || {}).ads || []).find(x => x.id === adId);
   const cur = t.state.get(adId) || {};
   const row = {
     ad_id: adId, ad_name: a ? a.name : (cur.ad_name || ''),
-    hidden: cur.hidden || false, recommend: cur.recommend || false, memo: cur.memo ?? null,
+    hidden: cur.hidden || false, memo: cur.memo ?? null,
+    verdict: cur.verdict ?? null, asset_req_at: cur.asset_req_at ?? null, asset_done_at: cur.asset_done_at ?? null,
     ...patch, updated_by: SESSION.name, updated_at: new Date().toISOString(),
   };
   await dbProxy('ad_test_state?on_conflict=ad_id', { method: 'POST', body: JSON.stringify(row), headers: { Prefer: 'resolution=merge-duplicates' } });
   t.state.set(adId, row);
-}
-async function admgrTestRecommend(adId) {
-  const cur = admgrState.test.state.get(adId) || {};
-  try { await admgrTestSave(adId, { recommend: !cur.recommend }); admgrRender(); }
-  catch (e) { showToast('저장 실패: ' + e.message); }
 }
 // 선택 일괄 제거/복원 — hidden 플래그만 바꾸므로 데이터는 보존, 언제든 복원 가능
 async function admgrTestBulkHide(hidden) {
@@ -6218,7 +6237,9 @@ async function admgrTestBulkHide(hidden) {
   const rows = ids.map(id => {
     const cur = t.state.get(id) || {};
     return { ad_id: id, ad_name: (byId.get(id) || {}).name || cur.ad_name || '', hidden,
-      recommend: cur.recommend || false, memo: cur.memo ?? null, updated_by: SESSION.name, updated_at: now };
+      memo: cur.memo ?? null, verdict: cur.verdict ?? null,
+      asset_req_at: cur.asset_req_at ?? null, asset_done_at: cur.asset_done_at ?? null,
+      updated_by: SESSION.name, updated_at: now };
   });
   try {
     await dbProxy('ad_test_state?on_conflict=ad_id', { method: 'POST', body: JSON.stringify(rows), headers: { Prefer: 'resolution=merge-duplicates' } });
@@ -6259,36 +6280,37 @@ function admgrRenderTest() {
     return;
   }
   const d = t.data;
-  const all = (d.ads || []).map(a => ({ ...a, st: admgrTestStatusOf(a), meta: t.state.get(a.id) || {} }));
+  const all = (d.ads || []).map(a => { const meta = t.state.get(a.id) || {}; return { ...a, meta, st: admgrTestStatusOf(a, meta) }; });
   const vis = all.filter(a => !a.meta.hidden);
   const hid = all.filter(a => a.meta.hidden);
   const cnt = k => vis.filter(a => a.st === k).length;
-  const nOn = cnt('on'), nLive = cnt('live'), nOff = cnt('off'), nEtc = cnt('review') + cnt('rejected');
-  const nRec = vis.filter(a => a.meta.recommend).length;
+  const nEval = cnt('eval'), nOff = cnt('off'), nMeh = cnt('meh'), nGood = cnt('good'), nEtc = cnt('review') + cnt('rejected');
+  const nReq = vis.filter(a => a.meta.asset_req_at).length;
 
   const ageSec = Math.max(0, Math.round((Date.now() - new Date(d.fetched_at).getTime()) / 1000));
   $('admgr-asof').textContent = `성과는 등록 이후 누적 · ${ageSec < 60 ? ageSec + '초' : Math.round(ageSec / 60) + '분'} 전 기준${d.truncated ? ' · 일부 생략' : ''}`;
 
-  const chip = (key, label, n) => {
+  const chip = (key, label, n, dot) => {
     const on = t.filter === key && !t.showHidden;
-    return `<button onclick="admgrTestFilter('${key}')" style="border:1.5px solid ${on ? 'transparent' : '#d1d5db'};background:${on ? '#4f46e5' : '#fff'};color:${on ? '#fff' : '#4b5563'};border-radius:99px;padding:5px 13px;font-size:.78rem;font-weight:700;cursor:pointer;">${label} ${n}</button>`;
+    return `<button onclick="admgrTestFilter('${key}')" style="border:1.5px solid ${on ? 'transparent' : '#d1d5db'};background:${on ? '#4f46e5' : '#fff'};color:${on ? '#fff' : '#4b5563'};border-radius:99px;padding:5px 13px;font-size:.78rem;font-weight:700;cursor:pointer;">${dot ? admgrDot(dot) : ''}${label} ${n}</button>`;
   };
   $('admgr-testctrl').innerHTML =
-    chip('all', '전체', vis.length) + chip('on', 'ON', nOn) + chip('live', '생존', nLive) + chip('off', 'OFF', nOff) +
+    chip('all', '전체', vis.length) + chip('eval', '평가중', nEval) + chip('off', 'OFF', nOff, '#ef4444') +
+    chip('meh', '애매', nMeh, '#f97316') + chip('good', '우수', nGood, '#22c55e') +
+    chip('req', '추가소재 요청', nReq, null) +
     `<button onclick="admgrTestBulkHide(${t.showHidden ? 'false' : 'true'})" style="border:1.5px solid ${t.showHidden ? '#4f46e5' : '#fca5a5'};background:#fff;color:${t.showHidden ? '#4f46e5' : '#b91c1c'};border-radius:99px;padding:5px 13px;font-size:.78rem;font-weight:700;cursor:pointer;">${t.showHidden ? '선택 복원' : '목록에서 제거'}${t.sel.size ? ` (${t.sel.size})` : ''}</button>
     <button onclick="admgrTestToggleHidden()" style="border:none;background:none;color:#6b7280;font-size:.74rem;font-weight:600;cursor:pointer;text-decoration:underline;">${t.showHidden ? '목록으로 돌아가기' : `제거한 소재 ${hid.length}개 보기`}</button>`;
 
   $('admgr-summary').innerHTML =
-    admgrTile('테스트 중 (ON)', nOn + '개', false) +
-    admgrTile('생존 (3일 통과)', nLive + '개', false) +
-    admgrTile('OFF', nOff + '개', false) +
-    admgrTile('추가소재권장', nRec + '개', false) +
-    (nEtc ? admgrTile('검토중·거부', nEtc + '개', false)
-      : admgrTile('누적 지출 (표시 소재)', fmt(Math.round(vis.reduce((s0, a) => s0 + a.spend, 0))) + '원', false));   // 테스트 탭은 블러 없음 (2026-08-28)
+    admgrTile('평가중', nEval + '개', false) +
+    admgrTile(admgrDot('#22c55e') + '우수', nGood + '개', false) +
+    admgrTile(admgrDot('#f97316') + '애매', nMeh + '개', false) +
+    admgrTile(admgrDot('#ef4444') + 'OFF' + (nEtc ? ` · 검토중 ${nEtc}` : ''), nOff + '개', false) +
+    admgrTile('누적 지출 (표시 소재)', fmt(Math.round(vis.reduce((s0, a) => s0 + a.spend, 0))) + '원', false);   // 테스트 탭은 블러 없음 (2026-08-28)
   $('admgr-summary').style.display = 'grid';
 
   const q = ($('admgr-q').value || '').trim().toLowerCase();
-  let rows = t.showHidden ? hid : (t.filter === 'all' ? vis : vis.filter(a => a.st === t.filter));
+  let rows = t.showHidden ? hid : (t.filter === 'all' ? vis : t.filter === 'req' ? vis.filter(a => a.meta.asset_req_at) : vis.filter(a => a.st === t.filter));
   if (q) rows = rows.filter(a => (a.name + ' ' + a.adset_name).toLowerCase().includes(q));
   rows = rows.slice().sort(admgrCmp);
   admgrState._dispIds = rows.map(r => r.id);
@@ -6308,9 +6330,9 @@ function admgrRenderTest() {
   let html = `<div class="table-wrap" style="max-height:640px;overflow:auto;"><table>
     <thead><tr>
       <th style="width:34px;"><input type="checkbox" ${allChecked ? 'checked' : ''} onclick="admgrSelAllDisp()" title="표시된 전체 선택/해제" /></th>
-      ${thSort('name', '소재명', '', true)}${thSort('reg', '등록일')}<th>상태</th>
+      ${thSort('aname', '광고세트명', '', true)}${thSort('reg', '등록일')}<th>상태</th>
       ${thSort('spend', '누적 지출')}${thSort('purchases', '구매', 'm-hide')}${thSort('cpa', '구매당 비용', 'm-hide')}${thSort('roas', 'ROAS')}
-      <th>추가소재권장</th><th class="m-hide">메모</th>
+      <th>추가소재</th><th class="m-hide">메모</th>
     </tr></thead><tbody>`;
   for (const a of rows) {
     const checked = t.sel.has(a.id);
@@ -6318,15 +6340,15 @@ function admgrRenderTest() {
     html += `<tr onclick="admgrTestSel('${a.id}')" style="cursor:pointer;${checked ? 'background:#eef2ff;' : ''}">
       <td><input type="checkbox" ${checked ? 'checked' : ''} style="pointer-events:none;" /></td>
       <td style="text-align:left;min-width:190px;">
-        <span onclick="event.stopPropagation();showMetaPreview('${a.id}')" title="클릭하면 소재 미리보기" style="font-weight:600;color:#4338ca;cursor:pointer;">${escHtml(a.name)}</span>
-        <div style="font-size:.66rem;color:#9ca3af;">${escHtml(a.adset_name)}</div></td>
+        <span onclick="event.stopPropagation();showMetaPreview('${a.id}')" title="클릭하면 소재 미리보기" style="font-weight:600;color:#4338ca;cursor:pointer;">${escHtml(a.adset_name)}</span>
+        <div style="font-size:.66rem;color:#9ca3af;">${escHtml(a.name)}</div></td>
       <td style="white-space:nowrap;">${a.reg_date ? a.reg_date.slice(5).replace('-', '/') : '—'}<div style="font-size:.62rem;color:#9ca3af;">${dp == null ? '' : 'D+' + dp}</div></td>
-      <td>${admgrTestBadge(a)}</td>
+      <td>${admgrTestBadge(a)}${admgrVerdictBtns(a)}</td>
       <td style="font-weight:700;">${admgrMoneyPlain(a.spend)}</td>
       <td class="m-hide">${fmt(a.purchases)}</td>
       <td class="m-hide">${admgrCpaPlain(a)}</td>
       <td>${admgrRoasTxt(a.spend, a.value)}</td>
-      <td>${admgrRecCell(a)}</td>
+      <td>${admgrAssetCell(a)}</td>
       <td class="m-hide" onclick="event.stopPropagation();admgrTestMemo(event,'${a.id}')" title="클릭해서 메모 수정" style="cursor:text;text-align:left;max-width:180px;font-size:.74rem;color:${a.meta.memo ? '#374151' : '#c4c9d4'};">${a.meta.memo ? escHtml(a.meta.memo) : '메모 —'}</td></tr>`;
   }
   $('admgr-result').innerHTML = html + '</tbody></table></div>';
