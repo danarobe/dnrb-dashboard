@@ -479,7 +479,7 @@ Deno.serve(async (req) => {
     if (action === "creatives") {
       const ids = (url.searchParams.get("set_ids") ?? "").split(",").map((s) => s.trim()).filter((s) => /^\d+$/.test(s)).slice(0, 100);
       if (!ids.length) return json({ ads: [] });
-      const cacheKey = `meta:creatives:${[...ids].sort().join(",")}`;
+      const cacheKey = `meta:creatives4:${[...ids].sort().join(",")}`;   // v4 = advideos id 필터 매칭 video_url (2026-08-28)
       const hit = await cacheGet(cacheKey, 10 * 60 * 1000);
       if (hit) return json(hit);
       const setFilter = JSON.stringify([{ field: "adset.id", operator: "IN", value: ids }]);
@@ -496,6 +496,23 @@ Deno.serve(async (req) => {
           fields: "id,name,adset_id,status,effective_status,creative{thumbnail_url,image_url,object_type,video_id}",
         }, c.token);
       }
+      // 영상 소재는 mp4 원본 주소(source)까지 — 타일에 마우스를 올리면 바로 재생 (2026-08-28 사용자 요청).
+      // ⚠ 실측: /{video_id} 직접 조회와 ids= 배치는 권한 거부(#10)·deprecated지만,
+      // **계정 영상 라이브러리(act/advideos) 목록에는 source가 열려 있다** — 목록을 받아 video_id로 매칭.
+      // 라이브러리에 없는 영상(페이지 릴스 등)은 source 없이 썸네일 폴백(호버 시 미리보기 iframe).
+      const vids = new Set(rows.map((r) => String(((r.creative ?? {}) as Record<string, unknown>).video_id ?? "")).filter(Boolean));
+      const vsrc = new Map<string, string>();
+      if (vids.size) {
+        try {
+          const vidFilter = JSON.stringify([{ field: "id", operator: "IN", value: [...vids].slice(0, 100) }]);
+          const lib = await graphGetAll(`${c.account}/advideos`, { fields: "id,source", limit: "500", filtering: vidFilter }, c.token, 2)
+            .catch(() => graphGetAll(`${c.account}/advideos`, { fields: "id,source", limit: "500" }, c.token, 20));   // 필터 미지원이면 전체 스캔
+          for (const v of lib) {
+            const vid = String(v.id ?? "");
+            if (vids.has(vid) && v.source) vsrc.set(vid, String(v.source));
+          }
+        } catch { /* 라이브러리 조회 실패 — 전부 썸네일 폴백 */ }
+      }
       const body = {
         fetched_at: new Date().toISOString(),
         ads: rows.map((a) => {
@@ -509,6 +526,7 @@ Deno.serve(async (req) => {
             thumb: String(cr.thumbnail_url ?? ""),
             image: String(cr.image_url ?? ""),
             is_video: !!cr.video_id || String(cr.object_type ?? "") === "VIDEO",
+            video_url: vsrc.get(String(cr.video_id ?? "")) ?? "",
           };
         }),
       };
@@ -741,8 +759,11 @@ Deno.serve(async (req) => {
     if (action === "preview") {
       const adId = url.searchParams.get("ad_id");
       if (!adId) return json({ error: "ad_id 필수" }, 400);
+      // fmt 파라미터(2026-08-28): 베스트소재 호버는 INSTAGRAM_REELS 형식이 영상 자동재생이 되어 선호
+      const fmt = url.searchParams.get("fmt") === "reels" ? "INSTAGRAM_REELS" : "INSTAGRAM_STANDARD";
       const [prev, meta] = await Promise.all([
-        graphGet(`${adId}/previews`, { ad_format: "INSTAGRAM_STANDARD" }, c.token)
+        graphGet(`${adId}/previews`, { ad_format: fmt }, c.token)
+          .catch(() => graphGet(`${adId}/previews`, { ad_format: "INSTAGRAM_STANDARD" }, c.token))
           .catch(() => graphGet(`${adId}/previews`, { ad_format: "DESKTOP_FEED_STANDARD" }, c.token)),
         graphGet(`${adId}`, { fields: "name,creative{thumbnail_url}", thumbnail_width: "512", thumbnail_height: "512" }, c.token)
           .catch(() => ({})),
