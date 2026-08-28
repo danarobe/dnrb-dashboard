@@ -6243,7 +6243,8 @@ async function admgrBestOpen(adId) {
   if (cached) { admgrBestFill(cached); return; }
   $('meta-preview-body').innerHTML = '<div style="padding:40px;color:#9ca3af;"><i class="fa-solid fa-spinner fa-spin"></i></div>';
   try {
-    const d = await metaGet({ action: 'preview', ad_id: adId, fmt: 'reels' });
+    // 형식은 기존 모달과 같은 INSTAGRAM_STANDARD — 릴스 형식은 모달에서 잘리고 재생이 안 되는 실사례(2026-08-28)
+    const d = await metaGet({ action: 'preview', ad_id: adId });
     admgrBestPrevCache.set(adId, d);
     admgrBestFill(d);
   } catch (e) {
