@@ -1688,7 +1688,7 @@
           <input type="date" id="note-date" style="border:1.5px solid #d1d5db;border-radius:8px;padding:8px 10px;font-size:.82rem;" />
           <span style="font-size:.75rem;color:#9ca3af;">작성자: <b id="note-author"></b> · 저장하면 나에게만 보이고, <b>공유</b>하면 모두에게 표시됩니다</span>
         </div>
-        <textarea id="note-content" rows="4" placeholder="회의 내용을 기록하세요"
+        <textarea id="note-content" class="mention-field" rows="4" placeholder="회의 내용을 기록하세요 (@이름=멘션 — 공유 저장 시 알림)"
           style="width:100%;box-sizing:border-box;border:1.5px solid #d1d5db;border-radius:10px;padding:10px 12px;font-size:.88rem;font-family:inherit;outline:none;resize:vertical;"></textarea>
         <div style="display:flex;gap:8px;margin-top:8px;">
           <button onclick="addMeetNote(false)" style="background:#fff;border:1.5px solid #c7d2fe;color:#4f46e5;border-radius:8px;padding:8px 16px;font-size:.82rem;cursor:pointer;font-weight:700;">비공개 저장</button>
@@ -2301,6 +2301,9 @@ function qDate(id, daysAgo) {
 const __btnTimers = new Map();
 function btnBusy(btn, label) {
   if (!btn) return;
+  // 같은 버튼에 busy가 겹치면(광고관리자처럼 여러 조회가 한 버튼 공유) 기존 타이머를 먼저 지운다 —
+  // 안 지우면 Map 덮어쓰기로 첫 타이머가 영영 남아 '불러오는 중 N초'가 무한 카운팅된다 (2026-08-28 실사례)
+  clearInterval(__btnTimers.get(btn));
   const t0 = Date.now();
   btn.disabled = true;
   const tick = () => {
@@ -3157,6 +3160,8 @@ async function addMeetNote(share) {
     });
     $('note-content').value = '';
     showToast(share ? '기록이 저장되고 모두에게 공유됐습니다' : '비공개로 저장됐습니다 — 공유 버튼을 누르면 모두에게 보입니다');
+    // @멘션 알림은 공유 저장일 때만 — 비공개 기록은 상대가 볼 수 없어 알림이 무의미 (공유 전환 시 toggleShareNote가 보냄)
+    if (share && content.includes('@')) notifyMentions(content, '광고 회의록', 'meet');
     loadMeetNotes();
   } catch (e) { showToast('저장 실패: ' + e.message); }
 }
@@ -3168,6 +3173,11 @@ async function toggleShareNote(id, share) {
       body: JSON.stringify({ shared: share, updated_at: new Date().toISOString() }),
     });
     showToast(share ? '모두에게 공유됐습니다' : '공유가 해제됐습니다 (나만 보임)');
+    // 비공개로 써둔 기록을 공유하는 순간 @멘션 알림 발송 (작성 시엔 비공개라 안 보냈던 것)
+    if (share) {
+      const raw = JSON.parse($('meet-notes').dataset.raw || '{}')[id] || '';
+      if (raw.includes('@')) notifyMentions(raw, '광고 회의록', 'meet');
+    }
     loadMeetNotes();
   } catch (e) { showToast('변경 실패: ' + e.message); }
 }
@@ -3175,7 +3185,7 @@ async function toggleShareNote(id, share) {
 function editMeetNote(id) {
   const body = $('note-body-' + id); if (!body) return;
   const raw = JSON.parse($('meet-notes').dataset.raw || '{}')[id] ?? body.innerText;
-  body.innerHTML = `<textarea id="note-edit-${id}" rows="4" style="width:100%;box-sizing:border-box;border:1.5px solid #c7d2fe;border-radius:8px;padding:8px 10px;font-size:.82rem;font-family:inherit;outline:none;resize:vertical;">${escHtml(raw)}</textarea>
+  body.innerHTML = `<textarea id="note-edit-${id}" class="mention-field" rows="4" style="width:100%;box-sizing:border-box;border:1.5px solid #c7d2fe;border-radius:8px;padding:8px 10px;font-size:.82rem;font-family:inherit;outline:none;resize:vertical;">${escHtml(raw)}</textarea>
     <div style="display:flex;gap:6px;margin-top:6px;">
       <button onclick="saveMeetNote('${id}')" class="btn-analyze" style="padding:5px 14px;font-size:.82rem;">저장</button>
       <button onclick="loadMeetNotes()" style="border:1px solid #e5e7eb;background:#fff;border-radius:6px;padding:5px 12px;font-size:.82rem;cursor:pointer;">취소</button>
@@ -6574,6 +6584,11 @@ function admgrOffPreset(days) {
   o.start = admgrDateAdd(o.end, -(days - 1));
   admgrOffFetch();
 }
+function admgrOffDay(offset) {   // 오늘(0)·어제(-1) — 하루짜리 기간 (2026-08-28 사용자 요청)
+  const o = admgrState.offad;
+  o.start = o.end = admgrDateAdd(admgrToday(), offset);
+  admgrOffFetch();
+}
 
 function admgrRenderOff() {
   const o = admgrOffDates();
@@ -6584,6 +6599,8 @@ function admgrRenderOff() {
   $('admgr-testctrl').innerHTML =
     `<span style="font-size:.78rem;font-weight:700;color:#4b5563;">기간</span> ${dinp('admgr-off-s', 'start', o.start)} <span style="color:#9ca3af;">~</span> ${dinp('admgr-off-e', 'end', o.end)}
     <button onclick="admgrOffFetch()" style="border:none;background:#4f46e5;color:#fff;border-radius:99px;padding:5px 15px;font-size:.78rem;font-weight:700;cursor:pointer;">조회</button>
+    <button onclick="admgrOffDay(0)" style="border:1.5px solid #d1d5db;background:#fff;color:#4b5563;border-radius:99px;padding:5px 13px;font-size:.78rem;font-weight:700;cursor:pointer;">오늘</button>
+    <button onclick="admgrOffDay(-1)" style="border:1.5px solid #d1d5db;background:#fff;color:#4b5563;border-radius:99px;padding:5px 13px;font-size:.78rem;font-weight:700;cursor:pointer;">어제</button>
     ${chip('최근 7일', 7)}${chip('최근 14일', 14)}${chip('최근 30일', 30)}`;
 
   if (!o.loaded) {
