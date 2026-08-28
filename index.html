@@ -5417,6 +5417,7 @@ const admgrState = {
   selCamps: new Set(), selSets: new Set(), _dispIds: [],
   test: { data: null, state: new Map(), filter: 'all', showHidden: false, sel: new Set(), loaded: false, loading: false },
   offad: { data: null, loading: false, loaded: false, start: null, end: null },   // 기존광고 중 OFF (기간은 첫 조회 때 최근 7일로 채움)
+  best: { rows: null, ads: null, loading: false, loaded: false },   // 베스트소재 (rows=best_ads 테이블, ads=creatives 응답)
   // 광고세트 탭 '실결제 수' 열 (2026-08-26): 세트명↔상품명 매칭(판매 성과 pa* 규칙 재사용) + paiditems 기간 결제수량.
   // key = 기간 문자열, loading = 조회 중인 key(경쟁 응답 버림용), bySet = Map(세트id → {qty, name})
   paid: { key: null, bySet: null, loading: false, error: false },
@@ -5473,7 +5474,7 @@ function admgrSetPreset(p) { admgrState.preset = p; admgrState.chgFilter = 'all'
 let __admgrQT = null;
 function admgrQSoon() { clearTimeout(__admgrQT); __admgrQT = setTimeout(admgrRender, 200); }
 
-function admgrRefresh() { admgrState.view === 'test' ? admgrTestFetch() : admgrState.view === 'offad' ? admgrOffFetch() : admgrFetch(); }
+function admgrRefresh() { admgrState.view === 'test' ? admgrTestFetch() : admgrState.view === 'offad' ? admgrOffFetch() : admgrState.view === 'best' ? admgrBestFetch() : admgrFetch(); }
 
 async function admgrFetch() {
   const btn = $('btn-admgr');
@@ -5946,7 +5947,9 @@ function admgrSetView(v) {
   $('admgr-q').value = '';
   if (v === 'test' && !admgrState.test.loaded) admgrTestFetch();
   if (v === 'offad' && !admgrState.offad.loaded) admgrOffFetch();
+  if (v === 'best' && !admgrState.best.loaded) admgrBestFetch();
   admgrRender();
+  admgrTestScrollTop();   // 탭 전환은 다른 표라 맨 위부터 (탭 안 재렌더는 스크롤 유지)
 }
 function admgrSelCamp(id) {
   const s = admgrState.selCamps;
@@ -5992,18 +5995,20 @@ function admgrRender() {
     ['ad', '광고', admgrState.data ? R.ads.length : null],
     ['test', '테스트 소재', testCount],
     ['offad', '기존광고 중 OFF', admgrState.offad.loaded ? admgrState.offad.data.count : null],
+    ['best', '베스트소재', admgrState.best.loaded ? (admgrState.best.rows || []).length : null],
   ] : [['test', '테스트 소재', testCount]];   // MD·마케터는 테스트 소재만 (2026-08-27 사용자 지정)
   uiTabs('admgr-tabs', tabDefs.map(([k, label, n]) => [k, label, n == null ? '' : n]), v, 'admgrSetView');
-  const ownCtrl = v === 'test' || v === 'offad';   // 자체 컨트롤을 쓰는 탭 (기간 칩·활성만 숨김)
+  const ownCtrl = v === 'test' || v === 'offad' || v === 'best';   // 자체 컨트롤을 쓰는 탭 (기간 칩·활성만 숨김)
   $('admgr-presets').style.display = ownCtrl ? 'none' : 'flex';
   $('admgr-active-wrap').style.display = ownCtrl ? 'none' : 'flex';
-  $('admgr-testctrl').style.display = ownCtrl ? 'flex' : 'none';
+  $('admgr-testctrl').style.display = (v === 'test' || v === 'offad') ? 'flex' : 'none';
   $('admgr-chgfilter').style.display = 'none';   // 오늘+캠페인/세트 탭에서만 아래에서 다시 켠다
   const wc0 = $('admgr-writectrl');
   if (admgrState.write.st && admgrState.write.st.allowed && !ownCtrl) { wc0.innerHTML = admgrWriteCtrlHtml(); wc0.style.display = 'flex'; }
   else wc0.style.display = 'none';
   if (v === 'test') { admgrRenderTest(); return; }
   if (v === 'offad') { admgrRenderOff(); return; }
+  if (v === 'best') { admgrRenderBest(); return; }
 
   const d = admgrState.data;
   $('admgr-sel').style.display = 'none';
@@ -6062,6 +6067,7 @@ function admgrRender() {
   if (selBits.length) {
     $('admgr-sel').innerHTML = `<span style="background:#eef2ff;color:#4338ca;border-radius:99px;padding:4px 12px;font-size:.74rem;font-weight:700;">${selBits.join(' · ')}</span>
       <button onclick="admgrClearSel()" style="border:1.5px solid #d1d5db;background:#fff;color:#6b7280;border-radius:99px;padding:3px 11px;font-size:.72rem;font-weight:700;cursor:pointer;">선택 해제</button>
+      ${v === 'adset' && admgrState.selSets.size ? `<button onclick="admgrBestAdd()" title="체크한 세트의 광고 소재를 베스트소재 탭에 모아서 봅니다" style="border:none;background:#4f46e5;color:#fff;border-radius:99px;padding:4px 13px;font-size:.72rem;font-weight:700;cursor:pointer;"><i class="fa-regular fa-images"></i> 베스트소재로</button>` : ''}
       <span style="font-size:.72rem;color:#9ca3af;">${v === 'camp' ? '광고세트·광고 탭이 선택한 캠페인만 보여줍니다' : v === 'adset' ? '광고 탭이 선택한 세트의 광고만 보여줍니다' : '선택한 범위의 광고만 보는 중'}</span>`;
     $('admgr-sel').style.display = 'flex';
   }
@@ -6137,7 +6143,90 @@ function admgrRender() {
     <td style="font-weight:800;">${admgrRoasTxt(tot.spend, tot.value)}</td>
     <td class="m-hide" style="font-weight:700;">${admgrMoney(tot.value)}</td>
     <td class="m-hide" style="font-weight:700;">${admgrCpcTxt(tot)}</td></tr>`;
+  // 재렌더 시 표 스크롤 유지 — 체크·정렬 클릭마다 맨 위로 튀지 않게 (테스트 소재 탭과 동일, 2026-08-28)
+  const oldWrap = $('admgr-result').querySelector('.table-wrap');
+  const keep = oldWrap ? { top: oldWrap.scrollTop, left: oldWrap.scrollLeft } : null;
   $('admgr-result').innerHTML = html + '</tbody></table></div>';
+  if (keep) { const w = $('admgr-result').querySelector('.table-wrap'); w.scrollTop = keep.top; w.scrollLeft = keep.left; }
+}
+
+/* ── 베스트소재 탭 (2026-08-28) — 광고세트 단위로 담아 소재 이미지·영상을 격자로 보는 보드.
+   담기: 광고세트 탭에서 체크 → '베스트소재로' 버튼 (best_ads 테이블에 저장 — 새로고침·팀원 간 공유 유지).
+   소재 이미지는 서버 creatives 액션(600px 썸네일), 타일 클릭 = 기존 소재 미리보기 모달. */
+async function admgrBestAdd() {
+  const ids = [...admgrState.selSets];
+  if (!ids.length) { showToast('먼저 광고세트를 체크하세요'); return; }
+  const byId = new Map(admgrRows().sets.map(s0 => [s0.id, s0]));
+  const now = new Date().toISOString();
+  const rows = ids.map(id => ({ adset_id: id, adset_name: (byId.get(id) || {}).name || '', added_by: SESSION.name, created_at: now }));
+  try {
+    await dbProxy('best_ads?on_conflict=adset_id', { method: 'POST', body: JSON.stringify(rows), headers: { Prefer: 'resolution=merge-duplicates' } });
+    showToast(`${ids.length}개 세트를 베스트소재에 담았습니다`);
+    admgrState.selSets.clear();
+    admgrState.best.loaded = false;   // 다음 진입 때 새로 조회
+    admgrSetView('best');
+  } catch (e) { showToast('저장 실패: ' + e.message); }
+}
+async function admgrBestFetch() {
+  const b = admgrState.best;
+  if (b.loading) return;
+  b.loading = true;
+  const btn = $('btn-admgr');
+  btnBusy(btn, '불러오는 중');
+  try {
+    b.rows = await dbProxy('best_ads?select=*&order=created_at.desc') || [];
+    b.ads = b.rows.length
+      ? ((await metaGet({ action: 'creatives', set_ids: b.rows.map(r => r.adset_id).join(',') })).ads || [])
+      : [];
+    b.loaded = true;
+    admgrRender();
+  } catch (e) { showToast('조회 실패: ' + e.message); }
+  finally { b.loading = false; btnIdle(btn, '<i class="fa-solid fa-rotate"></i> 새로고침'); }
+}
+async function admgrBestRemove(setId) {
+  try {
+    await dbProxy(`best_ads?adset_id=eq.${setId}`, { method: 'DELETE' });
+    const b = admgrState.best;
+    b.rows = (b.rows || []).filter(r => r.adset_id !== setId);
+    b.ads = (b.ads || []).filter(a => a.adset_id !== setId);
+    admgrRender();
+  } catch (e) { showToast('삭제 실패: ' + e.message); }
+}
+function admgrRenderBest() {
+  const b = admgrState.best;
+  $('admgr-sel').style.display = 'none';
+  $('admgr-summary').style.display = 'none';
+  admgrState._dispIds = [];
+  if (!b.loaded) {
+    $('admgr-asof').textContent = '';
+    $('admgr-result').innerHTML = `<div class="empty-state"><p>${b.loading ? '베스트소재를 불러오는 중...' : '조회하지 못했습니다 — 새로고침을 눌러주세요.'}</p></div>`;
+    return;
+  }
+  if (!(b.rows || []).length) {
+    $('admgr-asof').textContent = '';
+    $('admgr-result').innerHTML = `<div class="empty-state"><div class="es-icon"><i class="fa-regular fa-images"></i></div><p>아직 담은 세트가 없습니다.<br>광고세트 탭에서 세트를 체크하고 '베스트소재로' 버튼을 누르면 여기에 소재가 모입니다.</p></div>`;
+    return;
+  }
+  $('admgr-asof').textContent = '타일 클릭 = 소재 미리보기 · 세트 이름표의 ✕ = 목록에서 제거';
+  const nameOf = new Map(b.rows.map(r => [r.adset_id, r.adset_name]));
+  const chips = b.rows.map(r => `<span style="display:inline-flex;align-items:center;gap:6px;background:#eef2ff;color:#4338ca;border-radius:99px;padding:3px 6px 3px 12px;font-size:.72rem;font-weight:700;">${escHtml(r.adset_name)}
+    <button onclick="admgrBestRemove('${r.adset_id}')" title="베스트소재에서 제거" style="border:none;background:#fff;color:#6b7280;border-radius:50%;width:18px;height:18px;line-height:1;font-size:.68rem;cursor:pointer;">✕</button></span>`).join(' ');
+  const q = ($('admgr-q').value || '').trim().toLowerCase();
+  let ads = (b.ads || []);
+  if (q) ads = ads.filter(a => ((nameOf.get(a.adset_id) || '') + ' ' + a.name).toLowerCase().includes(q));
+  const tiles = ads.map(a => {
+    const src = a.image || a.thumb;
+    const setNm = nameOf.get(a.adset_id) || '';
+    return `<div onclick="showMetaPreview('${a.id}')" title="${escHtml(a.name)} — 클릭하면 소재 미리보기" style="position:relative;aspect-ratio:1;border-radius:10px;overflow:hidden;cursor:pointer;background:#f3f4f6;">
+      ${src ? `<img src="${escHtml(src)}" loading="lazy" style="width:100%;height:100%;object-fit:cover;display:block;" />` : `<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#c4c9d4;"><i class="fa-regular fa-image" style="font-size:1.6rem;"></i></div>`}
+      ${a.is_video ? '<span style="position:absolute;top:8px;right:8px;background:rgba(0,0,0,.55);color:#fff;border-radius:50%;width:26px;height:26px;display:flex;align-items:center;justify-content:center;"><i class="fa-solid fa-play" style="font-size:.7rem;margin-left:2px;"></i></span>' : ''}
+      ${a.effective_status !== 'ACTIVE' ? '<span style="position:absolute;top:8px;left:8px;background:rgba(0,0,0,.55);color:#fca5a5;border-radius:99px;padding:1px 8px;font-size:.62rem;font-weight:700;">꺼짐</span>' : ''}
+      <div style="position:absolute;left:0;right:0;bottom:0;background:rgba(17,24,39,.66);color:#fff;padding:5px 8px;font-size:.66rem;font-weight:700;line-height:1.25;">${escHtml(setNm)}</div>
+    </div>`;
+  }).join('');
+  $('admgr-result').innerHTML =
+    `<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px;align-items:center;"><span style="font-size:.74rem;color:#6b7280;font-weight:700;white-space:nowrap;">담은 세트 ${b.rows.length}개 · 소재 ${ads.length}개</span>${chips}</div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:8px;">${tiles || `<div class="empty-state"><p>${q ? '검색 결과가 없습니다.' : '담은 세트에 표시할 소재가 없습니다.'}</p></div>`}</div>`;
 }
 
 /* ── 테스트 소재 탭 (2026-08-26) ── */

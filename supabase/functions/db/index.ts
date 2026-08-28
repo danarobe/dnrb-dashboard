@@ -23,6 +23,7 @@ const TABLE_ROLES: Record<string, string[]> = {
   disp_season_out: ["admin"],   // 진열 시즌 제외 목록 (관리자 전용 메뉴)
   return_watch: ["admin", "staff"],   // 반품 관리 상품 (관리자 + MD)
   ad_test_state: ["admin", "staff"],  // 테스트 소재 숨김·추가소재권장·메모 (2026-08-27 다시 admin+staff — 광고관리자에서 MD·마케터에게 테스트 소재 탭만 열어줌)
+  best_ads: ["admin"],          // 베스트소재 모음 — 광고세트 단위 (광고관리자 베스트소재 탭, 2026-08-28)
   profit_archive: ["admin"],    // 순익 시나리오 기간별 기록
   project_tasks: ["admin"],     // 프로젝트 관리 업무 (관리자 전용 — 사용자 결정 2026-08-19)
   board_topics: ["admin"],      // 대표 회의보드 안건 (관리자 전용 — 사용자 결정 2026-08-19, 대표끼리 서로 수정 가능이라 AUTHOR_FIELDS 미적용)

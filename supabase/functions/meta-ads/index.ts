@@ -187,7 +187,7 @@ Deno.serve(async (req) => {
   // 광고관리자(#admgr) 메뉴 전용 액션은 관리자만 (2026-08-26 사용자 지정 — 대표 3인 = admin 전원).
   // 단 **testads(테스트 소재)는 MD·마케터도 허용**(2026-08-27 사용자 지정 — 광고관리자 화면에서
   // 테스트 소재 탭만 열어준다). 나머지(hierarchy/budgethistory/hourlystats)는 계속 admin 전용.
-  if (["hierarchy", "budgethistory", "hourlystats", "offsets"].includes(action) && authed.role !== "admin") {
+  if (["hierarchy", "budgethistory", "hourlystats", "offsets", "creatives"].includes(action) && authed.role !== "admin") {
     return json({ error: "접근 권한이 없습니다" }, 403);
   }
 
@@ -468,6 +468,49 @@ Deno.serve(async (req) => {
         adset_count: setIds.length,
         truncated: setName.size > setIds.length,
         ads,
+      };
+      await cacheSet(cacheKey, body);
+      return json(body);
+    }
+
+    // ── 베스트소재 미리보기 이미지 (2026-08-28) — 선택한 광고세트들의 광고 소재 썸네일 ──
+    // creative의 thumbnail_url은 기본 64px라 field 수정자(thumbnail_width/height)로 600px을 요청.
+    // 이 문법이 거부되면 기본 creative 필드로 폴백(작은 썸네일이라도 나오게). 10분 캐시.
+    if (action === "creatives") {
+      const ids = (url.searchParams.get("set_ids") ?? "").split(",").map((s) => s.trim()).filter((s) => /^\d+$/.test(s)).slice(0, 100);
+      if (!ids.length) return json({ ads: [] });
+      const cacheKey = `meta:creatives:${[...ids].sort().join(",")}`;
+      const hit = await cacheGet(cacheKey, 10 * 60 * 1000);
+      if (hit) return json(hit);
+      const setFilter = JSON.stringify([{ field: "adset.id", operator: "IN", value: ids }]);
+      const baseParams = { filtering: setFilter, limit: "500" };
+      let rows: Record<string, unknown>[];
+      try {
+        rows = await graphGetAll(`${c.account}/ads`, {
+          ...baseParams,
+          fields: "id,name,adset_id,status,effective_status,creative.thumbnail_width(600).thumbnail_height(600){thumbnail_url,image_url,object_type,video_id}",
+        }, c.token);
+      } catch {
+        rows = await graphGetAll(`${c.account}/ads`, {
+          ...baseParams,
+          fields: "id,name,adset_id,status,effective_status,creative{thumbnail_url,image_url,object_type,video_id}",
+        }, c.token);
+      }
+      const body = {
+        fetched_at: new Date().toISOString(),
+        ads: rows.map((a) => {
+          const cr = (a.creative ?? {}) as Record<string, unknown>;
+          return {
+            id: String(a.id ?? ""),
+            name: String(a.name ?? ""),
+            adset_id: String(a.adset_id ?? ""),
+            status: String(a.status ?? ""),
+            effective_status: String(a.effective_status ?? ""),
+            thumb: String(cr.thumbnail_url ?? ""),
+            image: String(cr.image_url ?? ""),
+            is_video: !!cr.video_id || String(cr.object_type ?? "") === "VIDEO",
+          };
+        }),
       };
       await cacheSet(cacheKey, body);
       return json(body);
