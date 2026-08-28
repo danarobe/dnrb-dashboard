@@ -185,9 +185,9 @@ Deno.serve(async (req) => {
   if (!c) return json({ error: "not_connected", message: "Meta 연동이 설정되지 않았습니다 (META_ACCESS_TOKEN / META_AD_ACCOUNT_ID)" }, 200);
 
   // 광고관리자(#admgr) 메뉴 전용 액션은 관리자만 (2026-08-26 사용자 지정 — 대표 3인 = admin 전원).
-  // 단 **testads(테스트 소재)는 MD·마케터도 허용**(2026-08-27 사용자 지정 — 광고관리자 화면에서
-  // 테스트 소재 탭만 열어준다). 나머지(hierarchy/budgethistory/hourlystats)는 계속 admin 전용.
-  if (["hierarchy", "budgethistory", "hourlystats", "offsets", "creatives"].includes(action) && authed.role !== "admin") {
+  // 단 **testads(테스트 소재)·offsets(기존광고 중 OFF)·creatives(베스트소재)는 MD·마케터도 허용**
+  // (testads 2026-08-27, offsets·creatives 2026-08-28 사용자 지정). hierarchy/budgethistory/hourlystats는 계속 admin 전용.
+  if (["hierarchy", "budgethistory", "hourlystats"].includes(action) && authed.role !== "admin") {
     return json({ error: "접근 권한이 없습니다" }, 403);
   }
 

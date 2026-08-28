@@ -5940,8 +5940,9 @@ function admgrRows() {
 }
 
 /* ── 탭·선택 ── */
+const ADMGR_STAFF_VIEWS = ['test', 'offad', 'best'];   // MD·마케터가 볼 수 있는 탭 (2026-08-28 offad·best 추가)
 function admgrSetView(v) {
-  if (!isAdmin()) v = 'test';   // MD·마케터는 테스트 소재 고정
+  if (!isAdmin() && !ADMGR_STAFF_VIEWS.includes(v)) v = 'test';
   admgrState.view = v;
   admgrState.sort = [];
   $('admgr-q').value = '';
@@ -5981,9 +5982,9 @@ function admgrSelAllDisp() {   // 헤더 체크박스 — 표시된 전체 선�
 }
 
 function admgrRender() {
-  if (!isAdmin() && admgrState.view !== 'test') admgrState.view = 'test';   // 어떤 경로로 들어와도 테스트 소재 고정
+  if (!isAdmin() && !ADMGR_STAFF_VIEWS.includes(admgrState.view)) admgrState.view = 'test';   // 어떤 경로로 들어와도 허용 탭으로
   const intro = $('admgr-intro');
-  if (intro && !isAdmin()) intro.textContent = '광고 등록 후 테스트한 소재의 현황판입니다. 광고세트명에 test를 넣어 등록하면 여기에 자동으로 나타나요.';
+  if (intro && !isAdmin()) intro.textContent = '테스트 소재(광고세트명에 test 포함 시 자동 수집) · 기존광고 중 OFF(기간 내 꺼진 세트) · 베스트소재(관리자가 담은 소재 모음)를 볼 수 있습니다.';
   const v = admgrState.view;
   const t = admgrState.test;
   const R = admgrRows();
@@ -5996,7 +5997,11 @@ function admgrRender() {
     ['test', '테스트 소재', testCount],
     ['offad', '기존광고 중 OFF', admgrState.offad.loaded ? admgrState.offad.data.count : null],
     ['best', '베스트소재', admgrState.best.loaded ? (admgrState.best.rows || []).length : null],
-  ] : [['test', '테스트 소재', testCount]];   // MD·마케터는 테스트 소재만 (2026-08-27 사용자 지정)
+  ] : [   // MD·마케터 = 테스트 소재 + 기존광고 중 OFF + 베스트소재 (2026-08-28 사용자 지정, 계층 3탭은 계속 admin 전용)
+    ['test', '테스트 소재', testCount],
+    ['offad', '기존광고 중 OFF', admgrState.offad.loaded ? admgrState.offad.data.count : null],
+    ['best', '베스트소재', admgrState.best.loaded ? (admgrState.best.rows || []).length : null],
+  ];
   uiTabs('admgr-tabs', tabDefs.map(([k, label, n]) => [k, label, n == null ? '' : n]), v, 'admgrSetView');
   const ownCtrl = v === 'test' || v === 'offad' || v === 'best';   // 자체 컨트롤을 쓰는 탭 (기간 칩·활성만 숨김)
   $('admgr-presets').style.display = ownCtrl ? 'none' : 'flex';
@@ -6204,7 +6209,9 @@ function admgrRenderBest() {
   }
   if (!(b.rows || []).length) {
     $('admgr-asof').textContent = '';
-    $('admgr-result').innerHTML = `<div class="empty-state"><div class="es-icon"><i class="fa-regular fa-images"></i></div><p>아직 담은 세트가 없습니다.<br>광고세트 탭에서 세트를 체크하고 '베스트소재로' 버튼을 누르면 여기에 소재가 모입니다.</p></div>`;
+    $('admgr-result').innerHTML = `<div class="empty-state"><div class="es-icon"><i class="fa-regular fa-images"></i></div><p>${isAdmin()
+      ? "아직 담은 세트가 없습니다.<br>광고세트 탭에서 세트를 체크하고 '베스트소재로' 버튼을 누르면 여기에 소재가 모입니다."
+      : '아직 담긴 세트가 없습니다. 관리자가 광고세트 탭에서 담으면 여기에 소재가 표시됩니다.'}</p></div>`;
     return;
   }
   $('admgr-asof').textContent = '타일 클릭 = 소재 미리보기 · 세트 이름표의 ✕ = 목록에서 제거';
