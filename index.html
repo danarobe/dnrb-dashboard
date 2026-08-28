@@ -6269,6 +6269,57 @@ function admgrTestMemo(ev, adId) {
   inp.onblur = () => admgrRender();
 }
 
+// 표시 행 계산 공용 — 화면 표와 엑셀 추출이 같은 필터·검색·정렬 결과를 쓰도록 한 곳에서 계산
+function admgrTestRowSets() {
+  const t = admgrState.test;
+  if (!t.loaded) return { vis: [], hid: [], rows: [] };
+  const all = ((t.data || {}).ads || []).map(a => { const meta = t.state.get(a.id) || {}; return { ...a, meta, st: admgrTestStatusOf(a, meta) }; });
+  const vis = all.filter(a => !a.meta.hidden);
+  const hid = all.filter(a => a.meta.hidden);
+  const q = ($('admgr-q').value || '').trim().toLowerCase();
+  let rows = t.showHidden ? hid : (t.filter === 'all' ? vis : t.filter === 'req' ? vis.filter(a => a.meta.asset_req_at) : vis.filter(a => a.st === t.filter));
+  if (q) rows = rows.filter(a => (a.name + ' ' + a.adset_name).toLowerCase().includes(q));
+  return { vis, hid, rows: rows.slice().sort(admgrCmp) };
+}
+
+// 테스트 소재 엑셀 추출 — 지금 화면에 보이는 표 그대로 (필터·검색·정렬 반영). 날짜는 기존 admgrKstDate(5775행 부근) 재사용
+async function admgrTestXlsx() {
+  try {
+    if (typeof XlsxPopulate === 'undefined') throw new Error('엑셀 라이브러리 로드 실패 — 페이지를 새로고침해주세요');
+    const t = admgrState.test;
+    const { rows } = admgrTestRowSets();
+    if (!rows.length) { showToast('내려받을 소재가 없습니다'); return; }
+    const ST_LABEL = { eval: '평가중', off: 'OFF', meh: '애매', good: '우수', review: '검토중', rejected: '거부·문제' };
+    const wb = await XlsxPopulate.fromBlankAsync();
+    const ws = wb.sheet(0).name('테스트 소재');
+    const heads = ['광고세트명', '소재명', '등록일', 'D+', '상태', '누적 지출', '구매', '구매당 비용', 'ROAS', '추가소재 요청일', '제작완료일', '메모'];
+    heads.forEach((h, i) => ws.cell(1, i + 1).value(h).style({ bold: true, fill: 'EEF2FF' }));
+    [34, 34, 12, 6, 10, 12, 8, 12, 8, 14, 12, 24].forEach((w, i) => ws.column(i + 1).width(w));
+    rows.forEach((a, ri) => {
+      const r = ri + 2;
+      const dp = admgrDPlus(a);
+      const put = (c, v) => { if (v !== '' && v != null) ws.cell(r, c).value(v); };
+      put(1, a.adset_name); put(2, a.name);
+      put(3, a.reg_date || ''); put(4, dp == null ? '' : dp);
+      put(5, ST_LABEL[a.st] + (a.st === 'off' ? (a.status === 'PAUSED' ? ' (소재 꺼짐)' : ' (상위 꺼짐)') : ''));
+      put(6, Math.round(a.spend)); put(7, a.purchases);
+      put(8, a.purchases > 0 ? Math.round(a.spend / a.purchases) : '');
+      put(9, a.spend > 0 ? Number((a.value / a.spend).toFixed(2)) : '');
+      put(10, a.meta.asset_req_at ? admgrKstDate(a.meta.asset_req_at) : '');   // null이면 new Date(null)=1970이라 반드시 가드
+      put(11, a.meta.asset_done_at ? admgrKstDate(a.meta.asset_done_at) : '');
+      put(12, a.meta.memo || '');
+    });
+    [6, 7, 8].forEach(c => ws.range(2, c, rows.length + 1, c).style('numberFormat', '#,##0'));
+    const out = await wb.outputAsync();
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([out], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
+    const FILT = { all: '전체', eval: '평가중', off: 'OFF', meh: '애매', good: '우수', req: '추가소재요청' };
+    a.download = `테스트소재_${t.showHidden ? '제거목록' : FILT[t.filter] || '전체'}_${admgrToday()}.xlsx`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  } catch (e) { showToast('엑셀 추출 실패: ' + e.message); }
+}
+
 function admgrRenderTest() {
   const t = admgrState.test;
   $('admgr-sel').style.display = 'none';
@@ -6280,9 +6331,7 @@ function admgrRenderTest() {
     return;
   }
   const d = t.data;
-  const all = (d.ads || []).map(a => { const meta = t.state.get(a.id) || {}; return { ...a, meta, st: admgrTestStatusOf(a, meta) }; });
-  const vis = all.filter(a => !a.meta.hidden);
-  const hid = all.filter(a => a.meta.hidden);
+  const { vis, hid, rows: sortedRows } = admgrTestRowSets();
   const cnt = k => vis.filter(a => a.st === k).length;
   const nEval = cnt('eval'), nOff = cnt('off'), nMeh = cnt('meh'), nGood = cnt('good'), nEtc = cnt('review') + cnt('rejected');
   const nReq = vis.filter(a => a.meta.asset_req_at).length;
@@ -6299,7 +6348,8 @@ function admgrRenderTest() {
     chip('meh', '애매', nMeh, '#f97316') + chip('good', '우수', nGood, '#22c55e') +
     chip('req', '추가소재 요청', nReq, null) +
     `<button onclick="admgrTestBulkHide(${t.showHidden ? 'false' : 'true'})" style="border:1.5px solid ${t.showHidden ? '#4f46e5' : '#fca5a5'};background:#fff;color:${t.showHidden ? '#4f46e5' : '#b91c1c'};border-radius:99px;padding:5px 13px;font-size:.78rem;font-weight:700;cursor:pointer;">${t.showHidden ? '선택 복원' : '목록에서 제거'}${t.sel.size ? ` (${t.sel.size})` : ''}</button>
-    <button onclick="admgrTestToggleHidden()" style="border:none;background:none;color:#6b7280;font-size:.74rem;font-weight:600;cursor:pointer;text-decoration:underline;">${t.showHidden ? '목록으로 돌아가기' : `제거한 소재 ${hid.length}개 보기`}</button>`;
+    <button onclick="admgrTestToggleHidden()" style="border:none;background:none;color:#6b7280;font-size:.74rem;font-weight:600;cursor:pointer;text-decoration:underline;">${t.showHidden ? '목록으로 돌아가기' : `제거한 소재 ${hid.length}개 보기`}</button>
+    <button onclick="admgrTestXlsx()" title="지금 보이는 표 그대로 (필터·검색·정렬 반영)" style="border:1.5px solid #d1d5db;background:#fff;color:#15803d;border-radius:99px;padding:5px 13px;font-size:.78rem;font-weight:700;cursor:pointer;margin-left:auto;"><i class="fa-solid fa-file-arrow-down"></i> 엑셀</button>`;
 
   $('admgr-summary').innerHTML =
     admgrTile('평가중', nEval + '개', false) +
@@ -6310,9 +6360,7 @@ function admgrRenderTest() {
   $('admgr-summary').style.display = 'grid';
 
   const q = ($('admgr-q').value || '').trim().toLowerCase();
-  let rows = t.showHidden ? hid : (t.filter === 'all' ? vis : t.filter === 'req' ? vis.filter(a => a.meta.asset_req_at) : vis.filter(a => a.st === t.filter));
-  if (q) rows = rows.filter(a => (a.name + ' ' + a.adset_name).toLowerCase().includes(q));
-  rows = rows.slice().sort(admgrCmp);
+  const rows = sortedRows;
   admgrState._dispIds = rows.map(r => r.id);
 
   if (!rows.length) {
