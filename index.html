@@ -6217,11 +6217,11 @@ function admgrRenderBest() {
   const tiles = ads.map(a => {
     const src = a.image || a.thumb;
     const setNm = nameOf.get(a.adset_id) || '';
-    return `<div onclick="showMetaPreview('${a.id}')" onmouseenter="admgrBestHover(this,'${a.id}',1)" onmouseleave="admgrBestHover(this,'${a.id}',0)" title="${escHtml(a.name)} — 마우스 올리면 재생 · 클릭하면 크게 보기" style="position:relative;aspect-ratio:9/16;border-radius:10px;overflow:hidden;cursor:pointer;background:#f3f4f6;">
+    return `<div onclick="admgrBestOpen('${a.id}')" title="${escHtml(a.name)} — 클릭하면 소재 보기" style="position:relative;aspect-ratio:9/16;border-radius:10px;overflow:hidden;cursor:pointer;background:#f3f4f6;">
       ${src ? `<img src="${escHtml(src)}" loading="lazy" style="width:100%;height:100%;object-fit:cover;display:block;" />` : `<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#c4c9d4;"><i class="fa-regular fa-image" style="font-size:1.6rem;"></i></div>`}
       ${a.is_video ? '<span class="bst-play" style="position:absolute;top:8px;right:8px;background:rgba(0,0,0,.55);color:#fff;border-radius:50%;width:26px;height:26px;display:flex;align-items:center;justify-content:center;z-index:2;"><i class="fa-solid fa-play" style="font-size:.7rem;margin-left:2px;"></i></span>' : ''}
       ${a.effective_status !== 'ACTIVE' ? '<span style="position:absolute;top:8px;left:8px;background:rgba(0,0,0,.55);color:#fca5a5;border-radius:99px;padding:1px 8px;font-size:.62rem;font-weight:700;z-index:2;">꺼짐</span>' : ''}
-      <div onclick="event.stopPropagation();showMetaPreview('${a.id}')" style="position:absolute;left:0;right:0;bottom:0;background:rgba(17,24,39,.66);color:#fff;padding:5px 8px;font-size:.66rem;font-weight:700;line-height:1.25;z-index:3;">${escHtml(setNm)}</div>
+      <div style="position:absolute;left:0;right:0;bottom:0;background:rgba(17,24,39,.66);color:#fff;padding:5px 8px;font-size:.66rem;font-weight:700;line-height:1.25;z-index:3;">${escHtml(setNm)}</div>
     </div>`;
   }).join('');
   $('admgr-result').innerHTML =
@@ -6229,53 +6229,37 @@ function admgrRenderBest() {
     <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:8px;">${tiles || `<div class="empty-state"><p>${q ? '검색 결과가 없습니다.' : '담은 세트에 표시할 소재가 없습니다.'}</p></div>`}</div>`;
 }
 
-// 타일 호버 = 그 자리에서 재생 (2026-08-28 사용자 요청).
-// ① mp4 원본(video_url — 서버가 계정 영상 라이브러리에서 매칭)이 있으면 <video> 무음 자동재생 (즉시).
-// ② 없으면(이미지·라이브러리 밖 영상) 광고 미리보기 iframe을 타일 크기로 축소해 폴백 표시.
-// 120~150ms 지연으로 마우스 스침에 요청 남발 방지, iframe 응답은 메모리 캐시. 하단 세트명 띠 클릭 = 크게 보기.
+// 타일 클릭 = 소재만 빠르게 보는 경량 모달 (2026-08-28 사용자 결정 — 호버 재생 제거, 이 메뉴에선 기간별 성과도 미조회).
+// 미리보기 iframe 1회 호출뿐이고 응답은 메모리 캐시라 같은 소재 재클릭은 즉시 뜬다.
 const admgrBestPrevCache = new Map();
-function admgrBestHover(tile, adId, on) {
-  clearTimeout(tile._hovT);
-  if (!on) {
-    const v0 = tile.querySelector('video.bst-vid'); if (v0) { v0.pause(); v0.remove(); }
-    const old = tile.querySelector('.bst-prev'); if (old) old.remove();
-    return;
-  }
+async function admgrBestOpen(adId) {
+  const modal = $('meta-preview-modal');
+  modal.style.display = 'flex';
+  if (metaStatsChart) { metaStatsChart.destroy(); metaStatsChart = null; }
+  $('meta-preview-stats').innerHTML = '';   // 성과 영역 비움 — 소재만
   const ad = ((admgrState.best.ads || []).find(x => x.id === adId)) || {};
-  if (ad.video_url) {
-    tile._hovT = setTimeout(() => {
-      if (!tile.matches(':hover') || tile.querySelector('video.bst-vid')) return;
-      const v0 = document.createElement('video');
-      v0.className = 'bst-vid';
-      v0.muted = true; v0.loop = true; v0.playsInline = true; v0.autoplay = true;
-      v0.src = ad.video_url;
-      v0.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;object-fit:contain;background:#000;z-index:1;';
-      tile.appendChild(v0);
-      v0.play().catch(() => {});
-    }, 120);
-    return;
+  $('meta-preview-title').textContent = ad.name || adId;
+  const cached = admgrBestPrevCache.get(adId);
+  if (cached) { admgrBestFill(cached); return; }
+  $('meta-preview-body').innerHTML = '<div style="padding:40px;color:#9ca3af;"><i class="fa-solid fa-spinner fa-spin"></i></div>';
+  try {
+    const d = await metaGet({ action: 'preview', ad_id: adId, fmt: 'reels' });
+    admgrBestPrevCache.set(adId, d);
+    admgrBestFill(d);
+  } catch (e) {
+    $('meta-preview-body').innerHTML = `<div style="padding:30px;color:#b91c1c;font-size:.82rem;">${escHtml(e.message)}</div>`;
   }
-  tile._hovT = setTimeout(async () => {
-    let html = admgrBestPrevCache.get(adId);
-    if (html === undefined) {
-      try { html = (await metaGet({ action: 'preview', ad_id: adId, fmt: 'reels' })).iframe || ''; }   // 릴스 형식 = 영상 자동재생
-      catch { html = ''; }
-      admgrBestPrevCache.set(adId, html);
-    }
-    if (!html || !tile.matches(':hover') || tile.querySelector('.bst-prev')) return;
-    const wrap = document.createElement('div');
-    wrap.className = 'bst-prev';
-    wrap.style.cssText = 'position:absolute;inset:0;background:#000;display:flex;align-items:center;justify-content:center;overflow:hidden;z-index:1;';
-    wrap.innerHTML = html;
-    const ifr = wrap.querySelector('iframe');
-    if (ifr) {
-      const w = parseInt(ifr.getAttribute('width')) || 320;
-      const h = parseInt(ifr.getAttribute('height')) || 568;
-      const scale = Math.min(tile.clientWidth / w, tile.clientHeight / h);   // 세로 소재는 검은 여백과 함께 전체가 보이게 (잘라내기 금지)
-      ifr.style.cssText = `width:${w}px;height:${h}px;border:0;flex:none;transform:scale(${scale});transform-origin:center center;`;
-    }
-    tile.appendChild(wrap);
-  }, 150);
+}
+function admgrBestFill(d) {
+  if (d.iframe) {
+    $('meta-preview-body').innerHTML = d.iframe;
+    const ifr = $('meta-preview-body').querySelector('iframe');
+    if (ifr) { ifr.style.maxWidth = '100%'; ifr.style.border = 'none'; }
+  } else if (d.thumbnail) {
+    $('meta-preview-body').innerHTML = `<img src="${escHtml(d.thumbnail)}" style="max-width:100%;border-radius:10px;" />`;
+  } else {
+    $('meta-preview-body').innerHTML = '<div style="padding:30px;color:#9ca3af;">미리보기를 가져오지 못했습니다</div>';
+  }
 }
 
 /* ── 테스트 소재 탭 (2026-08-26) ── */
