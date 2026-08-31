@@ -462,12 +462,50 @@ Deno.serve(async (req) => {
           value: m ? pickPurchase(m.action_values) : 0,
         };
       });
+      // ── 테스트 종료 보관 (2026-08-30 사용자 요청) ──
+      // 세트명에서 test를 지우면 소재가 소리없이 사라져 MD팀이 확인을 못 하는 문제 방지:
+      // 이번에 본 소재를 test_ad_snap에 스냅샷으로 저장하고(성과 포함, 60초 캐시라 분당 최대 1회 쓰기),
+      // 전에 봤는데 지금 목록에 없는 소재(이름 변경·삭제)를 gone=true로 함께 반환한다(최근 60일까지).
+      // 화면 정리는 기존 '목록에서 제거'(ad_test_state.hidden) 흐름 그대로.
+      let goneAds: Record<string, unknown>[] = [];
+      try {
+        const sbUrl = Deno.env.get("SUPABASE_URL");
+        const sbKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+        const snapHeaders = { apikey: sbKey, Authorization: `Bearer ${sbKey}`, "Content-Type": "application/json" };
+        if (ads.length) {
+          await fetch(`${sbUrl}/rest/v1/test_ad_snap?on_conflict=ad_id`, {
+            method: "POST",
+            headers: { ...snapHeaders, Prefer: "resolution=merge-duplicates,return=minimal" },
+            body: JSON.stringify(ads.map((a) => ({
+              ad_id: a.id, name: a.name, adset_id: a.adset_id, adset_name: a.adset_name,
+              status: a.status, effective_status: a.effective_status, reg_date: a.reg_date,
+              spend: a.spend, purchases: a.purchases, value: a.value,
+              last_seen: new Date().toISOString(),   // first_seen은 최초 삽입 때만 (upsert 본문에서 제외)
+            }))),
+          });
+        }
+        const cutoff = new Date(Date.now() - 60 * 86400_000).toISOString();
+        const res2 = await fetch(`${sbUrl}/rest/v1/test_ad_snap?last_seen=gte.${encodeURIComponent(cutoff)}&select=*`, { headers: snapHeaders });
+        const snaps = res2.ok ? (await res2.json()) as Record<string, unknown>[] : [];
+        const liveIds = new Set(ads.map((a) => a.id));
+        goneAds = snaps
+          .filter((s) => !liveIds.has(String(s.ad_id)))
+          .map((s) => ({
+            id: String(s.ad_id), name: String(s.name ?? ""),
+            adset_id: String(s.adset_id ?? ""), adset_name: String(s.adset_name ?? ""),
+            status: String(s.status ?? ""), effective_status: String(s.effective_status ?? ""),
+            created_time: "", reg_date: String(s.reg_date ?? ""),
+            spend: num(s.spend), purchases: num(s.purchases), value: num(s.value),
+            gone: true, gone_since: String(s.last_seen ?? ""),   // 마지막으로 목록에서 본 시각
+          }));
+      } catch { /* 보관 실패해도 본 목록은 정상 반환 */ }
+
       const body = {
         fetched_at: new Date().toISOString(),
         until: today,
         adset_count: setIds.length,
         truncated: setName.size > setIds.length,
-        ads,
+        ads: [...ads, ...goneAds],
       };
       await cacheSet(cacheKey, body);
       return json(body);

@@ -6315,7 +6315,9 @@ function admgrDPlus(a) {
   return Math.max(0, Math.round((new Date(admgrToday() + 'T12:00:00Z') - new Date(a.reg_date + 'T12:00:00Z')) / 86400000));
 }
 // 상태 판정 (2026-08-28 개편) — OFF·검토중·거부는 메타 자동 감지, 애매·우수는 직접 지정(verdict), 켜져 있고 미지정 = 평가중
+// gone(테스트 종료 — 세트명에서 test 제거·삭제로 목록에서 사라진 스냅샷, 2026-08-30)은 판정이 있으면 그 판정, 없으면 'ended'
 function admgrTestStatusOf(a, meta) {
+  if (a.gone) return meta.verdict === 'good' ? 'good' : meta.verdict === 'meh' ? 'meh' : 'ended';
   const es = a.effective_status;
   if (['PENDING_REVIEW', 'IN_PROCESS', 'PENDING_BILLING_INFO'].includes(es)) return 'review';
   if (['DISAPPROVED', 'WITH_ISSUES'].includes(es)) return 'rejected';
@@ -6327,17 +6329,20 @@ function admgrTestStatusOf(a, meta) {
 const admgrDot = c => `<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${c};margin-right:4px;"></span>`;
 function admgrTestBadge(a) {
   const pill = (bg, col, txt, dot) => `<span style="background:${bg};color:${col};border-radius:99px;padding:1px 9px;font-size:.68rem;font-weight:700;white-space:nowrap;">${dot ? admgrDot(dot) : ''}${txt}</span>`;
+  // 테스트 종료(세트명에서 test 제거·삭제) 배지 — 판정 배지와 나란히 표시 (2026-08-30)
+  const end = a.gone ? pill('#f3f4f6', '#6b7280', '테스트 종료') + ' ' : '';
+  if (a.st === 'ended') return end.trim() + '<div style="font-size:.6rem;color:#9ca3af;">판정 없이 종료</div>';
   if (a.st === 'eval') return pill('#e0e7ff', '#4338ca', '평가중');
-  if (a.st === 'good') return pill('#dcfce7', '#15803d', '우수', '#22c55e');
-  if (a.st === 'meh') return pill('#ffedd5', '#c2410c', '애매', '#f97316');
+  if (a.st === 'good') return end + pill('#dcfce7', '#15803d', '우수', '#22c55e');
+  if (a.st === 'meh') return end + pill('#ffedd5', '#c2410c', '애매', '#f97316');
   if (a.st === 'review') return pill('#fffbeb', '#92400e', '검토중');
   if (a.st === 'rejected') return pill('#fee2e2', '#b91c1c', '거부·문제');
   // OFF — 소재 스위치를 끈 건지, 캠페인·세트가 꺼져서인지 구분
   return pill('#fee2e2', '#b91c1c', 'OFF', '#ef4444') + `<div style="font-size:.6rem;color:#9ca3af;">${a.status === 'PAUSED' ? '소재 꺼짐' : '상위 꺼짐'}</div>`;
 }
-// 판정 버튼 — 켜진 소재에만 표시, 켜진 판정을 다시 누르면 해제(평가중으로 복귀)
+// 판정 버튼 — 켜진 소재 + 테스트 종료 소재(늦은 판정·판정 누락 보완용)에 표시, 켜진 판정을 다시 누르면 해제
 function admgrVerdictBtns(a) {
-  if (!['eval', 'meh', 'good'].includes(a.st)) return '';
+  if (!['eval', 'meh', 'good', 'ended'].includes(a.st)) return '';
   const b = (v, label, on, col) => `<button onclick="event.stopPropagation();admgrTestVerdict('${a.id}','${v}')" title="${on ? '클릭하면 해제 (평가중으로)' : label + '로 지정'}" style="border:1px solid ${on ? 'transparent' : '#d1d5db'};background:${on ? col : '#fff'};color:${on ? '#fff' : '#6b7280'};border-radius:99px;padding:1px 8px;font-size:.64rem;font-weight:700;cursor:pointer;">${label}</button>`;
   return `<div style="display:flex;gap:3px;justify-content:center;margin-top:3px;">${b('meh', '애매', a.st === 'meh', '#f97316')}${b('good', '우수', a.st === 'good', '#16a34a')}</div>`;
 }
@@ -6430,7 +6435,11 @@ function admgrTestRowSets() {
   const vis = all.filter(a => !a.meta.hidden);
   const hid = all.filter(a => a.meta.hidden);
   const q = ($('admgr-q').value || '').trim().toLowerCase();
-  let rows = t.showHidden ? hid : (t.filter === 'all' ? vis : t.filter === 'req' ? vis.filter(a => a.meta.asset_req_at) : vis.filter(a => a.st === t.filter));
+  let rows = t.showHidden ? hid
+    : t.filter === 'all' ? vis
+    : t.filter === 'req' ? vis.filter(a => a.meta.asset_req_at)
+    : t.filter === 'gone' ? vis.filter(a => a.gone)   // 테스트 종료 = 판정 유무와 무관하게 사라진 소재 전부
+    : vis.filter(a => a.st === t.filter);
   if (q) rows = rows.filter(a => (a.name + ' ' + a.adset_name).toLowerCase().includes(q));
   return { vis, hid, rows: rows.slice().sort(admgrCmp) };
 }
@@ -6442,7 +6451,7 @@ async function admgrTestXlsx() {
     const t = admgrState.test;
     const { rows } = admgrTestRowSets();
     if (!rows.length) { showToast('내려받을 소재가 없습니다'); return; }
-    const ST_LABEL = { eval: '평가중', off: 'OFF', meh: '애매', good: '우수', review: '검토중', rejected: '거부·문제' };
+    const ST_LABEL = { eval: '평가중', off: 'OFF', meh: '애매', good: '우수', review: '검토중', rejected: '거부·문제', ended: '테스트 종료' };
     const wb = await XlsxPopulate.fromBlankAsync();
     const ws = wb.sheet(0).name('테스트 소재');
     const heads = ['광고세트명', '소재명', '등록일', 'D+', '상태', '누적 지출', '구매', '구매당 비용', 'ROAS', '추가소재 요청일', '제작완료일', '메모'];
@@ -6454,7 +6463,7 @@ async function admgrTestXlsx() {
       const put = (c, v) => { if (v !== '' && v != null) ws.cell(r, c).value(v); };
       put(1, a.adset_name); put(2, a.name);
       put(3, a.reg_date || ''); put(4, dp == null ? '' : dp);
-      put(5, ST_LABEL[a.st] + (a.st === 'off' ? (a.status === 'PAUSED' ? ' (소재 꺼짐)' : ' (상위 꺼짐)') : ''));
+      put(5, ST_LABEL[a.st] + (a.st === 'off' ? (a.status === 'PAUSED' ? ' (소재 꺼짐)' : ' (상위 꺼짐)') : a.gone && a.st !== 'ended' ? ' (테스트 종료)' : ''));
       put(6, Math.round(a.spend)); put(7, a.purchases);
       put(8, a.purchases > 0 ? Math.round(a.spend / a.purchases) : '');
       put(9, a.spend > 0 ? Number((a.value / a.spend).toFixed(2)) : '');
@@ -6466,7 +6475,7 @@ async function admgrTestXlsx() {
     const out = await wb.outputAsync();
     const a = document.createElement('a');
     a.href = URL.createObjectURL(new Blob([out], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
-    const FILT = { all: '전체', eval: '평가중', off: 'OFF', meh: '애매', good: '우수', req: '추가소재요청' };
+    const FILT = { all: '전체', eval: '평가중', off: 'OFF', meh: '애매', good: '우수', req: '추가소재요청', gone: '테스트종료' };
     a.download = `테스트소재_${t.showHidden ? '제거목록' : FILT[t.filter] || '전체'}_${admgrToday()}.xlsx`;
     a.click();
     URL.revokeObjectURL(a.href);
@@ -6496,9 +6505,11 @@ function admgrRenderTest() {
     const on = t.filter === key && !t.showHidden;
     return `<button onclick="admgrTestFilter('${key}')" style="border:1.5px solid ${on ? 'transparent' : '#d1d5db'};background:${on ? '#4f46e5' : '#fff'};color:${on ? '#fff' : '#4b5563'};border-radius:99px;padding:5px 13px;font-size:.78rem;font-weight:700;cursor:pointer;">${dot ? admgrDot(dot) : ''}${label} ${n}</button>`;
   };
+  const nGone = vis.filter(a => a.gone).length;
   $('admgr-testctrl').innerHTML =
     chip('all', '전체', vis.length) + chip('eval', '평가중', nEval) + chip('off', 'OFF', nOff, '#ef4444') +
     chip('meh', '애매', nMeh, '#f97316') + chip('good', '우수', nGood, '#22c55e') +
+    chip('gone', '테스트 종료', nGone, null) +
     chip('req', '추가소재 요청', nReq, null) +
     `<button onclick="admgrTestBulkHide(${t.showHidden ? 'false' : 'true'})" style="border:1.5px solid ${t.showHidden ? '#4f46e5' : '#fca5a5'};background:#fff;color:${t.showHidden ? '#4f46e5' : '#b91c1c'};border-radius:99px;padding:5px 13px;font-size:.78rem;font-weight:700;cursor:pointer;">${t.showHidden ? '선택 복원' : '목록에서 제거'}${t.sel.size ? ` (${t.sel.size})` : ''}</button>
     <button onclick="admgrTestToggleHidden()" style="border:none;background:none;color:#6b7280;font-size:.74rem;font-weight:600;cursor:pointer;text-decoration:underline;">${t.showHidden ? '목록으로 돌아가기' : `제거한 소재 ${hid.length}개 보기`}</button>
