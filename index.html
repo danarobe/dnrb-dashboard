@@ -5997,6 +5997,60 @@ function admgrSelAllDisp() {   // 헤더 체크박스 — 표시된 전체 선�
   admgrRender();
 }
 
+/* ── 표 열 너비 조절 (2026-08-31 사용자 요청) — 광고관리자 표 공용 ──
+   머리글 오른쪽 가장자리를 드래그해 너비 조절, 더블클릭 = 원래대로. 열 식별은 머리글 텍스트(정렬 화살표 제거),
+   저장은 탭별 localStorage(dnrb_admgr_colw_{view}). 표가 innerHTML로 재생성되므로 매 렌더 후 다시 호출해야 한다. */
+function admgrColKey() { return 'dnrb_admgr_colw_' + admgrState.view; }
+function admgrColLoad() { try { return JSON.parse(localStorage.getItem(admgrColKey()) || '{}'); } catch { return {}; } }
+function admgrColLabel(th) { return th.textContent.replace(/[▲▼]\s*\d*/g, '').replace(/\s+/g, ' ').trim(); }
+function admgrColApply(table, idx, w) {   // 해당 열의 머리글+본문 셀 전부에 너비 강제 (인라인 min-width 제압)
+  table.querySelectorAll('tr').forEach(tr => {
+    const c = tr.children[idx]; if (!c) return;
+    c.style.width = c.style.minWidth = c.style.maxWidth = w + 'px';
+    c.style.overflow = 'hidden';
+  });
+}
+function admgrColResize() {
+  const table = $('admgr-result').querySelector('table');
+  if (!table) return;
+  const saved = admgrColLoad();
+  table.querySelectorAll('thead th').forEach((th, idx) => {
+    const key = admgrColLabel(th);
+    if (!key) return;   // 체크박스 열 등 무명 열은 제외
+    if (saved[key]) admgrColApply(table, idx, saved[key]);
+    th.style.position = 'relative';
+    const h = document.createElement('span');
+    h.title = '드래그 = 열 너비 조절 · 더블클릭 = 원래대로';
+    h.style.cssText = 'position:absolute;top:0;right:-5px;width:10px;height:100%;cursor:col-resize;z-index:5;';
+    h.onclick = e => e.stopPropagation();   // 정렬 클릭으로 안 새게
+    h.ondblclick = e => {
+      e.stopPropagation();
+      const s = admgrColLoad(); delete s[key];
+      localStorage.setItem(admgrColKey(), JSON.stringify(s));
+      admgrRender();   // 원래 너비로 재렌더
+    };
+    h.onmousedown = e => {
+      e.preventDefault(); e.stopPropagation();
+      const startX = e.clientX, startW = th.getBoundingClientRect().width;
+      const move = ev => {
+        const w = Math.max(46, Math.round(startW + ev.clientX - startX));
+        th.style.width = th.style.minWidth = th.style.maxWidth = w + 'px';   // 드래그 중엔 머리글만 (가볍게)
+      };
+      const up = () => {
+        document.removeEventListener('mousemove', move);
+        document.removeEventListener('mouseup', up);
+        const w = parseInt(th.style.width) || Math.round(startW);
+        admgrColApply(table, idx, w);   // 놓는 순간 본문 셀까지 반영
+        const s = admgrColLoad(); s[key] = w;
+        localStorage.setItem(admgrColKey(), JSON.stringify(s));
+      };
+      document.addEventListener('mousemove', move);
+      document.addEventListener('mouseup', up);
+    };
+    th.appendChild(h);
+  });
+}
+
 function admgrRender() {
   if (!isAdmin() && !ADMGR_STAFF_VIEWS.includes(admgrState.view)) admgrState.view = 'test';   // 어떤 경로로 들어와도 허용 탭으로
   const intro = $('admgr-intro');
@@ -6169,6 +6223,7 @@ function admgrRender() {
   const keep = oldWrap ? { top: oldWrap.scrollTop, left: oldWrap.scrollLeft } : null;
   $('admgr-result').innerHTML = html + '</tbody></table></div>';
   if (keep) { const w = $('admgr-result').querySelector('.table-wrap'); w.scrollTop = keep.top; w.scrollLeft = keep.left; }
+  admgrColResize();
 }
 
 /* ── 베스트소재 탭 (2026-08-28) — 광고세트 단위로 담아 소재 이미지·영상을 격자로 보는 보드.
@@ -6568,6 +6623,7 @@ function admgrRenderTest() {
   const keep = oldWrap ? { top: oldWrap.scrollTop, left: oldWrap.scrollLeft } : null;
   $('admgr-result').innerHTML = html + '</tbody></table></div>';
   if (keep) { const w = $('admgr-result').querySelector('.table-wrap'); w.scrollTop = keep.top; w.scrollLeft = keep.left; }
+  admgrColResize();
 }
 
 /* ── 기존광고 중 OFF 탭 (2026-08-28) — 기간 내 OFF로 바뀐 광고세트(테스트 세트 제외) + 등록 이후 누적 성과.
@@ -6676,6 +6732,7 @@ function admgrRenderOff() {
       <td>${admgrRoasTxt(s0.spend, s0.value)}</td></tr>`;
   }
   $('admgr-result').innerHTML = html + '</tbody></table></div>';
+  admgrColResize();
 }
 
 async function metaGet(params) {
