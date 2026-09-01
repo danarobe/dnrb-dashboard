@@ -3746,6 +3746,7 @@ async function purchPatch(id, patch, okMsg) {
 }
 function purchSetStatus(id, v) { purchPatch(id, { status: v }); }
 function purchTogglePaid(id, v) { purchPatch(id, { paid: v }); }
+function purchPaidReq(id, on) { purchPatch(id, { paid_req: on, paid_req_by: on ? SESSION.name : null }, on ? '입금완료/확인요청으로 표기했습니다' : null); }
 function purchConfirm(id) { purchPatch(id, { confirmed_by: SESSION.name, confirmed_at: new Date().toISOString() }, '확인 처리됐습니다'); }
 async function purchDelete(id) {
   if (!confirm('이 구매 요청을 삭제할까요?')) return;
@@ -3787,8 +3788,23 @@ function purchRender() {
       ? `<select onchange="purchSetStatus('${r.id}', this.value)" style="border:1.5px solid #d1d5db;border-radius:8px;padding:4px 6px;font-size:.76rem;font-weight:700;color:${st.col};background:${st.bg};cursor:pointer;">
           ${Object.entries(PURCH_ST).map(([k, v]) => `<option value="${k}" ${r.status === k ? 'selected' : ''}>${v.label}</option>`).join('')}</select>`
       : `<span style="background:${st.bg};color:${st.col};border-radius:99px;padding:2px 10px;font-size:.72rem;font-weight:700;white-space:nowrap;">${st.label}</span>`;
-    const paidCell = `<label style="display:inline-flex;align-items:center;gap:4px;font-size:.74rem;font-weight:700;color:${r.paid ? '#15803d' : '#9ca3af'};${canMg ? 'cursor:pointer;' : ''}">
-      <input type="checkbox" ${r.paid ? 'checked' : ''} ${canMg ? `onchange="purchTogglePaid('${r.id}', this.checked)"` : 'disabled'} style="margin:0;" />${r.paid ? '입금완료' : '미입금'}</label>`;
+    // 입금 3단계 (2026-08-31): 미입금 → 입금완료/확인요청(요청자 본인이 표기) → 입금완료(담당자·관리자 확정)
+    const mineRow = r.requester_id === SESSION.id;
+    let paidCell;
+    if (canMg) {
+      paidCell = `<label style="display:inline-flex;align-items:center;gap:4px;font-size:.74rem;font-weight:700;color:${r.paid ? '#15803d' : r.paid_req ? '#b45309' : '#9ca3af'};cursor:pointer;" title="체크 = 입금완료 확정">
+        <input type="checkbox" ${r.paid ? 'checked' : ''} onchange="purchTogglePaid('${r.id}', this.checked)" style="margin:0;" />${r.paid ? '입금완료' : r.paid_req ? '확인요청' : '미입금'}</label>
+        ${!r.paid && r.paid_req ? `<div style="font-size:.62rem;color:#b45309;">${escHtml(r.paid_req_by || '')} 입금완료/확인요청</div>` : ''}`;
+    } else if (r.paid) {
+      paidCell = '<span style="background:#dcfce7;color:#15803d;border-radius:99px;padding:2px 10px;font-size:.72rem;font-weight:700;white-space:nowrap;">입금완료</span>';
+    } else if (r.paid_req) {
+      paidCell = `<span style="background:#fef3c7;color:#b45309;border-radius:99px;padding:2px 10px;font-size:.72rem;font-weight:700;white-space:nowrap;">입금완료/확인요청</span>
+        ${mineRow ? `<div><button onclick="purchPaidReq('${r.id}', false)" style="border:none;background:none;color:#9ca3af;font-size:.66rem;cursor:pointer;text-decoration:underline;">표기 취소</button></div>` : ''}`;
+    } else if (mineRow) {
+      paidCell = `<button onclick="purchPaidReq('${r.id}', true)" title="입금을 마쳤으면 눌러서 담당자에게 확인을 요청하세요" style="border:1.5px dashed #d1d5db;background:#fff;color:#6b7280;border-radius:99px;padding:2px 10px;font-size:.7rem;font-weight:700;cursor:pointer;white-space:nowrap;">입금완료/확인요청</button>`;
+    } else {
+      paidCell = '<span style="color:#9ca3af;font-size:.74rem;font-weight:700;">미입금</span>';
+    }
     const confCell = r.confirmed_by
       ? `<span style="color:#15803d;font-size:.72rem;font-weight:700;white-space:nowrap;"><i class="fa-solid fa-circle-check"></i> ${escHtml(r.confirmed_by)}</span>`
       : isAdmin()

@@ -84,9 +84,10 @@ Deno.serve(async (req) => {
         }
         if (m === "PATCH" && !isMgr) {
           if (qs.get("requester_id") !== `eq.${me.id}`) return json({ error: "본인 요청만 수정할 수 있습니다" }, 403);
-          const allowed = new Set(["req_date", "vendor", "item_name", "option_txt", "qty", "price", "updated_at"]);
+          // paid_req = 직원의 '입금완료/확인요청' 표기 (2026-08-31 사용자 요청) — 본인 행에서만, 확정(paid)은 여전히 담당자만
+          const allowed = new Set(["req_date", "vendor", "item_name", "option_txt", "qty", "price", "paid_req", "paid_req_by", "updated_at"]);
           const bad = Object.keys((body ?? {}) as Record<string, unknown>).filter((k) => !allowed.has(k));
-          if (bad.length) return json({ error: "상태·입금·확인 변경은 담당자만 가능합니다" }, 403);
+          if (bad.length) return json({ error: "상태·입금 확정 변경은 담당자만 가능합니다" }, 403);
         }
       }
     }
