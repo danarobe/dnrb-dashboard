@@ -590,6 +590,7 @@
   <div class="menu-group">내 정보</div>
   <button class="menu-item" data-menu="my" id="menu-my" onclick="showMenu('my')"><i class="fa-solid fa-id-card" style="width:18px;text-align:center;color:#4f46e5;"></i>마이페이지</button>
   <div class="menu-group">협업</div>
+  <button class="menu-item" data-menu="purch" id="menu-purch" onclick="showMenu('purch')"><i class="fa-solid fa-cart-shopping" style="width:18px;text-align:center;color:#818cf8;"></i>직원 구매요청</button>
   <button class="menu-item" data-menu="meet" onclick="showMenu('meet')"><i class="fa-solid fa-clipboard-list" style="width:18px;text-align:center;color:#818cf8;"></i>광고 회의록</button>
   <button class="menu-item" data-menu="board" id="menu-board" style="display:none;" onclick="showMenu('board')"><i class="fa-solid fa-people-group" style="width:18px;text-align:center;color:#818cf8;"></i>대표 회의보드</button>
   <button class="menu-item" data-menu="proj" id="menu-proj" style="display:none;" onclick="showMenu('proj')"><i class="fa-solid fa-list-check" style="width:18px;text-align:center;color:#818cf8;"></i>프로젝트 관리</button>
@@ -1799,6 +1800,36 @@
 
   <!-- 대표 회의보드 (관리자) — 자체 기능 (board_topics 테이블, 2026-08-19 iframe → 네이티브 전환).
        회의 때 이야기할 안건을 평소에 기록해두고, 회의 날 한 화면으로 보며 진행. 작성자 = 로그인 계정. -->
+  <div class="section-card page-sec" id="sec-purch">
+    <div class="section-header" style="cursor:default;">
+      <h2><span><i class="fa-solid fa-cart-shopping" style="color:#4f46e5;font-size:.9em;"></i></span> 직원 구매요청</h2>
+      <button class="toggle-btn" id="btn-purch" onclick="purchLoad()"><i class="fa-solid fa-rotate"></i> 새로고침</button>
+    </div>
+    <div class="section-body">
+      <div style="font-size:.8rem;color:#6b7280;margin-bottom:12px;">필요한 물품을 등록하면 담당자가 재고를 확인해 <b>불출완료(재고반영완료)</b> 또는 <b>주문필요</b>로 바꾸고, 관리자가 확인 후 주문·입금합니다.</div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px;margin-bottom:8px;">
+        <label style="display:flex;flex-direction:column;gap:4px;font-size:.74rem;color:#6b7280;font-weight:700;">주문요청일
+          <input type="date" id="purch-date" style="border:1.5px solid #d1d5db;border-radius:8px;padding:8px 10px;font-size:.85rem;outline:none;" /></label>
+        <label style="display:flex;flex-direction:column;gap:4px;font-size:.74rem;color:#6b7280;font-weight:700;">거래처
+          <input id="purch-vendor" placeholder="예: OO상사" style="border:1.5px solid #d1d5db;border-radius:8px;padding:8px 10px;font-size:.85rem;outline:none;" /></label>
+        <label style="display:flex;flex-direction:column;gap:4px;font-size:.74rem;color:#6b7280;font-weight:700;">사입명
+          <input id="purch-item" placeholder="물품 이름" style="border:1.5px solid #d1d5db;border-radius:8px;padding:8px 10px;font-size:.85rem;outline:none;" /></label>
+        <label style="display:flex;flex-direction:column;gap:4px;font-size:.74rem;color:#6b7280;font-weight:700;">옵션
+          <input id="purch-opt" placeholder="색상·사이즈 등" style="border:1.5px solid #d1d5db;border-radius:8px;padding:8px 10px;font-size:.85rem;outline:none;" /></label>
+        <label style="display:flex;flex-direction:column;gap:4px;font-size:.74rem;color:#6b7280;font-weight:700;">수량
+          <input type="number" id="purch-qty" min="1" value="1" style="border:1.5px solid #d1d5db;border-radius:8px;padding:8px 10px;font-size:.85rem;outline:none;" /></label>
+        <label style="display:flex;flex-direction:column;gap:4px;font-size:.74rem;color:#6b7280;font-weight:700;">가격 (VAT 10% 포함)
+          <input type="number" id="purch-price" min="0" placeholder="원" style="border:1.5px solid #d1d5db;border-radius:8px;padding:8px 10px;font-size:.85rem;outline:none;" /></label>
+      </div>
+      <div style="display:flex;justify-content:flex-end;margin-bottom:14px;">
+        <button class="btn-analyze" onclick="purchAdd()" style="padding:8px 20px;">요청 등록</button>
+      </div>
+      <div id="purch-mgr" style="display:none;margin-bottom:12px;"></div>
+      <div id="purch-tabs" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px;"></div>
+      <div id="purch-result"><div class="empty-state"><p>불러오는 중...</p></div></div>
+    </div>
+  </div>
+
   <div class="section-card page-sec" id="sec-board">
     <div class="section-header" style="cursor:default;">
       <h2><span><i class="fa-solid fa-people-group" style="color:#4f46e5;font-size:.9em;"></i></span> 대표 회의보드</h2>
@@ -2057,7 +2088,7 @@ function applyRole() {
   document.body.classList.toggle('role-cs', isCS());
   // CS팀은 판매 성과 메뉴만 노출
   document.querySelectorAll('.menu-item').forEach(b => {
-    b.style.display = isCS() && !['perf', 'my'].includes(b.dataset.menu) ? 'none' : '';   // CS팀·물류팀 = 판매 성과 + 마이페이지
+    b.style.display = isCS() && !['perf', 'my', 'purch'].includes(b.dataset.menu) ? 'none' : '';   // CS팀·물류팀 = 판매 성과 + 마이페이지 + 구매요청
   });
   // 관리자 전용 메뉴는 버튼 자체를 숨김
   $('menu-users').style.display = isAdmin() ? '' : 'none';
@@ -3646,6 +3677,172 @@ const BOARD_ST = {
   discussed: { label: '논의함', fg: '#1d4ed8', bg: '#dbeafe' },
   resolved:  { label: '결론',   fg: '#15803d', bg: '#dcfce7' },
 };
+
+/* ══════════════════════════════════════
+   직원 구매요청 (#purch, 2026-08-31 사용자 요청) — 전 역할 등록 가능
+   물품 요청서: 주문요청일/주문자/거래처/사입명/옵션/수량/가격(VAT포함)/입금여부/상태.
+   상태(대기→주문필요/불출완료)·입금 변경은 관리자 + '구매 담당자'(purchase_managers, 관리자가 이 화면에서 지정)만 —
+   서버(db 프록시 커스텀 규칙)가 강제. 확인 버튼은 관리자 전용(확인자 이름 표시). 삭제는 본인+관리자.
+   ══════════════════════════════════════ */
+const PURCH_ST = {
+  pending:    { label: '대기', bg: '#f3f4f6', col: '#6b7280' },
+  need_order: { label: '주문필요', bg: '#fee2e2', col: '#b91c1c' },
+  released:   { label: '불출완료(재고반영완료)', bg: '#dcfce7', col: '#15803d' },
+};
+const purchState = { rows: [], mgrs: new Set(), filter: 'all', users: null, loading: false };
+const purchCanManage = () => isAdmin() || (SESSION && purchState.mgrs.has(SESSION.id));
+
+async function purchLoad() {
+  if (purchState.loading) return;
+  purchState.loading = true;
+  const btn = $('btn-purch');
+  if (btn) btnBusy(btn, '불러오는 중');
+  try {
+    const [rows, mgrs] = await Promise.all([
+      dbProxy('purchase_requests?select=*&order=req_date.desc,created_at.desc&limit=500'),
+      dbProxy('purchase_managers?select=user_id'),
+    ]);
+    purchState.rows = rows || [];
+    purchState.mgrs = new Set((mgrs || []).map(r => r.user_id));
+    purchRender();
+    if (isAdmin()) purchMgrPanel();
+  } catch (e) { showToast('조회 실패: ' + e.message); }
+  finally { purchState.loading = false; if (btn) btnIdle(btn, '<i class="fa-solid fa-rotate"></i> 새로고침'); }
+}
+
+async function purchAdd() {
+  const req_date = $('purch-date').value;
+  const item = $('purch-item').value.trim();
+  const qty = Number($('purch-qty').value);
+  const price = Number($('purch-price').value);
+  if (!req_date) { showToast('주문요청일을 선택해주세요'); return; }
+  if (!item) { showToast('사입명을 입력해주세요'); return; }
+  if (!(qty > 0)) { showToast('수량을 확인해주세요'); return; }
+  try {
+    await dbProxy('purchase_requests', {
+      method: 'POST', headers: { Prefer: 'return=minimal' },
+      body: JSON.stringify({
+        req_date, vendor: $('purch-vendor').value.trim(), item_name: item,
+        option_txt: $('purch-opt').value.trim(), qty, price: isFinite(price) ? price : 0,
+        requester_id: SESSION.id, requester_name: SESSION.name,
+      }),
+    });
+    ['purch-vendor', 'purch-item', 'purch-opt'].forEach(id => { $(id).value = ''; });
+    $('purch-qty').value = 1; $('purch-price').value = '';
+    showToast('구매 요청이 등록됐습니다');
+    purchLoad();
+  } catch (e) { showToast('등록 실패: ' + e.message); }
+}
+
+async function purchPatch(id, patch, okMsg) {
+  try {
+    await dbProxy(`purchase_requests?id=eq.${id}`, {
+      method: 'PATCH', headers: { Prefer: 'return=minimal' },
+      body: JSON.stringify({ ...patch, updated_at: new Date().toISOString() }),
+    });
+    if (okMsg) showToast(okMsg);
+    purchLoad();
+  } catch (e) { showToast('저장 실패: ' + e.message); purchRender(); }
+}
+function purchSetStatus(id, v) { purchPatch(id, { status: v }); }
+function purchTogglePaid(id, v) { purchPatch(id, { paid: v }); }
+function purchConfirm(id) { purchPatch(id, { confirmed_by: SESSION.name, confirmed_at: new Date().toISOString() }, '확인 처리됐습니다'); }
+async function purchDelete(id) {
+  if (!confirm('이 구매 요청을 삭제할까요?')) return;
+  try {
+    const filter = isAdmin() ? '' : `&requester_id=eq.${encodeURIComponent(SESSION.id)}`;
+    await dbProxy(`purchase_requests?id=eq.${id}${filter}`, { method: 'DELETE' });
+    purchLoad();
+  } catch (e) { showToast('삭제 실패: ' + e.message); }
+}
+function purchSetFilter(k) { purchState.filter = k; purchRender(); }
+
+function purchRender() {
+  const rowsAll = purchState.rows;
+  const cnt = k => rowsAll.filter(r => r.status === k).length;
+  const tab = (k, label, n, bg) => {
+    const on = purchState.filter === k;
+    return `<button onclick="purchSetFilter('${k}')" style="border:1.5px solid ${on ? 'transparent' : '#d1d5db'};background:${on ? '#4f46e5' : '#fff'};color:${on ? '#fff' : '#4b5563'};border-radius:99px;padding:5px 13px;font-size:.78rem;font-weight:700;cursor:pointer;">${bg ? admgrDot(bg) : ''}${label} ${n}</button>`;
+  };
+  $('purch-tabs').innerHTML =
+    tab('all', '전체', rowsAll.length) + tab('pending', '대기', cnt('pending')) +
+    tab('need_order', '주문필요', cnt('need_order'), '#ef4444') + tab('released', '불출완료', cnt('released'), '#22c55e') +
+    `<span style="margin-left:auto;font-size:.72rem;color:#9ca3af;align-self:center;">${purchCanManage() ? '상태·입금을 바꿀 수 있습니다' : '상태·입금 변경은 담당자만 가능합니다'}</span>`;
+
+  const rows = purchState.filter === 'all' ? rowsAll : rowsAll.filter(r => r.status === purchState.filter);
+  if (!rows.length) {
+    $('purch-result').innerHTML = '<div class="empty-state"><div class="es-icon"><i class="fa-solid fa-cart-shopping"></i></div><p>등록된 구매 요청이 없습니다.<br>위 양식에 물품을 적고 요청 등록을 눌러주세요.</p></div>';
+    return;
+  }
+  const canMg = purchCanManage();
+  let html = `<div class="table-wrap"><table>
+    <thead><tr>
+      <th>주문요청일</th><th class="m-hide">주문자</th><th class="m-hide">거래처</th><th style="text-align:left;">사입명</th>
+      <th class="m-hide">옵션</th><th>수량</th><th>가격<div style="font-size:.62rem;font-weight:500;color:#9ca3af;">VAT 10% 포함</div></th>
+      <th>입금여부</th><th>상태</th><th class="m-hide">확인</th><th class="m-hide"></th>
+    </tr></thead><tbody>`;
+  for (const r of rows) {
+    const st = PURCH_ST[r.status] || PURCH_ST.pending;
+    const stCell = canMg
+      ? `<select onchange="purchSetStatus('${r.id}', this.value)" style="border:1.5px solid #d1d5db;border-radius:8px;padding:4px 6px;font-size:.76rem;font-weight:700;color:${st.col};background:${st.bg};cursor:pointer;">
+          ${Object.entries(PURCH_ST).map(([k, v]) => `<option value="${k}" ${r.status === k ? 'selected' : ''}>${v.label}</option>`).join('')}</select>`
+      : `<span style="background:${st.bg};color:${st.col};border-radius:99px;padding:2px 10px;font-size:.72rem;font-weight:700;white-space:nowrap;">${st.label}</span>`;
+    const paidCell = `<label style="display:inline-flex;align-items:center;gap:4px;font-size:.74rem;font-weight:700;color:${r.paid ? '#15803d' : '#9ca3af'};${canMg ? 'cursor:pointer;' : ''}">
+      <input type="checkbox" ${r.paid ? 'checked' : ''} ${canMg ? `onchange="purchTogglePaid('${r.id}', this.checked)"` : 'disabled'} style="margin:0;" />${r.paid ? '입금완료' : '미입금'}</label>`;
+    const confCell = r.confirmed_by
+      ? `<span style="color:#15803d;font-size:.72rem;font-weight:700;white-space:nowrap;"><i class="fa-solid fa-circle-check"></i> ${escHtml(r.confirmed_by)}</span>`
+      : isAdmin()
+        ? `<button onclick="purchConfirm('${r.id}')" style="border:1.5px solid #c7d2fe;background:#fff;color:#4f46e5;border-radius:99px;padding:2px 11px;font-size:.72rem;font-weight:700;cursor:pointer;">확인</button>`
+        : '<span style="color:#c4c9d4;">—</span>';
+    const canDel = isAdmin() || r.requester_id === SESSION.id;
+    html += `<tr>
+      <td style="white-space:nowrap;">${r.req_date || '—'}</td>
+      <td class="m-hide" style="white-space:nowrap;">${escHtml(r.requester_name)}</td>
+      <td class="m-hide">${escHtml(r.vendor) || '—'}</td>
+      <td style="text-align:left;min-width:140px;font-weight:600;">${escHtml(r.item_name)}</td>
+      <td class="m-hide">${escHtml(r.option_txt) || '—'}</td>
+      <td style="font-weight:700;">${fmt(Number(r.qty))}</td>
+      <td style="font-weight:700;white-space:nowrap;">${Number(r.price) > 0 ? fmt(Math.round(Number(r.price))) + '원' : '—'}</td>
+      <td>${paidCell}</td>
+      <td>${stCell}</td>
+      <td class="m-hide">${confCell}</td>
+      <td class="m-hide">${canDel ? `<button onclick="purchDelete('${r.id}')" title="삭제" style="border:none;background:none;color:#d1d5db;font-size:.82rem;cursor:pointer;">✕</button>` : ''}</td></tr>`;
+  }
+  $('purch-result').innerHTML = html + '</tbody></table></div>';
+}
+
+// 관리자 전용 — 상태 변경 담당자 지정 (이름 칩 토글, purchase_managers 테이블)
+async function purchMgrPanel() {
+  const box = $('purch-mgr');
+  box.style.display = 'block';
+  if (!purchState.users) {
+    try { purchState.users = (await authApi({ action: 'list_names', token: SESSION.token })).users || []; }
+    catch { purchState.users = []; }
+  }
+  const chips = purchState.users.map(u => {
+    const on = purchState.mgrs.has(u.id);
+    return `<button onclick="purchMgrToggle('${escHtml(u.id)}')" style="border:1.5px solid ${on ? 'transparent' : '#d1d5db'};background:${on ? '#4f46e5' : '#fff'};color:${on ? '#fff' : '#4b5563'};border-radius:99px;padding:4px 12px;font-size:.76rem;font-weight:700;cursor:pointer;">${escHtml(u.name)}</button>`;
+  }).join(' ');
+  box.innerHTML = `<div style="background:#f8f9ff;border:1.5px solid #e0e7ff;border-radius:12px;padding:10px 14px;">
+    <div style="font-size:.78rem;font-weight:800;color:#4338ca;margin-bottom:6px;">상태 변경 담당자 <span style="font-weight:500;color:#9ca3af;font-size:.72rem;">— 선택된 직원만 불출완료·주문필요·입금을 바꿀 수 있습니다 (관리자는 항상 가능)</span></div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap;">${chips || '<span style="color:#c4c9d4;font-size:.76rem;">등록 사용자를 불러오지 못했습니다</span>'}</div></div>`;
+}
+async function purchMgrToggle(uid) {
+  try {
+    if (purchState.mgrs.has(uid)) {
+      await dbProxy(`purchase_managers?user_id=eq.${encodeURIComponent(uid)}`, { method: 'DELETE' });
+      purchState.mgrs.delete(uid);
+    } else {
+      await dbProxy('purchase_managers?on_conflict=user_id', {
+        method: 'POST', headers: { Prefer: 'resolution=merge-duplicates,return=minimal' },
+        body: JSON.stringify({ user_id: uid, added_by: SESSION.name }),
+      });
+      purchState.mgrs.add(uid);
+    }
+    purchMgrPanel();
+    purchRender();
+  } catch (e) { showToast('저장 실패: ' + e.message); }
+}
 
 async function boardLoad(force) {
   if (!isAdmin()) return;
@@ -8529,7 +8726,7 @@ async function myChangePw() {
   } catch (e) { showToast('변경 실패 — ' + e.message); }
 }
 
-const MENU_KEYS = ['home', 'cr', 'an', 'perf', 'rwatch', 'disp', 'stable', 'adv', 'admgr', 'profit', 'wm', 'meet', 'board', 'proj', 'users', 'my'];
+const MENU_KEYS = ['home', 'cr', 'an', 'perf', 'rwatch', 'disp', 'stable', 'adv', 'admgr', 'profit', 'wm', 'meet', 'board', 'proj', 'users', 'my', 'purch'];
 
 /* 모바일 메뉴 서랍 (2026-08-27) — 열기/닫기. 데스크톱에선 ☰ 버튼이 숨겨져 호출되지 않는다. */
 /* ── 홈 접기 (2026-08-27 UI 정리) ──
@@ -8599,7 +8796,7 @@ function showMenu(key) {
   if (window.innerWidth <= 900) menuDrawer(false);   // 메뉴를 고르면 서랍은 닫는다
 
   if (!MENU_KEYS.includes(key)) key = 'home';
-  if (isCS() && key !== 'my') key = 'perf';   // CS팀·물류팀은 판매 성과 + 마이페이지만
+  if (isCS() && !['my', 'purch'].includes(key)) key = 'perf';   // CS팀·물류팀은 판매 성과 + 마이페이지 + 구매요청
   // 권한 없는 메뉴는 홈으로 되돌린다 — 여기서 return하면 URL에 #disp 등을 달고 들어온
   // 권한 없는 사용자에게 아무 섹션도 표시되지 않아 화면이 비어버림
   const denied = (key === 'cr' && isStaff())
@@ -8620,6 +8817,10 @@ function showMenu(key) {
   }
   if (key === 'users') loadUsers();
   if (key === 'my') myLoad();
+  if (key === 'purch') {
+    if (!$('purch-date').value) $('purch-date').value = new Date().toISOString().slice(0, 10);
+    purchLoad();
+  }
   if (key === 'wm') wmInit();
   if (key === 'board') boardLoad();
   if (key === 'proj') projLoad();

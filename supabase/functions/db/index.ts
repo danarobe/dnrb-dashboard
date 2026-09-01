@@ -27,6 +27,8 @@ const TABLE_ROLES: Record<string, string[]> = {
   profit_archive: ["admin"],    // 순익 시나리오 기간별 기록
   project_tasks: ["admin"],     // 프로젝트 관리 업무 (관리자 전용 — 사용자 결정 2026-08-19)
   board_topics: ["admin"],      // 대표 회의보드 안건 (관리자 전용 — 사용자 결정 2026-08-19, 대표끼리 서로 수정 가능이라 AUTHOR_FIELDS 미적용)
+  purchase_requests: ["admin", "staff", "cs"],   // 직원 구매요청 (2026-08-31) — 등록 전원, 상태·입금·확인은 아래 커스텀 규칙
+  purchase_managers: ["admin", "staff", "cs"],   // 구매요청 상태 변경 담당자 목록 — 읽기 전원(화면 분기용), 쓰기는 admin만(커스텀 규칙)
   notifications: ["admin", "staff", "cs"],  // @멘션 알림 (2026-08-20). 남을 수신자로 POST해야 하므로 AUTHOR_FIELDS 미적용 — 읽기는 클라이언트가 본인 필터(내부 신뢰 전제, 비공개 회의기록과 동일 수준)
   push_subscriptions: ["admin", "staff", "cs"],  // 웹 푸시 구독 (기기별, 2026-08-20) — AUTHOR_FIELDS로 본인 것만
 };
@@ -54,6 +56,40 @@ Deno.serve(async (req) => {
     if (!METHODS.has(m)) return json({ error: "잘못된 요청" }, 400);
     if (!/^[a-z_]+$/.test(table) || !TABLE_ROLES[table]) return json({ error: "허용되지 않은 테이블" }, 403);
     if (!TABLE_ROLES[table].includes(me.role)) return json({ error: "접근 권한이 없습니다" }, 403);
+
+    // ── 직원 구매요청 커스텀 규칙 (2026-08-31 사용자 지정) ──
+    // 등록(POST)은 전원(본인 명의 강제) · 상태/입금/확인 변경은 admin 또는 구매 담당자(purchase_managers)만 ·
+    // 일반 직원의 PATCH는 본인 행 + 내용 필드만 · DELETE는 본인 행만(admin은 전체) · 담당자 목록 쓰기는 admin만.
+    if (table === "purchase_managers" && m !== "GET" && me.role !== "admin") {
+      return json({ error: "담당자 지정은 관리자만 가능합니다" }, 403);
+    }
+    if (table === "purchase_requests") {
+      const qs = new URLSearchParams(p.split("?")[1] ?? "");
+      if (m === "POST") {
+        const rows = Array.isArray(body) ? body : [body];
+        if (rows.some((r) => String((r as Record<string, unknown>)?.requester_id) !== me.id)) {
+          return json({ error: "본인 명의로만 등록할 수 있습니다" }, 400);
+        }
+      }
+      if (m === "PATCH" || m === "DELETE") {
+        let isMgr = me.role === "admin";
+        if (!isMgr) {
+          const mres = await fetch(`${SB_URL}/rest/v1/purchase_managers?user_id=eq.${encodeURIComponent(me.id)}&select=user_id`, {
+            headers: { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}` },
+          });
+          isMgr = mres.ok && ((await mres.json()) as unknown[]).length > 0;
+        }
+        if (m === "DELETE" && me.role !== "admin" && qs.get("requester_id") !== `eq.${me.id}`) {
+          return json({ error: "본인 요청만 삭제할 수 있습니다" }, 403);
+        }
+        if (m === "PATCH" && !isMgr) {
+          if (qs.get("requester_id") !== `eq.${me.id}`) return json({ error: "본인 요청만 수정할 수 있습니다" }, 403);
+          const allowed = new Set(["req_date", "vendor", "item_name", "option_txt", "qty", "price", "updated_at"]);
+          const bad = Object.keys((body ?? {}) as Record<string, unknown>).filter((k) => !allowed.has(k));
+          if (bad.length) return json({ error: "상태·입금·확인 변경은 담당자만 가능합니다" }, 403);
+        }
+      }
+    }
 
     const authorField = AUTHOR_FIELDS[table];
     if (authorField) {
