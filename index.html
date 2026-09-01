@@ -1981,6 +1981,7 @@
             <button onclick="document.getElementById('meta-preview-modal').style.display='none'"
                     style="border:none;background:#f3f4f6;border-radius:8px;padding:4px 10px;font-size:.88rem;cursor:pointer;">✕</button>
           </div>
+          <div id="meta-preview-fmt" style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:8px;"></div>
           <div id="meta-preview-body" style="text-align:center;min-height:200px;"></div>
           <div id="meta-preview-stats" style="margin-top:12px;"></div>
         </div>
@@ -6556,9 +6557,8 @@ function admgrRenderBest() {
     <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:8px;">${tiles || `<div class="empty-state"><p>${q ? '검색 결과가 없습니다.' : '담은 세트에 표시할 소재가 없습니다.'}</p></div>`}</div>`;
 }
 
-// 타일 클릭 = 소재만 빠르게 보는 경량 모달 (2026-08-28 사용자 결정 — 호버 재생 제거, 이 메뉴에선 기간별 성과도 미조회).
-// 미리보기 iframe 1회 호출뿐이고 응답은 메모리 캐시라 같은 소재 재클릭은 즉시 뜬다.
-const admgrBestPrevCache = new Map();
+// 타일 클릭 = 소재만 빠르게 보는 경량 모달 (2026-08-28 사용자 결정 — 이 메뉴에선 기간별 성과 미조회).
+// 미리보기 로딩·형식 칩·캐시는 공용 metaPrevLoad 사용 — 이름에 '릴스'가 들면 자동으로 릴스 형식.
 async function admgrBestOpen(adId) {
   const modal = $('meta-preview-modal');
   modal.style.display = 'flex';
@@ -6566,28 +6566,7 @@ async function admgrBestOpen(adId) {
   $('meta-preview-stats').innerHTML = '';   // 성과 영역 비움 — 소재만
   const ad = ((admgrState.best.ads || []).find(x => x.id === adId)) || {};
   $('meta-preview-title').textContent = ad.name || adId;
-  const cached = admgrBestPrevCache.get(adId);
-  if (cached) { admgrBestFill(cached); return; }
-  $('meta-preview-body').innerHTML = '<div style="padding:40px;color:#9ca3af;"><i class="fa-solid fa-spinner fa-spin"></i></div>';
-  try {
-    // 형식은 기존 모달과 같은 INSTAGRAM_STANDARD — 릴스 형식은 모달에서 잘리고 재생이 안 되는 실사례(2026-08-28)
-    const d = await metaGet({ action: 'preview', ad_id: adId });
-    admgrBestPrevCache.set(adId, d);
-    admgrBestFill(d);
-  } catch (e) {
-    $('meta-preview-body').innerHTML = `<div style="padding:30px;color:#b91c1c;font-size:.82rem;">${escHtml(e.message)}</div>`;
-  }
-}
-function admgrBestFill(d) {
-  if (d.iframe) {
-    $('meta-preview-body').innerHTML = d.iframe;
-    const ifr = $('meta-preview-body').querySelector('iframe');
-    if (ifr) { ifr.style.maxWidth = '100%'; ifr.style.border = 'none'; }
-  } else if (d.thumbnail) {
-    $('meta-preview-body').innerHTML = `<img src="${escHtml(d.thumbnail)}" style="max-width:100%;border-radius:10px;" />`;
-  } else {
-    $('meta-preview-body').innerHTML = '<div style="padding:30px;color:#9ca3af;">미리보기를 가져오지 못했습니다</div>';
-  }
+  metaPrevLoad(adId, '');
 }
 
 /* ── 테스트 소재 탭 (2026-08-26) ── */
@@ -7107,29 +7086,56 @@ async function fetchMetaAds() {
 
 let metaStatsChart = null;
 
+/* 미리보기 형식 (2026-09-01): 릴스 기반 광고는 피드 형식 미리보기가 '지원되는 화면 비율' 안내만 나온다(실사고 — 기존릴스_test 소재).
+   이름에 '릴스'가 들면 릴스 형식으로 자동 시작하고, 모달의 칩(피드/릴스/스토리)으로 언제든 전환. 응답은 형식별 메모리 캐시. */
+const META_PREV_FMTS = [['', '피드'], ['reels', '릴스'], ['story', '스토리']];
+const metaPrevState = { adId: null, fmt: '' };
+const metaPrevCache = new Map();   // `${adId}:${fmt}` → 응답
+function metaPrevChips() {
+  const el = $('meta-preview-fmt');
+  if (!el) return;
+  el.innerHTML = '<span style="font-size:.7rem;color:#9ca3af;">미리보기 형식</span> ' + META_PREV_FMTS.map(([f, label]) =>
+    `<button onclick="metaPrevLoad(metaPrevState.adId, '${f}')" style="border:1.5px solid ${metaPrevState.fmt === f ? 'transparent' : '#d1d5db'};background:${metaPrevState.fmt === f ? '#4f46e5' : '#fff'};color:${metaPrevState.fmt === f ? '#fff' : '#4b5563'};border-radius:99px;padding:3px 11px;font-size:.72rem;font-weight:700;cursor:pointer;">${label}</button>`).join('');
+}
+async function metaPrevLoad(adId, fmt) {
+  metaPrevState.adId = adId;
+  metaPrevState.fmt = fmt || '';
+  metaPrevChips();
+  const key = adId + ':' + (fmt || '');
+  let d = metaPrevCache.get(key);
+  if (!d) {
+    $('meta-preview-body').innerHTML = '<div style="padding:40px;color:#9ca3af;"><i class="fa-solid fa-spinner fa-spin"></i></div>';
+    try { d = await metaGet({ action: 'preview', ad_id: adId, ...(fmt ? { fmt } : {}) }); }
+    catch (err) {
+      if (metaPrevState.adId === adId) $('meta-preview-body').innerHTML = `<div style="padding:30px;color:#b91c1c;font-size:.82rem;">${escHtml(err.message)}</div>`;
+      return;
+    }
+    metaPrevCache.set(key, d);
+  }
+  if (metaPrevState.adId !== adId || metaPrevState.fmt !== (fmt || '')) return;   // 늦게 온 응답 버림
+  if (d.name) $('meta-preview-title').textContent = d.name;
+  // 자동 전환: 형식 미지정 + 이름에 '릴스' → 릴스 형식 (피드는 지원 비율 안내만 나옴)
+  if (!fmt && /릴스/i.test(d.name || '')) return metaPrevLoad(adId, 'reels');
+  if (d.iframe) {
+    $('meta-preview-body').innerHTML = d.iframe;   // Meta가 주는 공식 미리보기 iframe (영상 재생 포함)
+    const ifr = $('meta-preview-body').querySelector('iframe');
+    if (ifr) { ifr.style.maxWidth = '100%'; ifr.style.border = 'none'; }
+  } else if (d.thumbnail) {
+    $('meta-preview-body').innerHTML = `<img src="${escHtml(d.thumbnail)}" style="max-width:100%;border-radius:10px;" />`;
+  } else {
+    $('meta-preview-body').innerHTML = '<div style="padding:30px;color:#9ca3af;">미리보기를 가져오지 못했습니다</div>';
+  }
+}
+
 async function showMetaPreview(adId) {
   const modal = $('meta-preview-modal');
   modal.style.display = 'flex';
   $('meta-preview-title').textContent = '불러오는 중...';
-  $('meta-preview-body').innerHTML = '<div style="padding:40px;color:#9ca3af;"><i class="fa-solid fa-spinner fa-spin"></i></div>';
   $('meta-preview-stats').innerHTML = '<div style="padding:14px;color:#9ca3af;font-size:.82rem;"><i class="fa-solid fa-spinner fa-spin"></i> 기간별 성과 조회 중...</div>';
   if (metaStatsChart) { metaStatsChart.destroy(); metaStatsChart = null; }
 
   // 미리보기와 기간별 통계를 병렬로 — 하나가 실패해도 나머지는 표시
-  metaGet({ action: 'preview', ad_id: adId }).then(d => {
-    $('meta-preview-title').textContent = d.name || adId;
-    if (d.iframe) {
-      $('meta-preview-body').innerHTML = d.iframe;   // Meta가 주는 공식 미리보기 iframe (영상 재생 포함)
-      const ifr = $('meta-preview-body').querySelector('iframe');
-      if (ifr) { ifr.style.maxWidth = '100%'; ifr.style.border = 'none'; }
-    } else if (d.thumbnail) {
-      $('meta-preview-body').innerHTML = `<img src="${escHtml(d.thumbnail)}" style="max-width:100%;border-radius:10px;" />`;
-    } else {
-      $('meta-preview-body').innerHTML = '<div style="padding:30px;color:#9ca3af;">미리보기를 가져오지 못했습니다</div>';
-    }
-  }).catch(err => {
-    $('meta-preview-body').innerHTML = `<div style="padding:30px;color:#b91c1c;font-size:.82rem;">${escHtml(err.message)}</div>`;
-  });
+  metaPrevLoad(adId, '');
 
   metaGet({ action: 'adstats', ad_id: adId }).then(d => {
     const LABELS = { today: '오늘', yesterday: '어제', last_3d: '최근 3일', last_7d: '최근 7일',

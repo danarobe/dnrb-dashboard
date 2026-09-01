@@ -781,8 +781,13 @@ Deno.serve(async (req) => {
     if (action === "preview") {
       const adId = url.searchParams.get("ad_id");
       if (!adId) return json({ error: "ad_id 필수" }, 400);
-      // fmt 파라미터(2026-08-28): 베스트소재 호버는 INSTAGRAM_REELS 형식이 영상 자동재생이 되어 선호
-      const fmt = url.searchParams.get("fmt") === "reels" ? "INSTAGRAM_REELS" : "INSTAGRAM_STANDARD";
+      // fmt 파라미터(2026-09-01 확장): 릴스 기반 광고는 피드(INSTAGRAM_STANDARD) 미리보기가
+      // '지원되는 화면 비율' 안내만 나온다(실사고) — 클라이언트가 형식을 골라 요청한다.
+      const FMTS: Record<string, string> = {
+        feed: "INSTAGRAM_STANDARD", reels: "INSTAGRAM_REELS",
+        story: "INSTAGRAM_STORY", desktop: "DESKTOP_FEED_STANDARD",
+      };
+      const fmt = FMTS[url.searchParams.get("fmt") ?? ""] ?? "INSTAGRAM_STANDARD";
       const [prev, meta] = await Promise.all([
         graphGet(`${adId}/previews`, { ad_format: fmt }, c.token)
           .catch(() => graphGet(`${adId}/previews`, { ad_format: "INSTAGRAM_STANDARD" }, c.token))
