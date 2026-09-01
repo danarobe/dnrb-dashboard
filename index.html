@@ -3702,7 +3702,8 @@ const BOARD_ST = {
 const PURCH_ST = {
   pending:    { label: '대기', bg: '#f3f4f6', col: '#6b7280' },
   need_order: { label: '주문필요', bg: '#fee2e2', col: '#b91c1c' },
-  released:   { label: '불출완료(재고반영완료)', bg: '#dcfce7', col: '#15803d' },
+  ordered:    { label: '주문완료', bg: '#dbeafe', col: '#1d4ed8' },   // 2026-09-01 추가 — 주문은 넣었고 입고 대기
+  released:   { label: '불출(재고반영)완료', bg: '#dcfce7', col: '#15803d' },
 };
 const purchState = { rows: [], mgrs: new Set(), filter: 'all', users: null, loading: false };
 const purchCanManage = () => isAdmin() || (SESSION && purchState.mgrs.has(SESSION.id));
@@ -3784,7 +3785,7 @@ function purchRender() {
   };
   $('purch-tabs').innerHTML =
     tab('all', '전체', rowsAll.length) + tab('pending', '대기', cnt('pending')) +
-    tab('need_order', '주문필요', cnt('need_order'), '#ef4444') + tab('released', '불출완료', cnt('released'), '#22c55e') +
+    tab('need_order', '주문필요', cnt('need_order'), '#ef4444') + tab('ordered', '주문완료', cnt('ordered'), '#3b82f6') + tab('released', '불출(재고반영)완료', cnt('released'), '#22c55e') +
     `<span style="margin-left:auto;font-size:.72rem;color:#9ca3af;align-self:center;">${purchCanManage() ? '상태·입금을 바꿀 수 있습니다' : '상태·입금 변경은 담당자만 가능합니다'}</span>`;
 
   const rows = purchState.filter === 'all' ? rowsAll : rowsAll.filter(r => r.status === purchState.filter);
