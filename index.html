@@ -3760,9 +3760,27 @@ async function purchPatch(id, patch, okMsg) {
     });
     if (okMsg) showToast(okMsg);
     purchLoad();
-  } catch (e) { showToast('저장 실패: ' + e.message); purchRender(); }
+    return true;
+  } catch (e) { showToast('저장 실패: ' + e.message); purchRender(); return false; }
 }
-function purchSetStatus(id, v) { purchPatch(id, { status: v }); }
+async function purchSetStatus(id, v) {
+  const row = purchState.rows.find(r => r.id === id);
+  const ok = await purchPatch(id, { status: v });
+  // 주문완료로 바뀌면 요청 직원에게 앱 알림+푸시 (2026-09-01 사용자 요청 — 본인 요청을 본인이 바꾼 경우는 제외)
+  if (ok && v === 'ordered' && row && row.requester_id !== SESSION.id) {
+    try {
+      await fetch(fnUrl('notify', {}), {
+        method: 'POST', headers: sbHeaders(),
+        body: JSON.stringify({
+          targets: [row.requester_id], actor_name: SESSION.name,
+          message: `[직원 구매요청] '${row.item_name}' 주문이 완료됐습니다 — 입고를 기다려주세요`,
+          link_menu: 'purch',
+        }),
+      });
+      showToast(`${row.requester_name}님에게 주문완료 알림을 보냈습니다`);
+    } catch (e) { console.error('구매요청 알림 실패', e); /* 알림 실패해도 상태 변경은 성립 */ }
+  }
+}
 function purchTogglePaid(id, v) { purchPatch(id, { paid: v }); }
 function purchPaidReq(id, on) { purchPatch(id, { paid_req: on, paid_req_by: on ? SESSION.name : null }, on ? '입금완료/확인요청으로 표기했습니다' : null); }
 function purchConfirm(id) { purchPatch(id, { confirmed_by: SESSION.name, confirmed_at: new Date().toISOString() }, '확인 처리됐습니다'); }
