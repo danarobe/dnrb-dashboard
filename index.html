@@ -3744,7 +3744,9 @@ async function purchAdd() {
 
 async function purchPatch(id, patch, okMsg) {
   try {
-    await dbProxy(`purchase_requests?id=eq.${id}`, {
+    // 담당자가 아니면 서버가 '본인 행' 필터를 요구한다 — 자동으로 붙여준다 (2026-08-31 실사고 수정: 확인요청 클릭이 403 났음)
+    const filter = purchCanManage() ? '' : `&requester_id=eq.${encodeURIComponent(SESSION.id)}`;
+    await dbProxy(`purchase_requests?id=eq.${id}${filter}`, {
       method: 'PATCH', headers: { Prefer: 'return=minimal' },
       body: JSON.stringify({ ...patch, updated_at: new Date().toISOString() }),
     });
