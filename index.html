@@ -1910,7 +1910,7 @@
       <button class="toggle-btn" id="btn-admgr" onclick="admgrRefresh()"><i class="fa-solid fa-rotate"></i> 새로고침</button>
     </div>
     <div class="section-body">
-      <div id="admgr-intro" style="font-size:.82rem;color:#6b7280;margin-bottom:12px;">캠페인 · 광고세트 · 광고를 탭으로 나눠 보는 현황판 (보기 전용 · 60초 캐시 — 메타 호출 한도 보호). 캠페인·세트에 체크하면 다음 탭이 그 선택만 보여줍니다. 켜고 끄기는 메타 광고관리자에서 하세요.</div>
+      <div id="admgr-intro" style="font-size:.82rem;color:#6b7280;margin-bottom:12px;line-height:1.7;">· 캠페인/세트를 체크하면, 다음 탭에서는 선택한 것에 대해서만 보여집니다.<br>· 테스트 소재 메뉴의 "OFF/애매/우수" 상태는 테스트 중인 광고세트에 한합니다. 종료된 세트의 성과는 "테스트 종료" 분류를 참고하세요</div>
       <div id="admgr-tabs" style="display:flex;gap:2px;border-bottom:2px solid #e5e7eb;margin-bottom:12px;flex-wrap:wrap;"></div>
       <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:12px;">
         <span id="admgr-presets" style="display:flex;gap:6px;flex-wrap:wrap;"></span>
@@ -6304,7 +6304,7 @@ function admgrColResize() {
 function admgrRender() {
   if (!isAdmin() && !ADMGR_STAFF_VIEWS.includes(admgrState.view)) admgrState.view = 'test';   // 어떤 경로로 들어와도 허용 탭으로
   const intro = $('admgr-intro');
-  if (intro && !isAdmin()) intro.textContent = '테스트 소재(광고세트명에 test 포함 시 자동 수집) · 기존광고 중 OFF(기간 내 꺼진 세트) · 베스트소재(관리자가 담은 소재 모음)를 볼 수 있습니다.';
+  if (intro && !isAdmin()) intro.innerHTML = '· 테스트 소재(광고세트명에 test 포함 시 자동 수집) · 기존광고 중 OFF(기간 내 꺼진 세트) · 베스트소재(관리자가 담은 소재 모음)를 볼 수 있습니다.<br>· 테스트 소재의 "OFF/애매/우수" 상태는 테스트 중인 광고세트에 한합니다. 종료된 세트의 성과는 "테스트 종료" 분류를 참고하세요';
   const v = admgrState.view;
   const t = admgrState.test;
   const R = admgrRows();
@@ -6598,9 +6598,10 @@ function admgrDPlus(a) {
   return Math.max(0, Math.round((new Date(admgrToday() + 'T12:00:00Z') - new Date(a.reg_date + 'T12:00:00Z')) / 86400000));
 }
 // 상태 판정 (2026-08-28 개편) — OFF·검토중·거부는 메타 자동 감지, 애매·우수는 직접 지정(verdict), 켜져 있고 미지정 = 평가중
-// gone(테스트 종료 — 세트명에서 test 제거·삭제로 목록에서 사라진 스냅샷, 2026-08-30)은 판정이 있으면 그 판정, 없으면 'ended'
+// gone(테스트 종료 — 세트명에서 test 제거·삭제로 목록에서 사라진 스냅샷)은 판정과 무관하게 항상 'ended'
+// (2026-09-01 분리안 — 우수/애매/OFF 칩은 테스트 중인 소재만, 종료된 소재는 '테스트 종료' 칩에서만. 판정은 배지로 병기)
 function admgrTestStatusOf(a, meta) {
-  if (a.gone) return meta.verdict === 'good' ? 'good' : meta.verdict === 'meh' ? 'meh' : 'ended';
+  if (a.gone) return 'ended';
   const es = a.effective_status;
   if (['PENDING_REVIEW', 'IN_PROCESS', 'PENDING_BILLING_INFO'].includes(es)) return 'review';
   if (['DISAPPROVED', 'WITH_ISSUES'].includes(es)) return 'rejected';
@@ -6612,22 +6613,29 @@ function admgrTestStatusOf(a, meta) {
 const admgrDot = c => `<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${c};margin-right:4px;"></span>`;
 function admgrTestBadge(a) {
   const pill = (bg, col, txt, dot) => `<span style="background:${bg};color:${col};border-radius:99px;padding:1px 9px;font-size:.68rem;font-weight:700;white-space:nowrap;">${dot ? admgrDot(dot) : ''}${txt}</span>`;
-  // 테스트 종료(세트명에서 test 제거·삭제) 배지 — 판정 배지와 나란히 표시 (2026-08-30)
-  const end = a.gone ? pill('#f3f4f6', '#6b7280', '테스트 종료') + ' ' : '';
-  if (a.st === 'ended') return end.trim() + '<div style="font-size:.6rem;color:#9ca3af;">판정 없이 종료</div>';
+  // 테스트 종료 — [테스트 종료] 배지 + 판정(있으면) 나란히, 없으면 '판정 없이 종료' 부제 (2026-09-01 분리안)
+  if (a.st === 'ended') {
+    const end = pill('#f3f4f6', '#6b7280', '테스트 종료');
+    const v = (a.meta || {}).verdict;
+    if (v === 'good') return end + ' ' + pill('#dcfce7', '#15803d', '우수', '#22c55e');
+    if (v === 'meh') return end + ' ' + pill('#ffedd5', '#c2410c', '애매', '#f97316');
+    return end + '<div style="font-size:.6rem;color:#9ca3af;">판정 없이 종료</div>';
+  }
   if (a.st === 'eval') return pill('#e0e7ff', '#4338ca', '평가중');
-  if (a.st === 'good') return end + pill('#dcfce7', '#15803d', '우수', '#22c55e');
-  if (a.st === 'meh') return end + pill('#ffedd5', '#c2410c', '애매', '#f97316');
+  if (a.st === 'good') return pill('#dcfce7', '#15803d', '우수', '#22c55e');
+  if (a.st === 'meh') return pill('#ffedd5', '#c2410c', '애매', '#f97316');
   if (a.st === 'review') return pill('#fffbeb', '#92400e', '검토중');
   if (a.st === 'rejected') return pill('#fee2e2', '#b91c1c', '거부·문제');
   // OFF — 소재 스위치를 끈 건지, 캠페인·세트가 꺼져서인지 구분
   return pill('#fee2e2', '#b91c1c', 'OFF', '#ef4444') + `<div style="font-size:.6rem;color:#9ca3af;">${a.status === 'PAUSED' ? '소재 꺼짐' : '상위 꺼짐'}</div>`;
 }
 // 판정 버튼 — 켜진 소재 + 테스트 종료 소재(늦은 판정·판정 누락 보완용)에 표시, 켜진 판정을 다시 누르면 해제
+// 종료 소재는 st가 항상 'ended'라 선택 표시는 meta.verdict 기준 (2026-09-01 분리안)
 function admgrVerdictBtns(a) {
   if (!['eval', 'meh', 'good', 'ended'].includes(a.st)) return '';
+  const cur = a.st === 'ended' ? ((a.meta || {}).verdict || '') : a.st;
   const b = (v, label, on, col) => `<button onclick="event.stopPropagation();admgrTestVerdict('${a.id}','${v}')" title="${on ? '클릭하면 해제 (평가중으로)' : label + '로 지정'}" style="border:1px solid ${on ? 'transparent' : '#d1d5db'};background:${on ? col : '#fff'};color:${on ? '#fff' : '#6b7280'};border-radius:99px;padding:1px 8px;font-size:.64rem;font-weight:700;cursor:pointer;">${label}</button>`;
-  return `<div style="display:flex;gap:3px;justify-content:center;margin-top:3px;">${b('meh', '애매', a.st === 'meh', '#f97316')}${b('good', '우수', a.st === 'good', '#16a34a')}</div>`;
+  return `<div style="display:flex;gap:3px;justify-content:center;margin-top:3px;">${b('meh', '애매', cur === 'meh', '#f97316')}${b('good', '우수', cur === 'good', '#16a34a')}</div>`;
 }
 async function admgrTestVerdict(adId, v) {
   const cur = admgrState.test.state.get(adId) || {};
@@ -6635,9 +6643,11 @@ async function admgrTestVerdict(adId, v) {
   catch (e) { showToast('저장 실패: ' + e.message); }
 }
 // 추가소재 열 — 우수 소재에서 요청/제작완료 체크(날짜 자동 기록). 우수가 아니어도 기존 체크가 있으면 계속 표시
+// 종료됐어도 판정이 우수면 체크 가능 (2026-09-01 분리안 — st는 ended지만 verdict로 판단)
 function admgrAssetCell(a) {
   const m = a.meta;
-  if (a.st !== 'good' && !m.asset_req_at && !m.asset_done_at) return admgrDash;
+  const isGood = a.st === 'good' || (a.st === 'ended' && m.verdict === 'good');
+  if (!isGood && !m.asset_req_at && !m.asset_done_at) return admgrDash;
   const d = iso => iso ? `<span style="font-size:.6rem;color:#9ca3af;margin-left:2px;">${iso.slice(5, 10).replace('-', '/')}</span>` : '';
   const row = (field, label, iso) => `<label onclick="event.stopPropagation();" style="display:flex;align-items:center;gap:4px;cursor:pointer;font-size:.7rem;font-weight:600;color:${iso ? '#374151' : '#9ca3af'};white-space:nowrap;"><input type="checkbox" ${iso ? 'checked' : ''} onchange="admgrTestAsset('${a.id}','${field}')" style="margin:0;" />${label}${d(iso)}</label>`;
   return `<div style="display:inline-flex;flex-direction:column;gap:2px;text-align:left;">${row('asset_req_at', '요청', m.asset_req_at)}${row('asset_done_at', '제작완료', m.asset_done_at)}</div>`;
@@ -6746,7 +6756,8 @@ async function admgrTestXlsx() {
       const put = (c, v) => { if (v !== '' && v != null) ws.cell(r, c).value(v); };
       put(1, a.adset_name); put(2, a.name);
       put(3, a.reg_date || ''); put(4, dp == null ? '' : dp);
-      put(5, ST_LABEL[a.st] + (a.st === 'off' ? (a.status === 'PAUSED' ? ' (소재 꺼짐)' : ' (상위 꺼짐)') : a.gone && a.st !== 'ended' ? ' (테스트 종료)' : ''));
+      put(5, ST_LABEL[a.st] + (a.st === 'off' ? (a.status === 'PAUSED' ? ' (소재 꺼짐)' : ' (상위 꺼짐)')
+        : a.st === 'ended' && a.meta.verdict ? ` (${a.meta.verdict === 'good' ? '우수' : '애매'})` : ''));
       put(6, Math.round(a.spend)); put(7, a.purchases);
       put(8, a.purchases > 0 ? Math.round(a.spend / a.purchases) : '');
       put(9, a.spend > 0 ? Number((a.value / a.spend).toFixed(2)) : '');
