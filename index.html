@@ -5902,6 +5902,39 @@ async function admgrPinVerify() {
   } catch (e) { admgrBpopErr(e.message); }
 }
 function admgrPinClear() { admgrState.write.pin = null; showToast('PIN 인증을 해제했습니다'); admgrRender(); }
+
+// 활성·비활성 토글 (2026-09-02 사용자 요청) — PIN 인증한 지정 관리자만.
+// 서버 meta-budget setstatus가 허용자+PIN 매 요청 검증 + budget_writes 감사 기록 + hierarchy 캐시 삭제.
+async function admgrToggleStatus(level, id, toStatus) {
+  const w = admgrState.write;
+  if (!(w.st && w.st.allowed)) { showToast('상태 변경 권한이 없습니다 (지정 관리자 전용)'); return; }
+  if (!w.pin) { admgrPinPrompt(() => admgrToggleStatus(level, id, toStatus)); return; }
+  const R = admgrRows();
+  const row = (level === 'campaign' ? R.camps : level === 'adset' ? R.sets : R.ads).find(x => x.id === id);
+  const name = row ? row.name : id;
+  const levelKo = level === 'campaign' ? '캠페인' : level === 'adset' ? '광고세트' : '광고';
+  if (!confirm(`${levelKo} "${name}"\n${toStatus === 'ACTIVE' ? '켭니다 (게재 재개)' : '끕니다 (게재 중단)'} — 진행할까요?`)) return;
+  try {
+    const res = await fetch(fnUrl('meta-budget', { action: 'setstatus' }), {
+      method: 'POST', headers: sbHeaders(),
+      body: JSON.stringify({ pin: w.pin, level, object_id: id, object_name: name, status: toStatus }),
+    });
+    const d = await res.json();
+    if (!res.ok || d.error) throw new Error(d.error || ('오류 ' + res.status));
+    showToast(`"${name}" — ${toStatus === 'ACTIVE' ? '켰습니다' : '껐습니다'}`);
+    admgrFetch();   // 서버가 hierarchy 캐시를 비워 새 상태로 재조회
+  } catch (e) { showToast('변경 실패: ' + e.message); }
+}
+// 상태 셀의 켜기/끄기 소형 버튼 — 쓰기 허용 관리자 + 상태가 명확한 행(켜짐/꺼짐)에만
+function admgrToggleBtn(v, r) {
+  const w = admgrState.write;
+  if (!(w.st && w.st.allowed)) return '';
+  const st = String(r.status || '');
+  if (st !== 'ACTIVE' && !st.includes('PAUSED')) return '';   // 검토중·기간 중 게재 등은 제외
+  const on = st === 'ACTIVE';
+  const level = v === 'camp' ? 'campaign' : v === 'adset' ? 'adset' : 'ad';
+  return `<div style="margin-top:3px;"><button onclick="event.stopPropagation();admgrToggleStatus('${level}','${r.id}','${on ? 'PAUSED' : 'ACTIVE'}')" title="${on ? '게재 중단 (PIN 인증 필요)' : '게재 재개 (PIN 인증 필요)'}" style="border:1px solid ${on ? '#fca5a5' : '#bbf7d0'};background:#fff;color:${on ? '#b91c1c' : '#15803d'};border-radius:99px;padding:1px 9px;font-size:.64rem;font-weight:700;cursor:pointer;">${on ? '끄기' : '켜기'}</button></div>`;
+}
 function admgrMidBtn() {
   const w = admgrState.write;
   if (w.midMode === 'setting') {
@@ -6442,7 +6475,7 @@ function admgrRender() {
     html += `<tr onclick="${rowClick}" style="cursor:pointer;${checked ? 'background:#eef2ff;' : ''}">
       ${hasCk ? `<td><input type="checkbox" ${checked ? 'checked' : ''} style="pointer-events:none;" /></td>` : ''}
       <td style="text-align:left;min-width:190px;font-weight:${v === 'camp' ? '800' : '600'};color:${v === 'ad' ? '#4338ca' : '#1e1b4b'};">${escHtml(r.name)}${goLink}${sub}</td>
-      <td>${statusHtml}</td>
+      <td>${statusHtml}${admgrToggleBtn(v, r)}</td>
       <td class="m-hide">${v === 'ad' ? admgrDash : admgrBudgetCellHtml(r, v)}</td>
       ${showChg ? `<td class="m-hide">${admgrChgCell(r)}</td>` : ''}
       <td style="font-weight:700;">${admgrMoney(r.spend)}</td>

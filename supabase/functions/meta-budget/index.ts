@@ -165,6 +165,33 @@ Deno.serve(async (req) => {
       return json({ ok: true });
     }
 
+    // ── 활성·비활성 토글 (2026-09-02 사용자 요청) — 캠페인/세트/광고 전 층, 예산과 동일 보안(허용자+PIN 매 요청) ──
+    if (action === "setstatus") {
+      const objectId = String(body.object_id ?? "");
+      const level = String(body.level ?? "");
+      const st = String(body.status ?? "");
+      if (!objectId || !["campaign", "adset", "ad"].includes(level)) return json({ error: "대상이 올바르지 않습니다" }, 400);
+      if (!["ACTIVE", "PAUSED"].includes(st)) return json({ error: "상태 값이 올바르지 않습니다" }, 400);
+      if (!env("META_WRITE_TOKEN")) return json({ error: "Meta 쓰기 토큰(META_WRITE_TOKEN)이 아직 설정되지 않았습니다" }, 400);
+      const res2 = await fetch(`${GRAPH}/${objectId}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({ status: st, access_token: env("META_WRITE_TOKEN") }),
+      });
+      const rb = await res2.json().catch(() => ({}));
+      if (!res2.ok || rb?.success === false) {
+        return json({ error: `Meta 적용 실패: ${(rb?.error?.message ?? JSON.stringify(rb)).slice(0, 250)}` }, 400);
+      }
+      // budget_writes에 감사 기록 (mode=status_on/off, new_budget은 null — 컬럼 NOT NULL 해제됨 2026-09-02)
+      await pg("budget_writes", "POST", {
+        object_id: objectId, object_name: String(body.object_name ?? ""), level,
+        mode: st === "ACTIVE" ? "status_on" : "status_off", status: "applied",
+        requested_by: who, applied_at: new Date().toISOString(),
+      }).catch(() => { /* 기록 실패해도 적용은 성립 */ });
+      await clearMetaCaches();
+      return json({ ok: true, status: st });
+    }
+
     // apply / schedule 공통 검증
     const objectId = String(body.object_id ?? "");
     const level = String(body.level ?? "");
