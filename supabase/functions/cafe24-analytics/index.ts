@@ -702,6 +702,99 @@ Deno.serve(async (req) => {
     // ── 판매 성과: 기간 판매수량 + 취소·반품완료 수량 + 판매가·공급가 ──
     // rows: [{product_no, product_name, paid_qty(주문수량), order_amount(주문금액),
     //          cancel_qty(취소·반품완료 수량), price(판매가), supply_price(공급가)}]
+    // ── 자체제작 주문 점검 (2026-09-03 사용자 요청) — 상품명에 '자체제작'/'made' 포함 상품의 일평균 순판매량 ──
+    // 3일·7일 일평균(어제까지) + 신상 보정: 첫 판매가 창 안이면 분모를 실제 판매일수로 (÷7 저평가 방지, 사용자 설계).
+    // 구현: 애널리틱스 일별 7회(어제-6~어제) + 30일 합계 1회 + 취소(C40/R40) 30일 스캔 1회. 순판매 = 결제 − 취소 (주문일 기준 — 판매 성과와 동일).
+    if (action === "madeavg") {
+      if (!["admin", "staff"].includes(authed.role)) return json({ error: "접근 권한이 없습니다" }, 403);
+      const e = url.searchParams.get("end_date");   // = 어제 (클라이언트가 KST로 계산해 전달 — 캐시 키에 포함됨)
+      if (!e) return json({ error: "end_date 필수 (YYYY-MM-DD)" }, 400);
+      const hit = await fromCache(); if (hit) return json(hit);
+      const day = 24 * 3600 * 1000;
+      const dstr = (t: number) => new Date(t).toISOString().slice(0, 10);
+      const endMs = new Date(e).getTime();
+      const s30 = dstr(endMs - 29 * day);
+      const MADE_RE = /자체제작|made/i;
+
+      type Row = {
+        product_no: number; product_name: string;
+        daily: number[];           // [어제-6 .. 어제] 결제수량
+        qty30: number; cancel30: number; cancel7: number; cancel3: number;
+      };
+      const map = new Map<number, Row>();
+      const rowOf = (no: number, name: string) => {
+        let r = map.get(no);
+        if (!r) { r = { product_no: no, product_name: name, daily: [0, 0, 0, 0, 0, 0, 0], qty30: 0, cancel30: 0, cancel7: 0, cancel3: 0 }; map.set(no, r); }
+        if (!r.product_name && name) r.product_name = name;
+        return r;
+      };
+
+      // ① 최근 7일 일별 결제수량 (첫 판매일·3/7일 합 산출용)
+      for (let i = 0; i < 7; i++) {
+        const d = dstr(endMs - (6 - i) * day);
+        const p = new URLSearchParams({ mall_id: MALL_ID, start_date: d, end_date: d });
+        const sales = await collectData("/products/sales", "sales", p, token);
+        for (const r of sales) {
+          const name = String(r.product_name ?? "");
+          if (!MADE_RE.test(name)) continue;
+          rowOf(Number(r.product_no), name).daily[i] += num(r.order_product_count);
+        }
+      }
+      // ② 30일 합계 (첫 판매가 7일 창보다 오래됐는지 판별용)
+      {
+        const p = new URLSearchParams({ mall_id: MALL_ID, start_date: s30, end_date: e });
+        const sales = await collectData("/products/sales", "sales", p, token);
+        for (const r of sales) {
+          const name = String(r.product_name ?? "");
+          if (!MADE_RE.test(name)) continue;
+          rowOf(Number(r.product_no), name).qty30 += num(r.order_product_count);
+        }
+      }
+      // ③ 취소·반품 완료 수량 — 주문일 기준 C40/R40 (판매 성과와 동일 기준), 주문일로 창 분배
+      await eachOrder(token,
+        "date_type=order_date&order_status=C40,R40&embed=items&fields=order_id,order_date,items", s30, e, (orders) => {
+        for (const o of orders) {
+          const od = String(o.order_date ?? "").slice(0, 10);
+          const ageDays = Math.round((endMs - new Date(od).getTime()) / day);   // 0 = 어제(창 끝)
+          for (const it of (o.items ?? []) as Record<string, unknown>[]) {
+            const st = String(it.order_status ?? "");
+            if (st !== "C40" && st !== "R40") continue;
+            const r = map.get(Number(it.product_no));
+            if (!r) continue;
+            const q = num(it.quantity);
+            r.cancel30 += q;
+            if (ageDays >= 0 && ageDays < 7) r.cancel7 += q;
+            if (ageDays >= 0 && ageDays < 3) r.cancel3 += q;
+          }
+        }
+      });
+
+      const rows = [...map.values()].map((r) => {
+        const qty7 = r.daily.reduce((t, v) => t + v, 0);
+        const qty3 = r.daily.slice(4).reduce((t, v) => t + v, 0);
+        // 첫 판매일 보정: 30일 합계가 7일 합계와 같으면 판매 시작이 7일 창 안 — 일별 시리즈에서 첫 판매일을 찾는다
+        let days7 = 7, days3 = 3, firstSale: string | null = null;
+        if (r.qty30 <= qty7 && qty7 > 0) {
+          const firstIdx = r.daily.findIndex((v) => v > 0);
+          firstSale = dstr(endMs - (6 - firstIdx) * day);
+          days7 = 7 - firstIdx;                    // 첫 판매일 ~ 어제
+          days3 = Math.min(3, days7);
+        }
+        const net3 = Math.max(0, qty3 - r.cancel3);
+        const net7 = Math.max(0, qty7 - r.cancel7);
+        const net30 = Math.max(0, r.qty30 - r.cancel30);
+        return {
+          product_no: r.product_no, product_name: r.product_name,
+          qty3, qty7, qty30: r.qty30, net3, net7, net30,
+          days3, days7, first_sale: firstSale,
+          avg3: days3 > 0 ? net3 / days3 : 0,
+          avg7: days7 > 0 ? net7 / days7 : 0,
+        };
+      }).sort((a, b) => b.avg7 - a.avg7);
+
+      return respond({ period: { start: s30, end: e }, count: rows.length, rows });
+    }
+
     if (action === "performance") {
       const s = url.searchParams.get("start_date");
       const e = url.searchParams.get("end_date");

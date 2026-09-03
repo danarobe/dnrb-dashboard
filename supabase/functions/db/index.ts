@@ -27,6 +27,7 @@ const TABLE_ROLES: Record<string, string[]> = {
   profit_archive: ["admin"],    // 순익 시나리오 기간별 기록
   project_tasks: ["admin"],     // 프로젝트 관리 업무 (관리자 전용 — 사용자 결정 2026-08-19)
   board_topics: ["admin"],      // 대표 회의보드 안건 (관리자 전용 — 사용자 결정 2026-08-19, 대표끼리 서로 수정 가능이라 AUTHOR_FIELDS 미적용)
+  made_products: ["admin", "staff"],   // 자체제작 주문 점검 — 제작처(중국/국내)·리드타임 태그. 읽기 admin+MD, 쓰기 admin만(커스텀 규칙, 2026-09-03)
   purchase_requests: ["admin", "staff", "cs"],   // 직원 구매요청 (2026-08-31) — 등록 전원, 상태·입금·확인은 아래 커스텀 규칙
   purchase_managers: ["admin", "staff", "cs"],   // 구매요청 상태 변경 담당자 목록 — 읽기 전원(화면 분기용), 쓰기는 admin만(커스텀 규칙)
   notifications: ["admin", "staff", "cs"],  // @멘션 알림 (2026-08-20). 남을 수신자로 POST해야 하므로 AUTHOR_FIELDS 미적용 — 읽기는 클라이언트가 본인 필터(내부 신뢰 전제, 비공개 회의기록과 동일 수준)
@@ -62,6 +63,9 @@ Deno.serve(async (req) => {
     // 일반 직원의 PATCH는 본인 행 + 내용 필드만 · DELETE는 본인 행만(admin은 전체) · 담당자 목록 쓰기는 admin만.
     if (table === "purchase_managers" && m !== "GET" && me.role !== "admin") {
       return json({ error: "담당자 지정은 관리자만 가능합니다" }, 403);
+    }
+    if (table === "made_products" && m !== "GET" && me.role !== "admin") {
+      return json({ error: "제작처 지정은 관리자만 가능합니다" }, 403);
     }
     if (table === "purchase_requests") {
       const qs = new URLSearchParams(p.split("?")[1] ?? "");

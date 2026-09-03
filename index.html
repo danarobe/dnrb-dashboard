@@ -604,6 +604,7 @@
   <div class="menu-group">운영</div>
   <button class="menu-item" data-menu="disp" id="menu-disp" onclick="showMenu('disp')"><i class="fa-solid fa-table-cells-large" style="width:18px;text-align:center;color:#818cf8;"></i>카테고리별 진열</button>
   <button class="menu-item" data-menu="stable" id="menu-stable" onclick="showMenu('stable')"><i class="fa-solid fa-warehouse" style="width:18px;text-align:center;color:#818cf8;"></i>안정재고 편성</button>
+  <button class="menu-item" data-menu="madechk" id="menu-madechk" style="display:none;" onclick="showMenu('madechk')"><i class="fa-solid fa-industry" style="width:18px;text-align:center;color:#818cf8;"></i>자체제작 주문 점검</button>
   <button class="menu-item" id="menu-npm" title="상품 관리 시스템 — 새 탭으로 열립니다" onclick="window.open('https://newproduct-manager.vercel.app/products','_blank')"><i class="fa-solid fa-box-open" style="width:18px;text-align:center;color:#818cf8;"></i>상품 관리<i class="fa-solid fa-arrow-up-right-from-square" style="font-size:.62rem;color:#9ca3af;margin-left:auto;"></i></button>
   <div class="menu-group">경영</div>
   <button class="menu-item" data-menu="adv"  id="menu-adv" onclick="showMenu('adv')"><i class="fa-solid fa-bullhorn" style="width:18px;text-align:center;color:#818cf8;"></i>광고 효율</button>
@@ -1834,6 +1835,27 @@
 
   <!-- 대표 회의보드 (관리자) — 자체 기능 (board_topics 테이블, 2026-08-19 iframe → 네이티브 전환).
        회의 때 이야기할 안건을 평소에 기록해두고, 회의 날 한 화면으로 보며 진행. 작성자 = 로그인 계정. -->
+  <div class="section-card page-sec" id="sec-madechk">
+    <div class="section-header" style="cursor:default;">
+      <h2><span><i class="fa-solid fa-industry" style="color:#4f46e5;font-size:.9em;"></i></span> 자체제작 주문 점검</h2>
+      <button class="toggle-btn" id="btn-madechk" onclick="madeFetch()"><i class="fa-solid fa-cloud-arrow-down"></i> 카페24 판매 수집</button>
+    </div>
+    <div class="section-body">
+      <div style="font-size:.8rem;color:#6b7280;margin-bottom:12px;line-height:1.7;">
+        · 상품명에 <b>자체제작</b>/<b>made</b>가 든 상품의 <b>어제까지 3일·7일 일평균 순판매량</b>(결제−취소, 주문일 기준)을 자동 계산합니다. 판매 시작 7일 미만 신상은 <b>첫 판매일부터의 실제 판매일수</b>로 나눠 저평가를 막아요.<br>
+        · 셀메이트 재고 CSV를 올리면 <b>가용재고(현재고−미발송)</b>로 소진 예상일과 주문 필요 여부·권장 주문량까지 계산합니다.</div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:12px;">
+        <label style="font-size:.78rem;font-weight:700;color:#4b5563;display:flex;align-items:center;gap:6px;">셀메이트 재고 CSV
+          <input type="file" id="made-csv" accept=".csv" onchange="handleMadeCSV(event)" style="font-size:.74rem;" /></label>
+        <span id="made-csv-status" style="font-size:.74rem;color:#6b7280;">미업로드 — 재고·판정 열이 비어 있어요</span>
+        <label style="font-size:.78rem;font-weight:700;color:#4b5563;display:flex;align-items:center;gap:5px;margin-left:auto;">입고 후 재고 커버 목표
+          <input type="number" id="made-cover" value="14" min="1" onchange="madeCoverSave()" style="width:56px;border:1.5px solid #d1d5db;border-radius:8px;padding:5px 8px;font-size:.8rem;" />일</label>
+      </div>
+      <div id="made-summary" style="display:none;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:12px;"></div>
+      <div id="made-result"><div class="empty-state"><p>'카페24 판매 수집'을 누르면 자체제작 상품의 판매 데이터를 불러옵니다.</p></div></div>
+    </div>
+  </div>
+
   <div class="section-card page-sec" id="sec-purch">
     <div class="section-header" style="cursor:default;">
       <h2><span><i class="fa-solid fa-cart-shopping" style="color:#4f46e5;font-size:.9em;"></i></span> 직원 구매요청</h2>
@@ -2143,6 +2165,7 @@ function applyRole() {
   $('menu-adv').style.display = (isAdmin() || isStaff()) && !isCS() ? '' : 'none';   // MD도 광고 효율 접근
   $('menu-admgr').style.display = (isAdmin() || isStaff()) && !isCS() ? '' : 'none'; // 광고관리자 = 관리자 전체 + **MD·마케터는 테스트 소재 탭만** (2026-08-27 사용자 지정)
   $('menu-rwatch').style.display = (isAdmin() || isStaff()) && !isCS() ? '' : 'none'; // 반품 관리 = 관리자 + MD
+  $('menu-madechk').style.display = (isAdmin() || isStaff()) && !isCS() ? '' : 'none'; // 자체제작 주문 점검 = 관리자 + MD (2026-09-03)
   $('menu-npm').style.display = (isAdmin() || isStaff()) && !isCS() ? '' : 'none';    // 상품 관리(외부 링크) = 관리자 + MD
   $('menu-profit').style.display = isAdmin() && !isCS() ? '' : 'none';
   $('menu-wm').style.display = isAdmin() && !isCS() ? '' : 'none';
@@ -5430,6 +5453,165 @@ function stableSyncDays() {
   if (!s || !e) return;
   const diff = Math.floor((new Date(e) - new Date(s)) / 86400000) + 1;
   $('stable-days').textContent = diff > 0 ? diff : '—';
+}
+
+/* ══════════════════════════════════════
+   자체제작 주문 점검 (#madechk, 2026-09-03 사용자 요청 — 관리자+MD)
+   서버 madeavg(어제까지 3일·7일 일평균 순판매, 신상은 첫 판매일 보정) + made_products(제작처·리드타임, 쓰기 admin)
+   + 셀메이트 재고 CSV(현재고·미발송 — API 유료라 업로드 방식, 안정재고 메뉴의 파서·stkNorm 재사용).
+   판정: 가용재고÷7일평균 = 소진일수 → 리드타임(중국 10일/국내 영업일7≈달력9, 상품별 덮어쓰기) 이하면 주문 필요.
+   권장 주문량 = 7일평균 × (리드타임 + 커버 목표일) − 가용재고 (커버 기본 14일, localStorage).
+   ══════════════════════════════════════ */
+const MADE_LEAD = { cn: 10, kr: 9 };   // 기본 리드타임(달력일) — 국내는 영업일 7일 근사
+const MADE_ORIGIN = { cn: '중국', kr: '국내' };
+const madeState = { rows: null, tags: new Map(), stock: null, loading: false };
+function madeCoverSave() { localStorage.setItem('dnrb_made_cover', $('made-cover').value); if (madeState.rows) madeRender(); }
+function madeInit() {
+  const v = localStorage.getItem('dnrb_made_cover');
+  if (v) $('made-cover').value = v;
+  if (!madeState.rows && !madeState.loading) madeFetch();
+}
+async function madeFetch() {
+  if (madeState.loading) return;
+  madeState.loading = true;
+  const btn = $('btn-madechk');
+  btnBusy(btn, '수집 중');
+  try {
+    const yd = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(new Date(Date.now() - 864e5));
+    const [d, tags] = await Promise.all([
+      anGet({ action: 'madeavg', end_date: yd }),
+      dbProxy('made_products?select=*'),
+    ]);
+    madeState.rows = d.rows || [];
+    madeState.tags = new Map((tags || []).map(t => [t.product_no, t]));
+    madeRender();
+  } catch (e) { showToast('수집 실패: ' + e.message); }
+  finally { madeState.loading = false; btnIdle(btn, '<i class="fa-solid fa-cloud-arrow-down"></i> 카페24 판매 수집'); }
+}
+// 셀메이트 재고 CSV — 헤더명으로 열 자동 인식(상품명 / 현재재고·현재고 / 미발송·미출고), 상품 단위 합산
+async function handleMadeCSV(e) {
+  const file = e.target.files[0];
+  e.target.value = '';
+  if (!file) return;
+  try {
+    const text = await readFileAsText(file);
+    const lines = text.split(/\r?\n/).filter(l => l.trim());
+    let headerIdx = -1, col = {};
+    for (let i = 0; i < Math.min(lines.length, 30); i++) {
+      const cells = parseCSVRow(lines[i]).map(c => c.replace(/\s/g, ''));
+      const idx = {
+        name: cells.findIndex(c => c === '상품명'),
+        stock: cells.findIndex(c => c === '현재재고' || c === '현재고' || c === '현재고수량'),
+        unshipped: cells.findIndex(c => c.startsWith('미발송') || c.startsWith('미출고')),
+      };
+      if (idx.name >= 0 && idx.stock >= 0) { headerIdx = i; col = idx; break; }
+    }
+    if (headerIdx < 0) throw new Error('헤더(상품명·현재재고)를 찾지 못했습니다 — 셀메이트 재고 양식인지 확인해주세요');
+    const stock = new Map();
+    let n = 0;
+    for (let i = headerIdx + 1; i < lines.length; i++) {
+      const c = parseCSVRow(lines[i]);
+      const name = (c[col.name] || '').trim();
+      if (!name) continue;
+      const key = stkNorm(name);
+      const cur = stock.get(key) || { stock: 0, unshipped: 0 };
+      cur.stock += toNum(c[col.stock]);
+      cur.unshipped += col.unshipped >= 0 ? toNum(c[col.unshipped]) : 0;
+      stock.set(key, cur);
+      n++;
+    }
+    if (!n) throw new Error('상품 행이 없습니다');
+    madeState.stock = stock;
+    $('made-csv-status').innerHTML = `<span style="color:#15803d;font-weight:700;">${escHtml(file.name)}</span> — ${fmt(n)}행 · 상품 ${fmt(stock.size)}개${col.unshipped < 0 ? ' <span style="color:#c2410c;">(미발송 열 없음 — 현재고만 사용)</span>' : ''}`;
+    showToast(`재고 CSV ${fmt(n)}행 로드 완료`);
+    if (madeState.rows) madeRender();
+  } catch (err) { showToast('CSV 읽기 실패: ' + err.message); }
+}
+// 제작처·리드타임 저장 — admin만 (서버 강제)
+async function madeSetTag(no, patch) {
+  const cur = madeState.tags.get(no) || {};
+  const row = { product_no: no, origin: cur.origin ?? null, lead_days: cur.lead_days ?? null, ...patch, updated_by: SESSION.name, updated_at: new Date().toISOString() };
+  try {
+    await dbProxy('made_products?on_conflict=product_no', { method: 'POST', body: JSON.stringify(row), headers: { Prefer: 'resolution=merge-duplicates,return=minimal' } });
+    madeState.tags.set(no, row);
+    madeRender();
+  } catch (e) { showToast('저장 실패: ' + e.message); }
+}
+function madeSetOrigin(no, v) { madeSetTag(no, { origin: v || null }); }
+function madeSetLead(no, v) { const n = parseInt(v); madeSetTag(no, { lead_days: isFinite(n) && n > 0 ? n : null }); }
+function madeLeadOf(tag) { return (tag && tag.lead_days) || (tag && tag.origin ? MADE_LEAD[tag.origin] : null); }
+
+function madeRender() {
+  const rows = madeState.rows || [];
+  const cover = Number($('made-cover').value) || 14;
+  const hasStock = !!madeState.stock;
+  // 판정 계산
+  const judged = rows.map(r => {
+    const tag = madeState.tags.get(r.product_no);
+    const lead = madeLeadOf(tag);
+    const st = hasStock ? madeState.stock.get(stkNorm(r.product_name)) : null;
+    const avail = st ? Math.max(0, st.stock - st.unshipped) : null;
+    const runout = avail != null && r.avg7 > 0 ? avail / r.avg7 : null;
+    let state, rank;
+    if (!tag || !tag.origin) { state = 'notag'; rank = 2; }
+    else if (avail == null) { state = 'nostock'; rank = 3; }
+    else if (r.avg7 <= 0) { state = 'nosale'; rank = 5; }
+    else if (runout <= lead) { state = 'order'; rank = 0; }
+    else if (runout <= lead + 3) { state = 'soon'; rank = 1; }
+    else { state = 'ok'; rank = 4; }
+    const rec = state === 'order' || state === 'soon'
+      ? Math.max(0, Math.ceil(r.avg7 * (lead + cover) - avail)) : null;
+    return { ...r, tag, lead, st, avail, runout, state, rec, rank };
+  }).sort((a, b) => a.rank - b.rank || b.avg7 - a.avg7);
+
+  const cnt = s => judged.filter(j => j.state === s).length;
+  $('made-summary').innerHTML =
+    admgrTile('자체제작 상품', rows.length + '개', false) +
+    admgrTile(admgrDot('#ef4444') + '주문 필요', cnt('order') + '개', false) +
+    admgrTile(admgrDot('#f97316') + '임박 (리드타임+3일)', cnt('soon') + '개', false) +
+    admgrTile(admgrDot('#22c55e') + '여유', cnt('ok') + '개', false) +
+    admgrTile('제작처 미지정', cnt('notag') + '개', false);
+  $('made-summary').style.display = 'grid';
+
+  const badge = (bg, col, txt) => `<span style="background:${bg};color:${col};border-radius:99px;padding:2px 10px;font-size:.72rem;font-weight:700;white-space:nowrap;">${txt}</span>`;
+  const stateCell = j =>
+    j.state === 'order' ? badge('#fee2e2', '#b91c1c', '주문 필요') + `<div style="font-size:.62rem;color:#6b7280;">소진 ${j.runout.toFixed(1)}일 ≤ 리드 ${j.lead}일</div>`
+    : j.state === 'soon' ? badge('#ffedd5', '#c2410c', '임박') + `<div style="font-size:.62rem;color:#6b7280;">소진 ${j.runout.toFixed(1)}일</div>`
+    : j.state === 'ok' ? badge('#dcfce7', '#15803d', '여유')
+    : j.state === 'notag' ? badge('#f3f4f6', '#6b7280', '제작처 지정 필요')
+    : j.state === 'nostock' ? badge('#f3f4f6', '#6b7280', '재고 CSV 필요')
+    : badge('#f3f4f6', '#6b7280', '판매 없음');
+  const avgCell = (v, days, full) => `${v.toFixed(1)}<span style="font-size:.66rem;color:#6b7280;">/일</span>` +
+    (days < full ? `<div style="font-size:.62rem;color:#c2410c;font-weight:700;" title="판매 시작이 최근이라 실제 판매일수로 나눔">판매 ${days}일</div>` : '');
+
+  let html = `<div class="table-wrap"><table>
+    <thead><tr>
+      <th style="text-align:left;">상품명</th><th>제작처</th><th class="m-hide">리드타임</th>
+      <th class="m-hide">3일 평균</th><th>7일 평균</th><th class="m-hide">30일 순판매</th>
+      <th>가용재고<div style="font-size:.62rem;font-weight:500;color:#6b7280;">현재고−미발송</div></th>
+      <th>판정</th><th>권장 주문량</th>
+    </tr></thead><tbody>`;
+  for (const j of judged) {
+    const originCell = isAdmin()
+      ? `<select onchange="madeSetOrigin(${j.product_no}, this.value)" style="border:1.5px solid #d1d5db;border-radius:8px;padding:4px 6px;font-size:.76rem;cursor:pointer;font-weight:700;color:${j.tag && j.tag.origin ? '#374151' : '#c2410c'};">
+          <option value="">미지정</option><option value="cn" ${j.tag && j.tag.origin === 'cn' ? 'selected' : ''}>중국</option><option value="kr" ${j.tag && j.tag.origin === 'kr' ? 'selected' : ''}>국내</option></select>`
+      : (j.tag && j.tag.origin ? MADE_ORIGIN[j.tag.origin] : '<span style="color:#c2410c;font-size:.76rem;">미지정</span>');
+    const leadCell = isAdmin() && j.tag && j.tag.origin
+      ? `<input type="number" min="1" value="${j.lead ?? ''}" onchange="madeSetLead(${j.product_no}, this.value)" title="기본: 중국 10일·국내 9일(영업일 7일) — 상품별 덮어쓰기" style="width:48px;border:1.5px solid #d1d5db;border-radius:8px;padding:3px 6px;font-size:.76rem;text-align:center;" />일`
+      : (j.lead ? j.lead + '일' : '—');
+    html += `<tr>
+      <td style="text-align:left;min-width:180px;font-weight:600;">${escHtml(j.product_name)}${j.first_sale ? `<div style="font-size:.64rem;color:#6b7280;">첫 판매 ${j.first_sale}</div>` : ''}</td>
+      <td>${originCell}</td>
+      <td class="m-hide">${leadCell}</td>
+      <td class="m-hide">${avgCell(j.avg3, j.days3, 3)}</td>
+      <td style="font-weight:700;">${avgCell(j.avg7, j.days7, 7)}</td>
+      <td class="m-hide">${fmt(j.net30)}</td>
+      <td>${j.avail != null ? `<b>${fmt(j.avail)}</b><div style="font-size:.62rem;color:#6b7280;">${fmt(j.st.stock)} − ${fmt(j.st.unshipped)}</div>` : '<span style="color:#9ca3af;">—</span>'}</td>
+      <td>${stateCell(j)}</td>
+      <td style="font-weight:800;color:${j.rec ? '#b91c1c' : '#9ca3af'};">${j.rec != null ? (j.rec > 0 ? fmt(j.rec) + '개' : '충분') : '—'}</td></tr>`;
+  }
+  $('made-result').innerHTML = html + '</tbody></table></div>' +
+    `<div style="font-size:.72rem;color:#6b7280;margin-top:8px;">권장 주문량 = 7일 평균 × (리드타임 + 커버 ${cover}일) − 가용재고 · 리드타임 기본값: 중국 10일 / 국내 9일(영업일 7일 환산) · 제작처·리드타임 지정은 관리자만</div>`;
 }
 
 /* 기존 도구와 동일한 추천 규칙 (3.0은 ×4 구간) */
@@ -8928,7 +9110,7 @@ async function myChangePw() {
   } catch (e) { showToast('변경 실패 — ' + e.message); }
 }
 
-const MENU_KEYS = ['home', 'cr', 'an', 'perf', 'rwatch', 'disp', 'stable', 'adv', 'admgr', 'profit', 'wm', 'meet', 'board', 'proj', 'users', 'my', 'purch'];
+const MENU_KEYS = ['home', 'cr', 'an', 'perf', 'rwatch', 'disp', 'stable', 'adv', 'admgr', 'profit', 'wm', 'meet', 'board', 'proj', 'users', 'my', 'purch', 'madechk'];
 
 /* 모바일 메뉴 서랍 (2026-08-27) — 열기/닫기. 데스크톱에선 ☰ 버튼이 숨겨져 호출되지 않는다. */
 /* ── 홈 접기 (2026-08-27 UI 정리) ──
@@ -9003,6 +9185,7 @@ function showMenu(key) {
   // 권한 없는 사용자에게 아무 섹션도 표시되지 않아 화면이 비어버림
   const denied = (key === 'cr' && isStaff())
     || (key === 'rwatch' && isCS())                      // 반품 관리 = 관리자 + MD
+    || (key === 'madechk' && isCS())                     // 자체제작 주문 점검 = 관리자 + MD (2026-09-03)
     || (['users', 'disp', 'stable', 'profit', 'board', 'proj', 'wm'].includes(key) && !isAdmin());   // admgr은 MD·마케터도 진입(테스트 소재 탭만, 2026-08-27), wm = 근무 관리 (급여·계좌 포함)
   if (denied) { showToast('접근 권한이 없습니다'); key = 'home'; }
   document.querySelectorAll('.page-sec').forEach(el => { el.style.display = 'none'; });
@@ -9024,6 +9207,7 @@ function showMenu(key) {
     purchLoad();
   }
   if (key === 'wm') wmInit();
+  if (key === 'madechk') madeInit();
   if (key === 'board') boardLoad();
   if (key === 'proj') projLoad();
   if (key === 'admgr') {
