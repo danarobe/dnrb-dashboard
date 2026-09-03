@@ -5630,11 +5630,12 @@ function madeRender() {
       <th>판정</th><th>권장 주문량</th>
     </tr></thead><tbody>`;
   for (const j of judged) {
-    const originCell = isAdmin()
+    const canTag = isAdmin() || isStaff();   // 제작처 지정 = 관리자 + MD (2026-09-03 사용자 요청)
+    const originCell = canTag
       ? `<select onchange="madeSetOrigin(${j.product_no}, this.value)" style="border:1.5px solid #d1d5db;border-radius:8px;padding:4px 6px;font-size:.76rem;cursor:pointer;font-weight:700;color:${j.tag && j.tag.origin ? '#374151' : '#c2410c'};">
           <option value="">미지정</option><option value="cn" ${j.tag && j.tag.origin === 'cn' ? 'selected' : ''}>중국</option><option value="kr" ${j.tag && j.tag.origin === 'kr' ? 'selected' : ''}>국내</option></select>`
       : (j.tag && j.tag.origin ? MADE_ORIGIN[j.tag.origin] : '<span style="color:#c2410c;font-size:.76rem;">미지정</span>');
-    const leadCell = isAdmin() && j.tag && j.tag.origin
+    const leadCell = canTag && j.tag && j.tag.origin
       ? `<input type="number" min="1" value="${j.lead ?? ''}" onchange="madeSetLead(${j.product_no}, this.value)" title="기본: 중국 10일·국내 9일(영업일 7일) — 상품별 덮어쓰기" style="width:48px;border:1.5px solid #d1d5db;border-radius:8px;padding:3px 6px;font-size:.76rem;text-align:center;" />일`
       : (j.lead ? j.lead + '일' : '—');
     const nOpt = (j.opts || []).length;
