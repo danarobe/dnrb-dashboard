@@ -5464,7 +5464,13 @@ function stableSyncDays() {
    ══════════════════════════════════════ */
 const MADE_LEAD = { cn: 10, kr: 9 };   // 기본 리드타임(달력일) — 국내는 영업일 7일 근사
 const MADE_ORIGIN = { cn: '중국', kr: '국내' };
-const madeState = { rows: null, tags: new Map(), stock: null, loading: false };
+const madeState = { rows: null, tags: new Map(), stock: null, loading: false, open: new Set() };
+function madeToggleOpts(no) {
+  madeState.open.has(no) ? madeState.open.delete(no) : madeState.open.add(no);
+  const tr = $('made-opt-' + no);
+  if (tr) tr.style.display = madeState.open.has(no) ? '' : 'none';
+  // 버튼 화살표 갱신은 재렌더 없이 두어도 무방 (다음 렌더에서 반영)
+}
 function madeCoverSave() { localStorage.setItem('dnrb_made_cover', $('made-cover').value); if (madeState.rows) madeRender(); }
 function madeInit() {
   const v = localStorage.getItem('dnrb_made_cover');
@@ -5479,7 +5485,7 @@ async function madeFetch() {
   try {
     const yd = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(new Date(Date.now() - 864e5));
     const [d, tags] = await Promise.all([
-      anGet({ action: 'madeavg', end_date: yd }),
+      anGet({ action: 'madeavg', end_date: yd, v: '2' }),   // v2 = 옵션별 집계 (캐시 키 분리)
       dbProxy('made_products?select=*'),
     ]);
     madeState.rows = d.rows || [];
@@ -5507,6 +5513,12 @@ async function handleMadeCSV(e) {
       if (idx.name >= 0 && idx.stock >= 0) { headerIdx = i; col = idx; break; }
     }
     if (headerIdx < 0) throw new Error('헤더(상품명·현재재고)를 찾지 못했습니다 — 셀메이트 재고 양식인지 확인해주세요');
+    // 옵션 행을 보존해 옵션 단위 발주 매칭에 쓴다 (v2) — 옵션명 열이 있으면 함께 읽음
+    let optCol = -1;
+    {
+      const cells = parseCSVRow(lines[headerIdx]).map(c => c.replace(/\s/g, ''));
+      optCol = cells.findIndex(c => c === '옵션명' || c === '옵션');
+    }
     const stock = new Map();
     let n = 0;
     for (let i = headerIdx + 1; i < lines.length; i++) {
@@ -5514,9 +5526,12 @@ async function handleMadeCSV(e) {
       const name = (c[col.name] || '').trim();
       if (!name) continue;
       const key = stkNorm(name);
-      const cur = stock.get(key) || { stock: 0, unshipped: 0 };
-      cur.stock += toNum(c[col.stock]);
-      cur.unshipped += col.unshipped >= 0 ? toNum(c[col.unshipped]) : 0;
+      const cur = stock.get(key) || { stock: 0, unshipped: 0, rows: [] };
+      const st = toNum(c[col.stock]);
+      const un = col.unshipped >= 0 ? toNum(c[col.unshipped]) : 0;
+      cur.stock += st;
+      cur.unshipped += un;
+      cur.rows.push({ opt: optCol >= 0 ? (c[optCol] || '').trim() : '', tokens: stableOptTokens(optCol >= 0 ? c[optCol] : ''), stock: st, unshipped: un });
       stock.set(key, cur);
       n++;
     }
@@ -5545,23 +5560,46 @@ function madeRender() {
   const rows = madeState.rows || [];
   const cover = Number($('made-cover').value) || 14;
   const hasStock = !!madeState.stock;
-  // 판정 계산
+  // 옵션 단위 판정 (발주는 옵션별 — 2026-09-03 사용자 지정) → 상품 판정 = 옵션 중 최악, 권장 = 옵션 합
+  const judgeOne = (avg7, avail, lead) => {
+    if (avail == null) return { state: 'nostock', rank: 3, runout: null, rec: null };
+    if (avg7 <= 0) return { state: 'nosale', rank: 5, runout: null, rec: null };
+    const runout = avail / avg7;
+    if (runout <= lead) return { state: 'order', rank: 0, runout, rec: Math.max(0, Math.ceil(avg7 * (lead + cover) - avail)) };
+    if (runout <= lead + 3) return { state: 'soon', rank: 1, runout, rec: Math.max(0, Math.ceil(avg7 * (lead + cover) - avail)) };
+    return { state: 'ok', rank: 4, runout, rec: null };
+  };
   const judged = rows.map(r => {
     const tag = madeState.tags.get(r.product_no);
     const lead = madeLeadOf(tag);
     const st = hasStock ? madeState.stock.get(stkNorm(r.product_name)) : null;
     const avail = st ? Math.max(0, st.stock - st.unshipped) : null;
-    const runout = avail != null && r.avg7 > 0 ? avail / r.avg7 : null;
-    let state, rank;
+    // 옵션별: 카페24 option_value ↔ 셀메이트 옵션 토큰 매칭 (안정재고와 동일 규칙 — 정확 일치 후 느슨 일치)
+    const opts = (r.options || []).map(o => {
+      let availO = null, looseNote = '';
+      if (st) {
+        const tk = stkOptTokens(o.option);
+        let hits = st.rows.filter(c => stkSameOpt(c.tokens, tk));
+        if (!hits.length && tk.length) { hits = st.rows.filter(c => stkLooseOpt(c.tokens, tk)); if (hits.length) looseNote = ' (표기차이)'; }
+        if (!hits.length && !tk.length && st.rows.length === 1) hits = st.rows;   // 단일상품 ↔ 단일 행
+        if (hits.length) availO = Math.max(0, hits.reduce((t, h) => t + h.stock - h.unshipped, 0));
+      }
+      const j = (!tag || !tag.origin) ? { state: 'notag', rank: 2, runout: null, rec: null } : judgeOne(o.avg7, availO, lead);
+      return { ...o, avail: availO, looseNote, lead, ...j };
+    });
+    let state, rank, runout = null, rec = null;
     if (!tag || !tag.origin) { state = 'notag'; rank = 2; }
     else if (avail == null) { state = 'nostock'; rank = 3; }
-    else if (r.avg7 <= 0) { state = 'nosale'; rank = 5; }
-    else if (runout <= lead) { state = 'order'; rank = 0; }
-    else if (runout <= lead + 3) { state = 'soon'; rank = 1; }
-    else { state = 'ok'; rank = 4; }
-    const rec = state === 'order' || state === 'soon'
-      ? Math.max(0, Math.ceil(r.avg7 * (lead + cover) - avail)) : null;
-    return { ...r, tag, lead, st, avail, runout, state, rec, rank };
+    else {
+      const worst = opts.reduce((w, o) => o.rank < w.rank ? o : w, { rank: 99 });
+      const pj = judgeOne(r.avg7, avail, lead);   // 상품 합계 기준 (옵션이 없거나 전부 미매칭일 때 대비)
+      if (worst.rank < 99 && worst.rank <= pj.rank) { state = worst.state; rank = worst.rank; }
+      else { state = pj.state; rank = pj.rank; }
+      runout = pj.runout;
+      const sum = opts.reduce((t, o) => t + (o.rec || 0), 0);
+      rec = (state === 'order' || state === 'soon') ? (sum > 0 ? sum : pj.rec) : null;
+    }
+    return { ...r, tag, lead, st, avail, runout, state, rec, rank, opts };
   }).sort((a, b) => a.rank - b.rank || b.avg7 - a.avg7);
 
   const cnt = s => judged.filter(j => j.state === s).length;
@@ -5599,8 +5637,11 @@ function madeRender() {
     const leadCell = isAdmin() && j.tag && j.tag.origin
       ? `<input type="number" min="1" value="${j.lead ?? ''}" onchange="madeSetLead(${j.product_no}, this.value)" title="기본: 중국 10일·국내 9일(영업일 7일) — 상품별 덮어쓰기" style="width:48px;border:1.5px solid #d1d5db;border-radius:8px;padding:3px 6px;font-size:.76rem;text-align:center;" />일`
       : (j.lead ? j.lead + '일' : '—');
+    const nOpt = (j.opts || []).length;
+    const open = madeState.open && madeState.open.has(j.product_no);
     html += `<tr>
-      <td style="text-align:left;min-width:180px;font-weight:600;">${escHtml(j.product_name)}${j.first_sale ? `<div style="font-size:.64rem;color:#6b7280;">첫 판매 ${j.first_sale}</div>` : ''}</td>
+      <td style="text-align:left;min-width:180px;font-weight:600;">${escHtml(j.product_name)}${j.first_sale ? `<div style="font-size:.64rem;color:#6b7280;">첫 판매 ${j.first_sale}</div>` : ''}
+        ${nOpt ? `<button onclick="madeToggleOpts(${j.product_no})" style="margin-top:3px;border:1px solid #c7d2fe;background:#eef2ff;color:#4338ca;border-radius:6px;padding:2px 9px;font-size:.7rem;font-weight:700;cursor:pointer;">옵션 ${nOpt}개 ${open ? '▴' : '▾'}</button>` : ''}</td>
       <td>${originCell}</td>
       <td class="m-hide">${leadCell}</td>
       <td class="m-hide">${avgCell(j.avg3, j.days3, 3)}</td>
@@ -5608,7 +5649,23 @@ function madeRender() {
       <td class="m-hide">${fmt(j.net30)}</td>
       <td>${j.avail != null ? `<b>${fmt(j.avail)}</b><div style="font-size:.62rem;color:#6b7280;">${fmt(j.st.stock)} − ${fmt(j.st.unshipped)}</div>` : '<span style="color:#9ca3af;">—</span>'}</td>
       <td>${stateCell(j)}</td>
-      <td style="font-weight:800;color:${j.rec ? '#b91c1c' : '#9ca3af'};">${j.rec != null ? (j.rec > 0 ? fmt(j.rec) + '개' : '충분') : '—'}</td></tr>`;
+      <td style="font-weight:800;color:${j.rec ? '#b91c1c' : '#9ca3af'};">${j.rec != null ? (j.rec > 0 ? fmt(j.rec) + '개' : '충분') : '—'}<div style="font-size:.6rem;font-weight:500;color:#6b7280;">${j.rec != null && nOpt ? '옵션 합계' : ''}</div></td></tr>`;
+    // ── 옵션별 발주 행 (펼치기) — 주문은 옵션 단위 (2026-09-03 사용자 지정) ──
+    if (nOpt) {
+      const optRows = j.opts.map(o => `<div style="display:flex;align-items:center;gap:10px;padding:4px 0;border-bottom:1px dashed #eef0f5;flex-wrap:wrap;">
+        <span style="flex:1;min-width:150px;text-align:left;font-weight:600;">${escHtml(o.option)}${o.looseNote ? `<span style="color:#c2410c;font-size:.66rem;">${o.looseNote}</span>` : ''}</span>
+        <span style="width:76px;text-align:right;">${o.avg7.toFixed(1)}<span style="font-size:.64rem;color:#6b7280;">/일</span></span>
+        <span style="width:64px;text-align:right;color:#6b7280;">${fmt(o.net30)}<span style="font-size:.64rem;">/30일</span></span>
+        <span style="width:76px;text-align:right;">${o.avail != null ? '<b>' + fmt(o.avail) + '</b>' : '<span style="color:#9ca3af;">매칭 없음</span>'}</span>
+        <span style="width:110px;text-align:center;">${stateCell(o)}</span>
+        <span style="width:86px;text-align:right;font-weight:800;color:${o.rec ? '#b91c1c' : '#9ca3af'};">${o.rec != null ? (o.rec > 0 ? fmt(o.rec) + '개' : '충분') : '—'}</span>
+      </div>`).join('');
+      html += `<tr id="made-opt-${j.product_no}" style="display:${open ? '' : 'none'};">
+        <td colspan="9" style="background:#f8f9ff;text-align:left;padding:8px 18px;font-size:.78rem;color:#374151;">
+          <div style="display:flex;gap:10px;color:#6b7280;font-size:.66rem;font-weight:700;padding-bottom:3px;border-bottom:1px solid #e5e7eb;">
+            <span style="flex:1;min-width:150px;">옵션</span><span style="width:76px;text-align:right;">7일 평균</span><span style="width:64px;text-align:right;">30일 순판매</span><span style="width:76px;text-align:right;">가용재고</span><span style="width:110px;text-align:center;">판정</span><span style="width:86px;text-align:right;">권장 주문량</span>
+          </div>${optRows}</td></tr>`;
+    }
   }
   $('made-result').innerHTML = html + '</tbody></table></div>' +
     `<div style="font-size:.72rem;color:#6b7280;margin-top:8px;">권장 주문량 = 7일 평균 × (리드타임 + 커버 ${cover}일) − 가용재고 · 리드타임 기본값: 중국 10일 / 국내 9일(영업일 7일 환산) · 제작처·리드타임 지정은 관리자만</div>`;
