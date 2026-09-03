@@ -280,6 +280,42 @@ Deno.serve(async (req) => {
       return json({ period: { start: s, end: e }, revenue, order_count: orderCount });
     }
 
+    // ── 실마진 집계 (2026-09-02 사용자 요청) — 결제일 기준 주문의 실결제·할인 내역 (관리자 전용, 10분 캐시) ──
+    // actual_order_amount 사용(부분취소 반영). **자사 부담 할인(쿠폰·적립금·예치금·회원·세트·앱)만 차감 대상**으로 집계하고,
+    // 네이버 부담(market_other_discount_amount)은 정산 때 보전되므로 참고로만 반환 (A안 — 사용자 확정 2026-09-02).
+    // 결제일(pay_date) 기준이라 미결제 주문은 자연히 빠지고, 전액 취소(order_price 0)는 발송·매출 없음으로 제외.
+    if (action === "realmargin") {
+      if (authed.role !== "admin") return json({ error: "접근 권한이 없습니다" }, 403);
+      const s = url.searchParams.get("start_date");
+      const e = url.searchParams.get("end_date");
+      if (!s || !e) return json({ error: "start_date, end_date 필수 (YYYY-MM-DD)" }, 400);
+      const hit = await fromCache(); if (hit) return json(hit);
+      const sum = { orders: 0, gross: 0, coupon: 0, points: 0, credits: 0, member: 0, set: 0, app: 0, naver: 0, ship_income: 0 };
+      await eachOrder(token, "date_type=pay_date&fields=order_id,actual_order_amount", s, e, (orders) => {
+        for (const o of orders) {
+          const a = (o.actual_order_amount ?? {}) as Record<string, unknown>;
+          const gross = num(a.order_price_amount);
+          if (gross <= 0) continue;
+          sum.orders++;
+          sum.gross += gross;
+          sum.coupon += num(a.coupon_discount_price);
+          sum.points += num(a.points_spent_amount);
+          sum.credits += num(a.credits_spent_amount);
+          sum.member += num(a.membership_discount_amount);
+          sum.set += num(a.set_product_discount_amount);
+          sum.app += num(a.app_discount_amount);
+          sum.naver += num(a.market_other_discount_amount);
+          // 고객이 실제 부담한 배송비 (배송비 할인·배송비 쿠폰 차감 후)
+          sum.ship_income += Math.max(0, num(a.shipping_fee) - num(a.shipping_fee_discount_amount) - num(a.coupon_shipping_fee_amount));
+        }
+      });
+      const ownDiscount = sum.coupon + sum.points + sum.credits + sum.member + sum.set + sum.app;
+      return respond({
+        period: { start: s, end: e }, basis: "pay_date",
+        ...sum, own_discount: Math.round(ownDiscount), net: Math.round(sum.gross - ownDiscount),
+      });
+    }
+
     // ── 진열 계산용 지표 (관리자 전용): 7일/30일 조회수·판매량 + 30일 취소반품수량 ──
     if (action === "displaymetrics") {
       if (authed.role !== "admin") return json({ error: "접근 권한이 없습니다" }, 403);
