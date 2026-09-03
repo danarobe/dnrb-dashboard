@@ -46,14 +46,22 @@ Deno.serve(async (req) => {
   const opt = handleOptions(req);
   if (opt) return opt;
 
-  const me = await verifyAuthToken(req);
-  if (!me) return json({ error: "로그인이 필요합니다" }, 401);
+  let me = await verifyAuthToken(req);
 
   try {
     const { path, method, body, prefer } = await req.json().catch(() => ({}));
     const p = String(path ?? "");
     const m = String(method ?? "GET").toUpperCase();
     const table = p.split("?")[0];
+    // made_products만 상품관리 시스템(newproduct-manager) 서버의 NPM_SYNC_SECRET 인증 허용
+    // (2026-09-03 사용자 요청 — 자체제작 주문 점검 제작처 태그를 양쪽에서 공유)
+    if (!me && table === "made_products") {
+      const syncSecret = Deno.env.get("NPM_SYNC_SECRET") ?? "";
+      if (syncSecret && req.headers.get("x-sync-secret") === syncSecret) {
+        me = { id: "npm-sync", name: "상품관리 연동", role: "staff", exp: 0 };
+      }
+    }
+    if (!me) return json({ error: "로그인이 필요합니다" }, 401);
     if (!METHODS.has(m)) return json({ error: "잘못된 요청" }, 400);
     if (!/^[a-z_]+$/.test(table) || !TABLE_ROLES[table]) return json({ error: "허용되지 않은 테이블" }, 403);
     if (!TABLE_ROLES[table].includes(me.role)) return json({ error: "접근 권한이 없습니다" }, 403);

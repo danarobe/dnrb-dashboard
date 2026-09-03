@@ -177,6 +177,7 @@ AUTHOR_FIELDS(notes/comments=author_id, likes=user_id): POST는 본인 id 필수
 - **재고는 셀메이트 CSV 업로드**(API 유료라 — 방식 사용자 확정): 헤더 자동 인식(상품명/현재재고·현재고/미발송·미출고 시작 + **옵션명·옵션 열**), EUC-KR은 기존 readFileAsText·stkNorm 재사용. 상품 합산과 함께 **옵션 행 보존**(rows:[{opt,tokens:stableOptTokens,stock,unshipped}]). **가용재고 = 현재고 − 미발송**.
 - **옵션 매칭·판정(v2)**: 카페24 option_value ↔ CSV 옵션을 stkOptTokens→stkSameOpt(정확)→stkLooseOpt(느슨, '표기차이' 표시)→옵션 없는 상품은 단일 행 폴백으로 매칭. 옵션별 judgeOne: 소진일수 = 가용÷7일평균 → ≤리드 🔴주문 필요 / ≤리드+3일 🟠임박 / 그 외 🟢, **옵션별 권장 = ceil(7일평균×(리드+커버목표)−가용)**, 커버 기본 14일(localStorage `dnrb_made_cover`). **상품 행 판정 = 옵션 중 최악(과 상품합계 판정 비교), 권장 = 옵션 합('옵션 합계' 표기)**. 상품 행의 `옵션 N개 ▾` 버튼(madeToggleOpts, madeState.open Set) → 접이식 옵션 상세 행(옵션/7일평균/30일/가용/판정/권장). 정렬 = 심각순.
 - 검증(v2): 실데이터 19상품·옵션 합 = 상품 합(113=113)·신상 보정 실증(÷1), 가짜 CSV 3옵션 매칭 — 블랙 권장 210=⌈10.857×23−40⌉·차콜 59·베이지 임박 28 수기 일치, 상품 합계 297, MD 조회 200/지정 403, 모바일 표 자체 스크롤 OK, QA 태그·계정 원복 완료. 실제 셀메이트 CSV 헤더·옵션 표기 매칭은 사용자 실사용 확인 대기.
+- **상품관리 시스템에도 같은 메뉴(2026-09-03 사용자 요청)**: newproduct-manager `/madechk`(admin/amd/md/model)가 이 계산을 그대로 씀 — **`cafe24-analytics madeavg`와 db 프록시 `made_products`만 NPM_SYNC_SECRET(x-sync-secret) 인증 허용**(다른 액션·테이블은 계속 차단 — curl로 경계 검증 완료). 제작처 태그는 양쪽 공유. **매칭·판정 규칙을 바꾸면 npm의 `app/madechk/MadeCheckClient.tsx`도 같이 고칠 것.**
 
 ### 안정재고 편성 (#stable, 관리자)
 - **셀메이트 재고 대조(#stock) 메뉴는 2026-08-20 제거됨(사용자 요청).** 단, 공용 헬퍼 4개(stkNorm/stkOptTokens/stkSameOpt/stkLooseOpt)는 안정재고 편성이 계속 쓰므로 유지 — "셀메이트 CSV 공용 헬퍼" 블록. 제거 검증: 전 메뉴 순회 오류 0, #stock 직접 접근은 홈 폴백, stable EUC-KR CSV 파싱·토큰 매칭 정상.

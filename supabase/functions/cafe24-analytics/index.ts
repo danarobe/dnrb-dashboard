@@ -222,7 +222,13 @@ Deno.serve(async (req) => {
 
   try {
     // 외부 차단: 전 액션 로그인 필수 — 서명·만료 + DB 실계정 확인 (역할은 DB 현재값)
-    const authed = await verifyAuthToken(req);
+    // 예외: madeavg만 상품관리 시스템(newproduct-manager) 서버가 NPM_SYNC_SECRET으로 호출 가능
+    // (2026-09-03 사용자 요청 — 자체제작 주문 점검을 상품관리에도. syncexport와 동일 키)
+    const syncSecret = Deno.env.get("NPM_SYNC_SECRET") ?? "";
+    const viaSecret = action === "madeavg" && !!syncSecret && req.headers.get("x-sync-secret") === syncSecret;
+    const authed = viaSecret
+      ? { id: "npm-sync", name: "상품관리 연동", role: "staff", exp: 0 }
+      : await verifyAuthToken(req);
     if (!authed) return json({ error: "로그인이 필요합니다" }, 401);
 
     // ── 결과 캐시 (10분) — 무거운 주문 스캔 액션만. 반드시 각 액션의 **권한 검사 뒤에**
