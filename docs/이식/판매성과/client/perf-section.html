@@ -1,0 +1,127 @@
+<!-- 판매 성과 메뉴 마크업 (danarobe/dnrb-dashboard index.html 에서 발췌, 2026-09-04)
+     · 페이지 어딘가에 <div id="toast"></div> 하나와 Chart.js CDN(<script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>)이 필요
+     · Font Awesome 아이콘(<i class="fa-...">)은 선택 — 없어도 동작
+     · 진입 시 perfMenuInit() 호출 -->
+  <div class="section-card page-sec" id="sec-perf">
+    <div class="section-header">
+      <h2><span><i class="fa-solid fa-chart-column" style="color:#4f46e5;font-size:.9em;"></i></span> 판매 성과 분석</h2>
+    </div>
+    <div class="section-body" id="body-perf">
+
+      <!-- 월별 추이 (직전 3개 완결 월) — CS 제외 -->
+      <div id="perf-trend" style="display:none;background:#f8f9fb;border:1px solid #eceef2;border-radius:12px;padding:14px 16px;margin-bottom:18px;">
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:4px;">
+          <b style="font-size:.88rem;color:#1e1b4b;">월별 추이</b>
+          <span id="perf-trend-months" style="font-size:.75rem;color:#6b7280;"></span>
+          <span style="flex:1;"></span>
+          <button class="btn-analyze" id="btn-perf-trend" style="padding:6px 14px;font-size:.75rem;" onclick="perfTrendLoad(true, this)">
+            <i class="fa-solid fa-chart-line"></i> 추이 불러오기
+          </button>
+        </div>
+        <div id="perf-trend-body">
+          <div style="font-size:.75rem;color:#6b7280;">직전 3개월의 순반품률 · 평균 마진율 · 취소반품률을 월 단위로 비교합니다. 처음 한 번은 1~2분 걸리고, 이후에는 저장된 값을 바로 보여줍니다.</div>
+        </div>
+      </div>
+
+      <!-- 날짜 -->
+      <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:18px;">
+        <label style="font-size:.82rem;font-weight:700;color:#4b5563;"><i class="fa-regular fa-calendar"></i> 분석 기간</label>
+        <input type="date" id="perfDateStart" style="padding:7px 11px;border:1.5px solid #e5e7eb;border-radius:8px;font-size:.82rem;font-family:inherit;" />
+        <span class="date-sep">~</span>
+        <input type="date" id="perfDateEnd" style="padding:7px 11px;border:1.5px solid #e5e7eb;border-radius:8px;font-size:.82rem;font-family:inherit;" />
+        <span class="qp"><button onclick="qPeriod('perfDateStart','perfDateEnd','today')">오늘</button><button onclick="qPeriod('perfDateStart','perfDateEnd','yest')">어제</button><button onclick="qPeriod('perfDateStart','perfDateEnd','7d')">최근 7일</button><button onclick="qPeriod('perfDateStart','perfDateEnd','14d')">14일</button><button onclick="qPeriod('perfDateStart','perfDateEnd','30d')">30일</button><button onclick="qPeriod('perfDateStart','perfDateEnd','lastm')">지난달</button></span>
+        <div class="divider"></div>
+        <button class="btn-analyze" id="btn-api-perf" onclick="fetchPerfApi()">
+          <i class="fa-solid fa-cloud-arrow-down"></i> 카페24 불러오기
+        </button>
+        <input type="text" id="perfSearch" placeholder="상품명 검색" oninput="renderPerfResult()"
+               style="border:1.5px solid #d1d5db;border-radius:8px;padding:7px 12px;font-size:.82rem;outline:none;min-width:170px;" />
+        <span style="font-size:.75rem;color:#6b7280;">판매수량 = 주문수량 − 취소·반품완료 수량 · 마진율은 카페24 상품정보의 공급가(+부가세 10%) 기준</span>
+      </div>
+
+      <!-- 집계 기준 안내 -->
+      <div style="background:#fffbeb;border:1.5px solid #fde68a;border-radius:12px;padding:12px 16px;margin-bottom:18px;font-size:.82rem;color:#78350f;line-height:1.6;">
+        표의 <strong>취소&amp;반품률(주문일 기준)</strong>은 참고용이며, 우수/주의/위험 판정은 <strong>순반품률(배송완료일 기준)</strong>으로 합니다.
+      </div>
+
+      <!-- 판매 성과 결과 -->
+      <div id="perf-result">
+        <div class="empty-state">
+          <div class="es-icon"><i class="fa-regular fa-folder-open"></i></div>
+          <p>기간을 고르고 <strong>카페24 불러오기</strong>를 누르면 분석 결과가 표시됩니다.</p>
+        </div>
+      </div>
+
+      <!-- 반품 사유 모달 (상품명 클릭 시) -->
+      <div id="rr-modal" onclick="if(event.target===this)this.style.display='none'"
+           style="display:none;position:fixed;inset:0;background:rgba(15,23,42,.55);z-index:200;align-items:center;justify-content:center;padding:20px;">
+        <div style="background:#fff;border-radius:16px;max-width:620px;width:100%;max-height:88vh;overflow:auto;padding:18px;">
+          <div style="display:flex;align-items:flex-start;gap:8px;margin-bottom:4px;">
+            <div style="flex:1;">
+              <b id="rr-title" style="font-size:.88rem;color:#1e1b4b;word-break:break-all;"></b>
+              <div id="rr-sub" style="font-size:.75rem;color:#6b7280;margin-top:3px;"></div>
+            </div>
+            <button onclick="document.getElementById('rr-modal').style.display='none'"
+                    style="border:none;background:#f3f4f6;border-radius:8px;padding:4px 10px;font-size:.88rem;cursor:pointer;">✕</button>
+          </div>
+          <div id="rr-body" style="margin-top:12px;"></div>
+        </div>
+      </div>
+
+      <!-- 판매 성과 저장 패널 -->
+      <div id="perf-save-panel" style="display:none; margin-top:24px; background:#f0fdf4; border:1.5px solid #bbf7d0; border-radius:14px; padding:20px 24px;">
+        <div style="font-size:.88rem; font-weight:700; color:#059669; margin-bottom:14px;">
+          <i class="fa-solid fa-floppy-disk"></i> 판매 성과 결과 저장
+        </div>
+        <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
+          <div style="display:flex; flex-direction:column; gap:4px; flex:1; min-width:140px;">
+            <label style="font-size:.75rem; color:#6b7280; font-weight:600;">저장 이름</label>
+            <input id="perf-save-label" type="text" placeholder="예: 2025년 3월"
+              style="border:1.5px solid #d1d5db; border-radius:8px; padding:8px 12px; font-size:.88rem; outline:none;" />
+          </div>
+          <div style="display:flex; flex-direction:column; gap:4px; flex:1; min-width:140px;">
+            <label style="font-size:.75rem; color:#6b7280; font-weight:600;">메모 (선택)</label>
+            <input id="perf-save-memo" type="text" placeholder="예: 신상품 출시 기간"
+              style="border:1.5px solid #d1d5db; border-radius:8px; padding:8px 12px; font-size:.88rem; outline:none;" />
+          </div>
+          <div style="display:flex; flex-direction:column; gap:4px;">
+            <label style="font-size:.75rem; color:transparent;">저장</label>
+            <button onclick="savePerfArchive()" style="background:#059669; color:#fff; border:none; border-radius:8px; padding:8px 20px; font-size:.88rem; font-weight:700; cursor:pointer; white-space:nowrap;">
+              <i class="fa-solid fa-floppy-disk"></i> 저장
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 판매 성과 기간별 비교 섹션 -->
+      <div style="margin-top:32px;" id="perf-archive-section">
+        <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:14px; flex-wrap:wrap; gap:8px;">
+          <div style="font-size:1rem; font-weight:700; color:#1e1b4b;">
+            <i class="fa-solid fa-chart-line"></i> 판매 성과 기간별 비교
+          </div>
+          <div style="display:flex; gap:8px;">
+            <button onclick="loadPerfArchive()" style="background:#f3f4f6; border:1.5px solid #d1d5db; border-radius:8px; padding:6px 14px; font-size:.82rem; cursor:pointer; font-weight:600;">
+              <i class="fa-solid fa-rotate"></i> 새로고침
+            </button>
+            <button onclick="comparePerfArchive()" style="background:#0891b2; color:#fff; border:none; border-radius:8px; padding:6px 14px; font-size:.82rem; cursor:pointer; font-weight:700;">
+              <i class="fa-solid fa-code-compare"></i> 선택 항목 비교
+            </button>
+          </div>
+        </div>
+        <div style="font-size:.82rem; color:#6b7280; margin-bottom:10px;">최대 5개까지 선택하여 비교할 수 있습니다.</div>
+
+        <div id="perf-archive-list">
+          <div style="color:#6b7280; font-size:.88rem; text-align:center; padding:24px;">저장된 기록이 없습니다.</div>
+        </div>
+
+        <div id="perf-compare-result" style="display:none; margin-top:24px;">
+          <div style="font-size:.88rem; font-weight:700; color:#1e1b4b; margin-bottom:14px;">비교 결과</div>
+          <div style="background:#fff; border:1.5px solid #e5e7eb; border-radius:12px; padding:20px; margin-bottom:16px;">
+            <canvas id="perf-compare-chart" style="height:320px;"></canvas>
+          </div>
+          <div id="perf-compare-table" style="overflow-x:auto;"></div>
+        </div>
+      </div>
+
+    </div>
+  </div>

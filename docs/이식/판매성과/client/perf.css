@@ -1,0 +1,58 @@
+/* 판매 성과 메뉴가 쓰는 스타일 (danarobe/dnrb-dashboard index.html 에서 발췌, 2026-09-04)
+   이식처의 디자인 시스템으로 바꿔도 되지만 .table-wrap(가로 스크롤 표)과 .m-hide(모바일 열 숨김) 개념은 유지 권장 */
+
+.section-card { background:#fff; border:1px solid #e7e8ee; border-radius:16px; box-shadow:0 1px 3px rgba(17,24,39,.06); margin-bottom:24px; overflow:hidden; }
+.section-header { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; row-gap:6px; padding:16px 24px; background:rgba(255,255,255,.5); border-bottom:1px solid #eceef2; user-select:none; }
+.section-header h2 { font-size:1rem; font-weight:700; color:#1a1a2e; display:flex; align-items:center; gap:10px; margin:0; }
+.section-body { padding:22px 24px; min-width:0; max-width:100%; }
+.section-body div:not(.table-wrap) { max-width:100%; min-width:0; }
+
+.btn-analyze { padding:9px 22px; background:#4f46e5; color:#fff; border:none; border-radius:9px; font-size:.88rem; font-weight:700; cursor:pointer; transition:all .2s; display:flex; align-items:center; gap:7px; white-space:nowrap; }
+.btn-analyze:hover { opacity:.9; transform:translateY(-1px); }
+.btn-analyze:disabled { opacity:.6; cursor:default; transform:none; }
+.qp { display:inline-flex; gap:5px; flex-wrap:wrap; }
+.qp button { border:1px solid rgba(99,102,241,.3); background:rgba(255,255,255,.55); color:#4f46e5; border-radius:50px; padding:5px 11px; font-size:.75rem; font-weight:700; cursor:pointer; font-family:inherit; transition:all .15s; }
+.qp button:hover { background:rgba(99,102,241,.12); }
+.divider { width:1px; height:28px; background:#e5e7eb; }
+.date-sep { color:#6b7280; }
+
+.filter-tabs { display:flex; gap:7px; margin-bottom:12px; flex-wrap:wrap; }
+.filter-tab { padding:6px 15px; border-radius:50px; border:1.5px solid #e7e8ee; font-size:.82rem; font-weight:600; cursor:pointer; transition:all .2s; background:#fff; color:#6b7280; }
+.filter-tab.active { background:#6366f1; border-color:transparent; color:#fff; }
+.filter-tab:hover:not(.active) { border-color:#a5b4fc; color:#6366f1; }
+
+.status-badge { display:inline-flex; align-items:center; gap:4px; padding:3px 10px; border-radius:50px; font-size:.75rem; font-weight:700; white-space:nowrap; }
+.badge-green  { background:#dcfce7; color:#15803d; }
+.badge-yellow { background:#fef9c3; color:#92400e; }
+.badge-red    { background:#fee2e2; color:#dc2626; }
+.badge-gray   { background:#f3f4f6; color:#6b7280; }
+.badge-blue   { background:#dbeafe; color:#1d4ed8; }
+.badge-orange { background:#ffedd5; color:#c2410c; }
+
+.table-wrap { overflow-x:auto; border-radius:12px; border:1px solid #e7e8ee; background:#fff; }
+.table-wrap table { width:100%; border-collapse:collapse; font-variant-numeric:tabular-nums; }
+thead th { padding:11px 13px; text-align:center; font-weight:700; color:#4b5563; white-space:nowrap; border-bottom:2px solid #e5e7eb; font-size:.8rem; background:#f8f9ff; }
+tbody td { padding:9px 13px; text-align:center; border-bottom:1px solid #f3f4f6; color:#374151; white-space:nowrap; font-size:.82rem; }
+tbody td.name-cell { text-align:left; white-space:normal; max-width:220px; }
+tbody td[style*="text-align:left"], thead th[style*="text-align:left"] { white-space:normal; word-break:keep-all; }
+tbody tr:hover { background:#fafbff; }
+.option-tag { display:inline-block; font-size:.7rem; color:#6366f1; background:#ede9fe; border-radius:4px; padding:1px 6px; margin-top:2px; }
+
+.empty-state { text-align:center; padding:52px 20px; color:#6b7280; }
+.empty-state .es-icon { font-size:3rem; margin-bottom:12px; }
+.empty-state p { font-size:.88rem; line-height:1.8; }
+
+/* 역할 블러 — 원본은 body에 .role-cs / .role-staff 클래스를 붙여 CS·MD에게 전사 금액을 가렸다. 역할이 없으면 지워도 됨 */
+.role-cs .cs-blur { filter:blur(8px); pointer-events:none; user-select:none; }
+.role-cs #perf-save-panel, .role-cs #perf-archive-section { display:none !important; }
+
+#toast { position:fixed; bottom:28px; right:28px; background:#1a1a2e; color:#fff; padding:12px 22px; border-radius:10px; font-size:.88rem; font-weight:600; opacity:0; transform:translateY(10px); transition:all .3s; z-index:999; pointer-events:none; }
+#toast.show { opacity:1; transform:translateY(0); }
+
+/* 모바일: 표의 보조 열 숨김 + 요약 카드 1열 */
+@media (max-width: 700px) {
+  .m-hide { display:none !important; }
+  .section-body { padding:14px; }
+  .cs-blur[style*="grid-template-columns:repeat(3,1fr)"] { grid-template-columns:1fr !important; }
+  .pt-grid { grid-template-columns:1fr !important; }
+}
