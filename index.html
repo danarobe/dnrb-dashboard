@@ -7435,7 +7435,17 @@ async function metaPrevLoad(adId, fmt) {
   if (d.iframe) {
     $('meta-preview-body').innerHTML = d.iframe;   // Meta가 주는 공식 미리보기 iframe (영상 재생 포함)
     const ifr = $('meta-preview-body').querySelector('iframe');
-    if (ifr) { ifr.style.maxWidth = '100%'; ifr.style.border = 'none'; }
+    if (ifr) {
+      ifr.style.maxWidth = '100%'; ifr.style.border = 'none';
+      // Meta는 릴스 형식 미리보기를 274×213(가로형) 상자로 내려주지만 내용은 세로 영상이라 상자 안에서 잘리고 스크롤바가 생긴다
+      // (2026-09-04 사용자 신고 — 실측: 피드 320×525·스토리 320×567은 정상, 릴스만 274×213). 내용은 iframe 크기에 맞춰
+      // 다시 그려지므로 릴스이거나 가로형 상자면 세로 상자(320×640)로 강제한다 — 실측으로 잘림·스크롤 없이 전체 표시 확인.
+      const w = parseInt(ifr.getAttribute('width')) || 0, h = parseInt(ifr.getAttribute('height')) || 0;
+      if (metaPrevState.fmt === 'reels' || (w && h && h < w)) {
+        ifr.setAttribute('width', '320'); ifr.setAttribute('height', '640');
+        ifr.style.width = '320px'; ifr.style.height = '640px';
+      }
+    }
   } else if (d.thumbnail) {
     $('meta-preview-body').innerHTML = `<img src="${escHtml(d.thumbnail)}" style="max-width:100%;border-radius:10px;" />`;
   } else {
