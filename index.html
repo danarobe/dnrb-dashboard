@@ -7753,11 +7753,13 @@ async function wmLoadAtt() {
   }
 }
 
-/* 식대 판정: salary.js getMealInfo와 동일 기준 (출근 09:00~11:59 + 퇴근 12:00 초과) */
+/* 식대 판정: wm-admin/salary.ts getMealInfo와 동일 기준 — 출근 09:00~11:59 +
+   퇴근 (2026-09-01부터) 13:00 이후 / (그 전 근무) 12:00 초과. 규칙 변경 2026-09-04 사용자 지정 */
 function wmMeal(ci, co) {
   if (!ci || !co) return false;
   const i = ci.substring(11, 16), o = co.substring(11, 16);
-  return i >= '09:00' && i < '12:00' && o > '12:00';
+  if (!(i >= '09:00' && i < '12:00')) return false;
+  return ci.substring(0, 10) >= '2026-09-01' ? o >= '13:00' : o > '12:00';
 }
 const WM_DAY = ['일', '월', '화', '수', '목', '금', '토'];
 const wmHM = mins => `${Math.floor(mins / 60)}:${String(mins % 60).padStart(2, '0')}`;

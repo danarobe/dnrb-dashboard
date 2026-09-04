@@ -49,13 +49,19 @@ function getWeekSunday(weekStartStr: string): string {
   return fmtDate(d);
 }
 
+// 식대 규칙 변경일 (2026-09-04 사용자 지정): 이 날짜 이후 근무는 퇴근이 13:00 이전이면 식대 공제 없음.
+// 그 전 근무는 기존 규칙(12:00 초과 퇴근이면 공제) 그대로 — 이미 지급된 과거 급여가 달라지지 않도록.
+// ⚠ work-manager/server/routes/salary.js·attendance.js, 대시보드 index.html wmMeal과 반드시 동일하게 유지.
+const MEAL_RULE_CHANGE_DATE = '2026-09-01';
+
 function getMealInfo(clockIn: string | null, clockOut: string | null) {
   if (!clockIn || !clockOut) return { deductMins: 0, mealAllowance: 0 };
   const inTime = clockIn.substring(11, 16);
   const outTime = clockOut.substring(11, 16);
   if (inTime < '09:00' || inTime >= '12:00') return { deductMins: 0, mealAllowance: 0 };
-  if (outTime <= '12:00') return { deductMins: 0, mealAllowance: 0 };
-  // 12시 이후 퇴근이면 점심 60분 고정 차감
+  const newRule = clockIn.substring(0, 10) >= MEAL_RULE_CHANGE_DATE;
+  if (newRule ? outTime < '13:00' : outTime <= '12:00') return { deductMins: 0, mealAllowance: 0 };
+  // (신규) 13시 이후 퇴근 / (구) 12시 이후 퇴근이면 점심 60분 고정 차감
   return { deductMins: 60, mealAllowance: 8000 };
 }
 
