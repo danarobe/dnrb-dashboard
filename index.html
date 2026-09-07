@@ -1843,13 +1843,12 @@
     <div class="section-body">
       <div style="font-size:.8rem;color:#6b7280;margin-bottom:12px;line-height:1.7;">
         · 상품명에 <b>자체제작</b>/<b>made</b>가 든 상품의 <b>어제까지 3일·7일 일평균 순판매량</b>(결제−취소, 주문일 기준)을 자동 계산합니다. 판매 시작 7일 미만 신상은 <b>첫 판매일부터의 실제 판매일수</b>로 나눠 저평가를 막아요.<br>
-        · 셀메이트 재고 CSV를 올리면 <b>가용재고(현재고−미발송)</b>로 소진 예상일과 주문 필요 여부·권장 주문량까지 계산합니다.</div>
+        · 셀메이트 재고 CSV를 올리면 <b>가용재고(현재고−미발송)</b>와 <b>안정재고</b>를 비교해 옵션별 주문 필요 여부·권장 주문량을 계산합니다.<br>
+        · <b>안정재고</b> = 일평균 3개 이상 옵션은 <b>일평균 × 리드타임</b>, 3개 미만은 <b>일평균 × 3일</b>. <b>권장 주문량</b> = 안정재고 − 가용재고 (상품의 최소 주문 수량보다 작으면 최소 주문 수량).</div>
       <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:12px;">
         <label style="font-size:.78rem;font-weight:700;color:#4b5563;display:flex;align-items:center;gap:6px;">셀메이트 재고 CSV
           <input type="file" id="made-csv" accept=".csv" onchange="handleMadeCSV(event)" style="font-size:.74rem;" /></label>
         <span id="made-csv-status" style="font-size:.74rem;color:#6b7280;">미업로드 — 재고·판정 열이 비어 있어요</span>
-        <label style="font-size:.78rem;font-weight:700;color:#4b5563;display:flex;align-items:center;gap:5px;margin-left:auto;">입고 후 재고 커버 목표
-          <input type="number" id="made-cover" value="14" min="1" onchange="madeCoverSave()" style="width:56px;border:1.5px solid #d1d5db;border-radius:8px;padding:5px 8px;font-size:.8rem;" />일</label>
       </div>
       <div id="made-summary" style="display:none;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:12px;"></div>
       <div id="made-result"><div class="empty-state"><p>'카페24 판매 수집'을 누르면 자체제작 상품의 판매 데이터를 불러옵니다.</p></div></div>
@@ -5460,9 +5459,9 @@ function stableSyncDays() {
    서버 madeavg(어제까지 3일·7일 일평균 순판매, 신상은 첫 판매일 보정) + made_products(제작처·리드타임, 쓰기 admin)
    + 셀메이트 재고 CSV(현재고·미발송 — API 유료라 업로드 방식, 안정재고 메뉴의 파서·stkNorm 재사용).
    판정: 가용재고÷7일평균 = 소진일수 → 리드타임(중국 10일/국내 영업일7≈달력9, 상품별 덮어쓰기) 이하면 주문 필요.
-   권장 주문량 = 7일평균 × (리드타임 + 커버 목표일) − 가용재고 (커버 기본 14일, localStorage).
+   안정재고 = 일평균 ≥3 이면 일평균×리드타임, <3 이면 일평균×3 (2026-09-07 사용자 규칙) · 권장 주문량 = 안정재고 − 가용재고, 최소 주문 수량(MOQ, made_products.moq) 미만이면 MOQ.
    ══════════════════════════════════════ */
-const MADE_LEAD = { cn: 10, kr: 9 };   // 기본 리드타임(달력일) — 국내는 영업일 7일 근사
+const MADE_LEAD = { cn: 10, kr: 5 };   // 기본 리드타임(달력일) — 2026-09-07 사용자 지정: 중국 10일 / 국내 5일 (이전 9일)
 const MADE_ORIGIN = { cn: '중국', kr: '국내' };
 const madeState = { rows: null, tags: new Map(), stock: null, loading: false, open: new Set() };
 function madeToggleOpts(no) {
@@ -5471,10 +5470,7 @@ function madeToggleOpts(no) {
   if (tr) tr.style.display = madeState.open.has(no) ? '' : 'none';
   // 버튼 화살표 갱신은 재렌더 없이 두어도 무방 (다음 렌더에서 반영)
 }
-function madeCoverSave() { localStorage.setItem('dnrb_made_cover', $('made-cover').value); if (madeState.rows) madeRender(); }
 function madeInit() {
-  const v = localStorage.getItem('dnrb_made_cover');
-  if (v) $('made-cover').value = v;
   if (!madeState.rows && !madeState.loading) madeFetch();
 }
 async function madeFetch() {
@@ -5545,7 +5541,7 @@ async function handleMadeCSV(e) {
 // 제작처·리드타임 저장 — admin만 (서버 강제)
 async function madeSetTag(no, patch) {
   const cur = madeState.tags.get(no) || {};
-  const row = { product_no: no, origin: cur.origin ?? null, lead_days: cur.lead_days ?? null, ...patch, updated_by: SESSION.name, updated_at: new Date().toISOString() };
+  const row = { product_no: no, origin: cur.origin ?? null, lead_days: cur.lead_days ?? null, moq: cur.moq ?? null, ...patch, updated_by: SESSION.name, updated_at: new Date().toISOString() };
   try {
     await dbProxy('made_products?on_conflict=product_no', { method: 'POST', body: JSON.stringify(row), headers: { Prefer: 'resolution=merge-duplicates,return=minimal' } });
     madeState.tags.set(no, row);
@@ -5554,20 +5550,24 @@ async function madeSetTag(no, patch) {
 }
 function madeSetOrigin(no, v) { madeSetTag(no, { origin: v || null }); }
 function madeSetLead(no, v) { const n = parseInt(v); madeSetTag(no, { lead_days: isFinite(n) && n > 0 ? n : null }); }
+function madeSetMoq(no, v) { const n = parseInt(v); madeSetTag(no, { moq: isFinite(n) && n > 0 ? n : null }); }   // 최소 주문 수량 (2026-09-07)
 function madeLeadOf(tag) { return (tag && tag.lead_days) || (tag && tag.origin ? MADE_LEAD[tag.origin] : null); }
 
 function madeRender() {
   const rows = madeState.rows || [];
-  const cover = Number($('made-cover').value) || 14;
   const hasStock = !!madeState.stock;
   // 옵션 단위 판정 (발주는 옵션별 — 2026-09-03 사용자 지정) → 상품 판정 = 옵션 중 최악, 권장 = 옵션 합
+  // 2026-09-07 사용자 규칙: 안정재고 = 일평균 ≥3 → 일평균×리드타임 / <3 → 일평균×3일. 주문 필요 = 가용재고 < 안정재고,
+  //   권장 주문량 = 안정재고 − 가용재고. 임박 = 안정재고는 넘지만 3일치 이내 여유. (커버 목표일 개념은 폐지)
   const judgeOne = (avg7, avail, lead) => {
-    if (avail == null) return { state: 'nostock', rank: 3, runout: null, rec: null };
-    if (avg7 <= 0) return { state: 'nosale', rank: 5, runout: null, rec: null };
+    if (avg7 <= 0) return { state: 'nosale', rank: 5, runout: null, safety: 0, basisDays: 0, rec: null };
+    const basisDays = avg7 >= 3 ? lead : 3;
+    const safety = Math.ceil(avg7 * basisDays);
+    if (avail == null) return { state: 'nostock', rank: 3, runout: null, safety, basisDays, rec: null };
     const runout = avail / avg7;
-    if (runout <= lead) return { state: 'order', rank: 0, runout, rec: Math.max(0, Math.ceil(avg7 * (lead + cover) - avail)) };
-    if (runout <= lead + 3) return { state: 'soon', rank: 1, runout, rec: Math.max(0, Math.ceil(avg7 * (lead + cover) - avail)) };
-    return { state: 'ok', rank: 4, runout, rec: null };
+    if (avail < safety) return { state: 'order', rank: 0, runout, safety, basisDays, rec: safety - avail };
+    if (avail < safety + avg7 * 3) return { state: 'soon', rank: 1, runout, safety, basisDays, rec: null };
+    return { state: 'ok', rank: 4, runout, safety, basisDays, rec: null };
   };
   const judged = rows.map(r => {
     const tag = madeState.tags.get(r.product_no);
@@ -5584,37 +5584,45 @@ function madeRender() {
         if (!hits.length && !tk.length && st.rows.length === 1) hits = st.rows;   // 단일상품 ↔ 단일 행
         if (hits.length) availO = Math.max(0, hits.reduce((t, h) => t + h.stock - h.unshipped, 0));
       }
-      const j = (!tag || !tag.origin) ? { state: 'notag', rank: 2, runout: null, rec: null } : judgeOne(o.avg7, availO, lead);
+      const j = (!tag || !tag.origin) ? { state: 'notag', rank: 2, runout: null, safety: null, basisDays: 0, rec: null } : judgeOne(o.avg7, availO, lead);
       return { ...o, avail: availO, looseNote, lead, ...j };
     });
-    let state, rank, runout = null, rec = null;
+    const moq = tag && tag.moq ? tag.moq : null;
+    let state, rank, runout = null, rec = null, safety = null, basisDays = 0, moqApplied = false;
     if (!tag || !tag.origin) { state = 'notag'; rank = 2; }
-    else if (avail == null) { state = 'nostock'; rank = 3; }
     else {
-      const worst = opts.reduce((w, o) => o.rank < w.rank ? o : w, { rank: 99 });
       const pj = judgeOne(r.avg7, avail, lead);   // 상품 합계 기준 (옵션이 없거나 전부 미매칭일 때 대비)
-      if (worst.rank < 99 && worst.rank <= pj.rank) { state = worst.state; rank = worst.rank; }
-      else { state = pj.state; rank = pj.rank; }
-      runout = pj.runout;
-      const sum = opts.reduce((t, o) => t + (o.rec || 0), 0);
-      rec = (state === 'order' || state === 'soon') ? (sum > 0 ? sum : pj.rec) : null;
+      safety = opts.length ? opts.reduce((t, o) => t + (o.safety || 0), 0) : pj.safety;   // 안정재고 = 옵션 합
+      basisDays = pj.basisDays;
+      if (avail == null) { state = 'nostock'; rank = 3; }
+      else {
+        const worst = opts.reduce((w, o) => o.rank < w.rank ? o : w, { rank: 99 });
+        if (worst.rank < 99 && worst.rank <= pj.rank) { state = worst.state; rank = worst.rank; }
+        else { state = pj.state; rank = pj.rank; }
+        runout = pj.runout;
+        if (state === 'order') {
+          const sum = opts.reduce((t, o) => t + (o.rec || 0), 0);
+          rec = sum > 0 ? sum : (pj.rec || 0);
+          if (moq && rec > 0 && rec < moq) { rec = moq; moqApplied = true; }   // 최소 주문 수량 적용
+        }
+      }
     }
-    return { ...r, tag, lead, st, avail, runout, state, rec, rank, opts };
+    return { ...r, tag, lead, st, avail, runout, state, rec, rank, opts, safety, basisDays, moq, moqApplied };
   }).sort((a, b) => a.rank - b.rank || b.avg7 - a.avg7);
 
   const cnt = s => judged.filter(j => j.state === s).length;
   $('made-summary').innerHTML =
     admgrTile('자체제작 상품', rows.length + '개', false) +
     admgrTile(admgrDot('#ef4444') + '주문 필요', cnt('order') + '개', false) +
-    admgrTile(admgrDot('#f97316') + '임박 (리드타임+3일)', cnt('soon') + '개', false) +
+    admgrTile(admgrDot('#f97316') + '임박 (안정재고 +3일치 이내)', cnt('soon') + '개', false) +
     admgrTile(admgrDot('#22c55e') + '여유', cnt('ok') + '개', false) +
     admgrTile('제작처 미지정', cnt('notag') + '개', false);
   $('made-summary').style.display = 'grid';
 
   const badge = (bg, col, txt) => `<span style="background:${bg};color:${col};border-radius:99px;padding:2px 10px;font-size:.72rem;font-weight:700;white-space:nowrap;">${txt}</span>`;
   const stateCell = j =>
-    j.state === 'order' ? badge('#fee2e2', '#b91c1c', '주문 필요') + `<div style="font-size:.62rem;color:#6b7280;">소진 ${j.runout.toFixed(1)}일 ≤ 리드 ${j.lead}일</div>`
-    : j.state === 'soon' ? badge('#ffedd5', '#c2410c', '임박') + `<div style="font-size:.62rem;color:#6b7280;">소진 ${j.runout.toFixed(1)}일</div>`
+    j.state === 'order' ? badge('#fee2e2', '#b91c1c', '주문 필요') + `<div style="font-size:.62rem;color:#6b7280;">${j.opts && j.opts.length ? `옵션 ${j.opts.filter(o => o.state === 'order').length}개 부족` : `가용 ${fmt(j.avail)} &lt; 안정 ${fmt(j.safety)}`}</div>`
+    : j.state === 'soon' ? badge('#ffedd5', '#c2410c', '임박') + `<div style="font-size:.62rem;color:#6b7280;">여유 ${Math.max(0, j.runout - (j.basisDays || 0)).toFixed(1)}일</div>`
     : j.state === 'ok' ? badge('#dcfce7', '#15803d', '여유')
     : j.state === 'notag' ? badge('#f3f4f6', '#6b7280', '제작처 지정 필요')
     : j.state === 'nostock' ? badge('#f3f4f6', '#6b7280', '재고 CSV 필요')
@@ -5627,7 +5635,9 @@ function madeRender() {
       <th style="text-align:left;">상품명</th><th>제작처</th><th class="m-hide">리드타임</th>
       <th class="m-hide">3일 평균</th><th>7일 평균</th><th class="m-hide">30일 순판매</th>
       <th>가용재고<div style="font-size:.62rem;font-weight:500;color:#6b7280;">현재고−미발송</div></th>
-      <th>판정</th><th>권장 주문량</th>
+      <th>안정재고<div style="font-size:.62rem;font-weight:500;color:#6b7280;">일평균×리드(≥3) / ×3일(&lt;3)</div></th>
+      <th>판정</th><th>권장 주문량<div style="font-size:.62rem;font-weight:500;color:#6b7280;">안정재고 − 가용재고</div></th>
+      <th class="m-hide">최소 주문<div style="font-size:.62rem;font-weight:500;color:#6b7280;">MOQ</div></th>
     </tr></thead><tbody>`;
   for (const j of judged) {
     const canTag = isAdmin() || isStaff();   // 제작처 지정 = 관리자 + MD (2026-09-03 사용자 요청)
@@ -5636,7 +5646,7 @@ function madeRender() {
           <option value="">미지정</option><option value="cn" ${j.tag && j.tag.origin === 'cn' ? 'selected' : ''}>중국</option><option value="kr" ${j.tag && j.tag.origin === 'kr' ? 'selected' : ''}>국내</option></select>`
       : (j.tag && j.tag.origin ? MADE_ORIGIN[j.tag.origin] : '<span style="color:#c2410c;font-size:.76rem;">미지정</span>');
     const leadCell = canTag && j.tag && j.tag.origin
-      ? `<input type="number" min="1" value="${j.lead ?? ''}" onchange="madeSetLead(${j.product_no}, this.value)" title="기본: 중국 10일·국내 9일(영업일 7일) — 상품별 덮어쓰기" style="width:48px;border:1.5px solid #d1d5db;border-radius:8px;padding:3px 6px;font-size:.76rem;text-align:center;" />일`
+      ? `<input type="number" min="1" value="${j.lead ?? ''}" onchange="madeSetLead(${j.product_no}, this.value)" title="기본: 중국 10일·국내 5일 — 상품별 덮어쓰기" style="width:48px;border:1.5px solid #d1d5db;border-radius:8px;padding:3px 6px;font-size:.76rem;text-align:center;" />일`
       : (j.lead ? j.lead + '일' : '—');
     const nOpt = (j.opts || []).length;
     const open = madeState.open && madeState.open.has(j.product_no);
@@ -5649,8 +5659,12 @@ function madeRender() {
       <td style="font-weight:700;">${avgCell(j.avg7, j.days7, 7)}</td>
       <td class="m-hide">${fmt(j.net30)}</td>
       <td>${j.avail != null ? `<b>${fmt(j.avail)}</b><div style="font-size:.62rem;color:#6b7280;">${fmt(j.st.stock)} − ${fmt(j.st.unshipped)}</div>` : '<span style="color:#9ca3af;">—</span>'}</td>
+      <td style="font-weight:700;">${j.safety != null ? fmt(j.safety) : '<span style="color:#9ca3af;">—</span>'}</td>
       <td>${stateCell(j)}</td>
-      <td style="font-weight:800;color:${j.rec ? '#b91c1c' : '#9ca3af'};">${j.rec != null ? (j.rec > 0 ? fmt(j.rec) + '개' : '충분') : '—'}<div style="font-size:.6rem;font-weight:500;color:#6b7280;">${j.rec != null && nOpt ? '옵션 합계' : ''}</div></td></tr>`;
+      <td style="font-weight:800;color:${j.rec ? '#b91c1c' : '#9ca3af'};">${j.rec != null ? (j.rec > 0 ? fmt(j.rec) + '개' : '충분') : '—'}<div style="font-size:.6rem;font-weight:500;color:#6b7280;">${j.rec != null ? (j.moqApplied ? '최소 주문 수량 적용' : (nOpt ? '옵션 합계' : '')) : ''}</div></td>
+      <td class="m-hide">${canTag
+        ? `<input type="number" min="1" value="${j.moq ?? ''}" placeholder="—" onchange="madeSetMoq(${j.product_no}, this.value)" title="이 상품의 최소 주문 수량 — 권장 주문량이 이보다 작으면 이 수량으로 올림" style="width:56px;border:1.5px solid #d1d5db;border-radius:8px;padding:3px 6px;font-size:.76rem;text-align:center;" />`
+        : (j.moq ? fmt(j.moq) + '개' : '—')}</td></tr>`;
     // ── 옵션별 발주 행 (펼치기) — 주문은 옵션 단위 (2026-09-03 사용자 지정) ──
     if (nOpt) {
       const optRows = j.opts.map(o => `<div style="display:flex;align-items:center;gap:10px;padding:4px 0;border-bottom:1px dashed #eef0f5;flex-wrap:wrap;">
@@ -5658,18 +5672,19 @@ function madeRender() {
         <span style="width:76px;text-align:right;">${o.avg7.toFixed(1)}<span style="font-size:.64rem;color:#6b7280;">/일</span></span>
         <span style="width:64px;text-align:right;color:#6b7280;">${fmt(o.net30)}<span style="font-size:.64rem;">/30일</span></span>
         <span style="width:76px;text-align:right;">${o.avail != null ? '<b>' + fmt(o.avail) + '</b>' : '<span style="color:#9ca3af;">매칭 없음</span>'}</span>
+        <span style="width:84px;text-align:right;font-weight:700;" title="${o.basisDays ? `일평균 ${o.avg7.toFixed(1)} × ${o.basisDays}일` : ''}">${o.safety != null ? fmt(o.safety) + `<span style="font-size:.6rem;color:#6b7280;font-weight:500;"> ×${o.basisDays}일</span>` : '—'}</span>
         <span style="width:110px;text-align:center;">${stateCell(o)}</span>
         <span style="width:86px;text-align:right;font-weight:800;color:${o.rec ? '#b91c1c' : '#9ca3af'};">${o.rec != null ? (o.rec > 0 ? fmt(o.rec) + '개' : '충분') : '—'}</span>
       </div>`).join('');
       html += `<tr id="made-opt-${j.product_no}" style="display:${open ? '' : 'none'};">
-        <td colspan="9" style="background:#f8f9ff;text-align:left;padding:8px 18px;font-size:.78rem;color:#374151;">
+        <td colspan="11" style="background:#f8f9ff;text-align:left;padding:8px 18px;font-size:.78rem;color:#374151;">
           <div style="display:flex;gap:10px;color:#6b7280;font-size:.66rem;font-weight:700;padding-bottom:3px;border-bottom:1px solid #e5e7eb;">
-            <span style="flex:1;min-width:150px;">옵션</span><span style="width:76px;text-align:right;">7일 평균</span><span style="width:64px;text-align:right;">30일 순판매</span><span style="width:76px;text-align:right;">가용재고</span><span style="width:110px;text-align:center;">판정</span><span style="width:86px;text-align:right;">권장 주문량</span>
+            <span style="flex:1;min-width:150px;">옵션</span><span style="width:76px;text-align:right;">7일 평균</span><span style="width:64px;text-align:right;">30일 순판매</span><span style="width:76px;text-align:right;">가용재고</span><span style="width:84px;text-align:right;">안정재고</span><span style="width:110px;text-align:center;">판정</span><span style="width:86px;text-align:right;">권장 주문량</span>
           </div>${optRows}</td></tr>`;
     }
   }
   $('made-result').innerHTML = html + '</tbody></table></div>' +
-    `<div style="font-size:.72rem;color:#6b7280;margin-top:8px;">권장 주문량 = 7일 평균 × (리드타임 + 커버 ${cover}일) − 가용재고 · 리드타임 기본값: 중국 10일 / 국내 9일(영업일 7일 환산) · 제작처·리드타임 지정은 관리자만</div>`;
+    `<div style="font-size:.72rem;color:#6b7280;margin-top:8px;">안정재고 = 일평균 3개 이상 옵션은 일평균 × 리드타임, 3개 미만은 일평균 × 3일 · 권장 주문량 = 안정재고 − 가용재고(옵션별 합계, 최소 주문 수량 미만이면 최소 주문 수량) · 리드타임 기본값: 중국 10일 / 국내 5일 · 제작처·리드타임·최소 주문 수량 지정은 관리자·MD</div>`;
 }
 
 /* 기존 도구와 동일한 추천 규칙 (3.0은 ×4 구간) */
