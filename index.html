@@ -605,7 +605,7 @@
   <button class="menu-item" data-menu="disp" id="menu-disp" onclick="showMenu('disp')"><i class="fa-solid fa-table-cells-large" style="width:18px;text-align:center;color:#818cf8;"></i>카테고리별 진열</button>
   <button class="menu-item" data-menu="stable" id="menu-stable" onclick="showMenu('stable')"><i class="fa-solid fa-warehouse" style="width:18px;text-align:center;color:#818cf8;"></i>안정재고 편성</button>
   <button class="menu-item" data-menu="madechk" id="menu-madechk" style="display:none;" onclick="showMenu('madechk')"><i class="fa-solid fa-industry" style="width:18px;text-align:center;color:#818cf8;"></i>자체제작 주문 점검</button>
-  <button class="menu-item" id="menu-npm" title="상품 관리 시스템 — 새 탭으로 열립니다" onclick="window.open('https://newproduct-manager.vercel.app/products','_blank')"><i class="fa-solid fa-box-open" style="width:18px;text-align:center;color:#818cf8;"></i>상품 관리<i class="fa-solid fa-arrow-up-right-from-square" style="font-size:.62rem;color:#9ca3af;margin-left:auto;"></i></button>
+  <button class="menu-item" id="menu-npm" title="상품 관리 시스템 — 같은 계정으로 자동 로그인, 새 탭으로 열립니다" onclick="npmOpen()"><i class="fa-solid fa-box-open" style="width:18px;text-align:center;color:#818cf8;"></i>상품 관리<i class="fa-solid fa-arrow-up-right-from-square" style="font-size:.62rem;color:#9ca3af;margin-left:auto;"></i></button>
   <div class="menu-group">경영</div>
   <button class="menu-item" data-menu="adv"  id="menu-adv" onclick="showMenu('adv')"><i class="fa-solid fa-bullhorn" style="width:18px;text-align:center;color:#818cf8;"></i>광고 효율</button>
   <button class="menu-item" data-menu="admgr" id="menu-admgr" style="display:none;" onclick="showMenu('admgr')"><i class="fa-solid fa-sitemap" style="width:18px;text-align:center;color:#818cf8;"></i>광고관리자</button>
@@ -2142,6 +2142,22 @@ async function doLogin() {
   } catch (e) { $('login-error').textContent = e.message; }
 }
 
+/* 상품 관리 시스템 열기 — 대시보드 계정으로 자동 로그인(SSO, 2026-09-07). 팝업 차단을 피하려고 탭을 먼저 열고 토큰을 받아 이동.
+   토큰 발급이 실패하면 상품관리 로그인 화면으로 그냥 연다. */
+async function npmOpen() {
+  const NPM = 'https://newproduct-manager.vercel.app';
+  const tab = window.open('about:blank', '_blank');
+  try {
+    const res = await fetch(fnUrl('auth'), { method: 'POST', headers: sbHeaders(), body: JSON.stringify({ action: 'npm_sso', token: SESSION.token }) });
+    const d = await res.json();
+    if (!d.token) throw new Error(d.error || '토큰 발급 실패');
+    const url = `${NPM}/api/sso?t=${encodeURIComponent(d.token)}`;
+    if (tab) tab.location.href = url; else window.open(url, '_blank');
+  } catch (e) {
+    showToast('자동 로그인 연결 실패 — 로그인 화면으로 엽니다 (' + e.message + ')');
+    if (tab) tab.location.href = NPM + '/login'; else window.open(NPM + '/login', '_blank');
+  }
+}
 function logout() {
   localStorage.removeItem(AUTH_KEY);
   location.reload();
@@ -2165,7 +2181,7 @@ function applyRole() {
   $('menu-admgr').style.display = (isAdmin() || isStaff()) && !isCS() ? '' : 'none'; // 광고관리자 = 관리자 전체 + **MD·마케터는 테스트 소재 탭만** (2026-08-27 사용자 지정)
   $('menu-rwatch').style.display = (isAdmin() || isStaff()) && !isCS() ? '' : 'none'; // 반품 관리 = 관리자 + MD
   $('menu-madechk').style.display = (isAdmin() || isStaff()) && !isCS() ? '' : 'none'; // 자체제작 주문 점검 = 관리자 + MD (2026-09-03)
-  $('menu-npm').style.display = (isAdmin() || isStaff()) && !isCS() ? '' : 'none';    // 상품 관리(외부 링크) = 관리자 + MD
+  $('menu-npm').style.display = isAdmin() || isStaff() || SESSION?.role === 'logistics' ? '' : 'none';    // 상품 관리(SSO 링크) = 관리자 + MD + 물류팀(2026-09-07, 자체제작 관리만)
   $('menu-profit').style.display = isAdmin() && !isCS() ? '' : 'none';
   $('menu-wm').style.display = isAdmin() && !isCS() ? '' : 'none';
   $('menu-my').style.display = SESSION ? '' : 'none';   // 마이페이지 = 로그인한 전 직원 (2026-08-27)   // 근무 관리 = 관리자 전용 (급여·계좌 노출)

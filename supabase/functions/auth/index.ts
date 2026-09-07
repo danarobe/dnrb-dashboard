@@ -6,6 +6,7 @@
 //   POST {action:'add_user', token, id, name, password}   — 관리자 전용 (직원 추가)
 //   POST {action:'delete_user', token, id}                — 관리자 전용 (직원 삭제)
 //   POST {action:'change_password', token, old_password, new_password} — 본인
+//   POST {action:'npm_sso', token}  → {token: SSO 토큰(2분)} — 상품관리 시스템(newproduct-manager) 같은 계정 로그인용 (2026-09-07)
 //
 // app_users 테이블은 anon 정책이 없어 이 함수(service_role)로만 접근 가능.
 // 필요 secret: AUTH_SECRET
@@ -66,6 +67,19 @@ Deno.serve(async (req) => {
     const meRow = await getUser(me.id);
     if (!meRow) return json({ error: "로그인이 필요합니다" }, 401);
     me.role = String(meRow.role);
+
+    // ── 상품관리 시스템 SSO 토큰 (2026-09-07): 대시보드 로그인 상태로 같은 아이디·이름·역할을 2분짜리 HMAC 토큰에 담아
+    //    newproduct-manager /api/sso 로 넘긴다. 서명 키는 두 시스템이 이미 공유하는 NPM_SYNC_SECRET. 역할은 DB 원본값(logistics 구분 필요).
+    if (action === "npm_sso") {
+      const secret = Deno.env.get("NPM_SYNC_SECRET") ?? "";
+      if (!secret) return json({ error: "연동 키가 설정되지 않았습니다" }, 500);
+      const payload = JSON.stringify({ id: me.id, name: String(meRow.name ?? me.id), role: me.role, exp: Date.now() + 2 * 60 * 1000, n: crypto.randomUUID() });
+      const b64url = (bytes: Uint8Array) => btoa(String.fromCharCode(...bytes)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+      const body64 = b64url(new TextEncoder().encode(payload));
+      const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+      const sig = b64url(new Uint8Array(await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(body64))));
+      return json({ token: `${body64}.${sig}` });
+    }
 
     if (action === "change_password") {
       const user = await getUser(me.id);
