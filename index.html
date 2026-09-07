@@ -2110,6 +2110,16 @@ const AUTH_KEY = 'dnrb_session';
 let SESSION = null;
 
 function loadSession() {
+  // 상품관리 시스템에서 넘어온 세션 (#sso=base64url(json), 2026-09-07 계정 공통화) — 받은 뒤 주소에서 지운다.
+  // 토큰은 auth 함수가 서명한 것이라 이후 모든 서버 호출에서 다시 검증된다 (여기서 믿고 저장만).
+  try {
+    const m = location.hash.match(/[#&]sso=([A-Za-z0-9_-]+)/);
+    if (m) {
+      const s = JSON.parse(decodeURIComponent(escape(atob(m[1].replace(/-/g, '+').replace(/_/g, '/')))));
+      if (s && s.token && s.id && s.exp > Date.now()) localStorage.setItem(AUTH_KEY, JSON.stringify({ token: s.token, id: s.id, name: s.name, role: s.role, exp: s.exp }));
+      history.replaceState(null, '', location.pathname + location.search);
+    }
+  } catch {}
   try {
     const s = JSON.parse(localStorage.getItem(AUTH_KEY));
     if (s && s.token && s.exp > Date.now()) SESSION = s;

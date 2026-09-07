@@ -55,6 +55,7 @@ curl -s -X POST "https://api.supabase.com/v1/projects/eeffmbusaqaadeojjlnc/datab
 | `meta-ads` | Meta 광고관리자(Graph v23.0) summary/topads/**dateads/activeads**/adstats/preview는 관리자+MD, **hierarchy/testads/budgethistory/hourlystats(광고관리자 전용 액션)는 관리자만**(2026-08-26) |
 | `meta-budget` | **예산 쓰기**(2026-08-26): status/pending/apply/schedule/cancel/**run**(자정 cron). 쓰기 토큰(META_WRITE_TOKEN)은 이 함수만 사용 — 읽기 함수와 분리 | admin+WRITE_USER_IDS+PIN |
 | `wm-me` | **마이페이지**(2026-08-27): me/leave_request/leave_cancel. 로그인 계정 → `wm_employees.app_user_id`로 본인 행만 조회·쓰기, 급여·계좌 미포함 | 로그인 전원 |
+| `auth` `issue_for` | **상품관리 → 대시보드 토큰 발급**(2026-09-07 계정 공통화): x-sync-secret(NPM_SYNC_SECRET) 서버 간 호출로 {id}의 로그인 토큰(7일) 반환, 없는 아이디 404. 클라 `loadSession()`이 `#sso=base64url(json)` 해시를 읽어 세션으로 저장 후 해시 제거. 반대로 상품관리 로그인은 로컬 실패 시 대시보드 `login`으로 검증(대시보드 비밀번호 = 상품관리 비밀번호). 웹디자이너1·심진영·임지은만 상품관리 전용 계정 | 서버 간(비밀키) |
 | `auth` `npm_sso` | **상품관리 시스템 SSO 토큰**(2026-09-07): 로그인 토큰 확인 후 {id,name,role(DB 원본),exp 2분}을 NPM_SYNC_SECRET HMAC으로 서명해 반환 → 클라 `npmOpen()`이 `newproduct-manager/api/sso?t=`로 새 탭 열기. 상품 관리 메뉴 = 관리자·MD·**물류팀**(물류팀은 저쪽에서 자체제작 관리만). 실패 시 로그인 화면으로 폴백 | 로그인 전원(역할 매핑은 저쪽에서) |
 
 - 공용 유틸 `_shared/util.ts`: CORS_HEADERS(**x-auth-token 포함**), verifyAuthToken(서명·만료 검증 + **DB 실계정·현재 role 재확인**), getToken/saveToken(api_tokens, service_role), json/handleOptions.

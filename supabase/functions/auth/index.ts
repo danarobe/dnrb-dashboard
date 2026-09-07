@@ -60,6 +60,18 @@ Deno.serve(async (req) => {
       return json({ token: await signAuthToken(payload), ...payload });
     }
 
+    // ── 상품관리 시스템 → 대시보드 로그인 토큰 발급 (2026-09-07, 서버 간): x-sync-secret(NPM_SYNC_SECRET)으로만.
+    //    상품관리에 로그인한 사용자가 'DNRB 워크스페이스' 링크를 누르면 저쪽 서버가 그 아이디의 토큰을 요청한다.
+    //    여기 없는 아이디(상품관리 전용 계정)면 404 → 저쪽이 로그인 화면으로 보낸다.
+    if (action === "issue_for") {
+      const secret = Deno.env.get("NPM_SYNC_SECRET") ?? "";
+      if (!secret || req.headers.get("x-sync-secret") !== secret) return json({ error: "접근 권한이 없습니다" }, 403);
+      const user = await getUser(String(body.id ?? "").trim());
+      if (!user) return json({ error: "대시보드에 없는 계정" }, 404);
+      const payload = { id: String(user.id), name: String(user.name), role: String(user.role), exp: Date.now() + TOKEN_TTL };
+      return json({ token: await signAuthToken(payload), ...payload });
+    }
+
     // ── 이하 액션은 로그인 토큰 필요 ──
     // 서명 검증 후 DB에서 계정 존재·현재 역할 재확인 (삭제된 계정 토큰 즉시 무효화)
     const me = await verifyAuthTokenString(String(body.token ?? ""));
