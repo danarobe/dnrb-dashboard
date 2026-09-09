@@ -400,6 +400,7 @@ AUTHOR_FIELDS(notes/comments=author_id, likes=user_id): POST는 본인 id 필수
 - 점검 결과 건강한 것들(건드리지 말 것): Chart.js 인스턴스 destroy 전부 처리됨(meta/pt/perf/cr), btnBusy 타이머 btnIdle에서 clear, 큰 표는 innerHTML 통짜 생성(빠름), 상시 타이머 없음. 검증: 14개 메뉴 전 순회 JS 오류 0·콘솔 오류 0, 디바운스 연속 5입력→렌더 1회.
 
 ## 7-5. 근무 관리 `#wm` — 근무관리 시스템 이전 (2026-08-26 시작, 진행 중)
+- **급여 명세서 PDF(2026-09-09 사용자 요청)**: 명세서 HTML을 `wmSlipHtml(r, forPdf)`로 분리해 모달과 PDF가 같은 내용을 쓴다(금액 계산 무변경 — 1원 불변). `wmSlipPdfBuild(indices)`가 화면 밖 760px 흰 종이에 그려 html2canvas(scale 2) → jsPDF A4(여백 12mm)로, 긴 명세서는 자동 여러 쪽. 모달 'PDF 저장'(개인) / 급여 탭 '명세서 전체 PDF'(사람마다 새 쪽, 한 파일). **PDF에는 '관리자 전용' 계좌 블록 제외**(forPdf). 라이브러리(html2canvas 1.4.1·jspdf 2.5.1, jsdelivr)는 첫 클릭 때 지연 로드. 실측: 14명 14쪽 1.8MB 약 16초.
 
 매장 근무관리 시스템(출퇴근·급여·연차, 소스 `~/Library/CloudStorage/OneDrive-개인(2)/work-manager`)을 OneDrive JSON 동기화에서 이 Supabase로 옮기고 관리 화면을 대시보드 메뉴로 통합하는 작업. **전체 계획서: `~/.claude/plans/shiny-wondering-badger.md` — 이어서 작업할 때 먼저 읽을 것.**
 
