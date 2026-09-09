@@ -1534,6 +1534,7 @@
             <select id="wm-att-emp" onchange="wmRenderAtt()"
               style="display:block;margin-top:3px;border:1.5px solid #d1d5db;border-radius:8px;padding:6px 10px;font-size:.8rem;outline:none;min-width:120px;"></select></label>
           <button class="toggle-btn" onclick="wmAttFormOpen(null)" style="margin-bottom:1px;"><i class="fa-solid fa-plus"></i> 수동 등록</button>
+          <button class="toggle-btn" onclick="wmExportAtt()" style="margin-bottom:1px;" title="이 달 출퇴근 기록을 엑셀로 (직원을 고르면 그 사람의 달력 전체, 전체면 기록 있는 날만)"><i class="fa-solid fa-file-excel"></i> 엑셀 다운로드</button>
           <span id="wm-att-summary" style="margin-left:auto;font-size:.78rem;color:#6b7280;"></span>
         </div>
         <div id="wm-att-pending" style="display:none;margin-bottom:12px;"></div>
@@ -1547,7 +1548,7 @@
             <input type="month" id="wm-sal-ym" onchange="wmLoadSal()"
               style="display:block;margin-top:3px;border:1.5px solid #d1d5db;border-radius:8px;padding:5px 10px;font-size:.8rem;outline:none;" /></label>
           <button class="toggle-btn" onclick="wmExportSalary()" style="margin-bottom:1px;"><i class="fa-solid fa-file-excel"></i> 엑셀 다운로드</button>
-          <button class="toggle-btn" onclick="wmSlipPrint(wmState.sal.map((_, i) => i))" style="margin-bottom:1px;" title="이 달 전 직원·아르바이트 명세서를 한 문서로 열어 인쇄 / PDF 저장 (사람마다 새 쪽)"><i class="fa-solid fa-print"></i> 명세서 전체 인쇄 / PDF</button>
+          <button class="toggle-btn" id="wm-sal-print-sel" onclick="wmSlipPrintSelected()" style="margin-bottom:1px;" disabled title="표에서 체크한 직원·아르바이트의 명세서를 한 문서로 열어 인쇄 / PDF 저장 (사람마다 새 쪽). 전체는 표 머리의 체크박스로 전체 선택"><i class="fa-solid fa-print"></i> 선택 명세서 인쇄 / PDF</button>
           <span id="wm-sal-total" style="margin-left:auto;font-size:.85rem;font-weight:700;color:#4f46e5;"></span>
         </div>
         <div id="wm-sal-result"><div class="empty-state"><p>불러오는 중...</p></div></div>
@@ -7905,6 +7906,7 @@ function wmRenderSal() {
     // 다음 달로 이월된 주 — "왜 이 주 주휴수당이 없지?" 질문의 1순위 원인이라 목록에도 표시
     const defer = (r.weeklyBreakdown || []).filter(w => w.deferredToNext).length;
     return `<tr>
+      <td style="width:28px;"><input type="checkbox" class="wm-sal-chk" value="${i}" onchange="wmSalSelChanged()" title="명세서 인쇄 대상 선택" /></td>
       <td style="font-weight:600;">${e.name}</td>
       <td><span class="badge badge-${pt ? 'staff' : 'admin'}" style="font-size:.68rem;">${pt ? '알바' : '직원'}</span></td>
       <td>${r.totalHours || 0}시간</td>
@@ -7918,8 +7920,25 @@ function wmRenderSal() {
   }).join('');
   $('wm-sal-result').innerHTML = `<div style="overflow-x:auto;"><table style="width:100%;font-size:.8rem;">
     <thead><tr>
+      <th style="width:28px;"><input type="checkbox" id="wm-sal-all" onchange="wmSalCheckAll(this)" title="전체 선택" /></th>
       <th>이름</th><th>구분</th><th>근무시간</th><th>기본급</th><th>주휴수당</th><th>식대</th><th>교통비</th><th>총 지급액</th><th></th>
     </tr></thead><tbody>${body}</tbody></table></div>`;
+  wmSalSelChanged();
+}
+/* 명세서 인쇄 대상 선택 (2026-09-09 사용자 요청 — 특정 직원·알바만 골라서) */
+function wmSalSelected() { return [...document.querySelectorAll('.wm-sal-chk:checked')].map(c => Number(c.value)); }
+function wmSalCheckAll(master) { document.querySelectorAll('.wm-sal-chk').forEach(c => { c.checked = master.checked; }); wmSalSelChanged(); }
+function wmSalSelChanged() {
+  const n = wmSalSelected().length, btn = $('wm-sal-print-sel');
+  if (!btn) return;
+  btn.disabled = !n;
+  btn.innerHTML = `<i class="fa-solid fa-print"></i> 선택 명세서 인쇄 / PDF${n ? ` (${n}명)` : ''}`;
+  const all = $('wm-sal-all'); if (all) { const total = document.querySelectorAll('.wm-sal-chk').length; all.checked = total > 0 && n === total; all.indeterminate = n > 0 && n < total; }
+}
+function wmSlipPrintSelected() {
+  const idx = wmSalSelected();
+  if (!idx.length) { showToast('표에서 명세서를 뽑을 사람을 먼저 체크해주세요'); return; }
+  wmSlipPrint(idx);
 }
 
 /* 급여 명세서 HTML — 기존 근무관리 시스템(work-manager Salary.jsx SlipView)의 양식을 그대로 옮김 (2026-09-09 사용자 요청 "기존 시스템처럼").
@@ -8082,6 +8101,60 @@ async function wmEditReview(id, status) {
     showToast(`${label} 완료`);
     wmLoadAtt();
   } catch (err) { showToast(label + ' 실패 — ' + err.message); }
+}
+
+/* ── 출퇴근 기록 엑셀 (2026-09-09 사용자 요청 "원래 프로그램과 동일하게") — 기존 work-manager /api/attendance/export 양식 그대로:
+   1행 'YYYY년 M월 출퇴근 기록', 2행 공백, 3행 헤더 10열(이름·구분·날짜·요일·출근·퇴근·총 근무시간·식대공제·실 근무시간·비고).
+   직원을 고르면 그 달의 모든 날짜(기록 없는 날은 빈 칸), 전체면 기록 있는 날만 날짜·이름순. 식대공제 = wmMeal(급여 계산과 동일 규칙). */
+const WM_ATT_XLSX_HEAD = ['이름', '구분', '날짜', '요일', '출근', '퇴근', '총 근무시간', '식대공제', '실 근무시간', '비고'];
+function wmAttExportRows() {
+  const ym = $('wm-att-ym').value; if (!ym) return null;
+  const [y, m] = ym.split('-').map(Number);
+  const emps = wmState.emps || [], nameOf = Object.fromEntries(emps.map(e => [e.id, e]));
+  const rows = (wmState.att || []).filter(r => (r.date || '').startsWith(ym));
+  const filt = $('wm-att-emp').value;
+  const hm = mins => mins ? `${Math.floor(mins / 60)}:${String(mins % 60).padStart(2, '0')}` : '';
+  const line = (e, dateStr, r) => {
+    const raw = r?.work_minutes || 0;
+    const ci = (r?.clock_in || '').substring(11, 16), co = (r?.clock_out || '').substring(11, 16);
+    const meal = r ? wmMeal(r.clock_in, r.clock_out) : false;
+    const eff = meal ? Math.max(0, raw - 60) : raw;
+    const d = new Date(dateStr + 'T00:00:00');
+    return [e.name || '', e.type === 'employee' ? '직원' : '알바', dateStr, WM_DAY[d.getDay()], ci, co, hm(raw), meal ? '식대공제(60분)' : '', hm(eff), r?.note || ''];
+  };
+  let data;
+  if (filt) {
+    const e = nameOf[filt] || {};
+    const recMap = {}; rows.filter(r => String(r.employee_id) === filt).forEach(r => { recMap[r.date] = r; });
+    const dim = new Date(y, m, 0).getDate();
+    data = [];
+    for (let d = 1; d <= dim; d++) { const ds = `${ym}-${String(d).padStart(2, '0')}`; data.push(line(e, ds, recMap[ds])); }
+  } else {
+    data = [...rows]
+      .sort((a, b) => (a.date + (nameOf[a.employee_id]?.name || '')).localeCompare(b.date + (nameOf[b.employee_id]?.name || '')))
+      .map(r => line(nameOf[r.employee_id] || {}, r.date, r));
+  }
+  return { y, m, ym, data, empName: filt ? (nameOf[filt]?.name || '') : '' };
+}
+async function wmExportAtt() {
+  const x = wmAttExportRows();
+  if (!x) return;
+  if (!x.data.length) { showToast('내려받을 기록이 없습니다'); return; }
+  try {
+    if (typeof XlsxPopulate === 'undefined') throw new Error('엑셀 라이브러리 로드 실패 — 페이지를 새로고침해주세요');
+    const wb = await XlsxPopulate.fromBlankAsync();
+    const ws = wb.sheet(0).name(`${x.m}월`);
+    ws.cell(1, 1).value(`${x.y}년 ${x.m}월 출퇴근 기록`).style({ bold: true, fontSize: 14 });
+    WM_ATT_XLSX_HEAD.forEach((h, i) => ws.cell(3, i + 1).value(h).style({ bold: true, fill: 'EEF2FF' }));
+    x.data.forEach((row, ri) => row.forEach((v, ci) => { if (v !== '' && v != null) ws.cell(ri + 4, ci + 1).value(v); }));
+    [10, 7, 12, 5, 7, 7, 12, 14, 12, 20].forEach((w, i) => ws.column(i + 1).width(w));
+    const blob = await wb.outputAsync();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = `${x.y}년_${x.m}월_출퇴근기록${x.empName ? '_' + x.empName : ''}.xlsx`; a.click();
+    URL.revokeObjectURL(url);
+    showToast(`출퇴근 기록 ${x.data.length}행을 엑셀로 내려받았어요`);
+  } catch (e) { showToast('엑셀 생성 실패: ' + e.message); }
 }
 
 /* 출퇴근 수동 등록/수정 */
