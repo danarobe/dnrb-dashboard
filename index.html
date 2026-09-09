@@ -5457,6 +5457,18 @@ function stkOptTokens(s) {
 
 const stkSameOpt = (a, b) => a.length === b.length && a.every((t, i) => t === b[i]);
 
+/* 괄호 안 표기(사이즈 범위 등)만 다른 옵션 — "S(55~66)" ↔ "S(55~77)", "M(77~88)" ↔ "M(77반~)" (2026-09-09 실사례: 베일 블라우스가
+   위 표에선 '결제 0건→줄이기', 아래 표에선 '신규 편성'으로 갈라짐). 각 값에서 괄호·대괄호 내용을 지운 뒤 토큰이 같으면 같은 옵션.
+   양쪽 다 괄호가 없으면 새 정보가 없으므로 false. 호출부는 후보가 양쪽 모두 1개일 때만 채택(FREE(55~66)/FREE(77~88)처럼 괄호로만 구분되는 옵션 보호) */
+function stkCoreTokens(raw) {
+  return stkOptTokens(String(raw || '').replace(/\([^)]*\)|\[[^\]]*\]/g, ' '));
+}
+function stkCoreOpt(rawA, rawB) {
+  if (!/[(\[]/.test(String(rawA || '')) && !/[(\[]/.test(String(rawB || ''))) return false;
+  const a = stkCoreTokens(rawA), b = stkCoreTokens(rawB);
+  return a.length > 0 && stkSameOpt(a, b);
+}
+
 /* 느슨한 옵션 비교 — 토큰 수가 같고, 각 토큰이 서로 포함 관계면 같은 옵션으로 본다
    (예: "1사이즈" ↔ "1사이즈 (55~77)"). 토큰끼리 1:1로 짝지어 과다 매칭을 막는다. */
 function stkLooseOpt(a, b) {
@@ -5758,12 +5770,15 @@ function madeRender() {
     const avail = st ? Math.max(0, st.stock - st.unshipped) : null;
     const ezE = madeEzOf(r.product_name);   // 이지픽 제작상품(입고 예정) — 2026-09-09
     // 옵션별: 카페24 option_value ↔ 셀메이트 옵션 토큰 매칭 (안정재고와 동일 규칙 — 정확 일치 후 느슨 일치)
+    // 괄호 표기만 다른 옵션 폴백은 이 상품 안에서 괄호를 뺀 옵션이 유일할 때만 (FREE(55~66)/FREE(77~88) 보호)
+    const coreUnique = raw => { const k = stkCoreTokens(raw).join('|'); return (r.options || []).filter(x => stkCoreTokens(x.option).join('|') === k).length === 1; };
     const opts = (r.options || []).map(o => {
       let availO = null, looseNote = '', safeCsv = null;
       const tk = stkOptTokens(o.option);
       if (st) {
         let hits = st.rows.filter(c => stkSameOpt(c.tokens, tk));
         if (!hits.length && tk.length) { hits = st.rows.filter(c => stkLooseOpt(c.tokens, tk)); if (hits.length) looseNote = ' (표기차이)'; }
+        if (!hits.length && tk.length && coreUnique(o.option)) { const core = st.rows.filter(c => stkCoreOpt(c.opt, o.option)); if (core.length === 1) { hits = core; looseNote = ' (표기차이)'; } }   // 괄호 표기만 다름
         if (!hits.length && !tk.length && st.rows.length === 1) hits = st.rows;   // 단일상품 ↔ 단일 행
         if (hits.length) {
           availO = Math.max(0, hits.reduce((t, h) => t + h.stock - h.unshipped, 0));
@@ -5775,6 +5790,7 @@ function madeRender() {
       if (ezE) {
         let hits = ezE.rows.filter(c => stkSameOpt(c.tokens, tk));
         if (!hits.length && tk.length) hits = ezE.rows.filter(c => stkLooseOpt(c.tokens, tk));
+        if (!hits.length && tk.length && coreUnique(o.option)) { const core = ezE.rows.filter(c => stkCoreOpt(c.opt, o.option)); if (core.length === 1) hits = core; }
         if (!hits.length && !tk.length && ezE.rows.length === 1) hits = ezE.rows;
         if (hits.length) {
           incoming = hits.reduce((t, h) => t + h.remaining, 0);
@@ -5997,6 +6013,9 @@ async function fetchStableCompare() {
     const knownNames = new Set((d.products || []).map(p => stkNorm(p.product_name)));
 
     const usedKeys = new Set();
+    // 괄호 표기만 다른 옵션 폴백용: 같은 상품 안에서 괄호를 뺀 옵션이 몇 개인지 (1개일 때만 폴백 허용)
+    const coreCount = new Map();
+    for (const r of stableState.cell) { const k = stkNorm(r.name) + '|' + stkCoreTokens(r.option).join('|'); coreCount.set(k, (coreCount.get(k) || 0) + 1); }
     stableState.main = stableState.cell.map(r => {
       const nName = stkNorm(r.name);
       const cands = byName.get(nName) || [];
@@ -6008,6 +6027,10 @@ async function fetchStableCompare() {
           hits = cands.filter(c => stkSameOpt(c.opt, opt));
           if (hits.length) status = '매칭됨';
           else { hits = cands.filter(c => stkLooseOpt(c.opt, opt)); if (hits.length) status = '표기차이'; }
+          if (!hits.length && opt.length && coreCount.get(nName + '|' + stkCoreTokens(r.option).join('|')) === 1) {
+            const core = cands.filter(c => stkCoreOpt(c.option_value, r.option));   // 괄호(사이즈 범위) 표기만 다른 경우 — 양쪽 1:1일 때만
+            if (core.length === 1) { hits = core; status = '표기차이'; }
+          }
         }
       }
       if (!hits.length) status = knownNames.has(nName) ? '결제 0건' : '미매칭';
