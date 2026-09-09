@@ -1847,11 +1847,17 @@
       <div style="font-size:.8rem;color:#6b7280;margin-bottom:12px;line-height:1.7;">
         · 상품명에 <b>자체제작</b>/<b>made</b>가 든 상품의 <b>어제까지 3일·7일 일평균 순판매량</b>(결제−취소, 주문일 기준)을 자동 계산합니다. 판매 시작 7일 미만 신상은 <b>첫 판매일부터의 실제 판매일수</b>로 나눠 저평가를 막아요.<br>
         · 셀메이트 재고 CSV를 올리면 <b>가용재고(현재고−미발송)</b>와 <b>안정재고</b>를 비교해 옵션별 주문 필요 여부·권장 주문량을 계산합니다.<br>
-        · <b>안정재고</b> = 일평균 3개 이상 옵션은 <b>일평균 × 리드타임</b>, 3개 미만은 <b>일평균 × 3일</b>. <b>권장 주문량</b> = 안정재고 − 가용재고 (상품의 최소 주문 수량보다 작으면 최소 주문 수량).</div>
-      <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:12px;">
+        · <b>안정재고</b> = 일평균 3개 이상 옵션은 <b>일평균 × 리드타임</b>, 3개 미만은 <b>일평균 × 3일</b>. <b>권장 주문량</b> = 안정재고 − (가용재고 + 입고 예정) (상품의 최소 주문 수량보다 작으면 최소 주문 수량).<br>
+        · 이지픽 <b>제작상품관리 엑셀</b>을 함께 올리면 옵션별 <b>잔여수량(주문 − 입고)</b>을 추가 입고 예정으로 잡아, 입고까지 끝났을 때 안정재고 대비 <b>몇 장이 부족하고 몇 장이 남는지</b>(과부족)를 보여줍니다. 판정·권장 주문량도 입고 예정을 뺀 뒤의 부족분만 계산해요.</div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:8px;">
         <label style="font-size:.78rem;font-weight:700;color:#4b5563;display:flex;align-items:center;gap:6px;">셀메이트 재고 CSV
           <input type="file" id="made-csv" accept=".csv" onchange="handleMadeCSV(event)" style="font-size:.74rem;" /></label>
         <span id="made-csv-status" style="font-size:.74rem;color:#6b7280;">미업로드 — 재고·판정 열이 비어 있어요</span>
+      </div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:12px;">
+        <label style="font-size:.78rem;font-weight:700;color:#4b5563;display:flex;align-items:center;gap:6px;">이지픽 제작상품 엑셀
+          <input type="file" id="made-ez" accept=".xls,.xlsx" onchange="handleMadeEz(event)" style="font-size:.74rem;" /></label>
+        <span id="made-ez-status" style="font-size:.74rem;color:#6b7280;">미업로드 (선택) — 올리면 입고 예정·과부족 열이 채워져요</span>
       </div>
       <div id="made-summary" style="display:none;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:12px;"></div>
       <div id="made-result"><div class="empty-state"><p>'카페24 판매 수집'을 누르면 자체제작 상품의 판매 데이터를 불러옵니다.</p></div></div>
@@ -5492,7 +5498,7 @@ function stableSyncDays() {
    ══════════════════════════════════════ */
 const MADE_LEAD = { cn: 10, kr: 5 };   // 기본 리드타임(달력일) — 2026-09-07 사용자 지정: 중국 10일 / 국내 5일 (이전 9일)
 const MADE_ORIGIN = { cn: '중국', kr: '국내' };
-const madeState = { rows: null, tags: new Map(), stock: null, loading: false, open: new Set() };
+const madeState = { rows: null, tags: new Map(), stock: null, ez: null, loading: false, open: new Set() };   // ez = 이지픽 제작상품 엑셀(옵션별 잔여수량 = 입고 예정)
 function madeToggleOpts(no) {
   madeState.open.has(no) ? madeState.open.delete(no) : madeState.open.add(no);
   const tr = $('made-opt-' + no);
@@ -5533,16 +5539,17 @@ async function handleMadeCSV(e) {
       const idx = {
         name: cells.findIndex(c => c === '상품명'),
         stock: cells.findIndex(c => c === '현재재고' || c === '현재고' || c === '현재고수량'),
-        unshipped: cells.findIndex(c => c.startsWith('미발송') || c.startsWith('미출고')),
+        unshipped: cells.findIndex(c => c.startsWith('미발송') || c.startsWith('미출고') || c.startsWith('발송필요')),
       };
       if (idx.name >= 0 && idx.stock >= 0) { headerIdx = i; col = idx; break; }
     }
     if (headerIdx < 0) throw new Error('헤더(상품명·현재재고)를 찾지 못했습니다 — 셀메이트 재고 양식인지 확인해주세요');
-    // 옵션 행을 보존해 옵션 단위 발주 매칭에 쓴다 (v2) — 옵션명 열이 있으면 함께 읽음
-    let optCol = -1;
+    // 옵션 행을 보존해 옵션 단위 발주 매칭에 쓴다 (v2) — 옵션명 열이 있으면 함께 읽음. 안정재고 열은 셀메이트에 설정된 값(참고 표시)
+    let optCol = -1, safeCol = -1;
     {
       const cells = parseCSVRow(lines[headerIdx]).map(c => c.replace(/\s/g, ''));
       optCol = cells.findIndex(c => c === '옵션명' || c === '옵션');
+      safeCol = cells.findIndex(c => c === '안정재고' || c === '안정재고수량');
     }
     const stock = new Map();
     let n = 0;
@@ -5551,12 +5558,14 @@ async function handleMadeCSV(e) {
       const name = (c[col.name] || '').trim();
       if (!name) continue;
       const key = stkNorm(name);
-      const cur = stock.get(key) || { stock: 0, unshipped: 0, rows: [] };
+      const cur = stock.get(key) || { stock: 0, unshipped: 0, safe: null, rows: [] };
       const st = toNum(c[col.stock]);
       const un = col.unshipped >= 0 ? toNum(c[col.unshipped]) : 0;
+      const sf = safeCol >= 0 && String(c[safeCol] ?? '').trim() !== '' ? toNum(c[safeCol]) : null;
       cur.stock += st;
       cur.unshipped += un;
-      cur.rows.push({ opt: optCol >= 0 ? (c[optCol] || '').trim() : '', tokens: stableOptTokens(optCol >= 0 ? c[optCol] : ''), stock: st, unshipped: un });
+      if (sf != null) cur.safe = (cur.safe || 0) + sf;
+      cur.rows.push({ opt: optCol >= 0 ? (c[optCol] || '').trim() : '', tokens: stableOptTokens(optCol >= 0 ? c[optCol] : ''), stock: st, unshipped: un, safe: sf });
       stock.set(key, cur);
       n++;
     }
@@ -5566,6 +5575,103 @@ async function handleMadeCSV(e) {
     showToast(`재고 CSV ${fmt(n)}행 로드 완료`);
     if (madeState.rows) madeRender();
   } catch (err) { showToast('CSV 읽기 실패: ' + err.message); }
+}
+// SheetJS 지연 로드 — 이지픽 .xls(BIFF)는 xlsx-populate로 못 읽어 cdnjs SheetJS를 필요할 때만 불러온다 (2026-09-09)
+let _sheetJsP = null;
+function loadSheetJS() {
+  if (window.XLSX) return Promise.resolve(window.XLSX);
+  if (!_sheetJsP) _sheetJsP = new Promise((res, rej) => {
+    const sc = document.createElement('script');
+    sc.src = 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
+    sc.onload = () => res(window.XLSX);
+    sc.onerror = () => { _sheetJsP = null; rej(new Error('엑셀 라이브러리를 불러오지 못했어요 (인터넷 연결 확인)')); };
+    document.head.appendChild(sc);
+  });
+  return _sheetJsP;
+}
+// 이지픽 '제작상품관리(전체보기)' 엑셀 — 헤더명으로 열 인식(상품명·옵션·주문수량·입고수량·잔여수량·처리상태·쇼핑몰상품명)
+// 잔여수량 = 아직 안 들어온 수량 = 추가 입고 예정 (비어 있으면 주문−입고, 음수는 0). 처리상태에 '취소'가 든 행 제외.
+// 상품 키 = 쇼핑몰상품명(R열 = 카페24 상품명) 없으면 상품명(G열). 상품관리 시스템 MadeCheckClient와 동일 규칙.
+async function handleMadeEz(e) {
+  const file = e.target.files[0];
+  e.target.value = '';
+  if (!file) return;
+  try {
+    const XLSX = await loadSheetJS();
+    const wb = XLSX.read(await file.arrayBuffer(), { type: 'array' });
+    const ws = wb.Sheets[wb.SheetNames[0]];
+    if (!ws) throw new Error('시트가 없습니다');
+    const grid = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
+    const norm = v => String(v ?? '').replace(/\s/g, '');
+    let headerIdx = -1, col = {};
+    for (let i = 0; i < Math.min(grid.length, 10); i++) {
+      const cells = (grid[i] || []).map(norm);
+      const idx = {
+        name: cells.findIndex(c => c === '상품명'),
+        opt: cells.findIndex(c => c === '옵션' || c === '옵션명' || c === '색상'),
+        ordered: cells.findIndex(c => c === '주문수량'),
+        received: cells.findIndex(c => c === '입고수량' || c === '기입고수량'),
+        remaining: cells.findIndex(c => c === '잔여수량'),
+        status: cells.findIndex(c => c === '처리상태'),
+        mall: cells.findIndex(c => c === '쇼핑몰상품명'),
+      };
+      if (idx.name >= 0 && idx.ordered >= 0) { headerIdx = i; col = idx; break; }
+    }
+    if (headerIdx < 0) throw new Error('헤더(상품명·주문수량)를 찾지 못했습니다 — 이지픽 제작상품 엑셀인지 확인해주세요');
+    const ez = new Map();
+    let n = 0, skipped = 0;
+    for (let i = headerIdx + 1; i < grid.length; i++) {
+      const c = grid[i] || [];
+      const name = String(c[col.name] ?? '').trim();
+      if (!name) continue;
+      const status = col.status >= 0 ? String(c[col.status] ?? '').trim() : '';
+      if (status.includes('취소')) { skipped++; continue; }
+      const mallName = col.mall >= 0 ? String(c[col.mall] ?? '').trim() : '';
+      const ordered = toNum(c[col.ordered]);
+      const received = col.received >= 0 ? toNum(c[col.received]) : 0;
+      const remRaw = col.remaining >= 0 ? String(c[col.remaining] ?? '').trim() : '';
+      const remaining = remRaw !== '' ? Math.max(0, toNum(remRaw)) : Math.max(0, ordered - received);
+      const opt = col.opt >= 0 ? String(c[col.opt] ?? '').trim() : '';
+      const key = stkNorm(mallName || name);
+      const cur = ez.get(key) || { ordered: 0, received: 0, remaining: 0, rows: [] };
+      cur.ordered += ordered; cur.received += received; cur.remaining += remaining;
+      cur.rows.push({ name, mallName, opt, tokens: stableOptTokens(opt), ordered, received, remaining, status });
+      ez.set(key, cur);
+      n++;
+    }
+    if (!n) throw new Error('제작 상품 행이 없습니다');
+    madeState.ez = ez;
+    const totalRem = [...ez.values()].reduce((t, x) => t + x.remaining, 0);
+    $('made-ez-status').innerHTML = `<span style="color:#0369a1;font-weight:700;">${escHtml(file.name)}</span> — ${fmt(n)}행 · 상품 ${fmt(ez.size)}개 · 입고 예정(잔여) 합계 ${fmt(totalRem)}개${skipped ? ` · 취소 ${skipped}행 제외` : ''}`;
+    showToast(`이지픽 엑셀 ${fmt(n)}행 로드 완료`);
+    if (madeState.rows) madeRender();
+  } catch (err) { showToast('이지픽 엑셀 읽기 실패: ' + err.message); }
+}
+// 이지픽 상품 찾기: ① 쇼핑몰상품명(=카페24 상품명) 정규화 일치 → ② 핵심명(괄호 태그 제거) 포함 관계 중 가장 긴 것
+function madeEzOf(productName) {
+  const ez = madeState.ez;
+  if (!ez) return null;
+  const exact = ez.get(stkNorm(productName));
+  if (exact) return exact;
+  const key = madeCoreName(productName);
+  if (key.length < 3) return null;
+  let best = null, bestLen = 0;
+  for (const [, e] of ez) {
+    for (const row of e.rows) {
+      for (const k of [madeCoreName(row.mallName), madeCoreName(row.name)]) {
+        if (k.length < 3) continue;
+        if ((key.includes(k) || k.includes(key)) && k.length > bestLen) { best = e; bestLen = k.length; }
+      }
+    }
+  }
+  return best;
+}
+// 앞뒤 괄호/대괄호 태그 제거 후 정규화 — "(made,루즈핏) 세러데이 나그랑 티셔츠 (3 colors)" → "세러데이나그랑티셔츠"
+function madeCoreName(name) {
+  let t = String(name || '').trim();
+  for (;;) { const m = t.match(/^\s*(?:\([^)]*\)|\[[^\]]*\])\s*(.*)$/); if (m) t = m[1]; else break; }
+  for (;;) { const m = t.match(/^(.*?)\s*(?:\([^)]*\)|\[[^\]]*\])\s*$/); if (m) t = m[1]; else break; }
+  return stkNorm(t);
 }
 // 제작처·리드타임 저장 — admin만 (서버 강제)
 async function madeSetTag(no, patch) {
@@ -5603,24 +5709,45 @@ function madeRender() {
     const lead = madeLeadOf(tag);
     const st = hasStock ? madeState.stock.get(stkNorm(r.product_name)) : null;
     const avail = st ? Math.max(0, st.stock - st.unshipped) : null;
+    const ezE = madeEzOf(r.product_name);   // 이지픽 제작상품(입고 예정) — 2026-09-09
     // 옵션별: 카페24 option_value ↔ 셀메이트 옵션 토큰 매칭 (안정재고와 동일 규칙 — 정확 일치 후 느슨 일치)
     const opts = (r.options || []).map(o => {
-      let availO = null, looseNote = '';
+      let availO = null, looseNote = '', safeCsv = null;
+      const tk = stkOptTokens(o.option);
       if (st) {
-        const tk = stkOptTokens(o.option);
         let hits = st.rows.filter(c => stkSameOpt(c.tokens, tk));
         if (!hits.length && tk.length) { hits = st.rows.filter(c => stkLooseOpt(c.tokens, tk)); if (hits.length) looseNote = ' (표기차이)'; }
         if (!hits.length && !tk.length && st.rows.length === 1) hits = st.rows;   // 단일상품 ↔ 단일 행
-        if (hits.length) availO = Math.max(0, hits.reduce((t, h) => t + h.stock - h.unshipped, 0));
+        if (hits.length) {
+          availO = Math.max(0, hits.reduce((t, h) => t + h.stock - h.unshipped, 0));
+          if (hits.some(h => h.safe != null)) safeCsv = hits.reduce((t, h) => t + (h.safe || 0), 0);
+        }
       }
-      const j = (!tag || !tag.origin) ? { state: 'notag', rank: 2, runout: null, safety: null, basisDays: 0, rec: null } : judgeOne(o.avg7, availO, lead);
-      return { ...o, avail: availO, looseNote, lead, ...j };
+      // 이지픽 옵션 매칭 — 같은 토큰 규칙. incoming = 잔여수량 합 = 추가 입고 예정
+      let incoming = 0, ezNote = '';
+      if (ezE) {
+        let hits = ezE.rows.filter(c => stkSameOpt(c.tokens, tk));
+        if (!hits.length && tk.length) hits = ezE.rows.filter(c => stkLooseOpt(c.tokens, tk));
+        if (!hits.length && !tk.length && ezE.rows.length === 1) hits = ezE.rows;
+        if (hits.length) {
+          incoming = hits.reduce((t, h) => t + h.remaining, 0);
+          ezNote = `주문 ${fmt(hits.reduce((t, h) => t + h.ordered, 0))} · 입고 ${fmt(hits.reduce((t, h) => t + h.received, 0))}`;
+        }
+      }
+      const afterIn = availO == null ? null : availO + incoming;
+      // 판정·권장 주문량은 입고 예정까지 들어온 뒤(afterIn) 기준 — 이미 주문한 수량을 또 주문하지 않도록
+      const j = (!tag || !tag.origin) ? { state: 'notag', rank: 2, runout: null, safety: null, basisDays: 0, rec: null } : judgeOne(o.avg7, afterIn, lead);
+      const gap = afterIn != null && j.safety != null && o.avg7 > 0 ? afterIn - j.safety : null;   // 과부족 = 입고 후 − 안정재고
+      return { ...o, avail: availO, looseNote, lead, incoming, ezNote, afterIn, gap, safeCsv, ...j };
     });
+    const incoming = opts.some(o => o.incoming > 0) ? opts.reduce((t, o) => t + o.incoming, 0) : (ezE ? ezE.remaining : 0);
+    const afterIn = avail == null ? null : avail + incoming;
+    const safeCsv = st && st.safe != null ? st.safe : null;
     const moq = tag && tag.moq ? tag.moq : null;
     let state, rank, runout = null, rec = null, safety = null, basisDays = 0, moqApplied = false;
     if (!tag || !tag.origin) { state = 'notag'; rank = 2; }
     else {
-      const pj = judgeOne(r.avg7, avail, lead);   // 상품 합계 기준 (옵션이 없거나 전부 미매칭일 때 대비)
+      const pj = judgeOne(r.avg7, afterIn, lead);   // 상품 합계 기준 (옵션이 없거나 전부 미매칭일 때 대비) — 입고 예정 포함
       safety = opts.length ? opts.reduce((t, o) => t + (o.safety || 0), 0) : pj.safety;   // 안정재고 = 옵션 합
       basisDays = pj.basisDays;
       if (avail == null) { state = 'nostock'; rank = 3; }
@@ -5636,13 +5763,15 @@ function madeRender() {
         }
       }
     }
-    return { ...r, tag, lead, st, avail, runout, state, rec, rank, opts, safety, basisDays, moq, moqApplied };
+    const gap = afterIn != null && safety != null && r.avg7 > 0 ? afterIn - safety : null;
+    return { ...r, tag, lead, st, avail, incoming, afterIn, gap, safeCsv, runout, state, rec, rank, opts, safety, basisDays, moq, moqApplied };
   }).sort((a, b) => a.rank - b.rank || b.avg7 - a.avg7);
 
   const cnt = s => judged.filter(j => j.state === s).length;
   $('made-summary').innerHTML =
     admgrTile('자체제작 상품', rows.length + '개', false) +
-    admgrTile(admgrDot('#ef4444') + '주문 필요', cnt('order') + '개', false) +
+    admgrTile(admgrDot('#ef4444') + (madeState.ez ? '주문 필요 (입고 예정 반영)' : '주문 필요'), cnt('order') + '개', false) +
+    admgrTile(admgrDot('#0ea5e9') + '입고 예정 (이지픽 잔여)', madeState.ez ? fmt(judged.reduce((t, j) => t + j.incoming, 0)) + '개' : '—', false) +
     admgrTile(admgrDot('#f97316') + '임박 (안정재고 +3일치 이내)', cnt('soon') + '개', false) +
     admgrTile(admgrDot('#22c55e') + '여유', cnt('ok') + '개', false) +
     admgrTile('제작처 미지정', cnt('notag') + '개', false);
@@ -5650,12 +5779,21 @@ function madeRender() {
 
   const badge = (bg, col, txt) => `<span style="background:${bg};color:${col};border-radius:99px;padding:2px 10px;font-size:.72rem;font-weight:700;white-space:nowrap;">${txt}</span>`;
   const stateCell = j =>
-    j.state === 'order' ? badge('#fee2e2', '#b91c1c', '주문 필요') + `<div style="font-size:.62rem;color:#6b7280;">${j.opts && j.opts.length ? `옵션 ${j.opts.filter(o => o.state === 'order').length}개 부족` : `가용 ${fmt(j.avail)} &lt; 안정 ${fmt(j.safety)}`}</div>`
+    j.state === 'order' ? badge('#fee2e2', '#b91c1c', '주문 필요') + `<div style="font-size:.62rem;color:#6b7280;">${j.opts && j.opts.length ? `옵션 ${j.opts.filter(o => o.state === 'order').length}개 부족` : `${j.incoming > 0 ? '입고 후' : '가용'} ${fmt(j.afterIn)} &lt; 안정 ${fmt(j.safety)}`}</div>`
     : j.state === 'soon' ? badge('#ffedd5', '#c2410c', '임박') + `<div style="font-size:.62rem;color:#6b7280;">여유 ${Math.max(0, j.runout - (j.basisDays || 0)).toFixed(1)}일</div>`
     : j.state === 'ok' ? badge('#dcfce7', '#15803d', '여유')
     : j.state === 'notag' ? badge('#f3f4f6', '#6b7280', '제작처 지정 필요')
     : j.state === 'nostock' ? badge('#f3f4f6', '#6b7280', '재고 CSV 필요')
     : badge('#f3f4f6', '#6b7280', '판매 없음');
+  // 입고 후 과부족: (가용 + 입고 예정) − 안정재고. 음수 = 부족(추가 주문), 양수 = 여유
+  const gapCell = j => {
+    if (j.gap == null) return '<span style="color:#9ca3af;">—</span>';
+    const sub = j.afterIn != null ? `<div style="font-size:.6rem;font-weight:500;color:#6b7280;">입고 후 ${fmt(j.afterIn)}</div>` : '';
+    if (j.gap < 0) return `<span style="font-weight:800;color:#b91c1c;">부족 ${fmt(-j.gap)}장</span>${sub}`;
+    if (j.gap === 0) return `<span style="font-weight:700;color:#374151;">딱 맞음</span>${sub}`;
+    return `<span style="font-weight:700;color:#15803d;">여유 ${fmt(j.gap)}장</span>${sub}`;
+  };
+  const inCell = j => j.incoming > 0 ? `<span style="font-weight:700;color:#0369a1;">+${fmt(j.incoming)}</span>` : `<span style="color:#9ca3af;">${j.afterIn != null || j.ezNote ? '0' : '—'}</span>`;
   const avgCell = (v, days, full) => `${v.toFixed(1)}<span style="font-size:.66rem;color:#6b7280;">/일</span>` +
     (days < full ? `<div style="font-size:.62rem;color:#c2410c;font-weight:700;" title="판매 시작이 최근이라 실제 판매일수로 나눔">판매 ${days}일</div>` : '');
 
@@ -5664,8 +5802,10 @@ function madeRender() {
       <th style="text-align:left;">상품명</th><th>제작처</th><th class="m-hide">리드타임</th>
       <th class="m-hide">3일 평균</th><th>7일 평균</th><th class="m-hide">30일 순판매</th>
       <th>가용재고<div style="font-size:.62rem;font-weight:500;color:#6b7280;">현재고−미발송</div></th>
+      <th>입고 예정<div style="font-size:.62rem;font-weight:500;color:#6b7280;">이지픽 잔여</div></th>
       <th>안정재고<div style="font-size:.62rem;font-weight:500;color:#6b7280;">일평균×리드(≥3) / ×3일(&lt;3)</div></th>
-      <th>판정</th><th>권장 주문량<div style="font-size:.62rem;font-weight:500;color:#6b7280;">안정재고 − 가용재고</div></th>
+      <th>입고 후 과부족<div style="font-size:.62rem;font-weight:500;color:#6b7280;">(가용+입고 예정) − 안정재고</div></th>
+      <th>판정</th><th>권장 주문량<div style="font-size:.62rem;font-weight:500;color:#6b7280;">안정재고 − (가용+입고 예정)</div></th>
       <th class="m-hide">최소 주문<div style="font-size:.62rem;font-weight:500;color:#6b7280;">MOQ</div></th>
     </tr></thead><tbody>`;
   for (const j of judged) {
@@ -5688,7 +5828,9 @@ function madeRender() {
       <td style="font-weight:700;">${avgCell(j.avg7, j.days7, 7)}</td>
       <td class="m-hide">${fmt(j.net30)}</td>
       <td>${j.avail != null ? `<b>${fmt(j.avail)}</b><div style="font-size:.62rem;color:#6b7280;">${fmt(j.st.stock)} − ${fmt(j.st.unshipped)}</div>` : '<span style="color:#9ca3af;">—</span>'}</td>
-      <td style="font-weight:700;">${j.safety != null ? fmt(j.safety) : '<span style="color:#9ca3af;">—</span>'}</td>
+      <td>${inCell(j)}</td>
+      <td style="font-weight:700;">${j.safety != null ? fmt(j.safety) : '<span style="color:#9ca3af;">—</span>'}${j.safeCsv != null && j.safety != null && j.safeCsv !== j.safety ? `<div style="font-size:.6rem;font-weight:500;color:#9ca3af;" title="셀메이트 CSV의 안정재고 열 합계">셀메이트 설정 ${fmt(j.safeCsv)}</div>` : ''}</td>
+      <td>${gapCell(j)}</td>
       <td>${stateCell(j)}</td>
       <td style="font-weight:800;color:${j.rec ? '#b91c1c' : '#9ca3af'};">${j.rec != null ? (j.rec > 0 ? fmt(j.rec) + '개' : '충분') : '—'}<div style="font-size:.6rem;font-weight:500;color:#6b7280;">${j.rec != null ? (j.moqApplied ? '최소 주문 수량 적용' : (nOpt ? '옵션 합계' : '')) : ''}</div></td>
       <td class="m-hide">${canTag
@@ -5701,19 +5843,21 @@ function madeRender() {
         <span style="width:76px;text-align:right;">${o.avg7.toFixed(1)}<span style="font-size:.64rem;color:#6b7280;">/일</span></span>
         <span style="width:64px;text-align:right;color:#6b7280;">${fmt(o.net30)}<span style="font-size:.64rem;">/30일</span></span>
         <span style="width:76px;text-align:right;">${o.avail != null ? '<b>' + fmt(o.avail) + '</b>' : '<span style="color:#9ca3af;">매칭 없음</span>'}</span>
-        <span style="width:84px;text-align:right;font-weight:700;" title="${o.basisDays ? `일평균 ${o.avg7.toFixed(1)} × ${o.basisDays}일` : ''}">${o.safety != null ? fmt(o.safety) + `<span style="font-size:.6rem;color:#6b7280;font-weight:500;"> ×${o.basisDays}일</span>` : '—'}</span>
+        <span style="width:96px;text-align:right;" title="${escHtml(o.ezNote)}">${inCell(o)}${o.ezNote ? `<div style="font-size:.58rem;color:#9ca3af;">${escHtml(o.ezNote)}</div>` : ''}</span>
+        <span style="width:84px;text-align:right;font-weight:700;" title="${o.basisDays ? `일평균 ${o.avg7.toFixed(1)} × ${o.basisDays}일` : ''}">${o.safety != null ? fmt(o.safety) + `<span style="font-size:.6rem;color:#6b7280;font-weight:500;"> ×${o.basisDays}일</span>` : '—'}${o.safeCsv != null && o.safety != null && o.safeCsv !== o.safety ? `<div style="font-size:.58rem;font-weight:500;color:#9ca3af;">셀메이트 설정 ${fmt(o.safeCsv)}</div>` : ''}</span>
+        <span style="width:96px;text-align:right;">${gapCell(o)}</span>
         <span style="width:110px;text-align:center;">${stateCell(o)}</span>
         <span style="width:86px;text-align:right;font-weight:800;color:${o.rec ? '#b91c1c' : '#9ca3af'};">${o.rec != null ? (o.rec > 0 ? fmt(o.rec) + '개' : '충분') : '—'}</span>
       </div>`).join('');
       html += `<tr id="made-opt-${j.product_no}" style="display:${open ? '' : 'none'};">
-        <td colspan="11" style="background:#f8f9ff;text-align:left;padding:8px 18px;font-size:.78rem;color:#374151;">
+        <td colspan="13" style="background:#f8f9ff;text-align:left;padding:8px 18px;font-size:.78rem;color:#374151;">
           <div style="display:flex;gap:10px;color:#6b7280;font-size:.66rem;font-weight:700;padding-bottom:3px;border-bottom:1px solid #e5e7eb;">
-            <span style="flex:1;min-width:150px;">옵션</span><span style="width:76px;text-align:right;">7일 평균</span><span style="width:64px;text-align:right;">30일 순판매</span><span style="width:76px;text-align:right;">가용재고</span><span style="width:84px;text-align:right;">안정재고</span><span style="width:110px;text-align:center;">판정</span><span style="width:86px;text-align:right;">권장 주문량</span>
+            <span style="flex:1;min-width:150px;">옵션</span><span style="width:76px;text-align:right;">7일 평균</span><span style="width:64px;text-align:right;">30일 순판매</span><span style="width:76px;text-align:right;">가용재고</span><span style="width:96px;text-align:right;">입고 예정</span><span style="width:84px;text-align:right;">안정재고</span><span style="width:96px;text-align:right;">입고 후 과부족</span><span style="width:110px;text-align:center;">판정</span><span style="width:86px;text-align:right;">권장 주문량</span>
           </div>${optRows}</td></tr>`;
     }
   }
   $('made-result').innerHTML = html + '</tbody></table></div>' +
-    `<div style="font-size:.72rem;color:#6b7280;margin-top:8px;">안정재고 = 일평균 3개 이상 옵션은 일평균 × 리드타임, 3개 미만은 일평균 × 3일 · 권장 주문량 = 안정재고 − 가용재고(옵션별 합계, 최소 주문 수량 미만이면 최소 주문 수량) · 리드타임 기본값: 중국 10일 / 국내 5일 · 제작처·리드타임·최소 주문 수량 지정은 관리자·MD</div>`;
+    `<div style="font-size:.72rem;color:#6b7280;margin-top:8px;">안정재고 = 일평균 3개 이상 옵션은 일평균 × 리드타임, 3개 미만은 일평균 × 3일 · 입고 예정 = 이지픽 제작상품 엑셀의 잔여수량(주문 − 입고) · 입고 후 과부족 = (가용재고 + 입고 예정) − 안정재고 · 권장 주문량 = 부족분(옵션별 합계, 최소 주문 수량 미만이면 최소 주문 수량) · 리드타임 기본값: 중국 10일 / 국내 5일 · 제작처·리드타임·최소 주문 수량 지정은 관리자·MD</div>`;
 }
 
 /* 기존 도구와 동일한 추천 규칙 (3.0은 ×4 구간) */
