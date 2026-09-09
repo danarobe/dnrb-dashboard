@@ -5558,7 +5558,7 @@ async function handleMadeCSV(e) {
       const name = (c[col.name] || '').trim();
       if (!name) continue;
       const key = stkNorm(name);
-      const cur = stock.get(key) || { stock: 0, unshipped: 0, safe: null, rows: [] };
+      const cur = stock.get(key) || { name, stock: 0, unshipped: 0, safe: null, rows: [] };   // name = 셀메이트 원본 상품명(수동 매칭 검색·표시용)
       const st = toNum(c[col.stock]);
       const un = col.unshipped >= 0 ? toNum(c[col.unshipped]) : 0;
       const sf = safeCol >= 0 && String(c[safeCol] ?? '').trim() !== '' ? toNum(c[safeCol]) : null;
@@ -5676,7 +5676,7 @@ function madeCoreName(name) {
 // 제작처·리드타임 저장 — admin만 (서버 강제)
 async function madeSetTag(no, patch) {
   const cur = madeState.tags.get(no) || {};
-  const row = { product_no: no, origin: cur.origin ?? null, lead_days: cur.lead_days ?? null, moq: cur.moq ?? null, ...patch, updated_by: SESSION.name, updated_at: new Date().toISOString() };
+  const row = { product_no: no, origin: cur.origin ?? null, lead_days: cur.lead_days ?? null, moq: cur.moq ?? null, stk_name: cur.stk_name ?? null, ...patch, updated_by: SESSION.name, updated_at: new Date().toISOString() };
   try {
     await dbProxy('made_products?on_conflict=product_no', { method: 'POST', body: JSON.stringify(row), headers: { Prefer: 'resolution=merge-duplicates,return=minimal' } });
     madeState.tags.set(no, row);
@@ -5686,6 +5686,52 @@ async function madeSetTag(no, patch) {
 function madeSetOrigin(no, v) { madeSetTag(no, { origin: v || null }); }
 function madeSetLead(no, v) { const n = parseInt(v); madeSetTag(no, { lead_days: isFinite(n) && n > 0 ? n : null }); }
 function madeSetMoq(no, v) { const n = parseInt(v); madeSetTag(no, { moq: isFinite(n) && n > 0 ? n : null }); }   // 최소 주문 수량 (2026-09-07)
+// ── 셀메이트 수동 매칭 (2026-09-09 사용자 요청): 이름이 달라 자동 매칭이 안 되는 상품을 CSV 상품 목록에서 검색해 연결. made_products.stk_name(셀메이트 원본 상품명)에 저장 → 양쪽 시스템 공유 ──
+function madeStockOf(r, tag) {
+  if (!madeState.stock) return null;
+  if (tag && tag.stk_name) { const m = madeState.stock.get(stkNorm(tag.stk_name)); if (m) return m; }   // 수동 매칭 우선 (CSV에 없으면 자동으로 폴백)
+  return madeState.stock.get(stkNorm(r.product_name)) || null;
+}
+function madeMatchOpen(no) {
+  if (!madeState.stock) { showToast('먼저 셀메이트 재고 CSV를 올려주세요'); return; }
+  const r = (madeState.rows || []).find(x => x.product_no === no);
+  if (!r) return;
+  const tag = madeState.tags.get(no) || {};
+  const old = $('made-match-modal'); if (old) old.remove();
+  const wrap = document.createElement('div');
+  wrap.id = 'made-match-modal';
+  wrap.style.cssText = 'position:fixed;inset:0;background:rgba(17,24,39,.45);z-index:9000;display:flex;align-items:center;justify-content:center;padding:16px;';
+  wrap.onclick = e => { if (e.target === wrap) wrap.remove(); };
+  wrap.innerHTML = `<div style="background:#fff;border-radius:14px;width:min(640px,100%);max-height:85vh;display:flex;flex-direction:column;box-shadow:0 20px 50px rgba(0,0,0,.25);">
+    <div style="padding:14px 18px;border-bottom:1px solid #e5e7eb;">
+      <div style="font-weight:800;font-size:.95rem;">셀메이트 상품 수동 매칭</div>
+      <div style="font-size:.76rem;color:#6b7280;margin-top:3px;">카페24: <b style="color:#111827;">${escHtml(r.product_name)}</b>${tag.stk_name ? `<br>현재 매칭: <b style="color:#0369a1;">${escHtml(tag.stk_name)}</b> <button onclick="madeMatchSet(${no}, null)" style="margin-left:6px;border:1px solid #fca5a5;background:#fef2f2;color:#b91c1c;border-radius:6px;padding:1px 8px;font-size:.7rem;font-weight:700;cursor:pointer;">매칭 해제</button>` : ''}</div>
+      <input id="made-match-q" type="text" placeholder="셀메이트 상품명 검색 (띄어쓰기·기호 무시)" oninput="madeMatchList(${no})" style="margin-top:10px;width:100%;box-sizing:border-box;border:1.5px solid #d1d5db;border-radius:8px;padding:8px 10px;font-size:.84rem;" />
+    </div>
+    <div id="made-match-list" style="overflow:auto;padding:6px 10px 12px;font-size:.8rem;"></div>
+  </div>`;
+  document.body.appendChild(wrap);
+  madeMatchList(no);
+  setTimeout(() => { const q = $('made-match-q'); if (q) q.focus(); }, 30);
+}
+function madeMatchList(no) {
+  const q = stkNorm(($('made-match-q') || {}).value || '');
+  const used = new Map();   // 이미 다른 카페24 상품에 수동 매칭된 셀메이트 상품 표시
+  for (const [pno, t] of madeState.tags) if (t.stk_name && pno !== no) used.set(stkNorm(t.stk_name), pno);
+  const all = [...madeState.stock.entries()].map(([key, e]) => ({ key, e, usedBy: used.get(key) }));
+  const hit = (q ? all.filter(x => x.key.includes(q)) : all).slice(0, 60);
+  $('made-match-list').innerHTML = hit.length ? hit.map(x => `<div style="display:flex;align-items:center;gap:10px;padding:7px 6px;border-bottom:1px dashed #eef0f5;">
+      <div style="flex:1;min-width:0;"><div style="font-weight:600;word-break:break-all;">${escHtml(x.e.name)}</div>
+        <div style="font-size:.68rem;color:#6b7280;">옵션 ${x.e.rows.length}개 · 현재고 ${fmt(x.e.stock)} · 미발송 ${fmt(x.e.unshipped)}${x.usedBy ? ` · <span style="color:#c2410c;">다른 상품(${x.usedBy})에 매칭됨</span>` : ''}</div></div>
+      <button onclick="madeMatchSet(${no}, ${JSON.stringify(x.e.name).replace(/"/g, '&quot;')})" style="border:1px solid #c7d2fe;background:#eef2ff;color:#4338ca;border-radius:6px;padding:4px 10px;font-size:.72rem;font-weight:700;cursor:pointer;white-space:nowrap;">이 상품으로 매칭</button>
+    </div>`).join('') + (all.length > 60 && hit.length === 60 ? '<div style="padding:8px;color:#9ca3af;font-size:.72rem;">60개까지만 표시 — 검색어를 더 입력하세요</div>' : '')
+    : '<div style="padding:16px;color:#9ca3af;text-align:center;">검색 결과 없음 — 셀메이트에 아직 등록 전인 상품일 수 있어요</div>';
+}
+async function madeMatchSet(no, name) {
+  await madeSetTag(no, { stk_name: name || null });
+  const m = $('made-match-modal'); if (m) m.remove();
+  showToast(name ? '셀메이트 상품과 매칭했어요' : '매칭을 해제했어요');
+}
 function madeLeadOf(tag) { return (tag && tag.lead_days) || (tag && tag.origin ? MADE_LEAD[tag.origin] : null); }
 
 function madeRender() {
@@ -5707,7 +5753,8 @@ function madeRender() {
   const judged = rows.map(r => {
     const tag = madeState.tags.get(r.product_no);
     const lead = madeLeadOf(tag);
-    const st = hasStock ? madeState.stock.get(stkNorm(r.product_name)) : null;
+    const st = madeStockOf(r, tag);   // 수동 매칭(stk_name) 우선, 없으면 상품명 자동 매칭
+    const manual = !!(tag && tag.stk_name && st && stkNorm(tag.stk_name) === stkNorm(st.name));
     const avail = st ? Math.max(0, st.stock - st.unshipped) : null;
     const ezE = madeEzOf(r.product_name);   // 이지픽 제작상품(입고 예정) — 2026-09-09
     // 옵션별: 카페24 option_value ↔ 셀메이트 옵션 토큰 매칭 (안정재고와 동일 규칙 — 정확 일치 후 느슨 일치)
@@ -5750,7 +5797,7 @@ function madeRender() {
       const pj = judgeOne(r.avg7, afterIn, lead);   // 상품 합계 기준 (옵션이 없거나 전부 미매칭일 때 대비) — 입고 예정 포함
       safety = opts.length ? opts.reduce((t, o) => t + (o.safety || 0), 0) : pj.safety;   // 안정재고 = 옵션 합
       basisDays = pj.basisDays;
-      if (avail == null) { state = 'nostock'; rank = 3; }
+      if (avail == null) { state = hasStock ? 'nomatch' : 'nostock'; rank = 3; }   // CSV는 있는데 못 찾음 = 매칭불가(미등록/이름다름) → 수동 매칭 대상
       else {
         const worst = opts.reduce((w, o) => o.rank < w.rank ? o : w, { rank: 99 });
         if (worst.rank < 99 && worst.rank <= pj.rank) { state = worst.state; rank = worst.rank; }
@@ -5764,7 +5811,8 @@ function madeRender() {
       }
     }
     const gap = afterIn != null && safety != null && r.avg7 > 0 ? afterIn - safety : null;
-    return { ...r, tag, lead, st, avail, incoming, afterIn, gap, safeCsv, runout, state, rec, rank, opts, safety, basisDays, moq, moqApplied };
+    if (state === 'notag' && hasStock && avail == null) { state = 'nomatch'; rank = 3; }   // 제작처 미지정이어도 매칭부터 보이게
+    return { ...r, tag, lead, st, manual, avail, incoming, afterIn, gap, safeCsv, runout, state, rec, rank, opts, safety, basisDays, moq, moqApplied };
   }).sort((a, b) => a.rank - b.rank || b.avg7 - a.avg7);
 
   const cnt = s => judged.filter(j => j.state === s).length;
@@ -5774,7 +5822,8 @@ function madeRender() {
     admgrTile(admgrDot('#0ea5e9') + '입고 예정 (이지픽 잔여)', madeState.ez ? fmt(judged.reduce((t, j) => t + j.incoming, 0)) + '개' : '—', false) +
     admgrTile(admgrDot('#f97316') + '임박 (안정재고 +3일치 이내)', cnt('soon') + '개', false) +
     admgrTile(admgrDot('#22c55e') + '여유', cnt('ok') + '개', false) +
-    admgrTile('제작처 미지정', cnt('notag') + '개', false);
+    admgrTile('제작처 미지정', cnt('notag') + '개', false) +
+    (hasStock ? admgrTile(admgrDot('#a855f7') + '매칭불가 (미등록/이름다름)', cnt('nomatch') + '개', false) : '');
   $('made-summary').style.display = 'grid';
 
   const badge = (bg, col, txt) => `<span style="background:${bg};color:${col};border-radius:99px;padding:2px 10px;font-size:.72rem;font-weight:700;white-space:nowrap;">${txt}</span>`;
@@ -5784,6 +5833,7 @@ function madeRender() {
     : j.state === 'ok' ? badge('#dcfce7', '#15803d', '여유')
     : j.state === 'notag' ? badge('#f3f4f6', '#6b7280', '제작처 지정 필요')
     : j.state === 'nostock' ? badge('#f3f4f6', '#6b7280', '재고 CSV 필요')
+    : j.state === 'nomatch' ? badge('#f3e8ff', '#7e22ce', '매칭불가') + `<div style="font-size:.62rem;color:#6b7280;">미등록/이름다름</div>`
     : badge('#f3f4f6', '#6b7280', '판매 없음');
   // 입고 후 과부족: (가용 + 입고 예정) − 안정재고. 음수 = 부족(추가 주문), 양수 = 여유
   const gapCell = j => {
@@ -5821,7 +5871,11 @@ function madeRender() {
     const open = madeState.open && madeState.open.has(j.product_no);
     html += `<tr>
       <td style="text-align:left;min-width:180px;font-weight:600;">${escHtml(j.product_name)}${j.first_sale ? `<div style="font-size:.64rem;color:#6b7280;">첫 판매 ${j.first_sale}</div>` : ''}
-        ${nOpt ? `<button onclick="madeToggleOpts(${j.product_no})" style="margin-top:3px;border:1px solid #c7d2fe;background:#eef2ff;color:#4338ca;border-radius:6px;padding:2px 9px;font-size:.7rem;font-weight:700;cursor:pointer;">옵션 ${nOpt}개 ${open ? '▴' : '▾'}</button>` : ''}</td>
+        ${j.manual ? `<div style="font-size:.64rem;color:#0369a1;font-weight:600;">셀메이트: ${escHtml(j.st.name)} <span style="color:#6b7280;font-weight:500;">(수동 매칭)</span></div>` : (j.tag && j.tag.stk_name && hasStock && !j.st ? `<div style="font-size:.64rem;color:#c2410c;">수동 매칭한 '${escHtml(j.tag.stk_name)}'이(가) 이 CSV에 없어요</div>` : '')}
+        <div style="display:flex;gap:4px;flex-wrap:wrap;margin-top:3px;">
+        ${nOpt ? `<button onclick="madeToggleOpts(${j.product_no})" style="border:1px solid #c7d2fe;background:#eef2ff;color:#4338ca;border-radius:6px;padding:2px 9px;font-size:.7rem;font-weight:700;cursor:pointer;">옵션 ${nOpt}개 ${open ? '▴' : '▾'}</button>` : ''}
+        ${canTag && hasStock ? `<button onclick="madeMatchOpen(${j.product_no})" style="border:1px solid ${j.state === 'nomatch' ? '#d8b4fe' : '#e5e7eb'};background:${j.state === 'nomatch' ? '#faf5ff' : '#f9fafb'};color:${j.state === 'nomatch' ? '#7e22ce' : '#6b7280'};border-radius:6px;padding:2px 9px;font-size:.7rem;font-weight:700;cursor:pointer;">${j.state === 'nomatch' ? '셀메이트 상품 찾기' : (j.manual ? '매칭 변경' : '수동 매칭')}</button>` : ''}
+        </div></td>
       <td>${originCell}</td>
       <td class="m-hide">${leadCell}</td>
       <td class="m-hide">${avgCell(j.avg3, j.days3, 3)}</td>
@@ -5857,7 +5911,7 @@ function madeRender() {
     }
   }
   $('made-result').innerHTML = html + '</tbody></table></div>' +
-    `<div style="font-size:.72rem;color:#6b7280;margin-top:8px;">안정재고 = 일평균 3개 이상 옵션은 일평균 × 리드타임, 3개 미만은 일평균 × 3일 · 입고 예정 = 이지픽 제작상품 엑셀의 잔여수량(주문 − 입고) · 입고 후 과부족 = (가용재고 + 입고 예정) − 안정재고 · 권장 주문량 = 부족분(옵션별 합계, 최소 주문 수량 미만이면 최소 주문 수량) · 리드타임 기본값: 중국 10일 / 국내 5일 · 제작처·리드타임·최소 주문 수량 지정은 관리자·MD</div>`;
+    `<div style="font-size:.72rem;color:#6b7280;margin-top:8px;">안정재고 = 일평균 3개 이상 옵션은 일평균 × 리드타임, 3개 미만은 일평균 × 3일 · 입고 예정 = 이지픽 제작상품 엑셀의 잔여수량(주문 − 입고) · 입고 후 과부족 = (가용재고 + 입고 예정) − 안정재고 · 권장 주문량 = 부족분(옵션별 합계, 최소 주문 수량 미만이면 최소 주문 수량) · 리드타임 기본값: 중국 10일 / 국내 5일 · 제작처·리드타임·최소 주문 수량 지정은 관리자·MD · <b>매칭불가</b> = CSV에서 같은 이름을 못 찾은 상품(셀메이트 미등록이거나 이름이 다름) — '셀메이트 상품 찾기'로 검색해 수동 매칭하면 양쪽 시스템에 기억됩니다</div>`;
 }
 
 /* 기존 도구와 동일한 추천 규칙 (3.0은 ×4 구간) */
