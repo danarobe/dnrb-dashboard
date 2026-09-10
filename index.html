@@ -1919,6 +1919,11 @@
         </ul>
       </div>
       <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px;margin-bottom:8px;">
+        <!-- 담당자/주문자 분리 (2026-09-10 사용자 요청 — 알바 주문도 올릴 수 있게): 담당자 = 로그인 계정(서버가 강제, 수정 불가), 주문자 = 기본 본인 이름·직접 수정 가능 -->
+        <label style="display:flex;flex-direction:column;gap:4px;font-size:.74rem;color:#6b7280;font-weight:700;">담당자 <span style="font-weight:500;">(입력자 · 고정)</span>
+          <input id="purch-handler" readonly tabindex="-1" style="border:1.5px solid #e5e7eb;border-radius:8px;padding:8px 10px;font-size:.85rem;outline:none;background:#f3f4f6;color:#6b7280;" /></label>
+        <label style="display:flex;flex-direction:column;gap:4px;font-size:.74rem;color:#6b7280;font-weight:700;">주문자 <span style="font-weight:500;">(알바 등 다른 사람이면 이름 수정)</span>
+          <input id="purch-orderer" maxlength="40" placeholder="주문하는 사람 이름" style="border:1.5px solid #d1d5db;border-radius:8px;padding:8px 10px;font-size:.85rem;outline:none;" /></label>
         <label style="display:flex;flex-direction:column;gap:4px;font-size:.74rem;color:#6b7280;font-weight:700;">주문요청일
           <input type="date" id="purch-date" style="border:1.5px solid #d1d5db;border-radius:8px;padding:8px 10px;font-size:.85rem;outline:none;" /></label>
         <label style="display:flex;flex-direction:column;gap:4px;font-size:.74rem;color:#6b7280;font-weight:700;">거래처
@@ -3838,7 +3843,14 @@ const PURCH_ST = {
 const purchState = { rows: [], mgrs: new Set(), filter: 'all', users: null, loading: false };
 const purchCanManage = () => isAdmin() || (SESSION && purchState.mgrs.has(SESSION.id));
 
+function purchFillNames() {   // 담당자 = 로그인 이름(고정), 주문자 = 비어 있을 때만 본인 이름으로
+  if (!SESSION) return;
+  const h = $('purch-handler'), o = $('purch-orderer');
+  if (h) h.value = SESSION.name;
+  if (o && !o.value.trim()) o.value = SESSION.name;
+}
 async function purchLoad() {
+  purchFillNames();
   if (purchState.loading) return;
   purchState.loading = true;
   const btn = $('btn-purch');
@@ -3870,10 +3882,12 @@ async function purchAdd() {
       body: JSON.stringify({
         req_date, vendor: $('purch-vendor').value.trim(), item_name: item,
         option_txt: $('purch-opt').value.trim(), qty, price: isFinite(price) ? price : 0,
-        requester_id: SESSION.id, requester_name: SESSION.name,
+        requester_id: SESSION.id, requester_name: SESSION.name,   // 담당자 — 서버(db 프록시)가 로그인 이름으로 다시 덮어씀
+        orderer_name: ($('purch-orderer').value.trim() || SESSION.name).slice(0, 40),   // 주문자 — 비우면 본인
       }),
     });
     ['purch-vendor', 'purch-item', 'purch-opt'].forEach(id => { $(id).value = ''; });
+    $('purch-orderer').value = SESSION.name;
     $('purch-qty').value = 1; $('purch-price').value = '';
     showToast('구매 요청이 등록됐습니다');
     purchLoad();
@@ -3944,7 +3958,7 @@ function purchRender() {
   const canMg = purchCanManage();
   let html = `<div class="table-wrap"><table>
     <thead><tr>
-      <th>주문요청일</th><th class="m-hide">주문자</th><th class="m-hide">거래처</th><th style="text-align:left;">사입명</th>
+      <th>주문요청일</th><th class="m-hide">담당자<div style="font-size:.62rem;font-weight:500;color:#6b7280;">입력자</div></th><th>주문자</th><th class="m-hide">거래처</th><th style="text-align:left;">사입명</th>
       <th class="m-hide">옵션</th><th>수량</th><th>가격<div style="font-size:.62rem;font-weight:500;color:#6b7280;">VAT 10% 포함</div></th>
       <th>입금여부</th><th>상태</th><th class="m-hide">확인</th><th class="m-hide"></th>
     </tr></thead><tbody>`;
@@ -3980,6 +3994,7 @@ function purchRender() {
     html += `<tr>
       <td style="white-space:nowrap;">${r.req_date || '—'}</td>
       <td class="m-hide" style="white-space:nowrap;">${escHtml(r.requester_name)}</td>
+      <td style="white-space:nowrap;font-weight:600;">${escHtml(r.orderer_name || r.requester_name)}${r.orderer_name && r.orderer_name !== r.requester_name ? `<div style="font-size:.62rem;color:#6b7280;font-weight:500;">담당 ${escHtml(r.requester_name)}</div>` : ''}</td>
       <td class="m-hide">${escHtml(r.vendor) || '—'}</td>
       <td style="text-align:left;min-width:140px;font-weight:600;">${escHtml(r.item_name)}</td>
       <td class="m-hide">${escHtml(r.option_txt) || '—'}</td>

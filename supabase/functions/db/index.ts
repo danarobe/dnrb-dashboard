@@ -80,6 +80,13 @@ Deno.serve(async (req) => {
         if (rows.some((r) => String((r as Record<string, unknown>)?.requester_id) !== me.id)) {
           return json({ error: "본인 명의로만 등록할 수 있습니다" }, 400);
         }
+        // 담당자(requester_name)는 로그인 계정 이름으로 서버가 덮어쓴다 — 클라이언트가 바꿀 수 없음 (2026-09-10 사용자 요청: 담당자/주문자 분리,
+        // 주문자 orderer_name은 알바 등 타인 이름 입력 가능, 비우면 담당자 이름)
+        for (const r of rows as Record<string, unknown>[]) {
+          r.requester_name = me.name;
+          const on = String(r.orderer_name ?? "").trim().slice(0, 40);
+          r.orderer_name = on || me.name;
+        }
       }
       if (m === "PATCH" || m === "DELETE") {
         let isMgr = me.role === "admin";
