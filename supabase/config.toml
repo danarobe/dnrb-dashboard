@@ -33,7 +33,3 @@ verify_jwt = true
 # 근무관리 키오스크 — 기기 토큰 + PIN 세션 (anon key는 인증 아님)
 [functions.wm-kiosk]
 verify_jwt = true
-
-# 매출 분석 에이전트 — 관리자 로그인 또는 x-cron-secret(pg_cron 08:00 KST)
-[functions.sales-agent]
-verify_jwt = true

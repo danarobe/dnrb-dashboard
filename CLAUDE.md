@@ -55,7 +55,7 @@ curl -s -X POST "https://api.supabase.com/v1/projects/eeffmbusaqaadeojjlnc/datab
 | `meta-ads` | Meta 광고관리자(Graph v23.0) summary/topads/**dateads/activeads**/adstats/preview는 관리자+MD, **hierarchy/testads/budgethistory/hourlystats(광고관리자 전용 액션)는 관리자만**(2026-08-26) |
 | `meta-budget` | **예산 쓰기**(2026-08-26): status/pending/apply/schedule/cancel/**run**(자정 cron). 쓰기 토큰(META_WRITE_TOKEN)은 이 함수만 사용 — 읽기 함수와 분리 | admin+WRITE_USER_IDS+PIN |
 | `wm-me` | **마이페이지**(2026-08-27): me/leave_request/leave_cancel + **payslip_list / payslip_file(2026-09-10)**. 로그인 계정 → `wm_employees.app_user_id`로 본인 행만 조회·쓰기. me 응답엔 급여·계좌 없음, 급여 명세서 파일은 `wm_payslips.employee_id=본인` 조건으로만 목록·바이트 중계(타인 id → 404, 무토큰 401) | 로그인 전원 |
-| `sales-agent` | **매출 분석 에이전트**(2026-09-10, 에이전트 그룹 1호): run(리포트 생성·저장·관리자 알림)/collect(수집 숫자만, 점검용)/status. 매일 **08:00 KST pg_cron `sales-agent-morning`(0 23 * * * UTC, x-cron-secret)** + 대시보드 `#report` [지금 분석하기]. 자세한 건 §5 매출 리포트 | 관리자 또는 x-cron-secret |
+| (외부) `sales-agent` | **매출 분석 에이전트 — 별도 저장소 `~/dnrb-agents` 소속**(2026-09-10 분리). 같은 Supabase 프로젝트에 배포되며 이 저장소의 cafe24-analytics/cafe24-claims/meta-ads를 `x-agent-secret`(AGENT_SECRET)으로 admin 호출한다. 이 저장소에는 SSO 링크(`agentsOpen`)와 secret 인정 코드만 있음 | 관리자 또는 x-cron-secret |
 | `auth` `issue_for` | **상품관리 → 대시보드 토큰 발급**(2026-09-07 계정 공통화): x-sync-secret(NPM_SYNC_SECRET) 서버 간 호출로 {id}의 로그인 토큰(7일) 반환, 없는 아이디 404. 클라 `loadSession()`이 `#sso=base64url(json)` 해시를 읽어 세션으로 저장 후 해시 제거. 반대로 상품관리 로그인은 로컬 실패 시 대시보드 `login`으로 검증(대시보드 비밀번호 = 상품관리 비밀번호). 웹디자이너1·심진영·임지은만 상품관리 전용 계정 | 서버 간(비밀키) |
 | `auth` `npm_sso` | **상품관리 시스템 SSO 토큰**(2026-09-07): 로그인 토큰 확인 후 {id,name,role(DB 원본),exp 2분}을 NPM_SYNC_SECRET HMAC으로 서명해 반환 → 클라 `npmOpen()`이 `newproduct-manager/api/sso?t=`로 새 탭 열기. 상품 관리 메뉴 = 관리자·MD·**물류팀**(물류팀은 저쪽에서 자체제작 관리만). 실패 시 로그인 화면으로 폴백 | 로그인 전원(역할 매핑은 저쪽에서) |
 
@@ -80,7 +80,7 @@ curl -s -X POST "https://api.supabase.com/v1/projects/eeffmbusaqaadeojjlnc/datab
 - 인증: `AUTH_SECRET`
 - Meta: `META_ACCESS_TOKEN`(무기한 ads_read 시스템 사용자 토큰), `META_AD_ACCOUNT_ID`(343611764656087). **secrets 변경 후 함수 재배포 필요**.
 - 네이버(미사용): `NAVER_CLIENT_ID/SECRET`, `NAVER_PROXY_URL`
-- 매출 분석 에이전트: `ANTHROPIC_API_KEY`(Claude — **사용자가 console.anthropic.com에서 발급해 넣어야 함, 미설정이면 run이 error 행만 남김**), `AGENT_SECRET`(sales-agent → cafe24-analytics/cafe24-claims/meta-ads 호출 시 admin 인정, 2026-09-10 설정 완료), `CRON_SECRET`(meta-budget과 공유), `SUPABASE_ANON_KEY`(함수 게이트웨이 통과용)
+- 매출 분석 에이전트(~/dnrb-agents): `AGENT_SECRET`(이 저장소 세 함수가 admin으로 인정, 2026-09-10 설정 완료). `ANTHROPIC_API_KEY`·cron 등 나머지는 그쪽 CLAUDE.md 참조
 
 ---
 
@@ -95,7 +95,7 @@ curl -s -X POST "https://api.supabase.com/v1/projects/eeffmbusaqaadeojjlnc/datab
 - `disp_season_out` (진열 시즌 제외 상품, admin 전용)
 - `profit_archive` (순익 시나리오 기간별 기록, admin)
 - `ad_test_state` (테스트 소재 숨김·판정 verdict('meh'/'good')·추가소재 요청/제작완료 시각(asset_req_at/asset_done_at)·메모, ad_id PK, admin+staff — recommend 컬럼은 2026-08-28 폐기·잔존)
-- `agent_reports` (매출 분석 에이전트 리포트 — agent/report_date/trigger(cron|manual)/status(ok|error)/data(수집 숫자)/report(Claude JSON)/model/usage/error. db 프록시 admin 읽기, 쓰기는 sales-agent 함수 service_role. 마이그레이션 `0006_agent_reports.sql`)
+- `agent_reports` (매출 분석 에이전트 리포트 — **소유는 ~/dnrb-agents**, 마이그레이션도 그쪽. 여기서는 db 프록시 화이트리스트 admin 등록만)
 - `budget_writes` (예산 변경 실행·자정 예약 기록, meta-budget 함수 전용 — RLS on·정책 없음, service_role 직접 접근)
 
 ### 근무관리 테이블 `wm_*` (2026-08-26 신설)
@@ -249,15 +249,13 @@ AUTHOR_FIELDS(notes/comments=author_id, likes=user_id): POST는 본인 id 필수
 - **기본 정렬 = 메타 광고관리자와 동일한 '최근 생성 순'(2026-08-27 사용자 요청, 기존 지출 내림차순에서 변경)**: 실측으로 확인 — Meta API가 주는 자연 순서가 `created_time` 내림차순 = id 내림차순으로 전 캠페인 일치. 서버 hierarchy가 캠페인·세트·광고에 `created`/`updated`(created_time/updated_time) 실어줌(**캐시 키 hierarchy4→hierarchy5**). 클라 `admgrDefaultCmp`가 created 내림차순, created가 없는 행(인사이트 유래 '기간 중 게재')은 id로 대체 — id도 시간순이라 결과 동일. **⚠ Meta id는 17자리라 `Number()`로 비교하면 2^53 초과로 정밀도가 깨진다** → `admgrIdCmp`가 자릿수→사전순 문자열 비교. 헤더 클릭 정렬은 그대로 우선 적용(해제하면 다시 최신순). 검증: 캠페인 탭 화면 순서 = Meta API 순서 완전 일치, 세트 96·광고 112행 created 내림차순 확인, 클릭 정렬(지출 desc) 정상.
 - **검색(2026-08-25)**: 기준 셀렉트(광고세트명/광고명)+검색어(200ms 디바운스). 세트명 검색 = 일치 세트만 표시·캠페인 자동 펼침·세트 클릭 시 광고 펼침 / 광고명 검색 = 일치 광고만·캠페인+세트 자동 펼침. 검색 비우면 원래 트리(수동 펼침 상태 유지).
 
-### 매출 리포트 (#report, 관리자 전용) — AI 매출 분석 담당 (2026-09-10, 에이전트 그룹 1호)
-사용자가 "매출을 키우는 에이전트 그룹"을 원해 첫 담당자로 만든 것. 이후 반품 감시·상품 콘텐츠·마케팅·CS 담당을 같은 틀(`agent_reports.agent` 값만 다르게)로 늘릴 계획.
-- **흐름**: `sales-agent` 함수 run → ① `collect()`가 기존 함수를 `x-agent-secret`(AGENT_SECRET)으로 admin 호출해 숫자 수집(약 10초 실측) → ② Claude `claude-opus-5`(effort medium, `output_config.format` json_schema로 구조화 응답) → ③ `agent_reports` 저장 + 관리자 전원 `notifications`(link_menu `report`) + 웹 푸시 → 대시보드 `#report`가 db 프록시로 읽어 렌더.
-- **수집 항목**(기준일 D = 실행일 전날 KST): 매출 8구간(어제/그저께/지난주 같은 요일/최근7/직전7/이달 누적/지난달 같은 기간/지난달 전체 — `revenue`, 첫 호출 후 병렬: 토큰 갱신 경쟁 방지), 상품 조회·주문율 3구간(`summary`), 취소반품 최근 7일(`cafe24-claims`), Meta summary 3구간. 파생: 급증 TOP8(홈과 같은 규칙), 주문율 하락(두 주 조회 300↑·직전 1%↑·60% 이하), 조회 많고 안 팔림(500↑·0.5%↓), 어제 TOP8, ROAS(카페24)=매출÷광고비. 항목별 try/catch → `data.errors[]`에 남기고 나머지로 진행.
-- **리포트 JSON**: headline/mood(good·neutral·bad)/summary[]/highlights[]/warnings[]/actions[3, owner=광고팀·상품팀·CS팀·대표]/note. 시스템 프롬프트 원칙: 숫자 근거, 요일 효과(전날보다 지난주 같은 요일·7일 비교 우선), 만 원 단위, 추측은 추측으로, 큰 결정은 '대표 확인 후'.
-- **실패도 행으로 남긴다**(status error + error 메시지 + 수집 data) — 화면에서 "왜 안 왔는지" 보이게. API 키 미설정이면 `status.configured=false` → 화면 상단에 키 발급·`supabase secrets set` 안내 박스.
-- **자동 실행**: pg_cron 잡 `sales-agent-morning`(jobid 2, `0 23 * * *` UTC = 08:00 KST) → `net.http_post(... x-cron-secret, timeout 180s)`. meta-budget의 `budget-midnight-kst`와 같은 방식. 잡 수정은 관리 API SQL(`cron.unschedule` 후 `cron.schedule`).
-- **화면**: 헤더에 지난 리포트 셀렉트(날짜·자동/수동·실패 ✕) + [지금 분석하기](1~2분, btnBusy 카운터). 본문 = 기준일·작성시각·모델 → mood 색 헤드라인+요약 → KPI 4타일(어제/7일/이달/광고비·ROAS, 증감은 지난주 같은 요일·직전7·지난달 같은 기간) → 주목/주의 2열 → 오늘 할 일 3(담당 칩) → note·수집 오류. 홈 바로가기 타일 '매출 리포트' 추가.
-- **검증(2026-09-10)**: collect 실측 오류 0건·10.4초, run은 키 미설정 error 행 저장 확인, 화면 렌더는 node 스텁 DOM으로 ok/error/empty 3경우 확인(로컬 프리뷰는 이 세션에서 권한 차단).
+### AI 에이전트 (외부 링크, 관리자) — 별도 저장소 `~/dnrb-agents` (2026-09-10)
+사용자가 "매출을 키우는 에이전트 그룹"을 원해 매출 분석 담당(1호)을 만들었고, 처음엔 이 파일에 `#report` 메뉴로 넣었다가 **같은 날 사용자 결정으로 화면을 별도 앱으로 분리**(워크스페이스가 너무 무거워짐). 여기 남은 것:
+- 메뉴 "AI 에이전트"(`menu-agents`, 관리자 전용) → `agentsOpen()`: 현재 SESSION을 `#sso=base64url(json)`으로 넘겨 `https://danarobe.github.io/dnrb-agents/` 새 탭. 서버 왕복 없음(토큰은 저쪽 함수 호출마다 재검증).
+- `notifOpen()`: `link_menu === 'agents'`면 `agentsOpen()` (에이전트 보고서 알림).
+- cafe24-analytics / cafe24-claims / meta-ads의 `viaAgent`(`x-agent-secret` = AGENT_SECRET → admin) — 에이전트 함수의 데이터 통로. **새 담당자가 다른 액션을 필요로 하면 여기서 열어준다.**
+- db 프록시 `agent_reports: ["admin"]`.
+- 에이전트 함수·테이블·pg_cron·화면·프롬프트는 전부 `~/dnrb-agents/CLAUDE.md`에 기록.
 
 ### 순익 시나리오 (#profit, 관리자)
 - **실마진율(2026-09-02 사용자 요청)**: 기존 마진율은 정가 기준이라 쿠폰·적립금이 반영 안 됨 → 서버 `cafe24-analytics realmargin` 액션(admin·10분 캐시)이 **결제일(pay_date) 기준** 주문의 `actual_order_amount`(부분취소 반영)를 스캔해 정가 매출·자사 할인(쿠폰/적립금/예치금/회원/세트/앱)·배송비 수입·주문 건수를 집계. **네이버 부담 할인(market_other_discount_amount)은 정산 때 보전되므로 차감 제외(A안 — 사용자 확정)**, 참고 표기만. 클라 카드: 상품 실마진율 = (실매출−원가)÷실매출, **원가는 '계산 시점의 정가 마진율'로 역산**(`d._m0` 캡처 — 실마진 적용 후 재계산 드리프트 방지), **택배 발송비 = 주문 건수 × 단가(기본 1,850원, `pf-ship-unit`·localStorage)**. ⚠ **이중 차감 방지 설계**: 마진율 칸엔 할인만 반영된 상품 실마진율을 적용하고, 택배비는 P&L의 기존 '택배비' 비용 칸에 건수×단가로 따로 적용(참고용 '택배 포함 실마진율'은 표시만). 검증(9/1 실데이터): 330건·정가 2,430만·할인 51만(2.1%)·실마진율 47.9% = 수기 역산 일치, 적용 버튼 2종 정상. ⚠ eachOrder에 fields를 넘겨도 splitOrderRanges의 countFilter가 count 호출에선 제거해줌(기존 함정 방어 확인됨).
