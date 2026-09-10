@@ -2200,13 +2200,22 @@ async function npmOpen() {
   }
 }
 /* AI 에이전트 앱(별도 저장소 ~/dnrb-agents, 2026-09-10) — 같은 Supabase·같은 계정.
-   서버 왕복 없이 현재 세션(auth 함수가 서명한 토큰)을 #sso= 해시로 넘긴다. 저쪽 함수 호출마다 토큰이 다시 검증되므로 안전. */
+   auth sso_issue로 **60초 일회용 코드**를 받아 #sso=코드 해시로 넘기고, 저쪽이 sso_redeem으로 정식 토큰과 바꾼다.
+   (처음엔 7일 토큰을 해시에 실었다가 보안 검토 지적으로 교체 — 공용 PC 브라우저 기록에 토큰이 남는 문제) */
 const AGENTS_URL = 'https://danarobe.github.io/dnrb-agents/';
-function agentsOpen() {
+async function agentsOpen() {
   if (!SESSION) { showToast('로그인이 필요합니다'); return; }
-  const raw = JSON.stringify({ token: SESSION.token, id: SESSION.id, name: SESSION.name, role: SESSION.role, exp: SESSION.exp });
-  const b64 = btoa(unescape(encodeURIComponent(raw))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-  window.open(AGENTS_URL + '#sso=' + b64, '_blank');
+  const tab = window.open('about:blank', '_blank');
+  try {
+    const res = await fetch(fnUrl('auth'), { method: 'POST', headers: sbHeaders(), body: JSON.stringify({ action: 'sso_issue', token: SESSION.token }) });
+    const d = await res.json();
+    if (!d.code) throw new Error(d.error || '코드 발급 실패');
+    const url = AGENTS_URL + '#sso=' + d.code;
+    if (tab) tab.location.href = url; else window.open(url, '_blank');
+  } catch (e) {
+    showToast('자동 로그인 연결 실패 — 로그인 화면으로 엽니다 (' + e.message + ')');
+    if (tab) tab.location.href = AGENTS_URL; else window.open(AGENTS_URL, '_blank');
+  }
 }
 function logout() {
   localStorage.removeItem(AUTH_KEY);

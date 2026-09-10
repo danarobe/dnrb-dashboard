@@ -58,6 +58,7 @@ curl -s -X POST "https://api.supabase.com/v1/projects/eeffmbusaqaadeojjlnc/datab
 | (외부) `sales-agent` | **매출 분석 에이전트 — 별도 저장소 `~/dnrb-agents` 소속**(2026-09-10 분리). 같은 Supabase 프로젝트에 배포되며 이 저장소의 cafe24-analytics/cafe24-claims/meta-ads를 `x-agent-secret`(AGENT_SECRET)으로 admin 호출한다. 이 저장소에는 SSO 링크(`agentsOpen`)와 secret 인정 코드만 있음 | 관리자 또는 x-cron-secret |
 | `auth` `issue_for` | **상품관리 → 대시보드 토큰 발급**(2026-09-07 계정 공통화): x-sync-secret(NPM_SYNC_SECRET) 서버 간 호출로 {id}의 로그인 토큰(7일) 반환, 없는 아이디 404. 클라 `loadSession()`이 `#sso=base64url(json)` 해시를 읽어 세션으로 저장 후 해시 제거. 반대로 상품관리 로그인은 로컬 실패 시 대시보드 `login`으로 검증(대시보드 비밀번호 = 상품관리 비밀번호). 웹디자이너1·심진영·임지은만 상품관리 전용 계정 | 서버 간(비밀키) |
 | `auth` `npm_sso` | **상품관리 시스템 SSO 토큰**(2026-09-07): 로그인 토큰 확인 후 {id,name,role(DB 원본),exp 2분}을 NPM_SYNC_SECRET HMAC으로 서명해 반환 → 클라 `npmOpen()`이 `newproduct-manager/api/sso?t=`로 새 탭 열기. 상품 관리 메뉴 = 관리자·MD·**물류팀**(물류팀은 저쪽에서 자체제작 관리만). 실패 시 로그인 화면으로 폴백 | 로그인 전원(역할 매핑은 저쪽에서) |
+| `auth` `sso_issue` / `sso_redeem` | **에이전트 앱 SSO 코드 교환**(2026-09-10): issue = 로그인 상태에서 60초 일회용 코드 발급(api_cache), redeem = 코드 → 7일 토큰(일회용, 즉시 삭제). 토큰을 주소에 싣지 않기 위한 것 | issue 로그인, redeem 코드만 |
 
 - 공용 유틸 `_shared/util.ts`: CORS_HEADERS(**x-auth-token 포함**), verifyAuthToken(서명·만료 검증 + **DB 실계정·현재 role 재확인**), getToken/saveToken(api_tokens, service_role), json/handleOptions.
 - **Supabase 게이트웨이는 엣지 함수의 text/html 응답을 text/plain으로 강제 변환** → OAuth 완료는 DASHBOARD_URL(secret) 리다이렉트로 처리.
@@ -251,7 +252,7 @@ AUTHOR_FIELDS(notes/comments=author_id, likes=user_id): POST는 본인 id 필수
 
 ### AI 에이전트 (외부 링크, 관리자) — 별도 저장소 `~/dnrb-agents` (2026-09-10)
 사용자가 "매출을 키우는 에이전트 그룹"을 원해 매출 분석 담당(1호)을 만들었고, 처음엔 이 파일에 `#report` 메뉴로 넣었다가 **같은 날 사용자 결정으로 화면을 별도 앱으로 분리**(워크스페이스가 너무 무거워짐). 여기 남은 것:
-- 메뉴 "AI 에이전트"(`menu-agents`, 관리자 전용) → `agentsOpen()`: 현재 SESSION을 `#sso=base64url(json)`으로 넘겨 `https://danarobe.github.io/dnrb-agents/` 새 탭. 서버 왕복 없음(토큰은 저쪽 함수 호출마다 재검증).
+- 메뉴 "AI 에이전트"(`menu-agents`, 관리자 전용) → `agentsOpen()`: `auth sso_issue`(로그인 토큰 필요)로 **60초 일회용 코드**를 받아 `https://danarobe.github.io/dnrb-agents/#sso=코드` 새 탭. 저쪽이 `auth sso_redeem`으로 정식 토큰과 교환(코드는 api_cache `sso:<code>`, 교환 즉시 삭제). **7일 토큰을 주소에 싣지 않는다** — 처음엔 세션 JSON을 해시에 실었다가 커밋 보안 검토 지적(공용 PC 브라우저 기록 노출)으로 같은 날 교체. npmOpen(상품관리)과 같은 '빈 탭 먼저 열고 주소 넣기' 패턴.
 - `notifOpen()`: `link_menu === 'agents'`면 `agentsOpen()` (에이전트 보고서 알림).
 - cafe24-analytics / cafe24-claims / meta-ads의 `viaAgent`(`x-agent-secret` = AGENT_SECRET → admin) — 에이전트 함수의 데이터 통로. **새 담당자가 다른 액션을 필요로 하면 여기서 열어준다.**
 - db 프록시 `agent_reports: ["admin"]`.

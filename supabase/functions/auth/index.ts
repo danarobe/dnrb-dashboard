@@ -7,6 +7,8 @@
 //   POST {action:'delete_user', token, id}                — 관리자 전용 (직원 삭제)
 //   POST {action:'change_password', token, old_password, new_password} — 본인
 //   POST {action:'npm_sso', token}  → {token: SSO 토큰(2분)} — 상품관리 시스템(newproduct-manager) 같은 계정 로그인용 (2026-09-07)
+//   POST {action:'sso_issue', token}  → {code}  — 에이전트 앱(dnrb-agents) 이동용 60초 일회용 코드 (2026-09-10)
+//   POST {action:'sso_redeem', code}  → {token, id, name, role, exp} — 그 코드를 정식 토큰으로 교환 (일회용, 즉시 삭제)
 //
 // app_users 테이블은 anon 정책이 없어 이 함수(service_role)로만 접근 가능.
 // 필요 secret: AUTH_SECRET
@@ -72,6 +74,23 @@ Deno.serve(async (req) => {
       return json({ token: await signAuthToken(payload), ...payload });
     }
 
+    // ── 에이전트 앱 SSO 코드 교환 (2026-09-10, 보안 검토 반영): 워크스페이스가 sso_issue로 받은 **60초 일회용 코드**를
+    //    에이전트 앱이 주소 해시로 받아 여기서 정식 토큰으로 바꾼다. 7일짜리 토큰을 주소에 싣지 않으려는 것 —
+    //    공용 PC 브라우저 기록에 남아도 이미 소진된 코드라 쓸모없다. 코드는 api_cache(sso:<code>)에 두고 교환 즉시 지운다.
+    if (action === "sso_redeem") {
+      const code = String(body.code ?? "");
+      if (!/^[A-Za-z0-9_-]{20,80}$/.test(code)) return json({ error: "잘못된 코드" }, 400);
+      const res = await usersRest(`api_cache?cache_key=eq.${encodeURIComponent("sso:" + code)}&select=payload,created_at`);
+      const row = res.ok ? (await res.json())[0] : null;
+      // 읽었으면 성공·실패와 무관하게 먼저 지운다 (일회용)
+      if (row) await usersRest(`api_cache?cache_key=eq.${encodeURIComponent("sso:" + code)}`, { method: "DELETE", headers: { Prefer: "return=minimal" } });
+      if (!row || Date.now() - new Date(row.created_at).getTime() > 60 * 1000) return json({ error: "코드가 만료됐거나 이미 사용됐습니다" }, 401);
+      const user = await getUser(String((row.payload as Record<string, unknown>)?.id ?? ""));
+      if (!user) return json({ error: "로그인이 필요합니다" }, 401);
+      const payload = { id: String(user.id), name: String(user.name), role: String(user.role), exp: Date.now() + TOKEN_TTL };
+      return json({ token: await signAuthToken(payload), ...payload });
+    }
+
     // ── 이하 액션은 로그인 토큰 필요 ──
     // 서명 검증 후 DB에서 계정 존재·현재 역할 재확인 (삭제된 계정 토큰 즉시 무효화)
     const me = await verifyAuthTokenString(String(body.token ?? ""));
@@ -91,6 +110,18 @@ Deno.serve(async (req) => {
       const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
       const sig = b64url(new Uint8Array(await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(body64))));
       return json({ token: `${body64}.${sig}` });
+    }
+
+    // ── 에이전트 앱 SSO 코드 발급 (2026-09-10): 로그인 상태에서 60초 일회용 코드. 짝은 위 sso_redeem.
+    if (action === "sso_issue") {
+      const bytes = crypto.getRandomValues(new Uint8Array(32));
+      const code = btoa(String.fromCharCode(...bytes)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+      const res = await usersRest(`api_cache?on_conflict=cache_key`, {
+        method: "POST", headers: { Prefer: "resolution=merge-duplicates,return=minimal" },
+        body: JSON.stringify({ cache_key: "sso:" + code, payload: { id: me.id }, created_at: new Date().toISOString() }),
+      });
+      if (!res.ok) return json({ error: "코드 발급 실패 " + res.status }, 500);
+      return json({ code, ttl_sec: 60 });
     }
 
     if (action === "change_password") {
