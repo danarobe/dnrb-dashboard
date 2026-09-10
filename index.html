@@ -8033,9 +8033,10 @@ async function wmLoadAtt() {
    퇴근 (2026-09-01부터) 13:00 이후 / (그 전 근무) 12:00 초과. 규칙 변경 2026-09-04 사용자 지정 */
 function wmMeal(ci, co) {
   if (!ci || !co) return false;
-  const i = ci.substring(11, 16), o = co.substring(11, 16);
-  if (!(i >= '09:00' && i < '12:00')) return false;
-  return ci.substring(0, 10) >= '2026-09-01' ? o >= '13:00' : o > '12:00';
+  const i = ci.substring(11, 16), o = co.substring(11, 16), d = ci.substring(0, 10);
+  if (i >= '12:00') return false;
+  if (d < '2026-08-01' && i < '09:00') return false;   // 2026-08-01부터 출근 하한 없음 (2026-09-10 사용자 지정)
+  return d >= '2026-09-01' ? o >= '13:00' : o > '12:00';
 }
 const WM_DAY = ['일', '월', '화', '수', '목', '금', '토'];
 const wmHM = mins => `${Math.floor(mins / 60)}:${String(mins % 60).padStart(2, '0')}`;

@@ -53,13 +53,18 @@ function getWeekSunday(weekStartStr: string): string {
 // 그 전 근무는 기존 규칙(12:00 초과 퇴근이면 공제) 그대로 — 이미 지급된 과거 급여가 달라지지 않도록.
 // ⚠ work-manager/server/routes/salary.js·attendance.js, 대시보드 index.html wmMeal과 반드시 동일하게 유지.
 const MEAL_RULE_CHANGE_DATE = '2026-09-01';
+// 출근 하한 폐지일 (2026-09-10 사용자 지정): 이 날짜 이후 근무는 09:00 이전 출근도 식대 대상 (08:57 출근으로 식대가 빠지던 문제).
+// 그 전 근무는 기존대로 출근 09:00~11:59만 해당.
+const MEAL_NO_MIN_IN_DATE = '2026-08-01';
 
 function getMealInfo(clockIn: string | null, clockOut: string | null) {
   if (!clockIn || !clockOut) return { deductMins: 0, mealAllowance: 0 };
   const inTime = clockIn.substring(11, 16);
   const outTime = clockOut.substring(11, 16);
-  if (inTime < '09:00' || inTime >= '12:00') return { deductMins: 0, mealAllowance: 0 };
-  const newRule = clockIn.substring(0, 10) >= MEAL_RULE_CHANGE_DATE;
+  const workDate = clockIn.substring(0, 10);
+  if (inTime >= '12:00') return { deductMins: 0, mealAllowance: 0 };
+  if (workDate < MEAL_NO_MIN_IN_DATE && inTime < '09:00') return { deductMins: 0, mealAllowance: 0 };
+  const newRule = workDate >= MEAL_RULE_CHANGE_DATE;
   if (newRule ? outTime < '13:00' : outTime <= '12:00') return { deductMins: 0, mealAllowance: 0 };
   // (신규) 13시 이후 퇴근 / (구) 12시 이후 퇴근이면 점심 60분 고정 차감
   return { deductMins: 60, mealAllowance: 8000 };

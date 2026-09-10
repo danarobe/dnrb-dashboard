@@ -71,6 +71,7 @@ curl -s -X POST "https://api.supabase.com/v1/projects/eeffmbusaqaadeojjlnc/datab
 액션: `salary_all`/`salary_one`/`labor_total`(급여), `employee_list`/`attendance_list`/`edits_pending`(조회). 쓰기 액션은 3단계에서 추가 예정.
 - **`salary.ts`는 work-manager `server/routes/salary.js`의 축자 이식이다.** 실제 급여 지급에 쓰이므로 1원도 달라지면 안 됨. 반올림 방식 "개선", `weeks`/`weekHoursInMonth` 이중 구조 정리, 시간대 처리 추가 전부 금지 — 파일 상단 주석 필독.
 - **식대 규칙 변경(2026-09-04 사용자 지정)**: `getMealInfo` — **2026-09-01 근무분부터 퇴근 13:00 이전이면 식대 공제 없음**(출근 09:00~11:59 조건은 그대로). 그 전 근무는 구 규칙(12:00 초과 퇴근) 유지 → 과거 급여 불변. 같은 로직이 4곳(`wm-admin/salary.ts`, work-manager `salary.js`·`attendance.js` hasMeal, `index.html wmMeal`)에 있어 함께 수정했고, 8·9월 알바 전원 서버 식대 일수 = 화면 판정 일치 확인. 규칙을 또 바꾸면 4곳 + 변경일 상수를 같이.
+- **식대 출근 하한 폐지(2026-09-10 사용자 지정, 2026-08-01 근무분부터 소급)**: 08:57처럼 09:00 이전 출근이 식대 대상에서 빠지던 문제(주효진 8/21·8/26 실사례, 8월 이후 51건 해당) → `MEAL_NO_MIN_IN_DATE='2026-08-01'` 이후 근무는 출근 12:00 이전이면 모두 대상(퇴근 조건은 그대로: 8월 12:00 초과 / 9월부터 13:00 이후). 7월 이전은 기존 09:00~11:59 유지. wm-admin/salary.ts·index.html `wmMeal`·work-manager salary.js·attendance.js(2곳) 동일 수정, 8월 급여 재계산 시 알바 식대·차감이 바뀜(사용자 의도).
 - **급여 계산은 시간대 무관**(모든 Date가 문자열 파싱 후 로컬 게터로 재포맷하거나 같은 형식끼리 뺄셈, 한국은 서머타임 없음). UTC로 도는 Edge Function에서 동일 결과. 검증됨.
 - 월별 조회 시 `${ym}-31` 같은 고정 31일 금지 — 6월(30일)에서 존재하지 않는 날짜로 400. `nextMonthFirst()` 사용.
 
