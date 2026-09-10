@@ -226,8 +226,12 @@ Deno.serve(async (req) => {
     // (2026-09-03 사용자 요청 — 자체제작 주문 점검을 상품관리에도. syncexport와 동일 키)
     const syncSecret = Deno.env.get("NPM_SYNC_SECRET") ?? "";
     const viaSecret = action === "madeavg" && !!syncSecret && req.headers.get("x-sync-secret") === syncSecret;
+    // 매출 분석 에이전트(sales-agent 함수)는 AGENT_SECRET으로 admin 권한 호출 (2026-09-10) — 서버 간 전용, 브라우저엔 노출 안 됨
+    const agentSecret = Deno.env.get("AGENT_SECRET") ?? "";
+    const viaAgent = !!agentSecret && req.headers.get("x-agent-secret") === agentSecret;
     const authed = viaSecret
       ? { id: "npm-sync", name: "상품관리 연동", role: "staff", exp: 0 }
+      : viaAgent ? { id: "sales-agent", name: "매출 분석 에이전트", role: "admin", exp: 0 }
       : await verifyAuthToken(req);
     if (!authed) return json({ error: "로그인이 필요합니다" }, 401);
 

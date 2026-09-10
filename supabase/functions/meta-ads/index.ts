@@ -178,7 +178,10 @@ Deno.serve(async (req) => {
   }
 
   // 관리자 + MD(staff) 허용 — MD는 UI에서 광고비·전환값·총매출 블러 (CS는 차단)
-  const authed = await verifyAuthToken(req);
+  // 매출 분석 에이전트(sales-agent)는 AGENT_SECRET으로 admin 권한 호출 (2026-09-10) — summary만 쓴다
+  const agentSecret = Deno.env.get("AGENT_SECRET") ?? "";
+  const viaAgent = !!agentSecret && req.headers.get("x-agent-secret") === agentSecret;
+  const authed = viaAgent ? { id: "sales-agent", name: "매출 분석 에이전트", role: "admin", exp: 0 } : await verifyAuthToken(req);
   if (!authed || !["admin", "staff"].includes(authed.role)) return json({ error: "접근 권한이 없습니다" }, 403);
 
   const c = creds();

@@ -187,7 +187,10 @@ Deno.serve(async (req) => {
   if (opt) return opt;
 
   // 취소·반품 데이터는 관리자 전용 (직원은 서버 차단)
-  const authed = await verifyAuthToken(req);
+  // 매출 분석 에이전트(sales-agent)는 AGENT_SECRET으로 admin 권한 호출 (2026-09-10)
+  const agentSecret = Deno.env.get("AGENT_SECRET") ?? "";
+  const viaAgent = !!agentSecret && req.headers.get("x-agent-secret") === agentSecret;
+  const authed = viaAgent ? { id: "sales-agent", name: "매출 분석 에이전트", role: "admin", exp: 0 } : await verifyAuthToken(req);
   if (!authed || authed.role !== "admin") return json({ error: "접근 권한이 없습니다" }, 403);
 
   const url = new URL(req.url);

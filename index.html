@@ -610,6 +610,7 @@
   <button class="menu-item" data-menu="adv"  id="menu-adv" onclick="showMenu('adv')"><i class="fa-solid fa-bullhorn" style="width:18px;text-align:center;color:#818cf8;"></i>광고 효율</button>
   <button class="menu-item" data-menu="admgr" id="menu-admgr" style="display:none;" onclick="showMenu('admgr')"><i class="fa-solid fa-sitemap" style="width:18px;text-align:center;color:#818cf8;"></i>광고관리자</button>
   <button class="menu-item" data-menu="profit" id="menu-profit" onclick="showMenu('profit')"><i class="fa-solid fa-coins" style="width:18px;text-align:center;color:#818cf8;"></i>순익 시나리오</button>
+  <button class="menu-item" data-menu="report" id="menu-report" style="display:none;" onclick="showMenu('report')"><i class="fa-solid fa-robot" style="width:18px;text-align:center;color:#818cf8;"></i>매출 리포트</button>
   <button class="menu-item" data-menu="wm" id="menu-wm" style="display:none;" onclick="showMenu('wm')"><i class="fa-solid fa-user-clock" style="width:18px;text-align:center;color:#818cf8;"></i>근무 관리</button>
   <div class="menu-group">내 정보</div>
   <button class="menu-item" data-menu="my" id="menu-my" onclick="showMenu('my')"><i class="fa-solid fa-id-card" style="width:18px;text-align:center;color:#4f46e5;"></i>마이페이지</button>
@@ -1474,6 +1475,28 @@
   </div>
 
   <!-- ════════════════════════════════════════
+       SECTION : 매출 리포트 (#report, 2026-09-10) — 관리자 전용
+       AI 매출 분석 담당(sales-agent 함수)이 매일 아침 8시에 쓰는 보고서 + 수동 실행.
+       데이터는 agent_reports 테이블(db 프록시 admin), 실행은 sales-agent 함수.
+  ════════════════════════════════════════ -->
+  <div class="section-card page-sec" id="sec-report">
+    <div class="section-header" style="cursor:default;flex-wrap:wrap;gap:10px;">
+      <h2><span><i class="fa-solid fa-robot" style="color:#4f46e5;font-size:.9em;"></i></span> 매출 리포트
+        <span style="font-size:.7rem;color:#6b7280;font-weight:600;">AI 매출 분석 담당 · 매일 아침 8시 자동</span></h2>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+        <select id="report-pick" onchange="reportShow(this.value)" title="지난 리포트 보기"
+          style="border:1.5px solid #d1d5db;border-radius:8px;padding:6px 10px;font-size:.8rem;font-family:inherit;outline:none;max-width:220px;"></select>
+        <button class="btn-analyze" id="report-run-btn" style="padding:7px 14px;font-size:.8rem;" onclick="reportRun()" title="어제까지의 데이터로 지금 리포트를 새로 씁니다 (1~2분)">
+          <i class="fa-solid fa-wand-magic-sparkles"></i> 지금 분석하기</button>
+      </div>
+    </div>
+    <div class="section-body">
+      <div id="report-setup" style="display:none;margin-bottom:14px;padding:12px 14px;border-radius:12px;background:#fffbeb;border:1px solid #fde68a;font-size:.82rem;color:#92400e;line-height:1.6;"></div>
+      <div id="report-body"><div class="empty-state"><p>불러오는 중...</p></div></div>
+    </div>
+  </div>
+
+  <!-- ════════════════════════════════════════
        SECTION : 근무 관리 (출퇴근·급여) — 관리자 전용
        2026-08 근무관리 시스템 Supabase 이전. 2단계는 조회 전용(병행 운영).
   ════════════════════════════════════════ -->
@@ -2202,6 +2225,7 @@ function applyRole() {
   $('menu-madechk').style.display = (isAdmin() || isStaff()) && !isCS() ? '' : 'none'; // 자체제작 주문 점검 = 관리자 + MD (2026-09-03)
   $('menu-npm').style.display = isAdmin() || isStaff() || SESSION?.role === 'logistics' ? '' : 'none';    // 상품 관리(SSO 링크) = 관리자 + MD + 물류팀(2026-09-07, 자체제작 관리만)
   $('menu-profit').style.display = isAdmin() && !isCS() ? '' : 'none';
+  $('menu-report').style.display = isAdmin() && !isCS() ? '' : 'none';   // 매출 리포트(AI) = 관리자 전용 — 매출 절대액 포함 (2026-09-10)
   $('menu-wm').style.display = isAdmin() && !isCS() ? '' : 'none';
   $('menu-my').style.display = SESSION ? '' : 'none';   // 마이페이지 = 로그인한 전 직원 (2026-08-27)   // 근무 관리 = 관리자 전용 (급여·계좌 노출)
   // Meta 광고 성과 패널 — 관리자 + MD (MD는 광고비·전환값·총매출 블러)
@@ -9556,7 +9580,7 @@ async function myChangePw() {
   } catch (e) { showToast('변경 실패 — ' + e.message); }
 }
 
-const MENU_KEYS = ['home', 'cr', 'an', 'perf', 'rwatch', 'disp', 'stable', 'adv', 'admgr', 'profit', 'wm', 'meet', 'board', 'proj', 'users', 'my', 'purch', 'madechk'];
+const MENU_KEYS = ['home', 'cr', 'an', 'perf', 'rwatch', 'disp', 'stable', 'adv', 'admgr', 'profit', 'wm', 'meet', 'board', 'proj', 'users', 'my', 'purch', 'madechk', 'report'];
 
 /* 모바일 메뉴 서랍 (2026-08-27) — 열기/닫기. 데스크톱에선 ☰ 버튼이 숨겨져 호출되지 않는다. */
 /* ── 홈 접기 (2026-08-27 UI 정리) ──
@@ -9632,7 +9656,7 @@ function showMenu(key) {
   const denied = (key === 'cr' && isStaff())
     || (key === 'rwatch' && isCS())                      // 반품 관리 = 관리자 + MD
     || (key === 'madechk' && isCS())                     // 자체제작 주문 점검 = 관리자 + MD (2026-09-03)
-    || (['users', 'disp', 'stable', 'profit', 'board', 'proj', 'wm'].includes(key) && !isAdmin());   // admgr은 MD·마케터도 진입(테스트 소재 탭만, 2026-08-27), wm = 근무 관리 (급여·계좌 포함)
+    || (['users', 'disp', 'stable', 'profit', 'board', 'proj', 'wm', 'report'].includes(key) && !isAdmin());   // admgr은 MD·마케터도 진입(테스트 소재 탭만, 2026-08-27), wm = 근무 관리 (급여·계좌 포함)
   if (denied) { showToast('접근 권한이 없습니다'); key = 'home'; }
   document.querySelectorAll('.page-sec').forEach(el => { el.style.display = 'none'; });
   const target = $('sec-' + key);
@@ -9662,6 +9686,7 @@ function showMenu(key) {
     else if (!admgrState.data) admgrFetch();
   }
   if (key === 'profit' && isAdmin()) loadProfitArchive();
+  if (key === 'report') reportInit();
   if (key === 'rwatch') rwInit();
   if (key === 'perf') perfTrendInit();
 }
@@ -9672,6 +9697,7 @@ const homeState = { loaded: false, loading: false };
 function renderHomeShortcuts() {
   const el = $('home-shortcuts'); if (!el) return;
   const tiles = [
+    { key: 'report', icon: 'fa-robot', name: '매출 리포트', desc: 'AI 아침 보고서', show: isAdmin() },
     { key: 'rwatch', icon: 'fa-arrows-rotate', name: '반품 관리', desc: '반품률 높은 상품 점검', show: isAdmin() || isStaff() },
     { key: 'disp',   icon: 'fa-table-cells-large', name: '카테고리별 진열', desc: '주간 진열 순서 계산', show: isAdmin() },
     { key: 'adv',    icon: 'fa-bullhorn', name: '광고 효율', desc: 'Meta 광고 성과·소재', show: isAdmin() || isStaff() },
@@ -9768,6 +9794,142 @@ function updateHomeTrafficTile() {
       <span style="color:#1d4ed8;font-weight:800;">${r.rate}%</span>
       <span style="color:#6b7280;font-size:.75rem;">조회 ${fmt(r.views)} · 주문 ${fmt(r.order_count)}</span>
     </div>`).join('') || '조건에 맞는 상품 없음';
+}
+
+/* ══════════════════════════════════════
+   매출 리포트 (#report, 2026-09-10) — AI 매출 분석 담당
+   서버: sales-agent 함수(run/status), 저장: agent_reports(db 프록시 admin).
+   기준일 = 실행일 전날(KST). 자동 실행은 pg_cron `sales-agent-morning`(23:00 UTC = 08:00 KST).
+══════════════════════════════════════ */
+const reportState = { rows: [], loaded: false, loading: false, configured: null };
+const fmtMan = n => {
+  if (n == null || !isFinite(n)) return '—';
+  const a = Math.abs(n);
+  if (a >= 1e8) return (n / 1e8).toFixed(1) + '억 원';
+  return Math.round(n / 1e4).toLocaleString('ko-KR') + '만 원';
+};
+const fmtDelta = p => p == null ? '<span style="color:#9ca3af;">비교 불가</span>'
+  : `<span style="color:${p >= 0 ? '#dc2626' : '#2563eb'};font-weight:800;">${p >= 0 ? '+' : ''}${p.toFixed(1)}%</span>`;
+const reportDateLabel = d => {
+  const t = new Date(d + 'T12:00:00Z');
+  return `${d.slice(0, 4)}.${d.slice(5, 7)}.${d.slice(8, 10)} (${'일월화수목금토'[t.getUTCDay()]})`;
+};
+
+async function reportInit(force) {
+  if (!isAdmin() || !sbReady()) return;
+  if (reportState.loading || (reportState.loaded && !force)) return;
+  reportState.loading = true;
+  try {
+    const [status, rows] = await Promise.all([
+      fetch(fnUrl('sales-agent', { action: 'status' }), { headers: sbHeaders() }).then(r => r.json()).catch(() => null),
+      dbProxy('agent_reports?agent=eq.sales&select=id,report_date,trigger,status,report,data,error,model,created_at&order=created_at.desc&limit=30'),
+    ]);
+    reportState.configured = status ? !!status.configured : null;
+    reportState.rows = rows || [];
+    reportState.loaded = true;
+    const setup = $('report-setup');
+    if (status && !status.configured) {
+      setup.style.display = 'block';
+      setup.innerHTML = `<b><i class="fa-solid fa-key"></i> Claude API 키가 아직 없어요.</b> 데이터 수집은 되지만 보고서를 쓰지 못합니다.
+        <a href="https://console.anthropic.com/settings/keys" target="_blank" style="color:#b45309;text-decoration:underline;">console.anthropic.com</a>에서 키를 만든 뒤,
+        터미널에서 <code style="background:#fef3c7;padding:1px 5px;border-radius:4px;">supabase secrets set ANTHROPIC_API_KEY=키 --project-ref eeffmbusaqaadeojjlnc</code> 실행 후 sales-agent 함수를 재배포하면 됩니다.`;
+    } else setup.style.display = 'none';
+    reportFillPick();
+    reportShow(reportState.rows[0]?.id || '');
+  } catch (e) {
+    $('report-body').innerHTML = `<div class="empty-state"><p>불러오기 실패: ${escHtml(e.message)}</p></div>`;
+  } finally { reportState.loading = false; }
+}
+
+function reportFillPick() {
+  const sel = $('report-pick'); if (!sel) return;
+  sel.innerHTML = reportState.rows.length
+    ? reportState.rows.map(r => `<option value="${r.id}">${reportDateLabel(r.report_date)} · ${r.trigger === 'cron' ? '자동' : '수동'}${r.status === 'error' ? ' ✕' : ''}</option>`).join('')
+    : '<option value="">아직 리포트 없음</option>';
+}
+
+function reportShow(id) {
+  const el = $('report-body'); if (!el) return;
+  const r = reportState.rows.find(x => x.id === id);
+  if (!r) {
+    el.innerHTML = `<div class="empty-state"><p>아직 리포트가 없습니다. 매일 아침 8시에 자동으로 도착하고, 위 <b>지금 분석하기</b>로 바로 만들 수도 있어요.</p></div>`;
+    return;
+  }
+  const sel = $('report-pick'); if (sel && sel.value !== id) sel.value = id;
+  const made = new Date(r.created_at).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul', month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+  const head = `<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:.78rem;color:#6b7280;margin-bottom:10px;">
+      <b style="color:#1e1b4b;font-size:.85rem;">기준일 ${reportDateLabel(r.report_date)}</b>
+      <span>· ${made} 작성 · ${r.trigger === 'cron' ? '자동 실행' : '수동 실행'}</span>
+      ${r.model ? `<span style="color:#9ca3af;">· ${escHtml(r.model)}</span>` : ''}
+    </div>`;
+  if (r.status === 'error' || !r.report) {
+    el.innerHTML = head + `<div style="padding:14px;border-radius:12px;background:#fef2f2;border:1px solid #fecaca;color:#991b1b;font-size:.85rem;line-height:1.6;">
+        <b><i class="fa-solid fa-triangle-exclamation"></i> 이번 리포트는 만들지 못했어요.</b><br>${escHtml(r.error || '원인 미상')}</div>`
+      + reportDataErrors(r.data);
+    return;
+  }
+  const rp = r.report, d = r.data || {}, rev = d.revenue || {}, ch = rev.change_pct || {}, ads = d.ads;
+  const moodColor = { good: '#15803d', neutral: '#4f46e5', bad: '#b91c1c' }[rp.mood] || '#4f46e5';
+  const moodBg = { good: '#f0fdf4', neutral: '#eef2ff', bad: '#fef2f2' }[rp.mood] || '#eef2ff';
+  const tile = (label, value, sub) => `<div style="background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:12px 14px;">
+      <div style="font-size:.72rem;color:#6b7280;font-weight:700;">${label}</div>
+      <div style="font-size:1.1rem;font-weight:800;color:#1e1b4b;margin:3px 0 2px;">${value}</div>
+      <div style="font-size:.74rem;color:#6b7280;">${sub}</div></div>`;
+  const tiles = [
+    tile('어제 매출', fmtMan(rev.yesterday?.revenue), `지난주 같은 요일 대비 ${fmtDelta(ch.vs_same_dow_last_week)} · 주문 ${rev.yesterday ? fmt(rev.yesterday.orders) + '건' : '—'}`),
+    tile('최근 7일 매출', fmtMan(rev.last7?.revenue), `직전 7일 대비 ${fmtDelta(ch.last7_vs_prev7)}`),
+    tile('이달 누적', fmtMan(rev.mtd?.revenue), `지난달 같은 기간 대비 ${fmtDelta(ch.mtd_vs_last_month_same)}`),
+    ads && ads.yesterday ? tile('어제 광고비', fmtMan(ads.yesterday.spend), `ROAS(카페24) ${ads.roas_cafe24?.yesterday ?? '—'} · 7일 ${ads.roas_cafe24?.last7 ?? '—'}`)
+      : tile('어제 광고비', '—', 'Meta 데이터 없음'),
+  ].join('');
+  const list = (arr, color) => (arr || []).map(x => `<div style="padding:8px 0;border-bottom:1px dashed #f3f4f6;">
+      <b style="font-size:.85rem;color:${color};">${escHtml(x.title)}</b>
+      <div style="font-size:.8rem;color:#4b5563;line-height:1.55;margin-top:2px;">${escHtml(x.detail)}</div></div>`).join('') || '<div style="font-size:.8rem;color:#9ca3af;padding:6px 0;">없음</div>';
+  const ownerColor = { '광고팀': '#b45309', '상품팀': '#4338ca', 'CS팀': '#0891b2', '대표': '#15803d' };
+  const actions = (rp.actions || []).map((a, i) => `<div style="display:flex;gap:10px;padding:10px 0;border-bottom:1px dashed #f3f4f6;">
+      <span style="flex:none;width:24px;height:24px;border-radius:50%;background:#4f46e5;color:#fff;font-weight:800;font-size:.75rem;display:flex;align-items:center;justify-content:center;">${i + 1}</span>
+      <div style="flex:1;min-width:0;">
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;"><b style="font-size:.86rem;color:#1e1b4b;">${escHtml(a.title)}</b>
+          <span style="font-size:.68rem;font-weight:800;color:${ownerColor[a.owner] || '#6b7280'};background:#f9fafb;border:1px solid #e5e7eb;border-radius:999px;padding:1px 8px;">${escHtml(a.owner || '')}</span></div>
+        <div style="font-size:.78rem;color:#6b7280;line-height:1.5;margin-top:2px;">${escHtml(a.why)}</div>
+      </div></div>`).join('');
+  el.innerHTML = head + `
+    <div style="padding:14px 16px;border-radius:14px;background:${moodBg};border:1px solid ${moodColor}22;margin-bottom:14px;">
+      <div style="font-size:1.05rem;font-weight:800;color:${moodColor};line-height:1.4;">${escHtml(rp.headline)}</div>
+      <ul style="margin:10px 0 0;padding-left:18px;font-size:.84rem;color:#374151;line-height:1.7;">${(rp.summary || []).map(s => `<li>${escHtml(s)}</li>`).join('')}</ul>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;margin-bottom:16px;">${tiles}</div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:16px;margin-bottom:16px;">
+      <div><div style="font-size:.8rem;font-weight:800;color:#1e1b4b;margin-bottom:4px;"><i class="fa-solid fa-arrow-trend-up" style="color:#15803d;"></i> 주목할 상품·신호</div>${list(rp.highlights, '#15803d')}</div>
+      <div><div style="font-size:.8rem;font-weight:800;color:#1e1b4b;margin-bottom:4px;"><i class="fa-solid fa-triangle-exclamation" style="color:#b91c1c;"></i> 주의 신호</div>${list(rp.warnings, '#b91c1c')}</div>
+    </div>
+    <div style="background:#fff;border:1px solid #e5e7eb;border-radius:14px;padding:12px 16px;">
+      <div style="font-size:.8rem;font-weight:800;color:#1e1b4b;margin-bottom:4px;"><i class="fa-solid fa-list-check" style="color:#4f46e5;"></i> 오늘 할 일</div>${actions}
+    </div>
+    ${rp.note ? `<div style="font-size:.74rem;color:#9ca3af;margin-top:10px;line-height:1.5;"><i class="fa-regular fa-circle-question"></i> ${escHtml(rp.note)}</div>` : ''}
+    ${reportDataErrors(r.data)}`;
+}
+
+function reportDataErrors(data) {
+  const errs = data?.errors || [];
+  if (!errs.length) return '';
+  return `<div style="font-size:.74rem;color:#b45309;margin-top:10px;line-height:1.5;"><i class="fa-solid fa-plug-circle-xmark"></i> 일부 데이터 수집 실패: ${errs.map(escHtml).join(' / ')}</div>`;
+}
+
+async function reportRun() {
+  if (!isAdmin()) return;
+  const btn = $('report-run-btn');
+  btnBusy(btn, '분석 중');
+  try {
+    const res = await fetch(fnUrl('sales-agent', { action: 'run' }), { method: 'POST', headers: sbHeaders(), body: '{}' });
+    const d = await res.json();
+    if (!res.ok || d.error) throw new Error(d.error || res.status);
+    showToast('리포트가 도착했어요');
+    await reportInit(true);
+  } catch (e) {
+    showToast('분석 실패: ' + e.message);
+    await reportInit(true);   // 실패 기록도 목록에 남으므로 갱신
+  } finally { btnIdle(btn, '<i class="fa-solid fa-wand-magic-sparkles"></i> 지금 분석하기'); }
 }
 
 /* ── 판매량 급증 TOP 5 — 최근 7일(어제까지) vs 직전 7일 ──
