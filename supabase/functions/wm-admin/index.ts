@@ -25,6 +25,10 @@
 //   set_pin           { employee_id, pin }        4자리 → bcrypt 저장 (4단계 배포용)
 //   holiday_create    { date, name, hours? }
 //   holiday_delete    { id }
+//   payslip_list      { ym }                                   월별 업로드된 급여 명세서 파일 목록 (2026-09-10)
+//   payslip_upload    { employee_id, ym, file_name, mime, data_b64, note? }  직원·월당 1개(교체 시 이전 파일 삭제) → 비공개 버킷 wm-payslips
+//   payslip_delete    { id }
+//   payslip_file      { id }                                   파일 본문(관리자 확인용) — 바이트 스트림 응답
 //
 // 대시보드가 만들거나 고친 행은 source='admin'(출퇴근) 등으로 표시된다 —
 // 병행 동기화(sync.sh)가 이 표시를 보고 기존 JSON 값으로 덮어쓰지 않는다.
@@ -32,7 +36,7 @@
 // 급여 로직은 salary.ts — work-manager salary.js의 축자 이식. 수정 전 그 파일 주석 참조.
 // ═══════════════════════════════════════════════════════════════
 import bcrypt from 'npm:bcryptjs@2.4.3';
-import { handleOptions, json, verifyAuthToken } from '../_shared/util.ts';
+import { CORS_HEADERS, handleOptions, json, verifyAuthToken } from '../_shared/util.ts';
 import {
   calcOne, getExtendedRange, sortEmployees,
   type WmAttendance, type WmEmployee, type WmHoliday, type WmLeave,
@@ -71,6 +75,35 @@ function minutesDiff(a: string, b: string): number {
 
 const TS_RE = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/;
 const D_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+// ── 급여 명세서 파일 저장소(비공개 버킷 wm-payslips) — 서비스 키로만 접근, 공개·서명 URL을 만들지 않는다 ──
+const PAYSLIP_BUCKET = 'wm-payslips';
+const PAYSLIP_MIME: Record<string, string> = { 'application/pdf': 'pdf', 'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp' };
+const storageHeaders = () => ({ apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}` });
+async function storagePut(path: string, bytes: Uint8Array, mime: string) {
+  const res = await fetch(`${SB_URL}/storage/v1/object/${PAYSLIP_BUCKET}/${path}`, {
+    method: 'POST', headers: { ...storageHeaders(), 'Content-Type': mime, 'x-upsert': 'false' }, body: bytes,
+  });
+  if (!res.ok) throw new Error(`storage ${res.status}: ${(await res.text()).slice(0, 200)}`);
+}
+async function storageDelete(path: string) {
+  const res = await fetch(`${SB_URL}/storage/v1/object/${PAYSLIP_BUCKET}/${path}`, { method: 'DELETE', headers: storageHeaders() });
+  if (!res.ok) throw new Error(`storage delete ${res.status}`);
+}
+/** 파일 본문을 그대로 중계 — 응답에 CORS 헤더를 붙여 대시보드 fetch → Blob으로 연다 */
+async function storageStream(path: string, mime: string, fileName: string): Promise<Response> {
+  const res = await fetch(`${SB_URL}/storage/v1/object/${PAYSLIP_BUCKET}/${path}`, { headers: storageHeaders() });
+  if (!res.ok) return json({ error: `파일을 불러오지 못했습니다 (${res.status})` }, 502);
+  return new Response(res.body, {
+    status: 200,
+    headers: {
+      ...CORS_HEADERS,
+      'Content-Type': mime,
+      'Content-Disposition': `inline; filename*=UTF-8''${encodeURIComponent(fileName)}`,
+      'Cache-Control': 'private, no-store',
+    },
+  });
+}
 
 async function auditLog(actor: string, action: string, employee_id: number | null, detail: unknown) {
   try {
@@ -559,6 +592,62 @@ Deno.serve(async (req) => {
       });
       await auditLog(me.id, 'device_allow_ip', null, { device_id: dev.id, ip: ipToAdd });
       return json({ ok: true, allowed_ips: ips });
+    }
+
+    // ── 급여 명세서 파일 (2026-09-10 사용자 요청: 관리자가 매월 업로드, 직원은 마이페이지에서 본인 것만) ──
+    // 파일은 비공개 버킷 wm-payslips에 {employee_id}/{ym}/{uuid}.{ext}. 공개 URL·서명 URL 없이 함수가 바이트를 중계한다.
+    if (action === 'payslip_list') {
+      const ym = String(body.ym ?? '');
+      if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(ym)) return json({ error: '월 형식 오류' }, 400);
+      return json(await rest(`wm_payslips?ym=eq.${ym}&select=id,employee_id,ym,file_name,mime,size,note,uploaded_by,uploaded_at&order=employee_id`));
+    }
+    if (action === 'payslip_upload') {
+      const empId = Number(body.employee_id);
+      const ym = String(body.ym ?? '');
+      const mime = String(body.mime ?? '');
+      const fileName = String(body.file_name ?? '').slice(0, 200) || 'payslip';
+      const note = body.note ? String(body.note).slice(0, 200) : null;
+      if (!Number.isInteger(empId) || empId <= 0) return json({ error: '직원 번호 오류' }, 400);
+      if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(ym)) return json({ error: '월 형식 오류' }, 400);
+      if (!PAYSLIP_MIME[mime]) return json({ error: 'PDF·PNG·JPG·WEBP 파일만 올릴 수 있어요' }, 400);
+      const b64 = String(body.data_b64 ?? '');
+      if (!b64 || b64.length > 11_500_000) return json({ error: '파일이 너무 큽니다 (최대 8MB)' }, 400);
+      const bytes = Uint8Array.from(atob(b64), c => c.charCodeAt(0));
+      if (bytes.length > 8 * 1024 * 1024) return json({ error: '파일이 너무 큽니다 (최대 8MB)' }, 400);
+      const [emp] = await rest(`wm_employees?id=eq.${empId}&select=id,name,app_user_id`);
+      if (!emp) return json({ error: '직원 없음' }, 404);
+      const path = `${empId}/${ym}/${crypto.randomUUID()}.${PAYSLIP_MIME[mime]}`;
+      await storagePut(path, bytes, mime);
+      const [prev] = await rest(`wm_payslips?employee_id=eq.${empId}&ym=eq.${ym}&select=id,storage_path`);
+      const rowData = { employee_id: empId, ym, file_name: fileName, mime, size: bytes.length, storage_path: path, note, uploaded_by: me.name, uploaded_at: new Date().toISOString() };
+      const [row] = prev
+        ? await rest(`wm_payslips?id=eq.${prev.id}`, { method: 'PATCH', body: JSON.stringify(rowData) })
+        : await rest('wm_payslips', { method: 'POST', body: JSON.stringify(rowData) });
+      if (prev) await storageDelete(prev.storage_path).catch(() => {});   // 교체: 이전 파일 정리 (실패해도 새 파일이 원본)
+      await auditLog(me.id, prev ? 'payslip_replace' : 'payslip_upload', empId, { ym, file_name: fileName, size: bytes.length });
+      // 직원에게 앱 알림 (마이페이지 계정이 연결된 경우만)
+      if (emp.app_user_id) {
+        try {
+          await rest('notifications', {
+            method: 'POST', headers: { Prefer: 'return=minimal' },
+            body: JSON.stringify([{ user_id: emp.app_user_id, actor_name: me.name, message: `${Number(ym.slice(0, 4))}년 ${Number(ym.slice(5))}월 급여 명세서가 등록되었습니다 — 마이페이지 → 급여 명세서`, link_menu: 'my', read: false }]),
+          });
+        } catch { /* 알림 실패가 업로드를 막지는 않는다 */ }
+      }
+      return json({ ok: true, row, replaced: !!prev });
+    }
+    if (action === 'payslip_delete') {
+      const [row] = await rest(`wm_payslips?id=eq.${Number(body.id)}&select=*`);
+      if (!row) return json({ error: '파일 없음' }, 404);
+      await storageDelete(row.storage_path).catch(() => {});
+      await rest(`wm_payslips?id=eq.${row.id}`, { method: 'DELETE', headers: { Prefer: 'return=minimal' } });
+      await auditLog(me.id, 'payslip_delete', row.employee_id, { ym: row.ym, file_name: row.file_name });
+      return json({ ok: true });
+    }
+    if (action === 'payslip_file') {
+      const [row] = await rest(`wm_payslips?id=eq.${Number(body.id)}&select=*`);
+      if (!row) return json({ error: '파일 없음' }, 404);
+      return await storageStream(row.storage_path, row.mime, row.file_name);
     }
 
     return json({ error: 'unknown action' }, 400);

@@ -3,16 +3,15 @@
 //   GET  ?action=me            → 내 근무 정보(입사일·역할·연차 현황) + 올해 내 휴가 내역
 //   POST ?action=leave_request { date, end_date?, type(annual|half), reason?, skip_offdays? } → 휴가 신청(pending)
 //   POST ?action=leave_cancel  { id } → 내 '대기' 신청 취소
-//   GET  ?action=salary&ym=YYYY-MM → 내 급여 명세서 1건 (2026-09-10 사용자 요청) — wm-admin salary_one과 같은 calcOne,
-//                                  단 직원은 토큰으로 찾은 본인뿐(employee_id 파라미터 없음). 지난 달~현재 달만.
+//   GET  ?action=payslip_list      → 관리자가 업로드한 내 급여 명세서 파일 목록 (2026-09-10 사용자 요청 — 계산값이 아니라 업로드 파일)
+//   GET  ?action=payslip_file&id=  → 그 파일 본문(바이트 중계, 본인 것만). 공개 URL·서명 URL 없음.
 //
 // ⚠ 보안 원칙: 로그인 계정(app_users.id) → wm_employees.app_user_id 로만 본인 행을 찾고,
 //   모든 조회·쓰기를 그 employee_id로 고정한다. 남의 id를 보내도 무시된다(클라이언트가 id를 못 정함).
-//   me 응답에는 급여·계좌·시급을 담지 않는다. 급여는 salary 액션에서만, 본인 것 1건만 내려간다(저장·URL 공유 경로 없음).
+//   me 응답에는 급여·계좌·시급을 담지 않는다. 급여 명세서 파일은 wm_payslips.employee_id = 본인일 때만 내려간다.
 //   관리자(대표)는 wm_employees에 연결이 없으므로 linked:false로 응답 — 비밀번호 변경만 쓰면 된다.
 // ═══════════════════════════════════════════════
-import { handleOptions, json, verifyAuthToken } from "../_shared/util.ts";
-import { calcOne, getExtendedRange, type WmAttendance, type WmEmployee, type WmHoliday, type WmLeave } from "../wm-admin/salary.ts";
+import { CORS_HEADERS, handleOptions, json, verifyAuthToken } from "../_shared/util.ts";
 
 const SB_URL = Deno.env.get("SUPABASE_URL")!;
 const SB_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -93,26 +92,31 @@ Deno.serve(async (req) => {
     if (!emp) return json({ error: "근무 관리에 연결된 직원 계정이 아닙니다" }, 403);
     if (emp.active === false) return json({ error: "비활성 계정입니다" }, 403);
 
-    // 내 급여 명세서 — 본인 행(emp.id)만, 필요한 달의 기록만 읽어 wm-admin과 같은 계산(calcOne)으로 만든다.
-    if (action === "salary") {
-      const ym = String(url.searchParams.get("ym") ?? "");
-      if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(ym)) return json({ error: "월 형식이 올바르지 않습니다" }, 400);
-      const thisYm = seoulToday().slice(0, 7);
-      if (ym > thisYm || ym < "2025-01") return json({ error: "조회할 수 없는 달입니다" }, 400);
-      const { from, to } = getExtendedRange(ym);
-      const [y, m] = ym.split("-").map(Number);
-      const nextFirst = `${m === 12 ? y + 1 : y}-${String(m === 12 ? 1 : m + 1).padStart(2, "0")}-01`;
-      const [full] = await rest(`wm_employees?id=eq.${emp.id}&select=*`) as WmEmployee[];
-      if (!full) return json({ error: "직원 정보를 찾을 수 없습니다" }, 404);
-      const [attendance, leaves, holidays] = await Promise.all([
-        rest(`wm_attendance?employee_id=eq.${emp.id}&select=id,employee_id,date,clock_in,clock_out,work_minutes&date=gte.${from}&date=lte.${to}&limit=1000`) as Promise<WmAttendance[]>,
-        rest(`wm_leaves?employee_id=eq.${emp.id}&select=id,employee_id,date,type,status&date=gte.${ym}-01&date=lt.${nextFirst}&limit=200`) as Promise<WmLeave[]>,
-        rest("wm_holidays?select=date,name,hours&limit=2000") as Promise<WmHoliday[]>,
-      ]);
-      const row = calcOne(full, ym, attendance, leaves, holidays) as Record<string, unknown>;
-      // 키오스크 PIN 해시 등 인증 정보는 명세서에 불필요 — 응답에서 제거
-      const { pin_hash: _p, pin_fail_count: _f, pin_locked_until: _l, pin_set_at: _s, ...safeEmp } = full as unknown as Record<string, unknown>;
-      return json({ ...row, employee: safeEmp, ym });
+    // 내 급여 명세서 파일 — 관리자가 wm-admin payslip_upload로 올린 것. 조회 조건에 employee_id=본인을 박아 넣는다.
+    if (action === "payslip_list") {
+      const rows = await rest(
+        `wm_payslips?employee_id=eq.${emp.id}&select=id,ym,file_name,mime,size,note,uploaded_at&order=ym.desc&limit=120`,
+      );
+      return json({ rows });
+    }
+    if (action === "payslip_file") {
+      const id = Number(url.searchParams.get("id"));
+      if (!Number.isInteger(id) || id <= 0) return json({ error: "파일 번호 오류" }, 400);
+      const [row] = await rest(`wm_payslips?id=eq.${id}&employee_id=eq.${emp.id}&select=storage_path,mime,file_name`);
+      if (!row) return json({ error: "파일이 없거나 본인 것이 아닙니다" }, 404);
+      const res = await fetch(`${SB_URL}/storage/v1/object/wm-payslips/${row.storage_path}`, {
+        headers: { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}` },
+      });
+      if (!res.ok) return json({ error: `파일을 불러오지 못했습니다 (${res.status})` }, 502);
+      return new Response(res.body, {
+        status: 200,
+        headers: {
+          ...CORS_HEADERS,
+          "Content-Type": row.mime,
+          "Content-Disposition": `inline; filename*=UTF-8''${encodeURIComponent(row.file_name)}`,
+          "Cache-Control": "private, no-store",
+        },
+      });
     }
 
     const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;

@@ -1514,8 +1514,8 @@
       <div id="my-pane-cert" class="my-pane" style="display:none;">
         <div id="my-cert-body"><div class="empty-state"><p>불러오는 중...</p></div></div>
       </div>
-      <!-- 급여 명세서 (2026-09-10 사용자 요청) — 서버 wm-me?action=salary 가 로그인 계정에 연결된 본인 것 1건만 계산해 내려준다.
-           화면·인쇄 모두 브라우저 안에서만 만들고 어디에도 저장하지 않는다(공유 가능한 URL 없음). 양식은 근무 관리의 명세서(wmSlipHtml)와 동일. -->
+      <!-- 급여 명세서 (2026-09-10 사용자 요청) — 관리자가 근무 관리 → 명세서 파일에서 매월 올린 파일을 본인 것만 본다(계산값 아님).
+           wm-me가 로그인 계정 → 본인 employee_id 조건으로만 목록·파일을 내려주고, 파일은 함수가 바이트를 중계(공개 URL 없음). -->
       <div id="my-pane-pay" class="my-pane" style="display:none;">
         <div id="my-pay-body"><div class="empty-state"><p>불러오는 중...</p></div></div>
       </div>
@@ -1643,6 +1643,17 @@
       </div>
 
       <!-- ── 탭: 공휴일 ── -->
+      <!-- 명세서 파일 (2026-09-10 사용자 요청) — 매월 관리자가 직원별 급여 명세서 파일(PDF/이미지)을 올리고, 직원은 마이페이지에서 본인 것만 본다.
+           파일은 비공개 스토리지(wm-payslips)에 두고 wm-admin/wm-me 함수만 접근 — 공개 URL 없음. -->
+      <div id="wm-tab-slip" class="wm-pane" style="display:none;">
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin-bottom:12px;">
+          <label style="font-size:.78rem;color:#4b5563;font-weight:600;">귀속 월
+            <input type="month" id="wm-slip-ym" onchange="wmSlipFilesLoad()" style="display:block;margin-top:3px;border:1.5px solid #d1d5db;border-radius:8px;padding:5px 10px;font-size:.8rem;" /></label>
+          <button class="toggle-btn" onclick="wmSlipFilesLoad()" style="margin-bottom:1px;"><i class="fa-solid fa-rotate"></i> 새로고침</button>
+          <span style="margin-left:auto;font-size:.72rem;color:#6b7280;">PDF·PNG·JPG (최대 8MB) · 직원·월당 1개 — 다시 올리면 교체됩니다. 올리면 해당 직원에게 알림이 갑니다.</span>
+        </div>
+        <div id="wm-slip-files"><div class="empty-state"><p>불러오는 중...</p></div></div>
+      </div>
       <div id="wm-tab-hol" class="wm-pane" style="display:none;">
         <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin-bottom:12px;">
           <label style="font-size:.78rem;color:#4b5563;font-weight:600;">날짜
@@ -7975,7 +7986,7 @@ async function wmApi(body) {
   return data;
 }
 
-const WM_TABS = [['att', '출퇴근 조회'], ['sal', '급여 계산'], ['lv', '휴가 관리'], ['emp', '직원 관리'], ['hol', '공휴일']];
+const WM_TABS = [['att', '출퇴근 조회'], ['sal', '급여 계산'], ['slip', '명세서 파일'], ['lv', '휴가 관리'], ['emp', '직원 관리'], ['hol', '공휴일']];
 
 function wmRenderTabs() {
   uiTabs('wm-tabs', WM_TABS, wmState.tab, 'wmSetTab');
@@ -7990,6 +8001,7 @@ function wmSetTab(k) {
   if (k === 'lv' && !wmState.lv) wmLoadLeaves();
   if (k === 'emp') { wmLoadEmps(); wmLoadDevices(); }
   if (k === 'hol' && !wmState.hol) wmLoadHolidays();
+  if (k === 'slip') wmSlipFilesLoad();
 }
 
 function wmInit() {
@@ -8299,6 +8311,80 @@ function wmSlipPrint(indices) {
   const w = window.open('', '_blank');
   if (!w) { showToast('팝업이 차단됐어요 — 이 사이트의 팝업을 허용한 뒤 다시 눌러주세요'); return; }
   w.document.open(); w.document.write(wmSlipPrintDoc(rows, title)); w.document.close();
+}
+
+/* ── 급여 명세서 파일 업로드 (2026-09-10 사용자 요청) — 관리자가 매월 직원별 파일을 올리고 직원은 마이페이지에서 본인 것만 본다.
+   목록 = 활성 직원 전원(파일 유무 표시). 파일은 base64로 wm-admin payslip_upload → 비공개 버킷. 보기는 함수가 바이트를 중계(URL 없음). */
+async function wmFetchBlob(fnName, params, body) {
+  const res = await fetch(fnUrl(fnName, params || {}), { method: body ? 'POST' : 'GET', headers: sbHeaders(), body: body ? JSON.stringify(body) : undefined });
+  if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.error || `서버 오류 ${res.status}`); }
+  return await res.blob();
+}
+function slipOpenBlob(blob, fileName, download) {
+  const url = URL.createObjectURL(blob);
+  if (download) { const a = document.createElement('a'); a.href = url; a.download = fileName || 'payslip'; document.body.appendChild(a); a.click(); a.remove(); }
+  else { const w = window.open(url, '_blank'); if (!w) showToast('팝업이 차단됐어요 — 이 사이트의 팝업을 허용한 뒤 다시 눌러주세요'); }
+  setTimeout(() => URL.revokeObjectURL(url), 60000);
+}
+const SLIP_MIME_OK = ['application/pdf', 'image/png', 'image/jpeg', 'image/webp'];
+const slipMimeOf = f => f.type || ({ pdf: 'application/pdf', png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp' })[(f.name.split('.').pop() || '').toLowerCase()] || '';
+const slipFmtSize = n => n >= 1048576 ? (n / 1048576).toFixed(1) + 'MB' : Math.max(1, Math.round(n / 1024)) + 'KB';
+function slipReadB64(file) {
+  return new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(String(r.result).split(',')[1] || ''); r.onerror = rej; r.readAsDataURL(file); });
+}
+async function wmSlipFilesLoad() {
+  const inp = $('wm-slip-ym');
+  if (!inp.value) { const d = new Date(); d.setMonth(d.getMonth() - 1); inp.value = d.toLocaleDateString('sv-SE', { timeZone: 'Asia/Seoul' }).slice(0, 7); }   // 기본 = 지난달
+  const ym = inp.value;
+  const box = $('wm-slip-files');
+  box.innerHTML = '<div class="empty-state"><p>불러오는 중...</p></div>';
+  try {
+    const [emps, files] = await Promise.all([wmEnsureEmps(), wmApi({ action: 'payslip_list', ym })]);   // wmEnsureEmps = 직원 목록 캐시 헬퍼 (wmLoadEmps는 직원 관리 표 렌더러 — 반환값 없음)
+    wmState.slipFiles = { ym, files };
+    const byEmp = Object.fromEntries(files.map(f => [f.employee_id, f]));
+    const list = emps.filter(e => e.active !== false).sort((a, b) => a.type.localeCompare(b.type) || a.name.localeCompare(b.name, 'ko'));
+    const done = list.filter(e => byEmp[e.id]).length;
+    const rows = list.map(e => {
+      const f = byEmp[e.id];
+      const accept = '.pdf,.png,.jpg,.jpeg,.webp,application/pdf,image/png,image/jpeg,image/webp';
+      return `<tr>
+        <td style="text-align:left;font-weight:600;">${escHtml(e.name)}<div style="font-size:.66rem;color:#6b7280;">${e.type === 'parttime' ? '아르바이트' : '직원'}${e.app_user_id ? '' : ' · <span style="color:#c2410c;">마이페이지 계정 미연결</span>'}</div></td>
+        <td style="text-align:left;">${f ? `<button onclick="wmSlipFileOpen(${f.id}, false)" style="border:none;background:none;color:#4f46e5;font-weight:700;cursor:pointer;text-decoration:underline;font-size:.8rem;">${escHtml(f.file_name)}</button><div style="font-size:.66rem;color:#6b7280;">${slipFmtSize(f.size)} · ${escHtml(f.uploaded_by || '')} · ${String(f.uploaded_at || '').slice(0, 16).replace('T', ' ')}</div>` : '<span style="color:#9ca3af;">미등록</span>'}</td>
+        <td style="white-space:nowrap;">
+          <label class="toggle-btn" style="cursor:pointer;display:inline-flex;align-items:center;gap:5px;margin:0;"><i class="fa-solid fa-upload"></i> ${f ? '교체' : '업로드'}<input type="file" accept="${accept}" style="display:none;" onchange="wmSlipFileUpload(${e.id}, this)" /></label>
+          ${f ? `<button class="toggle-btn" onclick="wmSlipFileOpen(${f.id}, true)" title="내려받기"><i class="fa-solid fa-download"></i></button>
+          <button class="toggle-btn" onclick="wmSlipFileDelete(${f.id}, '${escHtml(e.name)}')" style="color:#b91c1c;" title="삭제"><i class="fa-solid fa-trash"></i></button>` : ''}
+        </td></tr>`;
+    }).join('');
+    box.innerHTML = `<div style="font-size:.8rem;color:#4b5563;margin-bottom:8px;"><b>${ym.slice(0, 4)}년 ${Number(ym.slice(5))}월</b> — 등록 ${done} / ${list.length}명</div>
+      <div class="table-wrap"><table><thead><tr><th style="text-align:left;">직원</th><th style="text-align:left;">명세서 파일</th><th>작업</th></tr></thead><tbody>${rows || '<tr><td colspan="3">활성 직원이 없습니다</td></tr>'}</tbody></table></div>`;
+  } catch (e) { box.innerHTML = `<div class="empty-state"><p>불러오지 못했어요 — ${escHtml(e.message)}</p></div>`; }
+}
+async function wmSlipFileUpload(empId, input) {
+  const file = input.files && input.files[0];
+  input.value = '';
+  if (!file) return;
+  const mime = slipMimeOf(file);
+  if (!SLIP_MIME_OK.includes(mime)) { showToast('PDF·PNG·JPG·WEBP 파일만 올릴 수 있어요'); return; }
+  if (file.size > 8 * 1024 * 1024) { showToast('파일이 너무 커요 (최대 8MB)'); return; }
+  const ym = $('wm-slip-ym').value;
+  showToast(`${file.name} 올리는 중...`);
+  try {
+    const data_b64 = await slipReadB64(file);
+    const r = await wmApi({ action: 'payslip_upload', employee_id: empId, ym, file_name: file.name, mime, data_b64 });
+    showToast(r.replaced ? '명세서 파일을 교체했어요' : '명세서 파일을 등록했어요');
+    wmSlipFilesLoad();
+  } catch (e) { showToast('업로드 실패: ' + e.message); }
+}
+async function wmSlipFileDelete(id, name) {
+  if (!confirm(`${name}의 이 달 명세서 파일을 삭제할까요?`)) return;
+  try { await wmApi({ action: 'payslip_delete', id }); showToast('삭제했어요'); wmSlipFilesLoad(); }
+  catch (e) { showToast('삭제 실패: ' + e.message); }
+}
+async function wmSlipFileOpen(id, download) {
+  const f = ((wmState.slipFiles || {}).files || []).find(x => x.id === id);
+  try { slipOpenBlob(await wmFetchBlob('wm-admin', {}, { action: 'payslip_file', id }), f && f.file_name, download); }
+  catch (e) { showToast('파일 열기 실패: ' + e.message); }
 }
 
 function wmExportSalary() {
@@ -9145,7 +9231,7 @@ const CERT_COMPANY = {   // 재직증명서에 찍히는 회사 정보 — 바�
   ceo: '김다나',            // 대표자명 (2026-08-27 사용자 확인)
   bizno: '545-87-03592',   // 사업자등록번호 (2026-08-27 사용자 확인)
 };
-const myState = { data: null, tab: 'work', doc: 'cert', payYm: '', pay: null, payLoading: false };
+const myState = { data: null, tab: 'work', doc: 'cert', pay: null, payLoading: false, payErr: '' };
 const MY_TABS = [['work', '내 근무 현황', 'fa-regular fa-calendar-check'], ['cert', '서류 발급', 'fa-regular fa-file-lines'], ['pay', '급여 명세서', 'fa-regular fa-money-bill-1'], ['pw', '비밀번호 변경', 'fa-solid fa-key']];
 
 async function myApi(params, body) {
@@ -9208,10 +9294,10 @@ function myRender() {
       <div style="margin-top:8px;">이 계정은 근무 관리에 등록된 직원과 연결되어 있지 않아 근무 정보·휴가 신청·재직증명서를 표시할 수 없습니다.
       ${isAdmin() ? '' : '<br>담당자에게 문의해주세요.'}</div></div>`;
     $('my-cert-body').innerHTML = '<div style="background:#f8f9fb;border-radius:12px;padding:16px;font-size:.82rem;color:#6b7280;">근무 관리에 연결된 직원 계정이 아니어서 서류를 발급할 수 없습니다.</div>';
-    $('my-pay-body').innerHTML = '<div style="background:#f8f9fb;border-radius:12px;padding:16px;font-size:.82rem;color:#6b7280;">근무 관리에 연결된 직원 계정이 아니어서 급여 명세서를 볼 수 없습니다.' + (isAdmin() ? ' 관리자는 근무 관리 → 급여 계산에서 전 직원 명세서를 볼 수 있어요.' : '') + '</div>';
+    $('my-pay-body').innerHTML = '<div style="background:#f8f9fb;border-radius:12px;padding:16px;font-size:.82rem;color:#6b7280;">근무 관리에 연결된 직원 계정이 아니어서 급여 명세서를 볼 수 없습니다.' + (isAdmin() ? ' 관리자는 근무 관리 → 명세서 파일에서 직원별 파일을 올리고 확인할 수 있어요.' : '') + '</div>';
     return;
   }
-  myRenderPay();
+  if (!myState.pay) myPayLoad(); else myRenderPay();
   const a = d.annual, left = a.left, pct = a.total > 0 ? Math.min(100, Math.round(a.used / a.total * 100)) : 0;
   const tile = (label, val, color) => `<div style="background:#f8f9ff;border:1.5px solid #e0e7ff;border-radius:12px;padding:12px 14px;">
     <div style="font-size:.74rem;color:#6b7280;font-weight:600;margin-bottom:4px;">${label}</div>
@@ -9327,65 +9413,39 @@ const TRIP_RULES = [
   '초과 근로 시간에서 식사시간(1시간) 및 이동시간은 공제합니다.',
 ];
 
-/* ── 급여 명세서 (2026-09-10 사용자 요청) — 본인 것만. 서버가 토큰으로 직원을 찾으므로 화면은 달(ym)만 보낸다. ── */
-function myPayMonths() {
-  const today = (myState.data || {}).today || new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Seoul' });
-  let [y, m] = today.slice(0, 7).split('-').map(Number);
-  const out = [];
-  for (let i = 0; i < 13; i++) { out.push(`${y}-${String(m).padStart(2, '0')}`); if (--m < 1) { m = 12; y--; } }
-  return out;
-}
+/* ── 급여 명세서 파일 (2026-09-10 사용자 요청) — 관리자가 올린 파일을 본인 것만. 서버가 토큰으로 직원을 찾으므로 화면은 파일 번호만 보낸다. ── */
 function myRenderPay() {
   const box = $('my-pay-body');
   if (!box) return;
-  const months = myPayMonths();
-  if (!myState.payYm) myState.payYm = months[1] || months[0];   // 기본 = 지난달 (마감된 달)
-  const r = myState.pay && myState.pay.ym === myState.payYm ? myState.pay : null;
-  const won = v => fmt(v || 0) + '원';
-  let summary = '';
-  if (myState.payLoading) summary = '<div class="empty-state"><p>계산 중...</p></div>';
-  else if (r) {
-    const pt = r.employee.type === 'parttime';
-    const tax = Math.floor((r.totalPay || 0) * 0.03 / 10) * 10, localTax = Math.floor((r.totalPay || 0) * 0.003 / 10) * 10;
-    const net = (r.totalPay || 0) - tax - localTax;
-    const tile = (label, val, color) => `<div style="background:#f8f9ff;border:1.5px solid #e0e7ff;border-radius:12px;padding:12px 14px;">
-      <div style="font-size:.74rem;color:#6b7280;font-weight:600;margin-bottom:4px;">${label}</div>
-      <div style="font-size:1.02rem;font-weight:800;color:${color || '#1e1b4b'};">${val}</div></div>`;
-    summary = `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin-top:12px;">
-      ${tile(pt ? '근무시간' : '기본급', pt ? wmHM(Math.round((r.totalHours || 0) * 60)) : won(r.basePay))}
-      ${pt ? tile('기본급 (시급)', won(r.basePay)) : ''}
-      ${pt ? tile('주휴수당', won(r.holidayPay)) : ''}
-      ${tile('식대', won(r.mealAllowance))}
-      ${tile('교통비', won(r.transportAllowance))}
-      ${tile('총 지급액', won(r.totalPay))}
-      ${tile('공제 (소득세 3% + 지방소득세 0.3%)', '−' + won(tax + localTax), '#b91c1c')}
-      ${tile('실 지급액', won(net), '#15803d')}
-    </div>
-    <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;">
-      <button class="toggle-btn" style="background:#4f46e5;color:#fff;border-color:#4f46e5;" onclick="myPayPrint()"><i class="fa-solid fa-print"></i> 명세서 열기 (인쇄 · PDF 저장)</button>
-    </div>
-    <div style="font-size:.68rem;color:#6b7280;margin-top:8px;">인쇄창에서 프린터 대신 <b>'PDF로 저장'</b>을 고르면 파일로 저장됩니다. 명세서는 본인 계정으로만 열리고 서버나 링크로 남지 않아요. 금액은 근무 관리의 급여 계산과 동일합니다.</div>`;
-  } else if (myState.payErr) summary = `<div style="margin-top:12px;font-size:.8rem;color:#b91c1c;">${escHtml(myState.payErr)}</div>`;
-  box.innerHTML = `<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;">
-    ${myLabel('조회 월', `<select id="my-pay-ym" onchange="myPayLoad(this.value)" style="${myFieldCss}">${months.map(ym => `<option value="${ym}" ${ym === myState.payYm ? 'selected' : ''}>${ym.slice(0, 4)}년 ${Number(ym.slice(5))}월</option>`).join('')}</select>`)}
-    ${r || myState.payLoading ? '' : `<button class="toggle-btn" style="margin-bottom:1px;" onclick="myPayLoad()"><i class="fa-solid fa-calculator"></i> 불러오기</button>`}
-  </div>${summary}`;
+  if (myState.payLoading) { box.innerHTML = '<div class="empty-state"><p>불러오는 중...</p></div>'; return; }
+  if (myState.payErr) { box.innerHTML = `<div style="font-size:.8rem;color:#b91c1c;">${escHtml(myState.payErr)}</div>`; return; }
+  const rows = (myState.pay || {}).rows || [];
+  if (!rows.length) {
+    box.innerHTML = `<div style="background:#f8f9fb;border-radius:12px;padding:16px;font-size:.82rem;color:#6b7280;">아직 등록된 급여 명세서가 없어요. 매월 급여일에 관리자가 올리면 여기에 표시되고 알림이 갑니다.</div>`;
+    return;
+  }
+  box.innerHTML = `<div class="table-wrap"><table>
+    <thead><tr><th style="text-align:left;">귀속 월</th><th style="text-align:left;">파일</th><th class="m-hide">등록일</th><th>보기</th></tr></thead>
+    <tbody>${rows.map(f => `<tr>
+      <td style="text-align:left;font-weight:700;">${f.ym.slice(0, 4)}년 ${Number(f.ym.slice(5))}월</td>
+      <td style="text-align:left;">${escHtml(f.file_name)}<div style="font-size:.66rem;color:#6b7280;">${slipFmtSize(f.size)}${f.note ? ' · ' + escHtml(f.note) : ''}</div></td>
+      <td class="m-hide" style="color:#6b7280;">${String(f.uploaded_at || '').slice(0, 10)}</td>
+      <td style="white-space:nowrap;">
+        <button class="toggle-btn" onclick="myPayOpen(${f.id}, false)"><i class="fa-regular fa-eye"></i> 보기</button>
+        <button class="toggle-btn" onclick="myPayOpen(${f.id}, true)"><i class="fa-solid fa-download"></i> 저장</button>
+      </td></tr>`).join('')}</tbody></table></div>
+    <div style="font-size:.68rem;color:#6b7280;margin-top:8px;">명세서는 본인 계정으로만 열리고, 공유할 수 있는 링크는 만들어지지 않아요. 내용에 문의가 있으면 관리자에게 알려주세요.</div>`;
 }
-async function myPayLoad(ym) {
-  if (ym) myState.payYm = ym;
+async function myPayLoad() {
   myState.payLoading = true; myState.payErr = ''; myRenderPay();
-  try {
-    myState.pay = await myApi({ action: 'salary', ym: myState.payYm });
-  } catch (e) { myState.pay = null; myState.payErr = '불러오지 못했어요 — ' + e.message; }
+  try { myState.pay = await myApi({ action: 'payslip_list' }); }
+  catch (e) { myState.pay = null; myState.payErr = '불러오지 못했어요 — ' + e.message; }
   finally { myState.payLoading = false; myRenderPay(); }
 }
-function myPayPrint() {
-  const r = myState.pay;
-  if (!r || r.ym !== myState.payYm) { showToast('먼저 명세서를 불러와주세요'); return; }
-  const title = `급여명세서_${r.ym}_${r.employee.name}`;
-  const w = window.open('', '_blank');
-  if (!w) { showToast('팝업이 차단됐어요 — 이 사이트의 팝업을 허용한 뒤 다시 눌러주세요'); return; }
-  w.document.open(); w.document.write(wmSlipPrintDoc([r], title, r.ym)); w.document.close();
+async function myPayOpen(id, download) {
+  const f = (((myState.pay || {}).rows) || []).find(x => x.id === id);
+  try { slipOpenBlob(await wmFetchBlob('wm-me', { action: 'payslip_file', id }), f && f.file_name, download); }
+  catch (e) { showToast('파일 열기 실패: ' + e.message); }
 }
 
 function myDocSet(k) { myState.doc = k; myRenderDocs(); }
