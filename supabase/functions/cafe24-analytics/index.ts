@@ -682,7 +682,7 @@ Deno.serve(async (req) => {
           results.set(sp.key, { start: sp.start, end: sp.end, paid, cancel, ret });
         }
       };
-      await Promise.all(Array.from({ length: Math.min(4, spans.length) }, worker));
+      await Promise.all(Array.from({ length: Math.min(8, spans.length) }, worker));   // 60여 건수 호출 — 8 병렬(실측 4 병렬 32초 → 절반 목표)
       const rate = (n: number, d: number) => d > 0 ? +(n / d * 100).toFixed(2) : null;
       const shape = (sp: typeof spans[number]) => {
         const c = results.get(sp.key)!;
