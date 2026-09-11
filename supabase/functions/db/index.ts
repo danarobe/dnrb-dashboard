@@ -33,6 +33,7 @@ const TABLE_ROLES: Record<string, string[]> = {
   notifications: ["admin", "staff", "cs"],  // @멘션 알림 (2026-08-20). 남을 수신자로 POST해야 하므로 AUTHOR_FIELDS 미적용 — 읽기는 클라이언트가 본인 필터(내부 신뢰 전제, 비공개 회의기록과 동일 수준)
   push_subscriptions: ["admin", "staff", "cs"],  // 웹 푸시 구독 (기기별, 2026-08-20) — AUTHOR_FIELDS로 본인 것만
   agent_reports: ["admin"],   // 매출 분석 에이전트 리포트 (2026-09-10) — 매출 절대액이 들어 있어 관리자만. 쓰기는 sales-agent 함수(service_role)
+  agent_actions: ["admin"],   // 에이전트 할 일 완료 체크 (2026-09-11, ~/dnrb-agents) — 관리자가 읽고 씀(upsert on_conflict=agent,action_id)
 };
 // 본인 것만 쓰기·수정·삭제 가능한 테이블과 작성자 컬럼 (클라이언트 규칙을 서버에서 강제)
 const AUTHOR_FIELDS: Record<string, string> = {

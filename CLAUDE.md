@@ -109,7 +109,7 @@ curl -s -X POST "https://api.supabase.com/v1/projects/eeffmbusaqaadeojjlnc/datab
 - 알려진 데이터 이슈(그대로 이관됨): `clock_out`은 있는데 `work_minutes`가 NULL인 8건(2026-07-20, 전부 `is_edited`). 원인은 `attendance_edits.js:68-70`이 출근시각만 수정하면 근무분을 NULL로 만드는 것. **대조 검증 통과 전에는 고치지 말 것**(진짜 차이와 구분이 안 됨).
 
 ### db 프록시 화이트리스트 (supabase/functions/db/index.ts의 TABLE_ROLES)
-cr=admin, perf/adv/meeting_topics/meeting_notes/note_comments/note_likes=admin+staff, disp_season_out/profit_archive/ad_test_state=admin. **agent_reports=admin**(2026-09-10).
+cr=admin, perf/adv/meeting_topics/meeting_notes/note_comments/note_likes=admin+staff, disp_season_out/profit_archive/ad_test_state=admin. **agent_reports=admin**(2026-09-10), **agent_actions=admin**(2026-09-11, 에이전트 할 일 완료 체크 — 소유는 ~/dnrb-agents).
 AUTHOR_FIELDS(notes/comments=author_id, likes=user_id): POST는 본인 id 필수, PATCH/DELETE는 해당 필터 필수 → 본인 것만 수정·삭제(서버 강제).
 
 ---
