@@ -1962,6 +1962,7 @@
       </div>
 
       <div id="users-bday" style="display:none;margin-bottom:16px;"></div>
+      <div id="users-addash" style="display:none;margin-bottom:16px;"></div>
       <div id="users-list" style="font-size:.82rem;color:#6b7280;">불러오는 중…</div>
       <!-- 직원 근무 정보 모달 (2026-08-27) — 근무 관리(wm_employees) 연동 데이터 -->
       <div id="user-detail-modal" onclick="if(event.target===this)this.style.display='none'"
@@ -2236,6 +2237,51 @@ async function adDashOpen() {
     if (tab) tab.location.href = AD_DASH_URL; else window.open(AD_DASH_URL, '_blank');
   }
 }
+// 광고 대시보드 접근 허용 목록(ad_dashboard_users) — 관리자는 항상, 그 외는 등재된 계정만. 서버(auth sso_issue/verify)가 같은 목록으로 강제하므로 여기는 메뉴 표시용.
+const adDashState = { allowed: null, users: null };
+async function adDashAccessLoad() {
+  if (!SESSION || isAdmin()) return;
+  try {
+    const rows = await dbProxy(`ad_dashboard_users?user_id=eq.${encodeURIComponent(SESSION.id)}&select=user_id`);
+    $('menu-addash').style.display = rows && rows.length ? '' : 'none';
+  } catch { /* 조회 실패 시 숨김 유지 */ }
+}
+// 관리자용 칩 패널 (직원 관리 화면) — 구매요청 담당자 패널과 같은 방식
+async function adDashPanel() {
+  const box = $('users-addash');
+  if (!box || !isAdmin()) return;
+  try {
+    const [rows, names] = await Promise.all([
+      dbProxy('ad_dashboard_users?select=user_id'),
+      adDashState.users ? Promise.resolve(adDashState.users) : authApi({ action: 'list_names', token: SESSION.token }).then(d => d.users || []),
+    ]);
+    adDashState.users = names;
+    adDashState.allowed = new Set((rows || []).map(r => r.user_id));
+  } catch (e) { box.innerHTML = `<div style="font-size:.76rem;color:#b91c1c;">허용 목록을 불러오지 못했어요 — ${escHtml(e.message)}</div>`; return; }
+  const chips = adDashState.users.map(u => {
+    const on = adDashState.allowed.has(u.id);
+    return `<button onclick="adDashToggle('${escHtml(u.id)}')" style="border:1.5px solid ${on ? 'transparent' : '#d1d5db'};background:${on ? '#4f46e5' : '#fff'};color:${on ? '#fff' : '#4b5563'};border-radius:99px;padding:4px 12px;font-size:.76rem;font-weight:700;cursor:pointer;">${escHtml(u.name)}</button>`;
+  }).join(' ');
+  box.style.display = 'block';
+  box.innerHTML = `<div style="background:#f8f9ff;border:1.5px solid #e0e7ff;border-radius:12px;padding:10px 14px;">
+    <div style="font-size:.78rem;font-weight:800;color:#4338ca;margin-bottom:6px;">광고관리자(광고 대시보드) 접근 허용 <span style="font-weight:500;color:#6b7280;font-size:.72rem;">— 선택된 직원만 메뉴가 보이고 자동 로그인됩니다 (관리자는 항상 가능 · 빼면 그 즉시 차단)</span></div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap;">${chips || '<span style="color:#9ca3af;font-size:.76rem;">등록 사용자가 없습니다</span>'}</div></div>`;
+}
+async function adDashToggle(uid) {
+  try {
+    if (adDashState.allowed.has(uid)) {
+      await dbProxy(`ad_dashboard_users?user_id=eq.${encodeURIComponent(uid)}`, { method: 'DELETE' });
+      showToast('접근을 해제했어요');
+    } else {
+      await dbProxy('ad_dashboard_users?on_conflict=user_id', {
+        method: 'POST', headers: { Prefer: 'resolution=merge-duplicates,return=minimal' },
+        body: JSON.stringify({ user_id: uid, added_by: SESSION.name }),
+      });
+      showToast('접근을 허용했어요');
+    }
+    adDashPanel();
+  } catch (e) { showToast('저장 실패: ' + e.message); }
+}
 function logout() {
   localStorage.removeItem(AUTH_KEY);
   location.reload();
@@ -2257,7 +2303,7 @@ function applyRole() {
   $('menu-stable').style.display = isAdmin() && !isCS() ? '' : 'none';
   $('menu-adv').style.display = (isAdmin() || isStaff()) && !isCS() ? '' : 'none';   // MD도 광고 효율 접근
   $('menu-admgr').style.display = 'none';   // 내장 광고관리자(구) — 2026-09-11 사용자 결정으로 메뉴 숨김(코드·데이터 유지, #admgr 직접 이동은 가능). 되살리려면: (isAdmin() || isStaff()) && !isCS()
-  $('menu-addash').style.display = SESSION ? '' : 'none';   // 광고관리자 = 친구 광고 대시보드 SSO 링크 — 로그인 전원(역할 무관, 친구 요청 사양 2026-09-11)
+  $('menu-addash').style.display = isAdmin() ? '' : 'none';   // 광고관리자(친구 광고 대시보드 SSO) = 관리자 + 허용 목록(ad_dashboard_users) — 목록은 adDashAccessLoad()가 확인해 켬 (2026-09-11 사용자 지정)
   $('menu-rwatch').style.display = (isAdmin() || isStaff()) && !isCS() ? '' : 'none'; // 반품 관리 = 관리자 + MD
   $('menu-madechk').style.display = (isAdmin() || isStaff()) && !isCS() ? '' : 'none'; // 자체제작 주문 점검 = 관리자 + MD (2026-09-03)
   $('menu-npm').style.display = isAdmin() || isStaff() || SESSION?.role === 'logistics' ? '' : 'none';    // 상품 관리(SSO 링크) = 관리자 + MD + 물류팀(2026-09-07, 자체제작 관리만)
@@ -2285,6 +2331,7 @@ function applyRole() {
 async function loadUsers() {
   if (!isAdmin()) return;
   __udEmps = null;   // 근무 정보 캐시 무효화 (메뉴 재진입 시 새로)
+  adDashPanel();     // 광고 대시보드 접근 허용 칩 (2026-09-11)
   try {
     const d = await authApi({ action: 'list_users', token: SESSION.token });
     $('users-list').innerHTML = `<div class="table-wrap"><table>
@@ -12184,6 +12231,7 @@ async function deleteCrArchive(id) {
 /* 로그인 후 데이터 로드 시작 */
 function bootApp() {
   applyRole();
+  adDashAccessLoad();   // 광고 대시보드 허용 목록 확인 → 메뉴 표시 (관리자 외)
   notifLoad(true);   // @멘션 알림 배지
   if (isAdmin()) loadCrArchive();    // 취소·반품 기록은 관리자만
   if (!isCS()) loadPerfArchive();    // 판매 성과 기록(순매출·마진 집계 포함) — CS팀 제외

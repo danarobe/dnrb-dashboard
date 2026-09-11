@@ -50,6 +50,15 @@ async function verifyAudToken(token: string): Promise<AudUser | null> {
   return u;
 }
 
+// 친구 광고 대시보드 접근 허용 여부 (2026-09-11 사용자 요청): 관리자는 항상, 그 외는 ad_dashboard_users에 등재된 계정만.
+// sso_issue(aud)와 verify 양쪽에서 검사 → 목록에서 빼면 다음 요청부터 즉시 차단.
+async function audAllowed(aud: string, userId: string, role: string): Promise<boolean> {
+  if (aud !== "ad-dashboard") return false;
+  if (role === "admin") return true;
+  const res = await usersRest(`ad_dashboard_users?user_id=eq.${encodeURIComponent(userId)}&select=user_id`);
+  return res.ok && ((await res.json()) as unknown[]).length > 0;
+}
+
 async function usersRest(path: string, init: RequestInit = {}): Promise<Response> {
   return await fetch(`${SB_URL}/rest/v1/${path}`, {
     ...init,
@@ -133,6 +142,7 @@ Deno.serve(async (req) => {
       if (!u) return json({ error: "유효하지 않은 토큰" }, 401);
       const user = await getUser(u.id);
       if (!user) return json({ error: "유효하지 않은 토큰" }, 401);
+      if (!(await audAllowed(u.aud, String(user.id), String(user.role)))) return json({ error: "이 앱에 대한 접근 권한이 없습니다" }, 403);
       return json({ id: String(user.id), name: String(user.name), role: String(user.role), exp: u.exp, aud: u.aud });
     }
 
@@ -161,6 +171,7 @@ Deno.serve(async (req) => {
     if (action === "sso_issue") {
       const aud = String(body.aud ?? "");
       if (aud && !AUD_ALLOWED.has(aud)) return json({ error: "알 수 없는 대상 앱" }, 400);
+      if (aud && !(await audAllowed(aud, me.id, me.role))) return json({ error: "이 앱에 대한 접근 권한이 없습니다 — 관리자에게 요청하세요" }, 403);
       const bytes = crypto.getRandomValues(new Uint8Array(32));
       const code = btoa(String.fromCharCode(...bytes)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
       const res = await usersRest(`api_cache?on_conflict=cache_key`, {

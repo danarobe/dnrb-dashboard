@@ -30,6 +30,7 @@ const TABLE_ROLES: Record<string, string[]> = {
   made_products: ["admin", "staff"],   // 자체제작 주문 점검 — 제작처(중국/국내)·리드타임 태그. 읽기·쓰기 admin+MD (2026-09-03 사용자 요청으로 MD에도 지정 권한)
   purchase_requests: ["admin", "staff", "cs"],   // 직원 구매요청 (2026-08-31) — 등록 전원, 상태·입금·확인은 아래 커스텀 규칙
   purchase_managers: ["admin", "staff", "cs"],   // 구매요청 상태 변경 담당자 목록 — 읽기 전원(화면 분기용), 쓰기는 admin만(커스텀 규칙)
+  ad_dashboard_users: ["admin", "staff", "cs"],  // 친구 광고 대시보드 접근 허용 목록 (2026-09-11) — 읽기 전원(메뉴 분기용), 쓰기는 admin만(커스텀 규칙)
   notifications: ["admin", "staff", "cs"],  // @멘션 알림 (2026-08-20). 남을 수신자로 POST해야 하므로 AUTHOR_FIELDS 미적용 — 읽기는 클라이언트가 본인 필터(내부 신뢰 전제, 비공개 회의기록과 동일 수준)
   push_subscriptions: ["admin", "staff", "cs"],  // 웹 푸시 구독 (기기별, 2026-08-20) — AUTHOR_FIELDS로 본인 것만
   agent_reports: ["admin"],   // 매출 분석 에이전트 리포트 (2026-09-10) — 매출 절대액이 들어 있어 관리자만. 쓰기는 sales-agent 함수(service_role)
@@ -71,7 +72,7 @@ Deno.serve(async (req) => {
     // ── 직원 구매요청 커스텀 규칙 (2026-08-31 사용자 지정) ──
     // 등록(POST)은 전원(본인 명의 강제) · 상태/입금/확인 변경은 admin 또는 구매 담당자(purchase_managers)만 ·
     // 일반 직원의 PATCH는 본인 행 + 내용 필드만 · DELETE는 본인 행만(admin은 전체) · 담당자 목록 쓰기는 admin만.
-    if (table === "purchase_managers" && m !== "GET" && me.role !== "admin") {
+    if ((table === "purchase_managers" || table === "ad_dashboard_users") && m !== "GET" && me.role !== "admin") {
       return json({ error: "담당자 지정은 관리자만 가능합니다" }, 403);
     }
     if (table === "purchase_requests") {
