@@ -7,8 +7,13 @@
 //   POST {action:'delete_user', token, id}                — 관리자 전용 (직원 삭제)
 //   POST {action:'change_password', token, old_password, new_password} — 본인
 //   POST {action:'npm_sso', token}  → {token: SSO 토큰(2분)} — 상품관리 시스템(newproduct-manager) 같은 계정 로그인용 (2026-09-07)
-//   POST {action:'sso_issue', token}  → {code}  — 에이전트 앱(dnrb-agents) 이동용 60초 일회용 코드 (2026-09-10)
-//   POST {action:'sso_redeem', code}  → {token, id, name, role, exp} — 그 코드를 정식 토큰으로 교환 (일회용, 즉시 삭제)
+//   POST {action:'sso_issue', token, aud?}  → {code}  — 에이전트 앱(dnrb-agents) 이동용 60초 일회용 코드 (2026-09-10)
+//                                            aud:'ad-dashboard'(2026-09-11) = 친구 광고 대시보드용 — 교환 시 **전용 토큰**이 나온다
+//   POST {action:'sso_redeem', code}  → {token, id, name, role, exp[, aud]} — 그 코드를 정식 토큰으로 교환 (일회용, 즉시 삭제)
+//   POST {action:'verify', token}     → {id, name, role, exp} — 외부 앱(친구 광고 대시보드) 서버가 매 요청 검증용 (2026-09-11).
+//                                      **aud:'ad-dashboard' 전용 토큰만** 받는다(401 otherwise). 전용 토큰은 파생 키로 서명돼
+//                                      우리 함수(db·wm-me 등)에서는 서명 불일치로 거부되므로, 외부 서버가 토큰을 보관해도
+//                                      워크스페이스 데이터(급여 명세서 등)에 손댈 수 없다. 시크릿 공유 없음.
 //
 // app_users 테이블은 anon 정책이 없어 이 함수(service_role)로만 접근 가능.
 // 필요 secret: AUTH_SECRET
@@ -19,6 +24,31 @@ import { handleOptions, json, signAuthToken, verifyAuthTokenString } from "../_s
 const SB_URL = Deno.env.get("SUPABASE_URL")!;
 const SB_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const TOKEN_TTL = 7 * 24 * 3600 * 1000; // 7일
+
+// ── 외부 앱 전용 토큰 (aud) — AUTH_SECRET에서 파생한 키로 서명. 표준 토큰과 서명 키가 달라 서로 호환되지 않는다.
+const AUD_ALLOWED = new Set(["ad-dashboard"]);
+async function hmacAud(data: string, aud: string): Promise<string> {
+  const secret = (Deno.env.get("AUTH_SECRET") ?? "") + "|aud:" + aud;
+  const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  const sig = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(data));
+  return btoa(String.fromCharCode(...new Uint8Array(sig)));
+}
+interface AudUser { id: string; name: string; role: string; exp: number; aud: string }
+async function signAudToken(user: AudUser): Promise<string> {
+  const payload = btoa(unescape(encodeURIComponent(JSON.stringify(user))));
+  return `${payload}.${await hmacAud(payload, user.aud)}`;
+}
+async function verifyAudToken(token: string): Promise<AudUser | null> {
+  const dot = token.lastIndexOf(".");
+  if (dot < 1) return null;
+  const payload = token.slice(0, dot), sig = token.slice(dot + 1);
+  let u: AudUser;
+  try { u = JSON.parse(decodeURIComponent(escape(atob(payload)))) as AudUser; } catch { return null; }
+  if (!u || !u.aud || !AUD_ALLOWED.has(u.aud)) return null;
+  if (await hmacAud(payload, u.aud) !== sig) return null;
+  if (!u.exp || u.exp < Date.now()) return null;
+  return u;
+}
 
 async function usersRest(path: string, init: RequestInit = {}): Promise<Response> {
   return await fetch(`${SB_URL}/rest/v1/${path}`, {
@@ -85,10 +115,25 @@ Deno.serve(async (req) => {
       // 읽었으면 성공·실패와 무관하게 먼저 지운다 (일회용)
       if (row) await usersRest(`api_cache?cache_key=eq.${encodeURIComponent("sso:" + code)}`, { method: "DELETE", headers: { Prefer: "return=minimal" } });
       if (!row || Date.now() - new Date(row.created_at).getTime() > 60 * 1000) return json({ error: "코드가 만료됐거나 이미 사용됐습니다" }, 401);
-      const user = await getUser(String((row.payload as Record<string, unknown>)?.id ?? ""));
+      const rp = (row.payload ?? {}) as Record<string, unknown>;
+      const user = await getUser(String(rp.id ?? ""));
       if (!user) return json({ error: "로그인이 필요합니다" }, 401);
+      const aud = String(rp.aud ?? "");
+      if (aud) {   // 외부 앱 전용 토큰 — 우리 함수에서는 못 쓰는 파생 키 서명 (2026-09-11)
+        const payload: AudUser = { id: String(user.id), name: String(user.name), role: String(user.role), exp: Date.now() + TOKEN_TTL, aud };
+        return json({ token: await signAudToken(payload), ...payload });
+      }
       const payload = { id: String(user.id), name: String(user.name), role: String(user.role), exp: Date.now() + TOKEN_TTL };
       return json({ token: await signAuthToken(payload), ...payload });
+    }
+
+    // ── 외부 앱 토큰 검증 (2026-09-11, 친구 광고 대시보드 서버가 매 요청 호출): aud 전용 토큰만. 계정 삭제·역할 변경 즉시 반영(DB 재조회).
+    if (action === "verify") {
+      const u = await verifyAudToken(String(body.token ?? ""));
+      if (!u) return json({ error: "유효하지 않은 토큰" }, 401);
+      const user = await getUser(u.id);
+      if (!user) return json({ error: "유효하지 않은 토큰" }, 401);
+      return json({ id: String(user.id), name: String(user.name), role: String(user.role), exp: u.exp, aud: u.aud });
     }
 
     // ── 이하 액션은 로그인 토큰 필요 ──
@@ -114,11 +159,13 @@ Deno.serve(async (req) => {
 
     // ── 에이전트 앱 SSO 코드 발급 (2026-09-10): 로그인 상태에서 60초 일회용 코드. 짝은 위 sso_redeem.
     if (action === "sso_issue") {
+      const aud = String(body.aud ?? "");
+      if (aud && !AUD_ALLOWED.has(aud)) return json({ error: "알 수 없는 대상 앱" }, 400);
       const bytes = crypto.getRandomValues(new Uint8Array(32));
       const code = btoa(String.fromCharCode(...bytes)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
       const res = await usersRest(`api_cache?on_conflict=cache_key`, {
         method: "POST", headers: { Prefer: "resolution=merge-duplicates,return=minimal" },
-        body: JSON.stringify({ cache_key: "sso:" + code, payload: { id: me.id }, created_at: new Date().toISOString() }),
+        body: JSON.stringify({ cache_key: "sso:" + code, payload: aud ? { id: me.id, aud } : { id: me.id }, created_at: new Date().toISOString() }),
       });
       if (!res.ok) return json({ error: "코드 발급 실패 " + res.status }, 500);
       return json({ code, ttl_sec: 60 });

@@ -608,7 +608,9 @@
   <button class="menu-item" id="menu-npm" title="상품 관리 시스템 — 같은 계정으로 자동 로그인, 새 탭으로 열립니다" onclick="npmOpen()"><i class="fa-solid fa-box-open" style="width:18px;text-align:center;color:#818cf8;"></i>상품 관리<i class="fa-solid fa-arrow-up-right-from-square" style="font-size:.62rem;color:#9ca3af;margin-left:auto;"></i></button>
   <div class="menu-group">경영</div>
   <button class="menu-item" data-menu="adv"  id="menu-adv" onclick="showMenu('adv')"><i class="fa-solid fa-bullhorn" style="width:18px;text-align:center;color:#818cf8;"></i>광고 효율</button>
-  <button class="menu-item" data-menu="admgr" id="menu-admgr" style="display:none;" onclick="showMenu('admgr')"><i class="fa-solid fa-sitemap" style="width:18px;text-align:center;color:#818cf8;"></i>광고관리자</button>
+  <!-- 광고관리자 = 친구가 만든 별도 광고 대시보드(ad-dashboard, GitHub Pages)로 이동 (2026-09-11 사용자 결정). 기존 내장 광고관리자(#admgr)는 메뉴만 숨김 — 코드·데이터 유지 -->
+  <button class="menu-item" id="menu-addash" style="display:none;" title="광고 대시보드 — 같은 계정으로 자동 로그인, 새 탭으로 열립니다" onclick="adDashOpen()"><i class="fa-solid fa-sitemap" style="width:18px;text-align:center;color:#818cf8;"></i>광고관리자<i class="fa-solid fa-arrow-up-right-from-square" style="font-size:.62rem;color:#9ca3af;margin-left:auto;"></i></button>
+  <button class="menu-item" data-menu="admgr" id="menu-admgr" style="display:none;" onclick="showMenu('admgr')"><i class="fa-solid fa-sitemap" style="width:18px;text-align:center;color:#818cf8;"></i>광고관리자 (구)</button>
   <button class="menu-item" data-menu="profit" id="menu-profit" onclick="showMenu('profit')"><i class="fa-solid fa-coins" style="width:18px;text-align:center;color:#818cf8;"></i>순익 시나리오</button>
   <button class="menu-item" id="menu-agents" style="display:none;" title="AI 에이전트 — 같은 계정으로 자동 로그인, 새 탭으로 열립니다" onclick="agentsOpen()"><i class="fa-solid fa-robot" style="width:18px;text-align:center;color:#818cf8;"></i>AI 에이전트<i class="fa-solid fa-arrow-up-right-from-square" style="font-size:.62rem;color:#9ca3af;margin-left:auto;"></i></button>
   <button class="menu-item" data-menu="wm" id="menu-wm" style="display:none;" onclick="showMenu('wm')"><i class="fa-solid fa-user-clock" style="width:18px;text-align:center;color:#818cf8;"></i>근무 관리</button>
@@ -2217,6 +2219,23 @@ async function agentsOpen() {
     if (tab) tab.location.href = AGENTS_URL; else window.open(AGENTS_URL, '_blank');
   }
 }
+// 친구 광고 대시보드(ad-dashboard) — agentsOpen과 같은 60초 일회용 코드 방식이지만 aud:'ad-dashboard'를 붙여
+// 교환되는 토큰이 **그 앱 전용**(우리 함수에서는 서명 불일치로 거부)이 되게 한다. 저쪽 서버는 auth verify로 매 요청 검증. (2026-09-11)
+const AD_DASH_URL = 'https://qkralsrb03138668.github.io/ad-dashboard/';
+async function adDashOpen() {
+  if (!SESSION) { showToast('로그인이 필요합니다'); return; }
+  const tab = window.open('about:blank', '_blank');
+  try {
+    const res = await fetch(fnUrl('auth'), { method: 'POST', headers: sbHeaders(), body: JSON.stringify({ action: 'sso_issue', token: SESSION.token, aud: 'ad-dashboard' }) });
+    const d = await res.json();
+    if (!d.code) throw new Error(d.error || '코드 발급 실패');
+    const url = AD_DASH_URL + '#sso=' + d.code;
+    if (tab) tab.location.href = url; else window.open(url, '_blank');
+  } catch (e) {
+    showToast('자동 로그인 연결 실패 — 로그인 화면으로 엽니다 (' + e.message + ')');
+    if (tab) tab.location.href = AD_DASH_URL; else window.open(AD_DASH_URL, '_blank');
+  }
+}
 function logout() {
   localStorage.removeItem(AUTH_KEY);
   location.reload();
@@ -2237,7 +2256,8 @@ function applyRole() {
   $('menu-disp').style.display = isAdmin() && !isCS() ? '' : 'none';
   $('menu-stable').style.display = isAdmin() && !isCS() ? '' : 'none';
   $('menu-adv').style.display = (isAdmin() || isStaff()) && !isCS() ? '' : 'none';   // MD도 광고 효율 접근
-  $('menu-admgr').style.display = (isAdmin() || isStaff()) && !isCS() ? '' : 'none'; // 광고관리자 = 관리자 전체 + **MD·마케터는 테스트 소재 탭만** (2026-08-27 사용자 지정)
+  $('menu-admgr').style.display = 'none';   // 내장 광고관리자(구) — 2026-09-11 사용자 결정으로 메뉴 숨김(코드·데이터 유지, #admgr 직접 이동은 가능). 되살리려면: (isAdmin() || isStaff()) && !isCS()
+  $('menu-addash').style.display = SESSION ? '' : 'none';   // 광고관리자 = 친구 광고 대시보드 SSO 링크 — 로그인 전원(역할 무관, 친구 요청 사양 2026-09-11)
   $('menu-rwatch').style.display = (isAdmin() || isStaff()) && !isCS() ? '' : 'none'; // 반품 관리 = 관리자 + MD
   $('menu-madechk').style.display = (isAdmin() || isStaff()) && !isCS() ? '' : 'none'; // 자체제작 주문 점검 = 관리자 + MD (2026-09-03)
   $('menu-npm').style.display = isAdmin() || isStaff() || SESSION?.role === 'logistics' ? '' : 'none';    // 상품 관리(SSO 링크) = 관리자 + MD + 물류팀(2026-09-07, 자체제작 관리만)
