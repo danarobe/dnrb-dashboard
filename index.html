@@ -925,6 +925,37 @@
   </div>
 
   <!-- ════════════════════════════════════════
+       SECTION 1-B : 결제 주차별 취소·반품률 (코호트) — 취소 & 반품 메뉴의 두 번째 소메뉴 (2026-09-11 사용자 요청)
+       "그 주에 결제된 주문 중 몇 %가 (언제든) 취소·반품됐나". 취소가 다음 주에 나도 결제 주에 귀속.
+       데이터: cafe24-analytics cohortweeks (관리자). 최근 주는 미성숙 → 상태 칩(성숙/집계 중/진행 중)으로 구분.
+       showMenu('cr')에서 sec-cr와 함께 표시·자동 조회, 헤더 클릭으로 접기/펼치기(toggleSection).
+  ════════════════════════════════════════ -->
+  <div class="section-card page-sec" id="sec-cr-cohort" style="margin-top:20px;">
+    <div class="section-header" onclick="toggleSection('cr-cohort')">
+      <h2><span><i class="fa-regular fa-calendar-check" style="color:#4f46e5;font-size:.9em;"></i></span> 결제 주차별 취소 &amp; 반품률</h2>
+      <button class="toggle-btn" id="toggle-cr-cohort"><i class="fa-solid fa-chevron-up"></i> 접기</button>
+    </div>
+    <div class="section-body" id="body-cr-cohort">
+      <div style="font-size:.82rem;color:#6b7280;margin-bottom:14px;line-height:1.6;">
+        <strong>그 주(월~일)에 결제된 주문 중 지금까지 취소·반품된 비율</strong>입니다. 취소가 다음 주에 일어나도 결제한 주로 돌아갑니다.
+        최근 주는 취소·반품이 아직 다 들어오지 않아 낮게 보이므로 <span class="status-badge badge-gray" style="padding:1px 8px;">집계 중</span>으로 표시하고,
+        <strong>2주 이상 지난 주</strong>만 <span class="status-badge badge-green" style="padding:1px 8px;">성숙</span>으로 봅니다. 추세 비교는 성숙한 주끼리만 하세요.
+      </div>
+      <div class="control-bar">
+        <label><i class="fa-regular fa-calendar"></i> 기준일</label>
+        <input type="date" id="crCohortEnd" onchange="crCohortLoad(true)" />
+        <label>주 수</label>
+        <select id="crCohortWeeks" onchange="crCohortLoad(true)" style="border:1.5px solid #d1d5db;border-radius:8px;padding:7px 10px;font-size:.82rem;font-family:inherit;outline:none;">
+          <option value="6">6주</option><option value="8">8주</option><option value="12">12주</option>
+        </select>
+        <button class="btn-analyze" id="btn-cr-cohort" onclick="crCohortLoad(true)"><i class="fa-solid fa-rotate"></i> 새로고침</button>
+        <span id="cr-cohort-meta" style="font-size:.75rem;color:#9ca3af;"></span>
+      </div>
+      <div id="cr-cohort-result"><div class="empty-state"><p>불러오는 중...</p></div></div>
+    </div>
+  </div>
+
+  <!-- ════════════════════════════════════════
        SECTION 1.5 : 상품 조회수 & 주문율 (카페24 애널리틱스)
   ════════════════════════════════════════ -->
   <div class="section-card page-sec" id="sec-an">
@@ -9916,6 +9947,9 @@ function showMenu(key) {
   document.querySelectorAll('.page-sec').forEach(el => { el.style.display = 'none'; });
   const target = $('sec-' + key);
   if (target) target.style.display = 'block';
+  // 취소 & 반품 메뉴는 소메뉴 카드가 둘(비율 분석 + 결제 주차별 코호트) — 두 번째 카드는 여기서 같이 보인다 (2026-09-11)
+  const crCohort = $('sec-cr-cohort'); if (crCohort) crCohort.style.display = key === 'cr' ? 'block' : 'none';
+  if (key === 'cr') crCohortInit();
   document.querySelectorAll('.menu-item').forEach(b => b.classList.toggle('active', b.dataset.menu === key));
   history.replaceState(null, '', '#' + key);
   notifLoad();   // 메뉴 이동 때 알림 갱신 (60초 스로틀 — 상시 폴링 없음)
@@ -10047,6 +10081,81 @@ function updateHomeTrafficTile() {
       <span style="color:#1d4ed8;font-weight:800;">${r.rate}%</span>
       <span style="color:#6b7280;font-size:.75rem;">조회 ${fmt(r.views)} · 주문 ${fmt(r.order_count)}</span>
     </div>`).join('') || '조건에 맞는 상품 없음';
+}
+
+/* ── 결제 주차별 취소·반품률 (코호트, 2026-09-11) — 취소 & 반품 메뉴 두 번째 소메뉴 ──
+   서버 cohortweeks: /orders/count(date_type=pay_date) 전체·C40·R00~R40 3회/구간, 10분 캐시.
+   성숙 = 구간 끝에서 14일 이상 경과. 기준일 기본값 = 어제(KST). 에이전트 앱의 반품 감시 보고서와 같은 기준. */
+const crCohortState = { loaded: false, loading: false, data: null };
+function crCohortInit() {
+  if (!isAdmin() || !sbReady()) return;
+  const inp = $('crCohortEnd');
+  if (inp && !inp.value) {
+    const kst = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(new Date());
+    const y = new Date(kst + 'T12:00:00Z'); y.setUTCDate(y.getUTCDate() - 1);
+    inp.value = y.toISOString().slice(0, 10);
+  }
+  if (!crCohortState.loaded) crCohortLoad(false);
+}
+async function crCohortLoad(force) {
+  if (!isAdmin() || crCohortState.loading) return;
+  const el = $('cr-cohort-result'), btn = $('btn-cr-cohort');
+  const end = $('crCohortEnd').value, weeks = $('crCohortWeeks').value;
+  if (!end) return;
+  crCohortState.loading = true;
+  btnBusy(btn, '집계 중');
+  if (!crCohortState.loaded) el.innerHTML = '<div class="empty-state"><p><i class="fa-solid fa-spinner fa-spin"></i> 결제 주차별로 세는 중 — 처음엔 20~30초 걸립니다</p></div>';
+  try {
+    const params = { action: 'cohortweeks', end_date: end, weeks, days: '14' };
+    if (force) params.nocache = '1';
+    const d = await anGet(params);
+    crCohortState.data = d; crCohortState.loaded = true;
+    crCohortRender(d);
+    $('cr-cohort-meta').textContent = `기준일 ${end} · 결제일 기준 · 네이버페이 포함`;
+  } catch (e) {
+    el.innerHTML = `<div class="empty-state"><p>불러오기 실패: ${escHtml(e.message)}</p></div>`;
+  } finally {
+    crCohortState.loading = false;
+    btnIdle(btn, '<i class="fa-solid fa-rotate"></i> 새로고침');
+  }
+}
+function crCohortRender(d) {
+  const el = $('cr-cohort-result');
+  const weeks = d.weeks || [];
+  const md = s => s ? `${Number(s.slice(5, 7))}/${Number(s.slice(8, 10))}` : '';
+  const pr = v => v == null ? '—' : v.toFixed(2) + '%';
+  const maturity = w => w.partial ? '진행 중' : w.age_days >= 14 ? '성숙' : '집계 중';
+  const badge = m => m === '성숙' ? '<span class="status-badge badge-green">성숙</span>' : m === '진행 중' ? '<span class="status-badge badge-blue">진행 중</span>' : '<span class="status-badge badge-gray">집계 중</span>';
+  const mature = weeks.filter(w => maturity(w) === '성숙');
+  const avg = k => mature.length ? mature.reduce((t, w) => t + (w[k] || 0), 0) / mature.length : null;
+  const latest = mature[0];
+  // 성숙 주 평균보다 높은 칸은 붉게
+  const hi = (v, a) => v != null && a != null && v > a + 0.5 ? 'color:#dc2626;font-weight:800;' : 'font-weight:700;';
+  const avgC = avg('cancel_rate'), avgR = avg('return_rate');
+  const kpi = `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;margin-bottom:16px;">
+      ${[['최근 성숙 주 취소율', latest ? pr(latest.cancel_rate) : '—', latest ? `${md(latest.start)}~${md(latest.end)} 결제분` : '성숙한 주 없음'],
+         ['최근 성숙 주 반품률', latest ? pr(latest.return_rate) : '—', latest ? `결제 ${fmt(latest.paid)}건 중 반품 ${fmt(latest.ret)}건` : ''],
+         ['성숙 주 평균', mature.length ? `${pr(avgC)} · ${pr(avgR)}` : '—', `취소 · 반품 (${mature.length}주 평균)`],
+         ['이번 주 (진행 중)', weeks[0] ? `${pr(weeks[0].cancel_rate)} · ${pr(weeks[0].return_rate)}` : '—', weeks[0] ? `결제 ${fmt(weeks[0].paid)}건 · 아직 늘어날 수 있음` : ''],
+        ].map(([l, v, s]) => `<div style="background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:12px 14px;"><div style="font-size:.72rem;color:#6b7280;font-weight:700;">${l}</div><div style="font-size:1.05rem;font-weight:800;color:#1e1b4b;margin:3px 0 2px;">${v}</div><div style="font-size:.74rem;color:#6b7280;">${s}</div></div>`).join('')}
+    </div>`;
+  const rows = weeks.map(w => { const m = maturity(w); return `<tr>
+      <td style="white-space:nowrap;"><b>${md(w.start)} ~ ${md(w.end)}</b><div style="font-size:.72rem;color:#9ca3af;">${w.age_days}일 경과</div></td>
+      <td>${badge(m)}</td>
+      <td style="text-align:right;">${fmt(w.paid)}건</td>
+      <td style="text-align:right;${m === '성숙' ? hi(w.cancel_rate, avgC) : 'color:#6b7280;'}">${pr(w.cancel_rate)}<div style="font-size:.72rem;color:#9ca3af;font-weight:500;">${fmt(w.cancel)}건</div></td>
+      <td style="text-align:right;${m === '성숙' ? hi(w.return_rate, avgR) : 'color:#6b7280;'}">${pr(w.return_rate)}<div style="font-size:.72rem;color:#9ca3af;font-weight:500;">${fmt(w.ret)}건</div></td>
+      <td style="text-align:right;${m === '성숙' ? 'font-weight:700;' : 'color:#6b7280;'}">${pr(w.claim_rate)}</td>
+    </tr>`; }).join('');
+  const dayRows = (d.days || []).map(x => `<tr><td>${x.start} <span style="color:#9ca3af;font-size:.72rem;">${x.age_days}일</span></td><td style="text-align:right;">${fmt(x.paid)}</td><td style="text-align:right;">${fmt(x.cancel)} <span style="color:#6b7280;">(${pr(x.cancel_rate)})</span></td><td style="text-align:right;">${fmt(x.ret)} <span style="color:#6b7280;">(${pr(x.return_rate)})</span></td></tr>`).join('');
+  el.innerHTML = kpi + `<div class="table-wrap"><table>
+      <thead><tr><th>결제 주 (월~일)</th><th>상태</th><th style="text-align:right;">결제 주문</th><th style="text-align:right;">취소율</th><th style="text-align:right;">반품률</th><th style="text-align:right;">취소+반품</th></tr></thead>
+      <tbody>${rows}</tbody></table></div>
+    <div style="font-size:.74rem;color:#9ca3af;margin-top:8px;line-height:1.5;">붉은 숫자 = 성숙 주 평균보다 0.5%p 이상 높음. 취소 = 취소완료(C40), 반품 = 반품 신청~완료(R00~R40). 한 주문에 취소·반품이 같이 있으면 양쪽에 세어집니다. 네이버페이 주문은 분자·분모에 함께 들어갑니다.</div>
+    <details style="margin-top:14px;font-size:.82rem;"><summary style="cursor:pointer;color:#6b7280;font-weight:700;">결제일별로 보기 (최근 14일)</summary>
+      <div class="table-wrap" style="margin-top:8px;"><table><thead><tr><th>결제일</th><th style="text-align:right;">결제</th><th style="text-align:right;">취소 (비율)</th><th style="text-align:right;">반품 (비율)</th></tr></thead><tbody>${dayRows}</tbody></table></div>
+      <div style="font-size:.74rem;color:#9ca3af;margin-top:6px;">결제 후 며칠 지났는지에 따라 비율이 올라가는 모습을 볼 수 있습니다. 하루 지난 주문의 반품률은 아직 거의 0에 가깝습니다.</div>
+    </details>`;
 }
 
 /* ── 판매량 급증 TOP 5 — 최근 7일(어제까지) vs 직전 7일 ──
