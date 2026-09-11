@@ -10,7 +10,7 @@
 //   POST {action:'sso_issue', token, aud?}  → {code}  — 에이전트 앱(dnrb-agents) 이동용 60초 일회용 코드 (2026-09-10)
 //                                            aud:'ad-dashboard'(2026-09-11) = 친구 광고 대시보드용 — 교환 시 **전용 토큰**이 나온다
 //   POST {action:'sso_redeem', code}  → {token, id, name, role, exp[, aud]} — 그 코드를 정식 토큰으로 교환 (일회용, 즉시 삭제)
-//   POST {action:'verify', token}     → {id, name, role, exp} — 외부 앱(친구 광고 대시보드) 서버가 매 요청 검증용 (2026-09-11).
+//   POST {action:'verify', token}     → {id, name, role, exp, perms:{menus,actions}} — 외부 앱(친구 광고 대시보드) 서버가 매 요청 검증용 (2026-09-11).
 //                                      **aud:'ad-dashboard' 전용 토큰만** 받는다(401 otherwise). 전용 토큰은 파생 키로 서명돼
 //                                      우리 함수(db·wm-me 등)에서는 서명 불일치로 거부되므로, 외부 서버가 토큰을 보관해도
 //                                      워크스페이스 데이터(급여 명세서 등)에 손댈 수 없다. 시크릿 공유 없음.
@@ -52,11 +52,22 @@ async function verifyAudToken(token: string): Promise<AudUser | null> {
 
 // 친구 광고 대시보드 접근 허용 여부 (2026-09-11 사용자 요청): 관리자는 항상, 그 외는 ad_dashboard_users에 등재된 계정만.
 // sso_issue(aud)와 verify 양쪽에서 검사 → 목록에서 빼면 다음 요청부터 즉시 차단.
-async function audAllowed(aud: string, userId: string, role: string): Promise<boolean> {
-  if (aud !== "ad-dashboard") return false;
-  if (role === "admin") return true;
-  const res = await usersRest(`ad_dashboard_users?user_id=eq.${encodeURIComponent(userId)}&select=user_id`);
-  return res.ok && ((await res.json()) as unknown[]).length > 0;
+// 세부 권한(2026-09-11): perms = {menus:[…], actions:[…]} — 친구 앱이 화면 숨김 + 서버 검사에 쓴다. 관리자는 전부.
+const AD_MENUS = ["home", "compare", "ptest", "list", "test", "admgr", "upload", "perf", "data", "shoot"];
+const AD_ACTIONS = ["toggle", "budget", "upload", "creative", "delete"];
+const AD_DEFAULT_PERMS = { menus: ["home", "compare", "ptest", "list", "test"], actions: [] as string[] };
+type AdPerms = { menus: string[]; actions: string[] };
+function normPerms(raw: unknown): AdPerms {
+  const r = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
+  const pick = (v: unknown, allowed: string[]) => Array.isArray(v) ? v.map(String).filter((k) => allowed.includes(k)) : null;
+  return { menus: pick(r.menus, AD_MENUS) ?? AD_DEFAULT_PERMS.menus, actions: pick(r.actions, AD_ACTIONS) ?? AD_DEFAULT_PERMS.actions };
+}
+async function audAllowed(aud: string, userId: string, role: string): Promise<AdPerms | null> {
+  if (aud !== "ad-dashboard") return null;
+  if (role === "admin") return { menus: [...AD_MENUS], actions: [...AD_ACTIONS] };
+  const res = await usersRest(`ad_dashboard_users?user_id=eq.${encodeURIComponent(userId)}&select=user_id,perms`);
+  const row = res.ok ? ((await res.json()) as Record<string, unknown>[])[0] : null;
+  return row ? normPerms(row.perms) : null;
 }
 
 async function usersRest(path: string, init: RequestInit = {}): Promise<Response> {
@@ -129,8 +140,10 @@ Deno.serve(async (req) => {
       if (!user) return json({ error: "로그인이 필요합니다" }, 401);
       const aud = String(rp.aud ?? "");
       if (aud) {   // 외부 앱 전용 토큰 — 우리 함수에서는 못 쓰는 파생 키 서명 (2026-09-11)
+        const perms = await audAllowed(aud, String(user.id), String(user.role));
+        if (!perms) return json({ error: "이 앱에 대한 접근 권한이 없습니다" }, 403);
         const payload: AudUser = { id: String(user.id), name: String(user.name), role: String(user.role), exp: Date.now() + TOKEN_TTL, aud };
-        return json({ token: await signAudToken(payload), ...payload });
+        return json({ token: await signAudToken(payload), ...payload, perms });
       }
       const payload = { id: String(user.id), name: String(user.name), role: String(user.role), exp: Date.now() + TOKEN_TTL };
       return json({ token: await signAuthToken(payload), ...payload });
@@ -142,8 +155,9 @@ Deno.serve(async (req) => {
       if (!u) return json({ error: "유효하지 않은 토큰" }, 401);
       const user = await getUser(u.id);
       if (!user) return json({ error: "유효하지 않은 토큰" }, 401);
-      if (!(await audAllowed(u.aud, String(user.id), String(user.role)))) return json({ error: "이 앱에 대한 접근 권한이 없습니다" }, 403);
-      return json({ id: String(user.id), name: String(user.name), role: String(user.role), exp: u.exp, aud: u.aud });
+      const perms = await audAllowed(u.aud, String(user.id), String(user.role));
+      if (!perms) return json({ error: "이 앱에 대한 접근 권한이 없습니다" }, 403);
+      return json({ id: String(user.id), name: String(user.name), role: String(user.role), exp: u.exp, aud: u.aud, perms });
     }
 
     // ── 이하 액션은 로그인 토큰 필요 ──
