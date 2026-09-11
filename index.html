@@ -2279,7 +2279,11 @@ async function adDashAccessLoad() {
 }
 // 관리자용 칩 패널 (직원 관리 화면) — 구매요청 담당자 패널과 같은 방식. 2026-09-11 세부 권한(perms) 추가:
 // 허용된 사람 옆 '권한' 버튼 → 체크박스 모달(메뉴 보기 10개 · 동작 5개). 친구 앱이 verify 응답의 perms로 메뉴 숨김 + 서버 검사.
-const AD_PERM_MENUS = [['home', '대시보드'], ['compare', '소재 비교'], ['ptest', '광고소재 대시보드'], ['atest', '테스트 소재'], ['abest', '베스트소재'], ['admgr', '광고관리자(Meta)'], ['upload', '광고 업로드'], ['perf', '판매 성과'], ['data', '데이터 관리'], ['shoot', '출장촬영 보드']];   // 친구 앱 실제 메뉴 키 (2026-09-11 확인)
+// 친구 앱 최종 메뉴 (2026-09-11 확정, 그룹·순서 그대로): 소재 / 분석 / Meta 연동 / 카페24 연동 / 관리 / 현장
+const AD_PERM_MENUS = [['ptest', '소재 업로드', '소재'], ['atest', '테스트 소재', '소재'], ['abest', '베스트소재', '소재'],
+  ['home', '대시보드', '분석'], ['compare', '소재 비교', '분석'],
+  ['admgr', '광고관리자', 'Meta 연동'], ['upload', '광고 업로드', 'Meta 연동'],
+  ['perf', '판매 성과', '카페24 연동'], ['data', '데이터 관리', '관리'], ['shoot', '출장촬영 보드', '현장']];
 const AD_PERM_ACTIONS = [['toggle', '캠페인·소재 활성/비활성 변경'], ['budget', '예산 조정'], ['upload', '광고 업로드·생성'], ['creative', '소재 등록·수정'], ['delete', '삭제']];
 const AD_PERM_DEFAULT = { menus: ['home', 'compare', 'ptest', 'atest', 'abest'], actions: [] };
 async function adDashPanel() {
@@ -2319,8 +2323,9 @@ function adDashPermOpen(uid) {
   const cb = (group, key, label, on) => `<label style="display:flex;align-items:center;gap:8px;font-size:.82rem;color:#374151;padding:4px 0;cursor:pointer;"><input type="checkbox" data-group="${group}" value="${key}" ${on ? 'checked' : ''} style="margin:0;" />${label}</label>`;
   $('addash-perm-title').textContent = `${u.name} — 광고 대시보드 세부 권한`;
   $('addash-perm-body').innerHTML = `
-    <div style="font-size:.76rem;font-weight:800;color:#4338ca;margin:6px 0 2px;">볼 수 있는 메뉴</div>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 12px;">${AD_PERM_MENUS.map(([k, l]) => cb('menus', k, l, (pm.menus || []).includes(k))).join('')}</div>
+    <div style="font-size:.76rem;font-weight:800;color:#4338ca;margin:6px 0 2px;">볼 수 있는 메뉴 <span style="font-weight:500;color:#6b7280;">(광고 대시보드의 메뉴 순서와 같아요)</span></div>
+    ${[...new Set(AD_PERM_MENUS.map(m => m[2]))].map(g => `<div style="margin-top:6px;"><div style="font-size:.68rem;font-weight:700;color:#9ca3af;letter-spacing:.02em;">${g}</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 12px;">${AD_PERM_MENUS.filter(m => m[2] === g).map(([k, l]) => cb('menus', k, l, (pm.menus || []).includes(k))).join('')}</div></div>`).join('')}
     <div style="font-size:.76rem;font-weight:800;color:#4338ca;margin:12px 0 2px;">할 수 있는 동작 <span style="font-weight:500;color:#6b7280;">(체크 안 하면 보기만)</span></div>
     ${AD_PERM_ACTIONS.map(([k, l]) => cb('actions', k, l, (pm.actions || []).includes(k))).join('')}
     <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px;">
