@@ -641,6 +641,65 @@ Deno.serve(async (req) => {
       return respond({ period: { start: s, end: e }, basis: "item_delivered_date", items });
     }
 
+    // ── 결제 주차별(코호트) 취소·반품률 (2026-09-11 사용자 요청 — 에이전트 반품 감시용) ──
+    // "그 주에 결제된 주문 중 몇 %가 (언제든) 취소·반품됐나"를 결제 주에 귀속시킨다. 취소가 다음 주에 일어나도
+    // 결제 주로 돌아간다. 주 = 월~일. 최근 주는 아직 취소·반품이 다 안 들어온 상태라 age_days를 같이 준다.
+    //   GET ?action=cohortweeks&end_date=YYYY-MM-DD[&weeks=6][&days=14]
+    //   → { weeks: [{week_start, week_end, partial, age_days, paid, cancel, cancel_rate, ret, return_rate}], days: [...] }
+    // 집계 = 카페24 /orders/count (date_type=pay_date) 3회/구간: 전체 · order_status=C40 · order_status=R00~R40.
+    // 취소+반품이 한 주문에 공존(혼합)하면 둘 다에 세어진다(드묾). 네이버페이 주문은 분자·분모에 같이 포함(비율엔 무해).
+    if (action === "cohortweeks") {
+      if (authed.role !== "admin") return json({ error: "접근 권한이 없습니다" }, 403);
+      const e = url.searchParams.get("end_date");
+      if (!e) return json({ error: "end_date 필수 (YYYY-MM-DD)" }, 400);
+      const weeks = Math.max(1, Math.min(12, Number(url.searchParams.get("weeks") ?? 6)));
+      const days = Math.max(0, Math.min(28, Number(url.searchParams.get("days") ?? 14)));
+      const hit = await fromCache(); if (hit) return json(hit);
+
+      const endMs = new Date(`${e}T12:00:00Z`).getTime();
+      const dowOf = (ms: number) => new Date(ms).getUTCDay();
+      const mondayMs = endMs - ((dowOf(endMs) + 6) % 7) * dayMs;
+      const RET = "R00,R10,R30,R34,R40";
+      const todayKst = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Seoul" }).format(new Date());
+      const daysSince = (d: string) => Math.round((new Date(`${todayKst}T12:00:00Z`).getTime() - new Date(`${d}T12:00:00Z`).getTime()) / dayMs);
+      type Cohort = { start: string; end: string; paid: number; cancel: number; ret: number };
+      const spans: { key: string; start: string; end: string; partial?: boolean }[] = [];
+      for (let i = 0; i < weeks; i++) {
+        const ws = mondayMs - i * 7 * dayMs, weFull = ws + 6 * dayMs;
+        spans.push({ key: `w${i}`, start: ymd(ws), end: ymd(Math.min(weFull, endMs)), partial: weFull > endMs });
+      }
+      for (let i = 0; i < days; i++) { const d = ymd(endMs - i * dayMs); spans.push({ key: `d${i}`, start: d, end: d }); }
+      // 건수 조회는 가벼워서 4개씩 병렬
+      const results = new Map<string, Cohort>();
+      let idx = 0;
+      const worker = async () => {
+        while (idx < spans.length) {
+          const sp = spans[idx++];
+          const base = `start_date=${sp.start}&end_date=${sp.end}&date_type=pay_date`;
+          const [paid, cancel, ret] = await Promise.all([
+            countOrders(token, base), countOrders(token, `${base}&order_status=C40`), countOrders(token, `${base}&order_status=${RET}`),
+          ]);
+          results.set(sp.key, { start: sp.start, end: sp.end, paid, cancel, ret });
+        }
+      };
+      await Promise.all(Array.from({ length: Math.min(4, spans.length) }, worker));
+      const rate = (n: number, d: number) => d > 0 ? +(n / d * 100).toFixed(2) : null;
+      const shape = (sp: typeof spans[number]) => {
+        const c = results.get(sp.key)!;
+        return {
+          start: c.start, end: c.end, partial: !!sp.partial, age_days: daysSince(c.end),
+          paid: c.paid, cancel: c.cancel, cancel_rate: rate(c.cancel, c.paid), ret: c.ret, return_rate: rate(c.ret, c.paid),
+          claim_rate: rate(c.cancel + c.ret, c.paid),
+        };
+      };
+      return respond({
+        end_date: e, basis: "pay_date", week: "mon_sun", statuses: { cancel: "C40", ret: RET },
+        weeks: spans.filter((s) => s.key.startsWith("w")).map(shape),
+        days: spans.filter((s) => s.key.startsWith("d")).map(shape),
+        note: "age_days = 구간 끝일로부터 오늘까지 지난 날. 14일 미만이면 취소·반품이 아직 더 들어올 수 있음",
+      });
+    }
+
     // ── 기간 내 품목별 결제수량 (안정재고 편성 + 광고관리자 실결제 수 열) ──
     // 결제일 기준으로 주문을 수집해 product_no + option_value 단위로 수량 합산.
     // 주의: 카페24 date_type의 결제일 값은 payment_date가 아니라 `pay_date` (다른 값은 422 반환).

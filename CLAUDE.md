@@ -66,6 +66,7 @@ curl -s -X POST "https://api.supabase.com/v1/projects/eeffmbusaqaadeojjlnc/datab
 - **cafe24-oauth의 selfUrl은 SUPABASE_URL 기반**(엣지 런타임 req.url은 프록시 내부 주소라 /functions/v1·https 빠짐).
 
 ### cafe24-analytics 액션
+- **`cohortweeks`**(2026-09-11, admin·에이전트): `end_date&weeks=6&days=14` → **결제 주차(월~일)별 코호트** 취소·반품률 — /orders/count(date_type=pay_date) 전체·C40·R00~R40 3회/구간, 4개 병렬(실측 수 초). `age_days`(구간 끝~오늘)로 성숙도 표시, 14일 미만은 집계 중. 취소가 다음 주에 나도 결제 주에 귀속(사용자 요청 — 주간 비교 착시 방지). 혼합 주문은 양쪽에 세어짐, 네이버페이 포함(비율엔 무해).
 - `summary`(조회수+주문율), `categories`, `category_products`, `revenue`(결제 매출), `performance`(판매수량+취소반품+공급가/판매가), `netreturns`(순반품률), `displaymetrics`+`productinfo`(진열용), `paiditems`(결제일 기준 품목별 결제수량 + 전체 상품목록 — 안정재고+광고관리자 실결제 수 열 공용, **admin 전용** — 2026-08-26 admgr용으로 admin+staff로 열었다가 같은 날 메뉴가 관리자 전용이 되며 원복).
 
 ### `wm-admin` — 근무 관리 (2026-08-26 신설, 관리자 전용)
