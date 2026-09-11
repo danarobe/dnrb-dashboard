@@ -2279,9 +2279,9 @@ async function adDashAccessLoad() {
 }
 // 관리자용 칩 패널 (직원 관리 화면) — 구매요청 담당자 패널과 같은 방식. 2026-09-11 세부 권한(perms) 추가:
 // 허용된 사람 옆 '권한' 버튼 → 체크박스 모달(메뉴 보기 10개 · 동작 5개). 친구 앱이 verify 응답의 perms로 메뉴 숨김 + 서버 검사.
-const AD_PERM_MENUS = [['home', '대시보드'], ['compare', '소재 비교'], ['ptest', '광고소재 대시보드'], ['list', '소재 목록'], ['test', '테스트 소재'], ['admgr', '광고관리자(Meta)'], ['upload', '광고 업로드'], ['perf', '판매 성과'], ['data', '데이터 관리'], ['shoot', '출장촬영 보드']];
+const AD_PERM_MENUS = [['home', '대시보드'], ['compare', '소재 비교'], ['ptest', '광고소재 대시보드'], ['atest', '테스트 소재'], ['abest', '베스트소재'], ['admgr', '광고관리자(Meta)'], ['upload', '광고 업로드'], ['perf', '판매 성과'], ['data', '데이터 관리'], ['shoot', '출장촬영 보드']];   // 친구 앱 실제 메뉴 키 (2026-09-11 확인)
 const AD_PERM_ACTIONS = [['toggle', '캠페인·소재 활성/비활성 변경'], ['budget', '예산 조정'], ['upload', '광고 업로드·생성'], ['creative', '소재 등록·수정'], ['delete', '삭제']];
-const AD_PERM_DEFAULT = { menus: ['home', 'compare', 'ptest', 'list', 'test'], actions: [] };
+const AD_PERM_DEFAULT = { menus: ['home', 'compare', 'ptest', 'atest', 'abest'], actions: [] };
 async function adDashPanel() {
   const box = $('users-addash');
   if (!box || !isAdmin()) return;

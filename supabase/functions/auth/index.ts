@@ -53,9 +53,9 @@ async function verifyAudToken(token: string): Promise<AudUser | null> {
 // 친구 광고 대시보드 접근 허용 여부 (2026-09-11 사용자 요청): 관리자는 항상, 그 외는 ad_dashboard_users에 등재된 계정만.
 // sso_issue(aud)와 verify 양쪽에서 검사 → 목록에서 빼면 다음 요청부터 즉시 차단.
 // 세부 권한(2026-09-11): perms = {menus:[…], actions:[…]} — 친구 앱이 화면 숨김 + 서버 검사에 쓴다. 관리자는 전부.
-const AD_MENUS = ["home", "compare", "ptest", "list", "test", "admgr", "upload", "perf", "data", "shoot"];
+const AD_MENUS = ["home", "compare", "ptest", "atest", "abest", "admgr", "upload", "perf", "data", "shoot"];   // 친구 앱 실제 키 (2026-09-11 확인: atest 테스트 소재·abest 베스트소재)
 const AD_ACTIONS = ["toggle", "budget", "upload", "creative", "delete"];
-const AD_DEFAULT_PERMS = { menus: ["home", "compare", "ptest", "list", "test"], actions: [] as string[] };
+const AD_DEFAULT_PERMS = { menus: ["home", "compare", "ptest", "atest", "abest"], actions: [] as string[] };
 type AdPerms = { menus: string[]; actions: string[] };
 function normPerms(raw: unknown): AdPerms {
   const r = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
