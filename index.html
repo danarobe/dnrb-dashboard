@@ -6519,7 +6519,7 @@ function admgrBuildPaidMatch(res) {
   const qtyByNo = new Map();
   for (const it of (res.items || [])) qtyByNo.set(it.product_no, (qtyByNo.get(it.product_no) || 0) + it.paid_qty);
   const prods = (res.products || [])
-    .map(pr => ({ no: pr.product_no, name: pr.product_name, key: paNorm(paKey(pr.product_name)), ver: paVerTok(pr.product_name) ? paNorm(paVerTok(pr.product_name)) : null }))
+    .map(pr => ({ no: pr.product_no, name: pr.product_name, key: paNorm(paKey(pr.product_name)), ver: paVerTok(pr.product_name) ? paNorm(paVerTok(pr.product_name)) : null, qty: qtyByNo.get(pr.product_no) || 0 }))
     .filter(pr => pr.key.length >= 3);
   const groups = paGroups(prods);   // 후보 규칙은 판매 성과와 동일 (paPickBest — 기본판 배정 포함)
   const bySet = new Map();
@@ -11059,6 +11059,18 @@ function paGroups(prods) {
     e.n++;
     if (p.ver) e.vers.push(p.ver); else e.noVer++;
   }
+  /* 우세 규칙(2026-09-12): 기본판(ver 없음)이 여럿인 핵심명은 기간 판매량(qty)이 70% 이상인 상품을 '우세'로 보고 광고를 배정.
+     카페24에서 삭제된 옛 상품(1393 세러데이 나그랑 티셔츠 (2 colors))이 애널리틱스 이력에 남아 현행 상품과 핵심명이 겹치면
+     예전 규칙("기본판이 여럿 → 판별 불가")은 광고 11개를 어디에도 안 붙였다. qty가 없는 호출자는 예전 규칙 그대로. */
+  for (const key of Object.keys(g)) {
+    const e = g[key];
+    if (e.noVer < 2) continue;
+    const cands = prods.filter(p => p.key === key && !p.ver && typeof p.qty === 'number');
+    if (cands.length < 2) continue;
+    const total = cands.reduce((t, p) => t + p.qty, 0);
+    const top = [...cands].sort((a, b) => b.qty - a.qty)[0];
+    if (top.qty > 0 && top.qty / total >= 0.7) top.dominant = true;
+  }
   return g;
 }
 function paPickBest(an, prods, groups) {
@@ -11069,7 +11081,7 @@ function paPickBest(an, prods, groups) {
     if (g.n > 1) {
       if (p.ver) { if (!an.includes(p.ver)) continue; }
       else {
-        if (g.noVer > 1) continue;                          // 기본판이 여럿 → 판별 불가
+        if (g.noVer > 1 && !p.dominant) continue;           // 기본판이 여럿 → 판매량 우세 상품만 (없으면 판별 불가)
         if (g.vers.some(v => an.includes(v))) continue;     // 광고가 특정 ver 명시 → 그 버전 것
       }
     }
@@ -11082,7 +11094,7 @@ function paBuildMatch() {
   const src = store.activeAds;
   if (!src || !src.ads || !store.salesData.length) return;
   const prods = store.salesData
-    .map(r => ({ no: r.productNo, key: paNorm(paKey(r.productName)), ver: paVerTok(r.productName) ? paNorm(paVerTok(r.productName)) : null }))
+    .map(r => ({ no: r.productNo, key: paNorm(paKey(r.productName)), ver: paVerTok(r.productName) ? paNorm(paVerTok(r.productName)) : null, qty: Number(r.paidQty) || 0 }))
     .filter(p => p.key.length >= 3);
   const groups = paGroups(prods);
   for (const ad of src.ads) {
