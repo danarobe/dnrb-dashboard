@@ -244,7 +244,7 @@ Deno.serve(async (req) => {
       try {
         meta = await graphGetAll(`${c.account}/ads`, {
           filtering: JSON.stringify([{ field: "id", operator: "IN", value: ids }]), limit: "100",
-          fields: "id,name,adset{id,name},campaign{name},effective_status,created_time,creative.thumbnail_width(600).thumbnail_height(600){thumbnail_url,image_url,object_type,video_id,body,title}",
+          fields: "id,name,adset{id,name},campaign{name},effective_status,created_time,creative.thumbnail_width(320).thumbnail_height(320){thumbnail_url,image_url,object_type,video_id,body,title}",   // 320px — 에이전트가 base64로 첨부하므로 작게(600px는 함수 자원 한도 초과 사례)
         }, c.token);
       } catch {
         meta = await graphGetAll(`${c.account}/ads`, {
