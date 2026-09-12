@@ -391,14 +391,72 @@ Deno.serve(async (req) => {
       const nos = nosParam.split(",").map((s) => Number(s)).filter((n) => n > 0);
       if (!nos.length) return json({ error: "product_nos 필수" }, 400);
       const out: Record<string, unknown>[] = [];
+      // with_discount=1 (2026-09-12, 상품 전략 에이전트): 할인판매가·태그·대표이미지까지. 할인가는 상품당 1회 호출이라 8 병렬
+      const withDiscount = url.searchParams.get("with_discount") === "1";
+      const extraFields = withDiscount ? ",product_tag,list_image" : "";
       for (let i = 0; i < nos.length; i += 100) {
         const chunk = nos.slice(i, i + 100).join(",");
         const body = await apiGet(
           `${API_BASE}/admin/products?product_no=${chunk}` +
-          `&fields=product_no,product_code,product_name,price,supply_price,created_date,sold_out,display,selling&limit=100`, token);
+          `&fields=product_no,product_code,product_name,price,supply_price,created_date,sold_out,display,selling${extraFields}&limit=100`, token);
         out.push(...((body.products ?? []) as Record<string, unknown>[]));
       }
+      if (withDiscount) {
+        let idx = 0;
+        const worker = async () => {
+          while (idx < out.length) {
+            const p = out[idx++];
+            try {
+              const b = await apiGet(`${API_BASE}/admin/products/${p.product_no}/discountprice`, token);
+              const dp = (b.discountprice ?? {}) as Record<string, unknown>;
+              p.discount_price = num(dp.pc_discount_price ?? dp.mobile_discount_price);
+            } catch { p.discount_price = null; }
+          }
+        };
+        await Promise.all(Array.from({ length: Math.min(8, out.length) }, worker));
+      }
       return json({ products: out });
+    }
+
+    // ── 상품 → 카테고리 매핑 (2026-09-12, 상품 전략 에이전트): 카테고리 33개 × category_products 1회, 10분 캐시 ──
+    //   GET ?action=categorymap → { categories: {no: {name, depth, parent}}, products: {product_no: [category_no...]} }
+    if (action === "categorymap") {
+      if (authed.role !== "admin") return json({ error: "접근 권한이 없습니다" }, 403);
+      const hit = await fromCache(); if (hit) return json(hit);
+      const cb = await apiGet(`${API_BASE}/admin/categories?limit=100&fields=category_no,category_name,category_depth,parent_category_no`, token);
+      const cats = (cb.categories ?? []) as Record<string, unknown>[];
+      const categories: Record<string, unknown> = {};
+      for (const c of cats) categories[String(c.category_no)] = { name: String(c.category_name ?? ""), depth: num(c.category_depth), parent: num(c.parent_category_no) };
+      const products: Record<string, number[]> = {};
+      let idx = 0;
+      const worker = async () => {
+        while (idx < cats.length) {
+          const c = cats[idx++];
+          try {
+            const b = await apiGet(`${API_BASE}/admin/categories/${c.category_no}/products?display_group=1&limit=1000`, token);
+            for (const p of (b.products ?? []) as Record<string, unknown>[]) {
+              const no = String(p.product_no);
+              (products[no] = products[no] ?? []).push(Number(c.category_no));
+            }
+          } catch { /* 빈 카테고리 등은 무시 */ }
+        }
+      };
+      await Promise.all(Array.from({ length: Math.min(8, cats.length) }, worker));
+      return respond({ categories, products, fetched_at: new Date().toISOString() });
+    }
+
+    // ── 혜택(프로모션) 목록 (2026-09-12): 1+1·기간할인 등. scope mall.read_promotion 필요 — 없으면 not_permitted로 응답(에이전트는 무시) ──
+    if (action === "benefits") {
+      if (authed.role !== "admin") return json({ error: "접근 권한이 없습니다" }, 403);
+      const hit = await fromCache(); if (hit) return json(hit);
+      try {
+        const b = await apiGet(`${API_BASE}/admin/benefits?limit=100`, token);
+        return respond({ benefits: b.benefits ?? [], fetched_at: new Date().toISOString() });
+      } catch (e) {
+        const msg = String((e as Error)?.message ?? e);
+        if (/insufficient_scope|403/.test(msg)) return json({ error: "not_permitted", message: "프로모션 읽기 권한(mall.read_promotion)이 없습니다 — 개발자센터 권한 추가 후 카페24 재연동 필요" }, 200);
+        throw e;
+      }
     }
 
     // ── 순반품률: 배송완료일 기준 상품별 전체수량 · 반품수량 ──

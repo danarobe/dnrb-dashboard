@@ -230,6 +230,53 @@ Deno.serve(async (req) => {
     // 활성 광고 전체 + '광고 시작~어제' 누적 성과 — 판매 성과의 'ON 광고' 열용.
     // 호출 2번으로 끝낸다: ① 활성 광고 이름 목록(지출 0인 것 포함) ② 어제까지 누적 인사이트.
     // 상품별로 따로 묻지 않는다(상품 300개 × 호출 = 재앙). 매칭은 브라우저가 한다.
+    // ── 광고 카드 (2026-09-12, 상품 전략 에이전트): 광고 id 목록 → 세트·소재(썸네일·문구·영상 여부)·기간 성과(지출·구매·ROAS·CTR·빈도) ──
+    //   GET ?action=adcards&ad_ids=1,2,3&start_date&end_date  (최대 60개)
+    if (action === "adcards") {
+      const ids = (url.searchParams.get("ad_ids") ?? "").split(",").map((s) => s.trim()).filter((s) => /^\d+$/.test(s)).slice(0, 60);
+      const s = url.searchParams.get("start_date"), e = url.searchParams.get("end_date");
+      if (!ids.length || !s || !e) return json({ error: "ad_ids, start_date, end_date 필수" }, 400);
+      const cacheKey = `meta:adcards:${s}~${e}:${[...ids].sort().join(",")}`;
+      const hit = await cacheGet(cacheKey, 10 * 60 * 1000);
+      if (hit) return json(hit);
+      const idFilter = JSON.stringify([{ field: "ad.id", operator: "IN", value: ids }]);
+      let meta: Record<string, unknown>[] = [];
+      try {
+        meta = await graphGetAll(`${c.account}/ads`, {
+          filtering: JSON.stringify([{ field: "id", operator: "IN", value: ids }]), limit: "100",
+          fields: "id,name,adset{id,name},campaign{name},effective_status,created_time,creative.thumbnail_width(600).thumbnail_height(600){thumbnail_url,image_url,object_type,video_id,body,title}",
+        }, c.token);
+      } catch {
+        meta = await graphGetAll(`${c.account}/ads`, {
+          filtering: JSON.stringify([{ field: "id", operator: "IN", value: ids }]), limit: "100",
+          fields: "id,name,adset{id,name},campaign{name},effective_status,created_time,creative{thumbnail_url,image_url,object_type,video_id,body,title}",
+        }, c.token);
+      }
+      const ins = await graphGetAll(`${c.account}/insights`, {
+        time_range: JSON.stringify({ since: s, until: e }), level: "ad", filtering: idFilter, limit: "100",
+        fields: "ad_id,spend,impressions,clicks,ctr,actions,action_values,purchase_roas,frequency,cost_per_action_type",
+      }, c.token);
+      const perf = new Map(ins.map((r) => [String(r.ad_id ?? ""), { ...mapAdRow(r), impressions: num(r.impressions), clicks: num(r.clicks), ctr: num(r.ctr) }]));
+      const body = {
+        period: { start: s, end: e },
+        ads: meta.map((a) => {
+          const cr = (a.creative ?? {}) as Record<string, unknown>;
+          const set = (a.adset ?? {}) as Record<string, unknown>, camp = (a.campaign ?? {}) as Record<string, unknown>;
+          const p = perf.get(String(a.id ?? "")) ?? null;
+          return {
+            ad_id: String(a.id ?? ""), name: String(a.name ?? ""), adset_id: String(set.id ?? ""), adset_name: String(set.name ?? ""), campaign_name: String(camp.name ?? ""),
+            effective_status: String(a.effective_status ?? ""), created_time: String(a.created_time ?? "").slice(0, 10),
+            is_video: !!cr.video_id || String(cr.object_type ?? "") === "VIDEO",
+            thumb: String(cr.thumbnail_url ?? ""), image: String(cr.image_url ?? ""),
+            body: String(cr.body ?? "").slice(0, 300), title: String(cr.title ?? "").slice(0, 120),
+            period: p,
+          };
+        }),
+      };
+      await cacheSet(cacheKey, body);
+      return json(body);
+    }
+
     if (action === "activeads") {
       const yesterday = addDays(seoulToday(), -1);
       // 10분 캐시 — 판매 성과를 여러 명이 반복 조회해도 Meta 호출은 10분에 2번.

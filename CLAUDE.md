@@ -52,7 +52,7 @@ curl -s -X POST "https://api.supabase.com/v1/projects/eeffmbusaqaadeojjlnc/datab
 | `cafe24-analytics` | 조회수·주문율·판매성과·진열지표·순반품률·결제품목 | 로그인 필수, 일부 관리자 |
 | `naver-claims` | 네이버 커머스API(미사용 — 이 몰은 조회 대상 없음) | 관리자 |
 | `db` | 아카이브·회의록·기타 테이블 프록시(anon 정책 제거 후 유일 경로) | 로그인+역할 화이트리스트 |
-| `meta-ads` | Meta 광고관리자(Graph v23.0) summary/topads/**dateads/activeads**/adstats/preview는 관리자+MD, **hierarchy/testads/budgethistory/hourlystats(광고관리자 전용 액션)는 관리자만**(2026-08-26) |
+| `meta-ads` | Meta 광고관리자(Graph v23.0) summary/topads/**dateads/activeads**/adstats/preview/**adcards**(2026-09-12, 에이전트용: ad_ids+기간 → 세트·캠페인명·소재 썸네일·문구·영상 여부·기간 성과 지출/구매/ROAS/CTR/빈도, 최대 60개)는 관리자+MD, **hierarchy/testads/budgethistory/hourlystats(광고관리자 전용 액션)는 관리자만**(2026-08-26) |
 | `meta-budget` | **예산 쓰기**(2026-08-26): status/pending/apply/schedule/cancel/**run**(자정 cron). 쓰기 토큰(META_WRITE_TOKEN)은 이 함수만 사용 — 읽기 함수와 분리 | admin+WRITE_USER_IDS+PIN |
 | `wm-me` | **마이페이지**(2026-08-27): me/leave_request/leave_cancel + **payslip_list / payslip_file(2026-09-10)**. 로그인 계정 → `wm_employees.app_user_id`로 본인 행만 조회·쓰기. me 응답엔 급여·계좌 없음, 급여 명세서 파일은 `wm_payslips.employee_id=본인` 조건으로만 목록·바이트 중계(타인 id → 404, 무토큰 401) | 로그인 전원 |
 | (외부) `sales-agent` | **매출 분석 에이전트 — 별도 저장소 `~/dnrb-agents` 소속**(2026-09-10 분리). 같은 Supabase 프로젝트에 배포되며 이 저장소의 cafe24-analytics/cafe24-claims/meta-ads를 `x-agent-secret`(AGENT_SECRET)으로 admin 호출한다. 이 저장소에는 SSO 링크(`agentsOpen`)와 secret 인정 코드만 있음 | 관리자 또는 x-cron-secret |
@@ -66,6 +66,8 @@ curl -s -X POST "https://api.supabase.com/v1/projects/eeffmbusaqaadeojjlnc/datab
 - **cafe24-oauth의 selfUrl은 SUPABASE_URL 기반**(엣지 런타임 req.url은 프록시 내부 주소라 /functions/v1·https 빠짐).
 
 ### cafe24-analytics 액션
+- **상품 전략 에이전트용 액션 3종(2026-09-12)**: `categorymap`(카테고리 33개 × category_products → 상품→카테고리 배열, 10분 캐시, 실측 2초) / `productinfo&with_discount=1`(할인판매가 `discount_price`·product_tag·list_image 추가, 상품당 discountprice 1회 8 병렬 — **91개에 62초**라 에이전트는 후보 상품만 넘길 것) / `benefits`(혜택 목록 — **scope mall.read_promotion 필요**, 없으면 `{error:"not_permitted"}` 200). 
+- **카페24 앱 권한 변경(2026-09-12)**: OAuth SCOPE에 `mall.read_promotion` 추가. 개발자센터에서 프로모션 읽기를 켜고 **카페24 연동 버튼으로 재연동**해야 반영. 워크스페이스가 쓰는 앱 = Client ID `UzeJXo…`(App URL을 워크스페이스 주소로 정정). 마이앱의 "판매 성과 대시보드"는 **다른 앱**(친구분 광고관리자용) — 거기에 권한을 넣어도 소용없음(실사례). 같은 앱을 두 시스템이 쓰면 토큰이 서로 무효화되니 앱은 시스템별로 분리. `cafe24-oauth`는 카페24가 `?error=`로 돌아오면 원인을 한글로 표시(invalid_scope 등).
 - **`cohortweeks`**(2026-09-11, admin·에이전트): `end_date&weeks=6&days=14` → **결제 주차(월~일)별 코호트** 취소·반품률 — /orders/count(date_type=pay_date) 전체·C40·R00~R40 3회/구간, 4개 병렬(실측 수 초). `age_days`(구간 끝~오늘)로 성숙도 표시, 14일 미만은 집계 중. 취소가 다음 주에 나도 결제 주에 귀속(사용자 요청 — 주간 비교 착시 방지). 혼합 주문은 양쪽에 세어짐, 네이버페이 포함(비율엔 무해).
 - `summary`(조회수+주문율), `categories`, `category_products`, `revenue`(결제 매출), `performance`(판매수량+취소반품+공급가/판매가), `netreturns`(순반품률), `displaymetrics`+`productinfo`(진열용), `paiditems`(결제일 기준 품목별 결제수량 + 전체 상품목록 — 안정재고+광고관리자 실결제 수 열 공용, **admin 전용** — 2026-08-26 admgr용으로 admin+staff로 열었다가 같은 날 메뉴가 관리자 전용이 되며 원복).
 

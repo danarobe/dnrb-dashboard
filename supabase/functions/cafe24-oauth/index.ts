@@ -12,7 +12,8 @@ import { handleOptions, json, getToken, saveToken } from "../_shared/util.ts";
 const MALL_ID = Deno.env.get("CAFE24_MALL_ID")!;
 const CLIENT_ID = Deno.env.get("CAFE24_CLIENT_ID")!;
 const CLIENT_SECRET = Deno.env.get("CAFE24_CLIENT_SECRET")!;
-const SCOPE = "mall.read_order,mall.read_analytics,mall.read_category,mall.read_product";
+// mall.read_promotion(2026-09-12): 상품 전략 에이전트의 혜택(1+1·기간할인) 조회용 — 개발자센터 앱 권한에도 켜져 있어야 인증이 통과함
+const SCOPE = "mall.read_order,mall.read_analytics,mall.read_category,mall.read_product,mall.read_promotion";
 
 const API_BASE = `https://${MALL_ID}.cafe24api.com/api/v2`;
 
@@ -109,7 +110,16 @@ Deno.serve(async (req) => {
       });
     }
 
-    return json({ error: "unknown action" }, 400);
+    // ④ 카페24가 오류를 들고 돌아온 경우 (권한 미승인·스코프 불일치·사용자 취소 등) — 원인을 읽을 수 있게 (2026-09-12)
+    const oauthErr = url.searchParams.get("error");
+    if (oauthErr) {
+      const desc = url.searchParams.get("error_description") ?? "";
+      const hint = /scope/i.test(oauthErr + desc)
+        ? " → 개발자센터 앱의 권한 설정에 요청한 권한(프로모션 읽기 등)이 켜져 있고 저장됐는지 확인한 뒤 다시 연동하세요."
+        : "";
+      return new Response(`\uFEFF카페24 연동 실패: ${oauthErr} ${desc}${hint}`, { status: 400, headers: { "Content-Type": "text/plain; charset=utf-8" } });
+    }
+    return json({ error: "unknown action", hint: "?action=start 로 시작해야 합니다", got: Object.fromEntries(url.searchParams) }, 400);
   } catch (e) {
     return json({ error: String(e) }, 500);
   }
