@@ -451,7 +451,58 @@ Deno.serve(async (req) => {
       const hit = await fromCache(); if (hit) return json(hit);
       try {
         const b = await apiGet(`${API_BASE}/admin/benefits?limit=100`, token);
-        return respond({ benefits: b.benefits ?? [], fetched_at: new Date().toISOString() });
+        const all = (b.benefits ?? []) as Record<string, unknown>[];
+        // 지금 적용 중인 혜택만: use_benefit=T 이고 (기간 없음 또는 오늘이 기간 안)
+        const todayKst = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Seoul" }).format(new Date());
+        const active = all.filter((x) => {
+          if (String(x.use_benefit) !== "T") return false;
+          const sd = String(x.benefit_start_date ?? "").slice(0, 10), ed = String(x.benefit_end_date ?? "").slice(0, 10);
+          if (sd && sd > todayKst) return false;
+          if (ed && ed < todayKst) return false;
+          return true;
+        });
+        // 혜택 유형 한글 (카페24 benefit_type): DP 기간할인 · DQ 다량구매(1+1류) · DR 재구매 · DM 회원 · DN 신상품 · DS 배송비 · G* 사은품
+        const TYPE_KO: Record<string, string> = { DP: "기간할인", DQ: "수량할인(1+1류)", DR: "재구매할인", DM: "회원할인", DN: "신상품할인", DS: "배송비할인" };
+        // 상세를 8 병렬로 읽어 상품 목록·할인값을 뽑는다 (product_list는 유형별 하위 객체 안에 있음)
+        const byProduct: Record<string, Record<string, unknown>[]> = {};
+        const details: Record<string, unknown>[] = [];
+        let idx = 0;
+        const worker = async () => {
+          while (idx < active.length) {
+            const x = active[idx++];
+            try {
+              const d = await apiGet(`${API_BASE}/admin/benefits/${x.benefit_no}`, token);
+              const bd = (d.benefit ?? {}) as Record<string, unknown>;
+              let productList: number[] = [], discountValue: string | null = null, unit: string | null = null, minQty: number | null = null;
+              for (const [k, v] of Object.entries(bd)) {
+                if (!v || typeof v !== "object" || Array.isArray(v)) continue;
+                const sub = v as Record<string, unknown>;
+                if (Array.isArray(sub.product_list)) {
+                  productList = (sub.product_list as unknown[]).map((n) => Number(n)).filter((n) => n > 0);
+                  discountValue = sub.discount_value != null ? String(sub.discount_value) : null;
+                  unit = sub.discount_value_unit != null ? String(sub.discount_value_unit) : null;
+                  if (sub.bulk_purchase_begin_quantity != null) minQty = num(sub.bulk_purchase_begin_quantity);
+                  if (k !== "gift") break;
+                }
+              }
+              const type = String(bd.benefit_type ?? "");
+              const isGift = String(bd.benefit_division ?? "") === "G";
+              const label = isGift ? "사은품" : (TYPE_KO[type] ?? type);
+              const desc = discountValue
+                ? (unit === "P" ? `${Number(discountValue)}% 할인` : `${Math.round(Number(discountValue)).toLocaleString("ko-KR")}원 할인`) + (minQty ? ` (${minQty}개 이상)` : "")
+                : label;
+              const item = {
+                benefit_no: Number(bd.benefit_no), name: String(bd.benefit_name ?? ""), type, label, desc,
+                start: String(bd.benefit_start_date ?? "").slice(0, 10) || null, end: String(bd.benefit_end_date ?? "").slice(0, 10) || null,
+                product_count: productList.length, binding: String(bd.product_binding_type ?? ""),
+              };
+              details.push(item);
+              for (const no of productList) (byProduct[String(no)] = byProduct[String(no)] ?? []).push(item);
+            } catch { /* 개별 실패 무시 */ }
+          }
+        };
+        await Promise.all(Array.from({ length: Math.min(8, active.length) }, worker));
+        return respond({ active_count: active.length, total_count: all.length, benefits: details, by_product: byProduct, fetched_at: new Date().toISOString() });
       } catch (e) {
         const msg = String((e as Error)?.message ?? e);
         if (/insufficient_scope|403/.test(msg)) return json({ error: "not_permitted", message: "프로모션 읽기 권한(mall.read_promotion)이 없습니다 — 개발자센터 권한 추가 후 카페24 재연동 필요" }, 200);
