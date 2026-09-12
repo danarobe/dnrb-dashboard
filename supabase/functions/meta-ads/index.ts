@@ -236,7 +236,7 @@ Deno.serve(async (req) => {
       const ids = (url.searchParams.get("ad_ids") ?? "").split(",").map((s) => s.trim()).filter((s) => /^\d+$/.test(s)).slice(0, 60);
       const s = url.searchParams.get("start_date"), e = url.searchParams.get("end_date");
       if (!ids.length || !s || !e) return json({ error: "ad_ids, start_date, end_date 필수" }, 400);
-      const cacheKey = `meta:adcards:${s}~${e}:${[...ids].sort().join(",")}`;
+      const cacheKey = `meta:adcards2:${s}~${e}:${[...ids].sort().join(",")}`;
       const hit = await cacheGet(cacheKey, 10 * 60 * 1000);
       if (hit) return json(hit);
       const idFilter = JSON.stringify([{ field: "ad.id", operator: "IN", value: ids }]);
