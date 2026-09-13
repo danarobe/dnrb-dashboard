@@ -2367,7 +2367,7 @@ async function adDashToggle(uid) {
 }
 // 광고관리자(기존) — 친구 광고 대시보드로 교체(2026-09-11)한 뒤에도 내장 광고관리자를 볼 수 있는 계정 (2026-09-13 사용자 요청: "나만").
 // 계정을 더 열려면 여기에 아이디만 추가. 서버 액션 권한(admin/staff)은 별도라 목록 밖 관리자도 API로는 여전히 허용됨 — 이건 메뉴 노출·화면 진입 제한.
-const ADMGR_LEGACY_USERS = ['pmk8668us'];
+const ADMGR_LEGACY_USERS = ['admin'];   // 사용자 본인 계정 = 아이디 'admin' (2026-09-13 확인 — 박민규 계정 아님)
 const admgrLegacyAllowed = () => !!SESSION && ADMGR_LEGACY_USERS.includes(SESSION.id);
 function logout() {
   localStorage.removeItem(AUTH_KEY);
