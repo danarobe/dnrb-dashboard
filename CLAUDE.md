@@ -66,6 +66,7 @@ curl -s -X POST "https://api.supabase.com/v1/projects/eeffmbusaqaadeojjlnc/datab
 - **cafe24-oauth의 selfUrl은 SUPABASE_URL 기반**(엣지 런타임 req.url은 프록시 내부 주소라 /functions/v1·https 빠짐).
 
 ### cafe24-analytics 액션
+- **`productdesc&product_no=`**(2026-09-13, 상세 점검 에이전트): description HTML의 `<img src>` 목록·길이·SHA-256 앞 24자(desc_hash — 같으면 읽기 결과 재사용)·가격·대표이미지.
 - **상품 전략 에이전트용 액션 3종(2026-09-12)**: `categorymap`(카테고리 33개 × category_products → 상품→카테고리 배열, 10분 캐시, 실측 2초) / `productinfo&with_discount=1`(할인판매가 `discount_price`·product_tag·list_image 추가, 상품당 discountprice 1회 8 병렬 — **91개에 62초**라 에이전트는 후보 상품만 넘길 것) / `benefits`(혜택 목록 — **scope mall.read_promotion 필요**, 없으면 `{error:"not_permitted"}` 200). 
 - **카페24 앱 권한 변경(2026-09-12)**: OAuth SCOPE에 `mall.read_promotion` 추가. 개발자센터에서 프로모션 읽기를 켜고 **카페24 연동 버튼으로 재연동**해야 반영. 워크스페이스가 쓰는 앱 = Client ID `UzeJXo…`(App URL을 워크스페이스 주소로 정정). 마이앱의 "판매 성과 대시보드"는 **다른 앱**(친구분 광고관리자용) — 거기에 권한을 넣어도 소용없음(실사례). 같은 앱을 두 시스템이 쓰면 토큰이 서로 무효화되니 앱은 시스템별로 분리. `cafe24-oauth`는 카페24가 `?error=`로 돌아오면 원인을 한글로 표시(invalid_scope 등).
 - **`cohortweeks`**(2026-09-11, admin·에이전트): `end_date&weeks=6&days=14` → **결제 주차(월~일)별 코호트** 취소·반품률 — /orders/count(date_type=pay_date) 전체·C40·R00~R40 3회/구간, 4개 병렬(실측 수 초). `age_days`(구간 끝~오늘)로 성숙도 표시, 14일 미만은 집계 중. 취소가 다음 주에 나도 결제 주에 귀속(사용자 요청 — 주간 비교 착시 방지). 혼합 주문은 양쪽에 세어짐, 네이버페이 포함(비율엔 무해).

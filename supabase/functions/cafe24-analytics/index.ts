@@ -418,6 +418,25 @@ Deno.serve(async (req) => {
       return json({ products: out });
     }
 
+    // ── 상세페이지 정보 (2026-09-13, 상세 점검 에이전트): description HTML의 이미지 URL 목록 + 해시(바뀌었는지 판정용) ──
+    //   GET ?action=productdesc&product_no=N → { product_no, product_name, price, description_len, image_urls, desc_hash }
+    if (action === "productdesc") {
+      if (authed.role !== "admin") return json({ error: "접근 권한이 없습니다" }, 403);
+      const no = Number(url.searchParams.get("product_no"));
+      if (!no) return json({ error: "product_no 필수" }, 400);
+      const body = await apiGet(`${API_BASE}/admin/products/${no}?fields=product_no,product_name,price,supply_price,description,detail_image,list_image,created_date,sold_out`, token);
+      const p = (body.product ?? {}) as Record<string, unknown>;
+      const desc = String(p.description ?? "");
+      const urls = [...desc.matchAll(/<img[^>]+(?:src|ec-data-src)=["']([^"']+)["']/gi)].map((m) => m[1].startsWith("//") ? "https:" + m[1] : m[1]);
+      const hashBuf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(desc));
+      const hash = [...new Uint8Array(hashBuf)].map((b) => b.toString(16).padStart(2, "0")).join("").slice(0, 24);
+      return json({
+        product_no: no, product_name: String(p.product_name ?? ""), price: num(p.price), supply_price: num(p.supply_price),
+        created_date: String(p.created_date ?? "").slice(0, 10), sold_out: String(p.sold_out ?? "") === "T",
+        list_image: String(p.list_image ?? p.detail_image ?? ""), description_len: desc.length, image_urls: urls, desc_hash: hash,
+      });
+    }
+
     // ── 상품 → 카테고리 매핑 (2026-09-12, 상품 전략 에이전트): 카테고리 33개 × category_products 1회, 10분 캐시 ──
     //   GET ?action=categorymap → { categories: {no: {name, depth, parent}}, products: {product_no: [category_no...]} }
     if (action === "categorymap") {
