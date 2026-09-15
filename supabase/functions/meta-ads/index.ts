@@ -284,22 +284,37 @@ Deno.serve(async (req) => {
       const cacheKey = `meta:activeads:${yesterday}`;
       const hit = await cacheGet(cacheKey, 10 * 60 * 1000);
       if (hit) return json(hit);
-      const [list, ins] = await Promise.all([
-        graphGet(`${c.account}/ads`, {
-          fields: "id,name",
-          filtering: JSON.stringify([{ field: "effective_status", operator: "IN", value: ["ACTIVE"] }]),
-          limit: "500",
-        }, c.token),
-        graphGet(`${c.account}/insights`, {
-          time_range: JSON.stringify({ since: "2024-01-01", until: yesterday }),
-          level: "ad",
-          fields: "ad_id,ad_name,spend,actions,action_values,purchase_roas,frequency,cost_per_action_type",
-          filtering: JSON.stringify([{ field: "ad.effective_status", operator: "IN", value: ["ACTIVE"] }]),
-          limit: "500",
-        }, c.token),
-      ]);
-      const metric = new Map(((ins.data ?? []) as Record<string, unknown>[])
-        .map((r) => [String(r.ad_id ?? ""), mapAdRow(r)]));
+      const list = await graphGet(`${c.account}/ads`, {
+        fields: "id,name",
+        filtering: JSON.stringify([{ field: "effective_status", operator: "IN", value: ["ACTIVE"] }]),
+        limit: "500",
+      }, c.token).catch((e) => { throw new Error(`활성 광고 목록: ${(e as Error).message}`); });
+      const activeIds = new Set(((list.data ?? []) as Record<string, unknown>[]).map((a) => String(a.id ?? "")));
+      const INS_FIELDS = "ad_id,ad_name,spend,actions,action_values,purchase_roas,frequency,cost_per_action_type";
+      // ⚠ 2026-09-15 실사례: 긴 기간(2024-01-01~어제) + ad.effective_status 필터 조합을 Meta가 갑자기 'Invalid parameter'로 거부
+      //   (광고 목록 호출·짧은 기간 필터 호출·긴 기간 무필터 호출(30개)은 정상, 긴 기간 무필터 전량은 "reduce the amount of data").
+      //   그날 상품 전략 보고서가 "광고 0개"로 오판했고 판매 성과 'ON 광고' 열도 비었음.
+      //   → 필터 호출이 실패하면 **활성 광고 id를 50개씩 ad.id IN 필터로 나눠 받는다**(활성 223개 → 5회). 응답 source로 경로를 남긴다.
+      let insRows: Record<string, unknown>[] = [], source = "filtered";
+      const insQ = (extra: Record<string, string>) => ({ time_range: JSON.stringify({ since: "2024-01-01", until: yesterday }), level: "ad", fields: INS_FIELDS, limit: "500", ...extra });
+      try {
+        const ins = await graphGet(`${c.account}/insights`, insQ({ filtering: JSON.stringify([{ field: "ad.effective_status", operator: "IN", value: ["ACTIVE"] }]) }), c.token);
+        insRows = (ins.data ?? []) as Record<string, unknown>[];
+      } catch (e1) {
+        source = "by_ids";
+        const ids = [...activeIds].filter(Boolean);
+        const chunks: string[][] = [];
+        for (let i = 0; i < ids.length; i += 50) chunks.push(ids.slice(i, i + 50));
+        try {
+          for (const ch of chunks) {
+            const ins = await graphGet(`${c.account}/insights`, insQ({ filtering: JSON.stringify([{ field: "ad.id", operator: "IN", value: ch }]) }), c.token);
+            insRows.push(...((ins.data ?? []) as Record<string, unknown>[]));
+          }
+        } catch (e2) {
+          throw new Error(`활성 광고 인사이트: ${(e1 as Error).message} / id 묶음: ${(e2 as Error).message}`);
+        }
+      }
+      const metric = new Map(insRows.map((r) => [String(r.ad_id ?? ""), mapAdRow(r)]));
       const rows = ((list.data ?? []) as Record<string, unknown>[]).map((a) => {
         const id = String(a.id ?? "");
         const m = metric.get(id);
@@ -309,7 +324,7 @@ Deno.serve(async (req) => {
         };
       });
       const truncated = ((list.data ?? []) as unknown[]).length >= 500;
-      const body = { until: yesterday, count: rows.length, truncated, ads: rows };
+      const body = { until: yesterday, count: rows.length, truncated, source, ads: rows };
       await cacheSet(cacheKey, body);
       return json(body);
     }
