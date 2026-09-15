@@ -126,16 +126,16 @@ Deno.serve(async (req) => {
       const allSets = await graphGetAll(`${c2.account}/adsets`, { fields: "id,name", limit: "500" }, c2.token);
       const testSets = allSets.filter((r) => /test/i.test(String(r.name ?? "")));
       const setName = new Map(testSets.map((r) => [String(r.id), String(r.name ?? "")]));
-      const setIds = [...setName.keys()].slice(0, 200);
+      const setIds = [...setName.keys()];   // 200개 상한 제거(2026-09-15) — 100개씩 나눠 전부 (testads와 동일)
 
-      let adRows: Record<string, unknown>[] = [];
-      if (setIds.length) {
-        const adsetFilter = JSON.stringify([{ field: "adset.id", operator: "IN", value: setIds }]);
-        adRows = await graphGetAll(`${c2.account}/ads`, {
+      const adRows: Record<string, unknown>[] = [];
+      for (let i = 0; i < setIds.length; i += 100) {
+        const adsetFilter = JSON.stringify([{ field: "adset.id", operator: "IN", value: setIds.slice(i, i + 100) }]);
+        adRows.push(...await graphGetAll(`${c2.account}/ads`, {
           fields: "id,name,status,effective_status,created_time,adset_id",
           filtering: adsetFilter,
           limit: "500",
-        }, c2.token);
+        }, c2.token));
       }
 
       // ad_test_state 판정 합치기 (service_role 직접 조회 — RLS 통과)
@@ -284,12 +284,16 @@ Deno.serve(async (req) => {
       const cacheKey = `meta:activeads:${yesterday}`;
       const hit = await cacheGet(cacheKey, 10 * 60 * 1000);
       if (hit) return json(hit);
-      const list = await graphGet(`${c.account}/ads`, {
+      // 페이지 끝까지 받는다(2026-09-15) — 활성 광고가 500개를 넘어도 잘리지 않게(계정 세트 총 4,193개 규모).
+      const listRows = await graphGetAll(`${c.account}/ads`, {
         fields: "id,name",
         filtering: JSON.stringify([{ field: "effective_status", operator: "IN", value: ["ACTIVE"] }]),
         limit: "500",
       }, c.token).catch((e) => { throw new Error(`활성 광고 목록: ${(e as Error).message}`); });
-      const activeIds = new Set(((list.data ?? []) as Record<string, unknown>[]).map((a) => String(a.id ?? "")));
+      const activeIds = new Set(listRows.map((a) => String(a.id ?? "")));
+      // (2026-09-15 조사 기록) 목록에서 "빠진" 것처럼 보였던 우디 니트 테스트 소재 4개는 실제로는 목록에 있었다 — 광고명이 NFD(자모 분해)로 저장돼
+      //   NFC 문자열 포함 검사(그리고 Meta의 name CONTAIN 필터)에 안 걸렸을 뿐. 이름으로 광고를 찾을 때는 양쪽을 NFC로 정규화할 것.
+      const list = { data: listRows };
       const INS_FIELDS = "ad_id,ad_name,spend,actions,action_values,purchase_roas,frequency,cost_per_action_type";
       // ⚠ 2026-09-15 실사례: 긴 기간(2024-01-01~어제) + ad.effective_status 필터 조합을 Meta가 갑자기 'Invalid parameter'로 거부
       //   (광고 목록 호출·짧은 기간 필터 호출·긴 기간 무필터 호출(30개)은 정상, 긴 기간 무필터 전량은 "reduce the amount of data").
@@ -323,7 +327,7 @@ Deno.serve(async (req) => {
           purchases: 0, purchase_value: 0, roas: 0, frequency: 0,
         };
       });
-      const truncated = ((list.data ?? []) as unknown[]).length >= 500;
+      const truncated = listRows.length >= 500 * 8;   // graphGetAll 상한(8페이지)
       const body = { until: yesterday, count: rows.length, truncated, source, ads: rows };
       await cacheSet(cacheKey, body);
       return json(body);
@@ -378,16 +382,16 @@ Deno.serve(async (req) => {
       type Node = Record<string, unknown>;
       const [camps, adsets, adsAct, ins] = await Promise.all([
         graphGet(`${c.account}/campaigns`, { fields: "id,name,effective_status,daily_budget,lifetime_budget,created_time,updated_time", limit: "200" }, c.token),
-        graphGet(`${c.account}/adsets`, {
+        graphGetAll(`${c.account}/adsets`, {
           fields: "id,name,effective_status,daily_budget,lifetime_budget,campaign_id,created_time,updated_time",
           filtering: JSON.stringify([{ field: "effective_status", operator: "IN", value: ["ACTIVE"] }]),
           limit: "500",
-        }, c.token),   // 활성 필터 — 무필터 500 한도에 활성 세트가 잘려 상태·예산이 비던 버그 수정(2026-08-25c)
-        graphGet(`${c.account}/ads`, {
+        }, c.token).then((data) => ({ data })),   // 활성 필터 — 무필터 500 한도에 활성 세트가 잘려 상태·예산이 비던 버그 수정(2026-08-25c) / 페이지 끝까지(2026-09-15)
+        graphGetAll(`${c.account}/ads`, {
           fields: "id,name,effective_status,adset_id,campaign_id,created_time,updated_time",
           filtering: JSON.stringify([{ field: "effective_status", operator: "IN", value: ["ACTIVE"] }]),
           limit: "500",
-        }, c.token),
+        }, c.token).then((data) => ({ data })),
         graphGet(`${c.account}/insights`, {
           date_preset: preset, level: "ad",
           fields: "ad_id,ad_name,adset_id,adset_name,campaign_id,campaign_name,spend,clicks,actions,action_values,purchase_roas",
@@ -452,7 +456,7 @@ Deno.serve(async (req) => {
           ...st, ads: [...(st.ads as Map<string, Node>).values()],
         })),
       }));
-      const truncated = [camps, adsets, adsAct, ins].some((r) => ((r.data ?? []) as unknown[]).length >= 500);
+      const truncated = [camps, adsets, adsAct, ins].some((r) => ((r.data ?? []) as unknown[]).length >= 500 * 8);   // 세트·광고는 페이지 끝까지 받음(2026-09-15)
       const body = { preset, range, fetched_at: new Date().toISOString(), truncated, campaigns };
       await cacheSet(cacheKey, body);
       return json(body);
@@ -476,14 +480,18 @@ Deno.serve(async (req) => {
       const allSets = await graphGetAll(`${c.account}/adsets`, { fields: "id,name", limit: "500" }, c.token);
       const testSets = allSets.filter((r) => kwRe.test(String(r.name ?? "")));
       const setName = new Map(testSets.map((r) => [String(r.id), String(r.name ?? "")]));
-      const setIds = [...setName.keys()].slice(0, 200);   // filtering IN 값 개수·URL 길이 방어
+      // ⚠ 2026-09-15 실사례: 앞 200개 세트만 보던 상한 — 실측 테스트 세트 372개라 172개 세트의 소재가 화면에서 빠지고 있었음(truncated:true).
+      //   → 세트 id를 100개씩 나눠(URL 길이 방어) 전부 받는다.
+      const setIds = [...setName.keys()];
       if (!setIds.length) {
         const empty = { fetched_at: new Date().toISOString(), until: today, adset_count: 0, truncated: false, ads: [] };
         await cacheSet(cacheKey, empty);
         return json(empty);
       }
 
-      const adsetFilter = JSON.stringify([{ field: "adset.id", operator: "IN", value: setIds }]);
+      const setChunks: string[][] = [];
+      for (let i = 0; i < setIds.length; i += 100) setChunks.push(setIds.slice(i, i + 100));
+      const adsetFilterOf = (ids: string[]) => JSON.stringify([{ field: "adset.id", operator: "IN", value: ids }]);
       // 광고 목록(꺼진 것 포함 — 테스트 평가가 목적이라 OFF도 봐야 함) + 등록 이후 누적 성과
       const insParams = {
         time_range: JSON.stringify({ since: "2024-01-01", until: today }),
@@ -491,16 +499,20 @@ Deno.serve(async (req) => {
         fields: "ad_id,adset_id,spend,actions,action_values",
         limit: "500",
       };
-      const [adRows, insRows] = await Promise.all([
-        graphGetAll(`${c.account}/ads`, {
-          fields: "id,name,status,effective_status,created_time,adset_id",
-          filtering: adsetFilter,
-          limit: "500",
-        }, c.token),
-        // insights의 adset.id IN 필터가 거부되면 무필터 전체를 받아 서버에서 거른다 (성과 누락 방지)
-        graphGetAll(`${c.account}/insights`, { ...insParams, filtering: adsetFilter }, c.token)
-          .catch(() => graphGetAll(`${c.account}/insights`, insParams, c.token, 12)),
-      ]);
+      const adRows: Record<string, unknown>[] = [], insRows: Record<string, unknown>[] = [];
+      for (const ch of setChunks) {
+        const [a, i] = await Promise.all([
+          graphGetAll(`${c.account}/ads`, {
+            fields: "id,name,status,effective_status,created_time,adset_id",
+            filtering: adsetFilterOf(ch),
+            limit: "500",
+          }, c.token),
+          // insights의 adset.id IN 필터가 거부되면 무필터 전체를 받아 서버에서 거른다 (성과 누락 방지)
+          graphGetAll(`${c.account}/insights`, { ...insParams, filtering: adsetFilterOf(ch) }, c.token)
+            .catch(() => graphGetAll(`${c.account}/insights`, insParams, c.token, 12)),
+        ]);
+        adRows.push(...a); insRows.push(...i);
+      }
 
       const metric = new Map(insRows
         .filter((r) => setName.has(String(r.adset_id ?? "")))
