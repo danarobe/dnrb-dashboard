@@ -29,6 +29,10 @@
 //   payslip_upload    { employee_id, ym, file_name, mime, data_b64, note? }  직원·월당 1개(교체 시 이전 파일 삭제) → 비공개 버킷 wm-payslips
 //   payslip_delete    { id }
 //   payslip_file      { id }                                   파일 본문(관리자 확인용) — 바이트 스트림 응답
+//   trip_list         { status?, year? }                       출장 여비 신청서 목록 + 영수증 메타 (2026-09-17)
+//   trip_review       { id, status: confirmed|returned, note? } 관리자 확인/보완 요청 → 직원 알림
+//   trip_receipt      { id }                                   영수증 파일 바이트 중계
+//   trip_delete       { id }                                   신청서·영수증 삭제
 //
 // 대시보드가 만들거나 고친 행은 source='admin'(출퇴근) 등으로 표시된다 —
 // 병행 동기화(sync.sh)가 이 표시를 보고 기존 JSON 값으로 덮어쓰지 않는다.
@@ -80,19 +84,19 @@ const D_RE = /^\d{4}-\d{2}-\d{2}$/;
 const PAYSLIP_BUCKET = 'wm-payslips';
 const PAYSLIP_MIME: Record<string, string> = { 'application/pdf': 'pdf', 'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp' };
 const storageHeaders = () => ({ apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}` });
-async function storagePut(path: string, bytes: Uint8Array, mime: string) {
-  const res = await fetch(`${SB_URL}/storage/v1/object/${PAYSLIP_BUCKET}/${path}`, {
+async function storagePut(path: string, bytes: Uint8Array, mime: string, bucket = PAYSLIP_BUCKET) {
+  const res = await fetch(`${SB_URL}/storage/v1/object/${bucket}/${path}`, {
     method: 'POST', headers: { ...storageHeaders(), 'Content-Type': mime, 'x-upsert': 'false' }, body: bytes,
   });
   if (!res.ok) throw new Error(`storage ${res.status}: ${(await res.text()).slice(0, 200)}`);
 }
-async function storageDelete(path: string) {
-  const res = await fetch(`${SB_URL}/storage/v1/object/${PAYSLIP_BUCKET}/${path}`, { method: 'DELETE', headers: storageHeaders() });
+async function storageDelete(path: string, bucket = PAYSLIP_BUCKET) {
+  const res = await fetch(`${SB_URL}/storage/v1/object/${bucket}/${path}`, { method: 'DELETE', headers: storageHeaders() });
   if (!res.ok) throw new Error(`storage delete ${res.status}`);
 }
 /** 파일 본문을 그대로 중계 — 응답에 CORS 헤더를 붙여 대시보드 fetch → Blob으로 연다 */
-async function storageStream(path: string, mime: string, fileName: string): Promise<Response> {
-  const res = await fetch(`${SB_URL}/storage/v1/object/${PAYSLIP_BUCKET}/${path}`, { headers: storageHeaders() });
+async function storageStream(path: string, mime: string, fileName: string, bucket = PAYSLIP_BUCKET): Promise<Response> {
+  const res = await fetch(`${SB_URL}/storage/v1/object/${bucket}/${path}`, { headers: storageHeaders() });
   if (!res.ok) return json({ error: `파일을 불러오지 못했습니다 (${res.status})` }, 502);
   return new Response(res.body, {
     status: 200,
@@ -648,6 +652,54 @@ Deno.serve(async (req) => {
       const [row] = await rest(`wm_payslips?id=eq.${Number(body.id)}&select=*`);
       if (!row) return json({ error: '파일 없음' }, 404);
       return await storageStream(row.storage_path, row.mime, row.file_name);
+    }
+
+    // ── 출장 여비 신청서 (2026-09-17): 직원이 마이페이지에서 '입력완료'한 건을 확인/보완 요청 ──
+    if (action === 'trip_list') {
+      const parts = ['select=*', 'order=submitted_at.desc', 'limit=500'];
+      if (body.status) parts.push(`status=eq.${String(body.status)}`);
+      if (body.year) parts.push(`start_date=gte.${Number(body.year)}-01-01`, `start_date=lte.${Number(body.year)}-12-31`);
+      const rows = await rest(`wm_trip_claims?${parts.join('&')}`);
+      const ids = rows.map((r: { id: number }) => r.id);
+      const receipts = ids.length ? await rest(`wm_trip_receipts?claim_id=in.(${ids.join(',')})&select=id,claim_id,file_name,mime,size&order=id`) : [];
+      return json({ rows, receipts });
+    }
+    if (action === 'trip_review') {
+      const id = Number(body.id);
+      const status = String(body.status ?? '');
+      if (!['confirmed', 'returned', 'submitted'].includes(status)) return json({ error: '상태 오류' }, 400);
+      const note = String(body.note ?? '').trim().slice(0, 300);
+      const [row] = await rest(`wm_trip_claims?id=eq.${id}`, {
+        method: 'PATCH', body: JSON.stringify({ status, review_note: note || null, reviewed_by: status === 'submitted' ? null : me.name, reviewed_at: status === 'submitted' ? null : new Date().toISOString() }),
+      });
+      if (!row) return json({ error: '신청서 없음' }, 404);
+      await auditLog(me.id, 'trip_review', row.employee_id, { id, status, note });
+      if (status !== 'submitted') {
+        try {
+          const [emp] = await rest(`wm_employees?id=eq.${row.employee_id}&select=app_user_id`);
+          if (emp?.app_user_id) {
+            const label = status === 'confirmed' ? '확인 완료' : '보완 요청';
+            await rest('notifications', { method: 'POST', headers: { Prefer: 'return=minimal' }, body: JSON.stringify([{ user_id: emp.app_user_id, actor_name: me.name, message: `출장 여비 신청서(${row.start_date}~${row.end_date} ${row.place}) ${label}${note ? ` — ${note}` : ''} → 마이페이지 › 서류 발급`, link_menu: 'my', read: false }]) });
+          }
+        } catch { /* 알림 실패 무시 */ }
+      }
+      return json({ ok: true, row });
+    }
+    if (action === 'trip_receipt') {
+      const [row] = await rest(`wm_trip_receipts?id=eq.${Number(body.id)}&select=*`);
+      if (!row) return json({ error: '파일 없음' }, 404);
+      return await storageStream(row.storage_path, row.mime, row.file_name, 'wm-receipts');
+    }
+    if (action === 'trip_delete') {
+      const id = Number(body.id);
+      const [row] = await rest(`wm_trip_claims?id=eq.${id}&select=id,employee_id,place`);
+      if (!row) return json({ error: '신청서 없음' }, 404);
+      const rs = await rest(`wm_trip_receipts?claim_id=eq.${id}&select=id,storage_path`);
+      for (const r of rs as { id: number; storage_path: string }[]) await storageDelete(r.storage_path, 'wm-receipts').catch(() => {});
+      await rest(`wm_trip_receipts?claim_id=eq.${id}`, { method: 'DELETE', headers: { Prefer: 'return=minimal' } });
+      await rest(`wm_trip_claims?id=eq.${id}`, { method: 'DELETE', headers: { Prefer: 'return=minimal' } });
+      await auditLog(me.id, 'trip_delete', row.employee_id, { id, place: row.place });
+      return json({ ok: true });
     }
 
     return json({ error: 'unknown action' }, 400);

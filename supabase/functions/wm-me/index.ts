@@ -5,6 +5,12 @@
 //   POST ?action=leave_cancel  { id } → 내 '대기' 신청 취소
 //   GET  ?action=payslip_list      → 관리자가 업로드한 내 급여 명세서 파일 목록 (2026-09-10 사용자 요청 — 계산값이 아니라 업로드 파일)
 //   GET  ?action=payslip_file&id=  → 그 파일 본문(바이트 중계, 본인 것만). 공개 URL·서명 URL 없음.
+//   ── 출장 여비 신청서 (2026-09-17 사용자 요청: '입력완료' 제출 + 개인 사비 지출·영수증, 관리자 확인) ──
+//   GET  ?action=trip_list             → { rows:[내 신청서…], receipts:[…] }
+//   GET  ?action=trip_receipt&id=      → 내 영수증 파일 바이트 중계
+//   POST ?action=trip_receipt_upload   { file_name, mime, data_b64 } → { id, file_name, mime, size }  (비공개 버킷 wm-receipts)
+//   POST ?action=trip_submit           { kind, place, purpose, start_date, end_date, nights, note, ot:[…], expenses:[…] } → { row }
+//        금액·초과근로 시간은 서버가 다시 계산(단가표·15분 올림)하고, 영수증은 본인이 올린 것만 연결된다. 제출 시 관리자에게 알림.
 //
 // ⚠ 보안 원칙: 로그인 계정(app_users.id) → wm_employees.app_user_id 로만 본인 행을 찾고,
 //   모든 조회·쓰기를 그 employee_id로 고정한다. 남의 id를 보내도 무시된다(클라이언트가 id를 못 정함).
@@ -35,6 +41,30 @@ async function rest(path: string, init: RequestInit = {}): Promise<any> {
 const seoulToday = () => new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Seoul" }).format(new Date());
 const fmtD = (d: Date) =>
   `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+
+// ── 출장 여비 (2026-09-17) — 단가표·계산 규칙은 index.html TRIP_KINDS/ceil15와 동일하게 유지 ──
+const TRIP_PER: Record<string, number> = { domestic: 10000, intl_short: 20000, intl_long: 40000 };
+const RECEIPT_BUCKET = "wm-receipts";
+const RECEIPT_MIME: Record<string, string> = { "application/pdf": "pdf", "image/png": "png", "image/jpeg": "jpg", "image/webp": "webp", "image/heic": "heic", "image/heif": "heif" };
+const D_RE = /^\d{4}-\d{2}-\d{2}$/, T_RE = /^\d{2}:\d{2}$/;
+function otMinutes(sv: string, ev: string, meal: boolean): number {
+  if (!T_RE.test(sv) || !T_RE.test(ev)) return 0;
+  const [sh, sm] = sv.split(":").map(Number), [eh, em] = ev.split(":").map(Number);
+  let mins = (eh * 60 + em) - (sh * 60 + sm);
+  if (mins < 0) mins += 24 * 60;
+  if (meal) mins -= 60;
+  return Math.max(0, mins);
+}
+const storageH = () => ({ apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}` });
+async function receiptPut(path: string, bytes: Uint8Array, mime: string) {
+  const r = await fetch(`${SB_URL}/storage/v1/object/${RECEIPT_BUCKET}/${path}`, { method: "POST", headers: { ...storageH(), "Content-Type": mime, "x-upsert": "false" }, body: bytes });
+  if (!r.ok) throw new Error(`storage ${r.status}: ${(await r.text()).slice(0, 200)}`);
+}
+async function receiptStream(row: { storage_path: string; mime: string; file_name: string }): Promise<Response> {
+  const r = await fetch(`${SB_URL}/storage/v1/object/${RECEIPT_BUCKET}/${row.storage_path}`, { headers: storageH() });
+  if (!r.ok) return json({ error: `파일을 불러오지 못했습니다 (${r.status})` }, 502);
+  return new Response(r.body, { status: 200, headers: { ...CORS_HEADERS, "Content-Type": row.mime, "Content-Disposition": `inline; filename*=UTF-8''${encodeURIComponent(row.file_name)}`, "Cache-Control": "private, no-store" } });
+}
 
 // 올해 사용 연차 — wm-admin employee_list와 완전히 같은 규칙(여름휴가·하계/여름휴가 사유는 미차감)
 function usedDays(rows: { type: string; reason?: string | null }[]): number {
@@ -119,7 +149,84 @@ Deno.serve(async (req) => {
       });
     }
 
+    // ── 출장 여비: 내 신청 목록 / 내 영수증 (본인 employee_id 조건 고정) ──
+    if (action === "trip_list") {
+      const rows = await rest(`wm_trip_claims?employee_id=eq.${emp.id}&select=*&order=submitted_at.desc&limit=100`);
+      const receipts = await rest(`wm_trip_receipts?employee_id=eq.${emp.id}&select=id,claim_id,file_name,mime,size&order=id`);
+      return json({ rows, receipts });
+    }
+    if (action === "trip_receipt") {
+      const id = Number(url.searchParams.get("id"));
+      if (!Number.isInteger(id) || id <= 0) return json({ error: "파일 번호 오류" }, 400);
+      const [row] = await rest(`wm_trip_receipts?id=eq.${id}&employee_id=eq.${emp.id}&select=storage_path,mime,file_name`);
+      if (!row) return json({ error: "파일이 없거나 본인 것이 아닙니다" }, 404);
+      return await receiptStream(row);
+    }
+
     const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
+
+    // 영수증 업로드 — 신청서 제출 전에 파일마다 먼저 올리고 받은 id를 지출 행에 붙인다 (8MB, PDF·이미지)
+    if (action === "trip_receipt_upload") {
+      const mime = String(body.mime ?? "");
+      const fileName = String(body.file_name ?? "").slice(0, 200) || "receipt";
+      if (!RECEIPT_MIME[mime]) return json({ error: "PDF·JPG·PNG·WEBP·HEIC 파일만 올릴 수 있어요" }, 400);
+      const b64 = String(body.data_b64 ?? "");
+      if (!b64 || b64.length > 11_500_000) return json({ error: "파일이 너무 큽니다 (최대 8MB)" }, 400);
+      const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+      if (bytes.length > 8 * 1024 * 1024) return json({ error: "파일이 너무 큽니다 (최대 8MB)" }, 400);
+      const path = `${emp.id}/${crypto.randomUUID()}.${RECEIPT_MIME[mime]}`;
+      await receiptPut(path, bytes, mime);
+      const rows = await rest("wm_trip_receipts", { method: "POST", body: JSON.stringify({ employee_id: emp.id, file_name: fileName, mime, size: bytes.length, storage_path: path }) });
+      const row = rows[0];
+      return json({ id: row.id, file_name: row.file_name, mime: row.mime, size: row.size });
+    }
+
+    // 신청서 제출('입력완료') — 계산은 서버가 다시 한다
+    if (action === "trip_submit") {
+      const kind = String(body.kind ?? "");
+      if (!(kind in TRIP_PER)) return json({ error: "출장 구분 오류" }, 400);
+      const place = String(body.place ?? "").trim().slice(0, 120);
+      const purpose = String(body.purpose ?? "").trim().slice(0, 300);
+      const note = String(body.note ?? "").trim().slice(0, 500);
+      const sd = String(body.start_date ?? ""), ed = String(body.end_date ?? "");
+      if (!place) return json({ error: "출장지를 입력해주세요" }, 400);
+      if (!D_RE.test(sd) || !D_RE.test(ed) || ed < sd) return json({ error: "출장 기간이 올바르지 않습니다" }, 400);
+      const nights = Math.max(0, Math.min(60, Math.floor(Number(body.nights) || 0)));
+      const per = TRIP_PER[kind];
+      const otIn = Array.isArray(body.ot) ? (body.ot as Record<string, unknown>[]).slice(0, 60) : [];
+      const ot = otIn.map((r) => {
+        const sv = String(r.s ?? ""), ev = String(r.e ?? ""), meal = !!r.meal;
+        const raw = otMinutes(sv, ev, meal);
+        return { date: D_RE.test(String(r.date ?? "")) ? String(r.date) : "", s: sv, e: ev, meal, memo: String(r.memo ?? "").slice(0, 200), raw, ceil: Math.ceil(raw / 15) * 15 };
+      }).filter((r) => r.raw > 0);
+      const otTotal = ot.reduce((t, r) => t + r.ceil, 0);
+      const exIn = Array.isArray(body.expenses) ? (body.expenses as Record<string, unknown>[]).slice(0, 100) : [];
+      const receiptIds = exIn.map((x) => Number(x.receipt_id)).filter((n) => Number.isInteger(n) && n > 0);
+      const mine = new Set<number>();
+      if (receiptIds.length) {
+        const rs = await rest(`wm_trip_receipts?employee_id=eq.${emp.id}&id=in.(${receiptIds.join(",")})&select=id`);
+        for (const r of rs as { id: number }[]) mine.add(Number(r.id));
+      }
+      const expenses = exIn.map((x) => {
+        const rid = Number(x.receipt_id);
+        return { date: D_RE.test(String(x.date ?? "")) ? String(x.date) : "", item: String(x.item ?? "").trim().slice(0, 120), amount: Math.max(0, Math.floor(Number(x.amount) || 0)), memo: String(x.memo ?? "").trim().slice(0, 200), receipt_id: mine.has(rid) ? rid : null };
+      }).filter((x) => x.item || x.amount > 0 || x.receipt_id);
+      const expenseTotal = expenses.reduce((t, x) => t + x.amount, 0);
+      const rows = await rest("wm_trip_claims", {
+        method: "POST",
+        body: JSON.stringify({ employee_id: emp.id, kind, place, purpose: purpose || null, start_date: sd, end_date: ed, nights, per_night: per, trip_pay: nights * per, ot, ot_total_min: otTotal, expenses, expense_total: expenseTotal, note: note || null, status: "submitted" }),
+      });
+      const row = rows[0];
+      const usedIds = expenses.map((x) => x.receipt_id).filter((v): v is number => v != null);
+      if (usedIds.length) await rest(`wm_trip_receipts?employee_id=eq.${emp.id}&id=in.(${usedIds.join(",")})`, { method: "PATCH", headers: { Prefer: "return=minimal" }, body: JSON.stringify({ claim_id: row.id }) });
+      try {
+        const admins = await rest("app_users?role=eq.admin&select=id");
+        if (admins.length) {
+          await rest("notifications", { method: "POST", headers: { Prefer: "return=minimal" }, body: JSON.stringify(admins.map((a: { id: string }) => ({ user_id: a.id, actor_name: emp.name, message: `출장 여비 신청서 — ${sd}~${ed} ${place} (출장비 ${(nights * per).toLocaleString("ko-KR")}원${expenseTotal ? ` · 사비 ${expenseTotal.toLocaleString("ko-KR")}원` : ""}) → 근무 관리 › 출장 여비`, link_menu: "wm", read: false }))) });
+        }
+      } catch { /* 알림 실패가 제출을 막지는 않는다 */ }
+      return json({ ok: true, row });
+    }
 
     // 휴가 신청 — 키오스크 request_leave 규칙 이식(항상 pending, 중복 날짜 차단, 기간 신청 지원)
     if (action === "leave_request") {
