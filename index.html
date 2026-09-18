@@ -1681,6 +1681,7 @@
           <label style="font-size:.78rem;color:#4b5563;font-weight:600;">직원
             <select id="wm-trip-emp" onchange="wmTripRender()" style="display:block;margin-top:3px;border:1.5px solid #d1d5db;border-radius:8px;padding:6px 10px;font-size:.8rem;outline:none;min-width:130px;"><option value="">전체 직원</option></select></label>
           <button class="toggle-btn" onclick="wmTripLoad()" style="margin-bottom:1px;"><i class="fa-solid fa-rotate"></i> 새로고침</button>
+          <button class="toggle-btn" onclick="wmTripOtExport()" style="margin-bottom:1px;" title="지금 표에 보이는 신청서(상태·직원 필터 반영)의 초과 근로를 한 줄씩 엑셀로"><i class="fa-solid fa-file-excel" style="color:#15803d;"></i> 초과근로 엑셀</button>
           <span id="wm-trip-summary" style="margin-left:auto;font-size:.78rem;color:#6b7280;"></span>
         </div>
         <div id="wm-trip-result"><div class="empty-state"><p>불러오는 중...</p></div></div>
@@ -8688,6 +8689,7 @@ function wmTripDetail(id) {
     ${sec('청구 합계', kv('출장비', fmt(c.trip_pay) + '원') + kv('개인 사비', fmt(c.expense_total || 0) + '원') + kv('합계', `<b style="font-size:.95rem;">${fmt((c.trip_pay || 0) + (c.expense_total || 0))}원</b>`))}
     ${c.reviewed_by || c.review_note ? sec('관리자 확인', kv('처리', `${escHtml(c.reviewed_by || '—')} · ${String(c.reviewed_at || '').slice(0, 16).replace('T', ' ')}`) + (c.review_note ? kv('메모', escHtml(c.review_note)) : '')) : ''}
     <div style="display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;margin-top:18px;padding-top:12px;border-top:1px solid #eceef2;">
+      ${ot.length ? `<button class="toggle-btn" onclick="wmTripOtExport(${c.id})"><i class="fa-solid fa-file-excel" style="color:#15803d;"></i> 초과근로 엑셀</button>` : ''}
       <button class="toggle-btn" onclick="wmTripPrint(${c.id})"><i class="fa-solid fa-print"></i> 인쇄</button>
       ${c.status !== 'submitted' ? `<button class="toggle-btn" onclick="wmTripDetailClose();wmTripReview(${c.id},'submitted')">확인 대기로 되돌리기</button>` : ''}
       ${c.status !== 'returned' ? `<button class="toggle-btn" style="color:#b91c1c;" onclick="wmTripDetailClose();wmTripReview(${c.id},'returned')">보완 요청</button>` : ''}
@@ -8711,6 +8713,59 @@ function wmTripDetailClose() {
   wmTripDetailUrls.forEach(u => URL.revokeObjectURL(u)); wmTripDetailUrls = [];
 }
 document.addEventListener('keydown', ev => { if (ev.key === 'Escape' && $('wm-trip-modal') && $('wm-trip-modal').style.display === 'flex') wmTripDetailClose(); });
+
+/* 초과근로 엑셀 (2026-09-18 사용자 요청) — 초과근로 1건 = 1줄. id를 주면 그 신청서만, 없으면 지금 표에 보이는 신청서(필터 반영) 전부.
+   시간은 '시간:분' 글자와 분(숫자) 두 가지로 넣어 엑셀에서 바로 더할 수 있게. 마지막 줄에 합계. */
+async function wmTripOtExport(onlyId) {
+  const d = wmState.trip || { rows: [] };
+  let claims = d.rows || [];
+  if (onlyId) claims = claims.filter(c => c.id === onlyId);
+  else {
+    const st = $('wm-trip-status').value, empSel = Number($('wm-trip-emp').value) || 0;
+    if (st) claims = claims.filter(c => c.status === st);
+    if (empSel) claims = claims.filter(c => c.employee_id === empSel);
+  }
+  const nameOf = Object.fromEntries((wmState.emps || []).map(e => [e.id, e.name]));
+  const lines = [];
+  for (const c of claims) for (const r of (c.ot || [])) {
+    const [sh, sm] = String(r.s || '0:0').split(':').map(Number), [eh, em] = String(r.e || '0:0').split(':').map(Number);
+    const overnight = (eh * 60 + em) < (sh * 60 + sm);
+    const elapsed = r.raw + (r.meal ? 60 : 0);
+    lines.push([nameOf[c.employee_id] || ('직원 ' + c.employee_id), c.place, `${c.start_date} ~ ${c.end_date}`, r.date || '',
+      r.date ? WM_DAY[new Date(r.date + 'T12:00:00').getDay()] : '', r.s, r.e, overnight ? '다음날' : '',
+      hm(elapsed), r.meal ? '-1시간' : '', hm(r.raw), hm(r.ceil), r.raw, r.ceil, r.memo || '', (TRIP_STATUS[c.status] || [c.status])[0]]);
+  }
+  if (!lines.length) { showToast('내보낼 초과근로 내역이 없어요'); return; }
+  lines.sort((a, b) => (a[0] + a[3]).localeCompare(b[0] + b[3], 'ko'));
+  try {
+    if (typeof XlsxPopulate === 'undefined') throw new Error('엑셀 라이브러리 로드 실패 — 페이지를 새로고침해주세요');
+    const wb = await XlsxPopulate.fromBlankAsync();
+    const ws = wb.sheet(0).name('초과근로');
+    const single = onlyId ? claims[0] : null;
+    ws.cell(1, 1).value(single ? `출장 초과근로 내역 — ${nameOf[single.employee_id] || ''} · ${single.place} (${single.start_date} ~ ${single.end_date})` : `출장 초과근로 내역 (${lines.length}건)`).style({ bold: true, fontSize: 14 });
+    ws.cell(2, 1).value('경과 시간 = 종료 − 시작(자정 넘기면 다음날) · 식사 포함 체크 시 1시간 공제 · 실제 근로를 15분 단위로 올림해 인정').style({ fontColor: '6B7280', fontSize: 9 });
+    const head = ['직원', '출장지', '출장 기간', '날짜', '요일', '시작', '종료', '비고', '경과 시간', '식사 공제', '실제 근로', '인정(15분 올림)', '실제 근로(분)', '인정(분)', '업무 내용', '신청 상태'];
+    head.forEach((h, i) => ws.cell(4, i + 1).value(h).style({ bold: true, fill: 'EEF2FF', horizontalAlignment: 'center' }));
+    lines.forEach((row, ri) => row.forEach((v, ci) => ws.cell(5 + ri, ci + 1).value(v)));
+    const last = 4 + lines.length, tr = last + 1;
+    const rawSum = lines.reduce((t, l) => t + l[12], 0), ceilSum = lines.reduce((t, l) => t + l[13], 0);
+    ws.cell(tr, 1).value('합계').style({ bold: true });
+    ws.cell(tr, 11).value(hm(rawSum)).style({ bold: true });
+    ws.cell(tr, 12).value(hm(ceilSum)).style({ bold: true, fontColor: '4338CA' });
+    ws.cell(tr, 13).formula(`SUM(M5:M${last})`).style({ bold: true });
+    ws.cell(tr, 14).formula(`SUM(N5:N${last})`).style({ bold: true });
+    ws.range(`A${tr}:P${tr}`).style({ fill: 'F8F9FF', topBorder: true });
+    [9, 16, 24, 11, 5, 7, 7, 7, 10, 9, 10, 13, 12, 9, 30, 10].forEach((w, i) => ws.column(i + 1).width(w));
+    const blob = await wb.outputAsync();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    const today = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Seoul' });
+    a.href = url; a.download = single ? `출장초과근로_${nameOf[single.employee_id] || ''}_${single.start_date}.xlsx` : `출장초과근로_${today}.xlsx`;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
+    showToast(`초과근로 ${lines.length}건을 엑셀로 저장했어요`);
+  } catch (e) { showToast('엑셀 만들기 실패: ' + e.message); }
+}
 
 async function wmTripReview(id, status) {
   let note = '';
