@@ -277,6 +277,34 @@ Deno.serve(async (req) => {
       return json(body);
     }
 
+    // ── 광고별 기간 성과 + 클릭·노출 (2026-09-18, 광고 소재 담당): 어떤 소재 유형이 CTR·CPC·구매당 비용이 좋은지 근거용 ──
+    //   GET ?action=adperf[&days=30] → { period, ads:[{ad_id, ad_name, spend, impressions, clicks, ctr, cpc, purchases, purchase_value, roas, cost_per_purchase}] }
+    //   지출이 있었던 광고 전부(꺼진 것 포함 — 실패한 훅도 근거다). 30일이 거부되면 14일로 재시도. 30분 캐시.
+    if (action === "adperf") {
+      const yesterday = addDays(seoulToday(), -1);
+      const days = Math.max(7, Math.min(60, Number(url.searchParams.get("days") ?? 30)));
+      const cacheKey = `meta:adperf:${days}:${yesterday}`;
+      const hit = await cacheGet(cacheKey, 30 * 60 * 1000);
+      if (hit) return json(hit);
+      const fetchRange = (d: number) => graphGetAll(`${c.account}/insights`, {
+        time_range: JSON.stringify({ since: addDays(yesterday, -(d - 1)), until: yesterday }), level: "ad",
+        fields: "ad_id,ad_name,spend,impressions,inline_link_clicks,clicks,actions,action_values,purchase_roas,cost_per_action_type",
+        sort: "spend_descending", limit: "250",
+      }, c.token, 6);
+      let used = days, rowsRaw: Record<string, unknown>[];
+      try { rowsRaw = await fetchRange(days); } catch { used = 14; rowsRaw = await fetchRange(14); }
+      const ads = rowsRaw.map((r) => {
+        const m = mapAdRow(r);
+        const imp = num(r.impressions), clk = num(r.inline_link_clicks) || num(r.clicks);
+        return { ad_id: m.ad_id, ad_name: m.ad_name.normalize("NFC"), spend: Math.round(m.spend), impressions: imp, clicks: clk,
+          ctr: imp > 0 ? Math.round(clk / imp * 10000) / 100 : 0, cpc: clk > 0 ? Math.round(m.spend / clk) : 0,
+          purchases: m.purchases, purchase_value: Math.round(m.purchase_value), roas: Math.round(m.roas * 100) / 100, cost_per_purchase: Math.round(m.cost_per_purchase) };
+      }).filter((a) => a.spend > 0);
+      const body = { period: { start: addDays(yesterday, -(used - 1)), end: yesterday, days: used }, count: ads.length, ads };
+      await cacheSet(cacheKey, body);
+      return json(body);
+    }
+
     if (action === "activeads") {
       const yesterday = addDays(seoulToday(), -1);
       // 10분 캐시 — 판매 성과를 여러 명이 반복 조회해도 Meta 호출은 10분에 2번.

@@ -437,6 +437,40 @@ Deno.serve(async (req) => {
       });
     }
 
+    // ── 상품 후기 (2026-09-18, 광고 소재 담당): 후기 게시판(board_no 4 — 알파리뷰가 카페24 게시판에도 동기화) 최근 글 ──
+    //   GET ?action=reviews&product_no=N[&limit=100] → { product_no, count, rating_avg, reviews:[{rating, text, date, has_photo}] }
+    //   필요 권한 mall.read_community. 권한이 없으면 { error:"scope_missing" }(200) — 에이전트는 '리뷰 없음'이 아니라 '권한 대기'로 처리한다.
+    if (action === "reviews") {
+      if (authed.role !== "admin") return json({ error: "접근 권한이 없습니다" }, 403);
+      const no = Number(url.searchParams.get("product_no"));
+      if (!no) return json({ error: "product_no 필수" }, 400);
+      const limit = Math.max(1, Math.min(100, Number(url.searchParams.get("limit") ?? 100)));
+      const hit = await fromCache(); if (hit) return json(hit);
+      let body: Record<string, unknown>;
+      try {
+        body = await apiGet(`${API_BASE}/admin/boards/4/articles?product_no=${no}&limit=${limit}`, token);
+      } catch (e) {
+        const msg = String((e as Error)?.message ?? e);
+        if (/scope|permission|403|insufficient/i.test(msg)) return json({ product_no: no, error: "scope_missing", detail: msg.slice(0, 200) });
+        throw e;
+      }
+      const strip = (h: unknown) => String(h ?? "").replace(/<br\s*\/?>/gi, " ").replace(/<[^>]+>/g, " ").replace(/&nbsp;/g, " ").replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/\s+/g, " ").trim();
+      const arts = ((body.articles ?? []) as Record<string, unknown>[])
+        .filter((a) => String(a.deleted ?? "F") !== "T" && Number(a.reply_depth ?? 0) === 0 && String(a.secret ?? "F") !== "T");
+      const reviews = arts.map((a) => ({
+        rating: num(a.rating) || null,
+        text: (strip(a.content) || strip(a.title)).slice(0, 500),   // 제목은 본문 앞부분을 자른 것이라 본문 우선
+        date: String(a.created_date ?? "").slice(0, 10),
+        has_photo: Array.isArray(a.attach_file_urls) ? a.attach_file_urls.length > 0 : /<img/i.test(String(a.content ?? "")),
+      })).filter((r) => r.text.length >= 5);
+      const rated = reviews.filter((r) => r.rating);
+      return respond({
+        product_no: no, count: reviews.length,
+        rating_avg: rated.length ? Math.round(rated.reduce((t, r) => t + (r.rating as number), 0) / rated.length * 10) / 10 : null,
+        reviews,
+      });
+    }
+
     // ── 상품 → 카테고리 매핑 (2026-09-12, 상품 전략 에이전트): 카테고리 33개 × category_products 1회, 10분 캐시 ──
     //   GET ?action=categorymap → { categories: {no: {name, depth, parent}}, products: {product_no: [category_no...]} }
     if (action === "categorymap") {
