@@ -8602,7 +8602,7 @@ function wmTripRender() {
   const box = $('wm-trip-result');
   if (!rows.length) { box.innerHTML = '<div class="empty-state"><p>해당 조건의 신청서가 없습니다.</p></div>'; return; }
   const rcOf = id => (d.receipts || []).filter(r => r.claim_id === id);
-  const rcBtn = id => `<button onclick="wmTripReceiptOpen(${id})" style="border:none;background:none;color:#4f46e5;cursor:pointer;text-decoration:underline;font-size:.66rem;padding:0 2px;">영수증</button>`;
+  const rcBtn = id => `<button onclick="event.stopPropagation();wmTripReceiptOpen(${id})" style="border:none;background:none;color:#4f46e5;cursor:pointer;text-decoration:underline;font-size:.66rem;padding:0 2px;">영수증</button>`;
   box.innerHTML = `<div class="table-wrap"><table>
     <thead><tr><th style="text-align:left;">제출일</th><th style="text-align:left;">직원</th><th style="text-align:left;">출장</th><th>출장비</th><th class="m-hide">초과근로</th><th>사비 지출</th><th>합계</th><th>상태</th><th></th></tr></thead>
     <tbody>${rows.map(c => {
@@ -8610,7 +8610,7 @@ function wmTripRender() {
       const [sl, sc, sb] = TRIP_STATUS[c.status] || [c.status, '#6b7280', '#f3f4f6'];
       const rc = rcOf(c.id), ex = c.expenses || [];
       const extra = rc.filter(r => !ex.find(x => x.receipt_id === r.id));
-      return `<tr>
+      return `<tr onclick="wmTripDetail(${c.id})" style="cursor:pointer;" title="눌러서 상세 보기">
         <td style="text-align:left;white-space:nowrap;color:#6b7280;">${String(c.submitted_at || '').slice(0, 10)}</td>
         <td style="text-align:left;font-weight:700;white-space:nowrap;">${escHtml(e.name)}</td>
         <td style="text-align:left;min-width:160px;"><b>${escHtml(c.place)}</b><div style="font-size:.68rem;color:#6b7280;">${c.start_date} ~ ${c.end_date} (${c.nights}박) · ${escHtml((TRIP_KINDS[c.kind] || {}).label || c.kind)}${c.purpose ? ' · ' + escHtml(c.purpose) : ''}</div></td>
@@ -8620,7 +8620,8 @@ function wmTripRender() {
           <div style="font-size:.68rem;color:#4b5563;">${ex.map(x => `${x.date ? x.date.slice(5) + ' ' : ''}${escHtml(x.item)} ${fmt(x.amount)}원${x.receipt_id ? ' ' + rcBtn(x.receipt_id) : ' <span style="color:#c2410c;">영수증 없음</span>'}`).join('<br>')}</div>` : '<span style="color:#9ca3af;">—</span>'}${extra.length ? `<div style="font-size:.66rem;">${extra.map(r => rcBtn(r.id)).join('')}</div>` : ''}</td>
         <td style="white-space:nowrap;font-weight:800;">${fmt((c.trip_pay || 0) + (c.expense_total || 0))}원</td>
         <td><span style="background:${sb};color:${sc};border-radius:99px;padding:2px 9px;font-size:.7rem;font-weight:700;white-space:nowrap;">${sl}</span>${c.reviewed_by ? `<div style="font-size:.64rem;color:#6b7280;">${escHtml(c.reviewed_by)} · ${String(c.reviewed_at || '').slice(0, 10)}</div>` : ''}${c.review_note ? `<div style="font-size:.66rem;color:#6b7280;max-width:150px;">${escHtml(c.review_note)}</div>` : ''}</td>
-        <td style="white-space:nowrap;">
+        <td style="white-space:nowrap;" onclick="event.stopPropagation()">
+          <button class="toggle-btn" style="font-size:.7rem;padding:3px 9px;" onclick="wmTripDetail(${c.id})"><i class="fa-solid fa-magnifying-glass"></i> 상세</button>
           <button class="toggle-btn" style="font-size:.7rem;padding:3px 9px;" onclick="wmTripPrint(${c.id})" title="신청서 보기·인쇄"><i class="fa-solid fa-print"></i></button>
           ${c.status !== 'confirmed' ? `<button class="toggle-btn" style="font-size:.7rem;padding:3px 9px;background:#16a34a;color:#fff;border-color:#16a34a;" onclick="wmTripReview(${c.id},'confirmed')">확인 완료</button>` : ''}
           ${c.status !== 'returned' ? `<button class="toggle-btn" style="font-size:.7rem;padding:3px 9px;color:#b91c1c;" onclick="wmTripReview(${c.id},'returned')">보완 요청</button>` : ''}
@@ -8628,8 +8629,89 @@ function wmTripRender() {
           <button class="toggle-btn" style="font-size:.7rem;padding:3px 9px;color:#9ca3af;" onclick="wmTripDelete(${c.id})" title="삭제">✕</button>
         </td></tr>`;
     }).join('')}</tbody></table></div>
-    <div style="font-size:.7rem;color:#6b7280;margin-top:8px;">확인 완료·보완 요청을 누르면 직원에게 알림이 갑니다. 보완 요청 시 사유를 적으면 직원 화면에 함께 보여요. 영수증은 여기서만 열람되고 공유 링크는 없습니다.</div>`;
+    <div style="font-size:.7rem;color:#6b7280;margin-top:8px;"><b>행을 누르면 상세 내용</b>(초과 근로 시각·계산, 사비 지출·영수증 미리보기)이 열립니다. 확인 완료·보완 요청을 누르면 직원에게 알림이 갑니다. 보완 요청 시 사유를 적으면 직원 화면에 함께 보여요. 영수증은 여기서만 열람되고 공유 링크는 없습니다.</div>`;
 }
+/* 출장 여비 상세 (2026-09-18 사용자 요청: 항목을 눌러 초과 근로가 몇 시부터 몇 시까지 어떻게 계산됐는지 확인)
+   초과 근로는 행마다 날짜(요일)·시작~종료(자정 넘김 표시)·경과·식사 공제·실제 근로·15분 올림·업무 내용. 사비 지출은 영수증 이미지 미리보기. */
+function wmTripDetail(id) {
+  const d = wmState.trip || {}; const c = (d.rows || []).find(x => x.id === id); if (!c) return;
+  const e = (wmState.emps || []).find(x => x.id === c.employee_id) || { name: '직원 ' + c.employee_id };
+  const k = TRIP_KINDS[c.kind] || { label: c.kind };
+  const [sl, sc, sb] = TRIP_STATUS[c.status] || [c.status, '#6b7280', '#f3f4f6'];
+  const rc = (d.receipts || []).filter(r => r.claim_id === id);
+  const wd = ds => ds ? `${ds} (${WM_DAY[new Date(ds + 'T12:00:00').getDay()]})` : '—';
+  const th = 'style="background:#f8f9ff;color:#4b5563;font-size:.72rem;font-weight:700;padding:7px 8px;border-bottom:1px solid #e5e7eb;white-space:nowrap;"';
+  const tdBase = 'padding:7px 8px;border-bottom:1px solid #f0f1f4;font-size:.8rem;vertical-align:top;';
+  const td = `style="${tdBase}"`, tdL = `style="${tdBase}text-align:left;"`, tdR = `style="${tdBase}text-align:right;font-weight:700;"`;
+  const ot = c.ot || [];
+  const otRows = ot.map(r => {
+    const [sh, sm] = String(r.s || '0:0').split(':').map(Number), [eh, em] = String(r.e || '0:0').split(':').map(Number);
+    const overnight = (eh * 60 + em) < (sh * 60 + sm);
+    const elapsed = r.raw + (r.meal ? 60 : 0);
+    return `<tr><td ${td}>${wd(r.date)}</td>
+      <td ${td}><b>${r.s}</b> ~ <b>${r.e}</b>${overnight ? ' <span style="font-size:.66rem;color:#c2410c;font-weight:700;">(다음날)</span>' : ''}</td>
+      <td ${td}>${hm(elapsed)}</td>
+      <td ${td}>${r.meal ? '<span style="color:#b91c1c;">−1시간</span>' : '—'}</td>
+      <td ${td}>${hm(r.raw)}</td>
+      <td ${td}><b style="color:#4338ca;">${hm(r.ceil)}</b>${r.ceil !== r.raw ? `<div style="font-size:.64rem;color:#9ca3af;">+${r.ceil - r.raw}분 올림</div>` : ''}</td>
+      <td ${tdL}>${escHtml(r.memo || '—')}</td></tr>`;
+  }).join('');
+  const ex = c.expenses || [];
+  const exRows = ex.map(x => `<tr><td ${td}>${wd(x.date)}</td><td ${tdL}>${escHtml(x.item || '—')}</td>
+      <td ${tdR}>${fmt(x.amount || 0)}원</td><td ${tdL}>${escHtml(x.memo || '')}</td>
+      <td ${td}>${x.receipt_id ? `<button class="toggle-btn" style="font-size:.68rem;padding:2px 8px;" onclick="wmTripReceiptOpen(${x.receipt_id})"><i class="fa-solid fa-receipt"></i> 열기</button>` : '<span style="color:#c2410c;font-size:.72rem;font-weight:700;">영수증 없음</span>'}</td></tr>`).join('');
+  const sec = (t, inner) => `<div style="margin-top:16px;"><div style="font-size:.82rem;font-weight:800;color:#1e1b4b;margin-bottom:6px;">${t}</div>${inner}</div>`;
+  const kv = (a, b) => `<div style="display:flex;gap:10px;padding:5px 0;border-bottom:1px dashed #eef0f5;font-size:.82rem;"><span style="width:90px;color:#6b7280;flex:none;">${a}</span><span>${b}</span></div>`;
+  let box = $('wm-trip-modal');
+  if (!box) {
+    box = document.createElement('div'); box.id = 'wm-trip-modal';
+    box.style.cssText = 'display:none;position:fixed;inset:0;background:rgba(15,23,42,.55);z-index:210;align-items:center;justify-content:center;padding:20px;';
+    box.onclick = ev => { if (ev.target === box) wmTripDetailClose(); };
+    document.body.appendChild(box);
+  }
+  box.innerHTML = `<div style="background:#fff;border-radius:16px;max-width:860px;width:100%;max-height:90vh;overflow:auto;padding:20px 22px;">
+    <div style="display:flex;align-items:flex-start;gap:10px;">
+      <div style="flex:1;"><div style="font-size:1rem;font-weight:800;color:#1e1b4b;">${escHtml(e.name)} · ${escHtml(c.place)}</div>
+        <div style="font-size:.74rem;color:#6b7280;margin-top:2px;">제출 ${String(c.submitted_at || '').slice(0, 16).replace('T', ' ')}</div></div>
+      <span style="background:${sb};color:${sc};border-radius:99px;padding:3px 11px;font-size:.74rem;font-weight:700;white-space:nowrap;">${sl}</span>
+      <button onclick="wmTripDetailClose()" style="border:none;background:#f3f4f6;border-radius:8px;padding:4px 10px;font-size:.88rem;cursor:pointer;">✕</button></div>
+    ${sec('출장 내역', kv('출장 구분', escHtml(k.label)) + kv('출장 기간', `${wd(c.start_date)} ~ ${wd(c.end_date)} · ${c.nights}박`) + kv('출장 목적', escHtml(c.purpose || '—')) + kv('출장비', `<b>${fmt(c.trip_pay)}원</b> <span style="color:#6b7280;">(${fmt(c.per_night)}원 × ${c.nights}박)</span>`) + (c.note ? kv('비고', escHtml(c.note)) : ''))}
+    ${sec(`초과 근로 내역 <span style="font-size:.72rem;color:#6b7280;font-weight:600;">${ot.length}건 · 합계 ${hm(c.ot_total_min || 0)}</span>`, ot.length ? `<div class="table-wrap"><table style="width:100%;border-collapse:collapse;">
+      <thead><tr><th ${th}>날짜</th><th ${th}>근로 시각</th><th ${th}>경과 시간</th><th ${th}>식사 공제</th><th ${th}>실제 근로</th><th ${th}>인정 (15분 올림)</th><th ${th}>업무 내용</th></tr></thead>
+      <tbody>${otRows}<tr><td ${tdR} colspan="4">합 계</td><td ${td}><b>${hm(ot.reduce((t, r) => t + r.raw, 0))}</b></td><td ${td}><b style="color:#4338ca;">${hm(c.ot_total_min || 0)}</b></td><td ${td}></td></tr></tbody></table></div>
+      <div style="font-size:.68rem;color:#6b7280;margin-top:4px;">경과 시간 = 종료 − 시작(자정을 넘기면 다음날로 계산) · 식사시간 포함으로 체크한 날은 1시간 공제 · 실제 근로를 15분 단위로 올림해 인정합니다.</div>` : '<div style="font-size:.8rem;color:#9ca3af;">등록된 초과 근로가 없습니다.</div>')}
+    ${sec(`개인 사비 지출 <span style="font-size:.72rem;color:#6b7280;font-weight:600;">${ex.length}건 · 합계 ${fmt(c.expense_total || 0)}원</span>`, ex.length ? `<div class="table-wrap"><table style="width:100%;border-collapse:collapse;">
+      <thead><tr><th ${th}>날짜</th><th ${th}>지출 내용</th><th ${th}>금액</th><th ${th}>메모</th><th ${th}>영수증</th></tr></thead><tbody>${exRows}</tbody></table></div>` : '<div style="font-size:.8rem;color:#9ca3af;">등록된 사비 지출이 없습니다.</div>')}
+    ${rc.length ? sec('영수증 미리보기', `<div id="wm-trip-rcprev" style="display:flex;gap:10px;flex-wrap:wrap;">${rc.map(r => `<div style="width:150px;border:1px solid #e5e7eb;border-radius:10px;padding:6px;text-align:center;cursor:pointer;" onclick="wmTripReceiptOpen(${r.id})" title="크게 보기">
+        <div id="wm-trip-rc-${r.id}" style="height:120px;display:flex;align-items:center;justify-content:center;background:#f9fafb;border-radius:6px;color:#9ca3af;font-size:.72rem;">${/^image\/(png|jpeg|webp)$/.test(r.mime) ? '불러오는 중…' : `<i class="fa-regular fa-file-${r.mime === 'application/pdf' ? 'pdf' : 'image'}" style="font-size:2rem;"></i>`}</div>
+        <div style="font-size:.66rem;color:#4b5563;margin-top:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escHtml(r.file_name)}</div></div>`).join('')}</div>`) : ''}
+    ${sec('청구 합계', kv('출장비', fmt(c.trip_pay) + '원') + kv('개인 사비', fmt(c.expense_total || 0) + '원') + kv('합계', `<b style="font-size:.95rem;">${fmt((c.trip_pay || 0) + (c.expense_total || 0))}원</b>`))}
+    ${c.reviewed_by || c.review_note ? sec('관리자 확인', kv('처리', `${escHtml(c.reviewed_by || '—')} · ${String(c.reviewed_at || '').slice(0, 16).replace('T', ' ')}`) + (c.review_note ? kv('메모', escHtml(c.review_note)) : '')) : ''}
+    <div style="display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;margin-top:18px;padding-top:12px;border-top:1px solid #eceef2;">
+      <button class="toggle-btn" onclick="wmTripPrint(${c.id})"><i class="fa-solid fa-print"></i> 인쇄</button>
+      ${c.status !== 'submitted' ? `<button class="toggle-btn" onclick="wmTripDetailClose();wmTripReview(${c.id},'submitted')">확인 대기로 되돌리기</button>` : ''}
+      ${c.status !== 'returned' ? `<button class="toggle-btn" style="color:#b91c1c;" onclick="wmTripDetailClose();wmTripReview(${c.id},'returned')">보완 요청</button>` : ''}
+      ${c.status !== 'confirmed' ? `<button class="toggle-btn" style="background:#16a34a;color:#fff;border-color:#16a34a;" onclick="wmTripDetailClose();wmTripReview(${c.id},'confirmed')">확인 완료</button>` : ''}
+    </div></div>`;
+  box.style.display = 'flex';
+  // 이미지 영수증은 함수 중계로 받아 썸네일 표시 (URL은 이 창에서만 쓰고 닫을 때 해제)
+  wmTripDetailUrls = [];
+  rc.filter(r => /^image\/(png|jpeg|webp)$/.test(r.mime)).forEach(async r => {
+    try {
+      const blob = await wmFetchBlob('wm-admin', {}, { action: 'trip_receipt', id: r.id });
+      const url = URL.createObjectURL(blob); wmTripDetailUrls.push(url);
+      const el = $('wm-trip-rc-' + r.id);
+      if (el) el.innerHTML = `<img src="${url}" alt="" style="max-width:100%;max-height:120px;object-fit:contain;border-radius:4px;" />`;
+    } catch { const el = $('wm-trip-rc-' + r.id); if (el) el.textContent = '미리보기 실패'; }
+  });
+}
+let wmTripDetailUrls = [];
+function wmTripDetailClose() {
+  const box = $('wm-trip-modal'); if (box) box.style.display = 'none';
+  wmTripDetailUrls.forEach(u => URL.revokeObjectURL(u)); wmTripDetailUrls = [];
+}
+document.addEventListener('keydown', ev => { if (ev.key === 'Escape' && $('wm-trip-modal') && $('wm-trip-modal').style.display === 'flex') wmTripDetailClose(); });
+
 async function wmTripReview(id, status) {
   let note = '';
   if (status === 'returned') { note = prompt('보완 요청 사유를 적어주세요 (직원에게 그대로 전달)'); if (note === null) return; }
