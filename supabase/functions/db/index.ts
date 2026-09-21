@@ -27,7 +27,9 @@ const TABLE_ROLES: Record<string, string[]> = {
   profit_archive: ["admin"],    // 순익 시나리오 기간별 기록
   project_tasks: ["admin"],     // 프로젝트 관리 업무 (관리자 전용 — 사용자 결정 2026-08-19)
   board_topics: ["admin"],      // 대표 회의보드 안건 (관리자 전용 — 사용자 결정 2026-08-19, 대표끼리 서로 수정 가능이라 AUTHOR_FIELDS 미적용)
-  made_products: ["admin", "staff"],   // 자체제작 주문 점검 — 제작처(중국/국내)·리드타임 태그. 읽기·쓰기 admin+MD (2026-09-03 사용자 요청으로 MD에도 지정 권한)
+  made_products: ["admin", "staff"],
+  made_check_files: ["admin", "staff"],   // 자체제작 재고·입고 점검 — 셀메이트 CSV·이지픽 엑셀 파싱 결과 공유 저장 (2026-09-21)
+  made_watch_products: ["admin", "staff"],  // 자체제작 외 함께 점검할 지정 상품 (2026-09-21)   // 자체제작 주문 점검 — 제작처(중국/국내)·리드타임 태그. 읽기·쓰기 admin+MD (2026-09-03 사용자 요청으로 MD에도 지정 권한)
   purchase_requests: ["admin", "staff", "cs"],   // 직원 구매요청 (2026-08-31) — 등록 전원, 상태·입금·확인은 아래 커스텀 규칙
   purchase_managers: ["admin", "staff", "cs"],   // 구매요청 상태 변경 담당자 목록 — 읽기 전원(화면 분기용), 쓰기는 admin만(커스텀 규칙)
   ad_dashboard_users: ["admin", "staff", "cs"],  // 친구 광고 대시보드 접근 허용 목록 (2026-09-11) — 읽기 전원(메뉴 분기용), 쓰기는 admin만(커스텀 규칙)
