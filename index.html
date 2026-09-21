@@ -8620,7 +8620,7 @@ function wmTripRender() {
         <td style="text-align:left;min-width:150px;">${ex.length ? `<b>${fmt(c.expense_total)}원</b> <span style="font-size:.68rem;color:#6b7280;">(${ex.length}건)</span>
           <div style="font-size:.68rem;color:#4b5563;">${ex.map(x => `${x.date ? x.date.slice(5) + ' ' : ''}${escHtml(x.item)} ${fmt(x.amount)}원${x.receipt_id ? ' ' + rcBtn(x.receipt_id) : ' <span style="color:#c2410c;">영수증 없음</span>'}`).join('<br>')}</div>` : '<span style="color:#9ca3af;">—</span>'}${extra.length ? `<div style="font-size:.66rem;">${extra.map(r => rcBtn(r.id)).join('')}</div>` : ''}</td>
         <td style="white-space:nowrap;font-weight:800;">${fmt((c.trip_pay || 0) + (c.expense_total || 0))}원</td>
-        <td><span style="background:${sb};color:${sc};border-radius:99px;padding:2px 9px;font-size:.7rem;font-weight:700;white-space:nowrap;">${sl}</span>${c.reviewed_by ? `<div style="font-size:.64rem;color:#6b7280;">${escHtml(c.reviewed_by)} · ${String(c.reviewed_at || '').slice(0, 10)}</div>` : ''}${c.review_note ? `<div style="font-size:.66rem;color:#6b7280;max-width:150px;">${escHtml(c.review_note)}</div>` : ''}</td>
+        <td><span style="background:${sb};color:${sc};border-radius:99px;padding:2px 9px;font-size:.7rem;font-weight:700;white-space:nowrap;">${sl}</span>${c.resubmit_count ? `<div style="font-size:.64rem;color:#4338ca;font-weight:700;">재제출 ${c.resubmit_count}회 · ${String(c.resubmitted_at || '').slice(5, 16).replace('T', ' ')}</div>` : ''}${c.reviewed_by ? `<div style="font-size:.64rem;color:#6b7280;">${escHtml(c.reviewed_by)} · ${String(c.reviewed_at || '').slice(0, 10)}</div>` : ''}${c.review_note ? `<div style="font-size:.66rem;color:#6b7280;max-width:150px;">${escHtml(c.review_note)}</div>` : ''}${c.prev_review_note && !c.review_note ? `<div style="font-size:.64rem;color:#9ca3af;max-width:150px;">이전 요청: ${escHtml(c.prev_review_note)}</div>` : ''}</td>
         <td style="white-space:nowrap;" onclick="event.stopPropagation()">
           <button class="toggle-btn" style="font-size:.7rem;padding:3px 9px;" onclick="wmTripDetail(${c.id})"><i class="fa-solid fa-magnifying-glass"></i> 상세</button>
           <button class="toggle-btn" style="font-size:.7rem;padding:3px 9px;" onclick="wmTripPrint(${c.id})" title="신청서 보기·인쇄"><i class="fa-solid fa-print"></i></button>
@@ -8673,7 +8673,8 @@ function wmTripDetail(id) {
   box.innerHTML = `<div style="background:#fff;border-radius:16px;max-width:860px;width:100%;max-height:90vh;overflow:auto;padding:20px 22px;">
     <div style="display:flex;align-items:flex-start;gap:10px;">
       <div style="flex:1;"><div style="font-size:1rem;font-weight:800;color:#1e1b4b;">${escHtml(e.name)} · ${escHtml(c.place)}</div>
-        <div style="font-size:.74rem;color:#6b7280;margin-top:2px;">제출 ${String(c.submitted_at || '').slice(0, 16).replace('T', ' ')}</div></div>
+        <div style="font-size:.74rem;color:#6b7280;margin-top:2px;">제출 ${String(c.submitted_at || '').slice(0, 16).replace('T', ' ')}${c.resubmit_count ? ` · <b style="color:#4338ca;">재제출 ${c.resubmit_count}회</b> (최근 ${String(c.resubmitted_at || '').slice(0, 16).replace('T', ' ')})` : ''}</div>
+        ${c.prev_review_note && !c.review_note ? `<div style="font-size:.74rem;color:#b45309;margin-top:4px;"><i class="fa-solid fa-comment-dots"></i> 직전 보완 요청: ${escHtml(c.prev_review_note)} → 직원이 수정해 다시 제출함</div>` : ''}</div>
       <span style="background:${sb};color:${sc};border-radius:99px;padding:3px 11px;font-size:.74rem;font-weight:700;white-space:nowrap;">${sl}</span>
       <button onclick="wmTripDetailClose()" style="border:none;background:#f3f4f6;border-radius:8px;padding:4px 10px;font-size:.88rem;cursor:pointer;">✕</button></div>
     ${sec('출장 내역', kv('출장 구분', escHtml(k.label)) + kv('출장 기간', `${wd(c.start_date)} ~ ${wd(c.end_date)} · ${c.nights}박`) + kv('출장 목적', escHtml(c.purpose || '—')) + kv('출장비', `<b>${fmt(c.trip_pay)}원</b> <span style="color:#6b7280;">(${fmt(c.per_night)}원 × ${c.nights}박)</span>`) + (c.note ? kv('비고', escHtml(c.note)) : ''))}
@@ -9929,7 +9930,8 @@ function myRenderDocs() {
     <div style="font-size:.68rem;color:#6b7280;margin-top:8px;">재직증명서와 같은 양식에 <b>차량 번호</b>가 함께 들어갑니다. 주차 등록 등에 사용하세요.</div>`;
   } else {
     const today = (myState.data || {}).today || '';
-    form = `<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin-bottom:10px;">
+    form = `<div id="my-trip-editbar" style="display:none;"></div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin-bottom:10px;">
       ${myLabel('출장 구분', `<select id="my-trip-kind" onchange="myTripCalc()" style="${myFieldCss}">
         ${Object.entries(TRIP_KINDS).map(([k, v]) => `<option value="${k}">${v.label}</option>`).join('')}</select>`)}
       ${myLabel('출장지', `<input id="my-trip-place" placeholder="예: 베트남 호치민" style="${myFieldCss}width:160px;" />`)}
@@ -9968,6 +9970,7 @@ function myRenderDocs() {
   if (kind === 'trip') {
     myTripOtRows = myTripOtRows.length ? myTripOtRows : [myTripOtBlank()]; myTripOtRender();
     myTripExpRows = myTripExpRows.length ? myTripExpRows : [myTripExpBlank()]; myTripExpRender();
+    myTripApplyEdit();   // 수정 모드면 저장된 값 채우기 (2026-09-21)
     myTripCalc(); myTripListLoad();
   }
 }
@@ -10231,15 +10234,52 @@ async function myTripSubmit() {
   if (!confirm('출장 여비 신청서를 제출할까요? 제출 후에는 관리자가 확인합니다. ' + summary)) return;
   const btn = $('my-trip-submit'); if (btn) btn.disabled = true;
   try {
-    await myApi({ action: 'trip_submit' }, { kind, place, purpose, start_date: s, end_date: e, nights, note, ot, expenses });
-    showToast('입력완료 — 관리자에게 전달됐어요');
+    if (myTripEditId) await myApi({ action: 'trip_update' }, { id: myTripEditId, kind, place, purpose, start_date: s, end_date: e, nights, note, ot, expenses });
+    else await myApi({ action: 'trip_submit' }, { kind, place, purpose, start_date: s, end_date: e, nights, note, ot, expenses });
+    showToast(myTripEditId ? '수정한 내용으로 다시 제출했어요 — 관리자에게 전달됐습니다' : '입력완료 — 관리자에게 전달됐어요');
+    myTripEditId = null;
     ['my-trip-place', 'my-trip-purpose', 'my-trip-note'].forEach(id => { const el = $(id); if (el) el.value = ''; });
     myTripOtRows = [myTripOtBlank()]; myTripOtRender();
     myTripExpRows = [myTripExpBlank()]; myTripExpRender();
-    myTripCalc();
+    myTripApplyEdit(); myTripCalc();
     await myTripListLoad();
   } catch (err) { showToast('제출 실패: ' + err.message); }
   finally { if (btn) btn.disabled = false; }
+}
+/* ── 수정 후 재제출 (2026-09-21 사용자 요청): '보완 요청'·'확인 대기' 건을 양식에 다시 불러와 고친 뒤 제출 ── */
+let myTripEditId = null;
+function myTripEdit(id) {
+  const c = ((myState.trip || {}).rows || []).find(x => x.id === id);
+  if (!c) return;
+  if (c.status === 'confirmed') { showToast('이미 확인 완료된 신청서는 수정할 수 없어요'); return; }
+  const receipts = ((myState.trip || {}).receipts || []);
+  myTripEditId = id;
+  myTripOtRows = (c.ot || []).length ? c.ot.map(r => ({ date: r.date || '', s: r.s || '', e: r.e || '', meal: !!r.meal, memo: r.memo || '' })) : [myTripOtBlank()];
+  myTripExpRows = (c.expenses || []).length ? c.expenses.map(x => { const rc = receipts.find(r => r.id === x.receipt_id); return { date: x.date || '', item: x.item || '', amount: x.amount || '', memo: x.memo || '', receipt: rc ? { id: rc.id, file_name: rc.file_name } : (x.receipt_id ? { id: x.receipt_id, file_name: '첨부됨' } : null), up: false }; }) : [myTripExpBlank()];
+  myState.doc = 'trip'; myRenderDocs();   // 양식을 다시 그리면서 myTripApplyEdit가 값 채움
+  const bar = $('my-trip-editbar'); if (bar) bar.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+function myTripApplyEdit() {
+  const bar = $('my-trip-editbar'), btn = $('my-trip-submit');
+  if (!bar || !btn) return;
+  const c = myTripEditId ? ((myState.trip || {}).rows || []).find(x => x.id === myTripEditId) : null;
+  if (!c) { myTripEditId = null; bar.style.display = 'none'; btn.innerHTML = '<i class="fa-solid fa-paper-plane"></i> 입력완료'; return; }
+  const set = (id, v) => { const el = $(id); if (el) el.value = v == null ? '' : v; };
+  set('my-trip-kind', c.kind); set('my-trip-place', c.place); set('my-trip-purpose', c.purpose || '');
+  set('my-trip-start', c.start_date); set('my-trip-end', c.end_date); set('my-trip-nights', c.nights); set('my-trip-note', c.note || '');
+  const [sl] = TRIP_STATUS[c.status] || [c.status];
+  bar.style.display = 'block';
+  bar.innerHTML = `<div style="background:${c.status === 'returned' ? '#fef2f2' : '#eff6ff'};border:1.5px solid ${c.status === 'returned' ? '#fecaca' : '#bfdbfe'};border-radius:12px;padding:10px 14px;margin-bottom:12px;display:flex;gap:10px;align-items:flex-start;flex-wrap:wrap;">
+    <div style="flex:1;min-width:200px;font-size:.8rem;color:#1f2937;"><b>${c.start_date} ~ ${c.end_date} ${escHtml(c.place)}</b> 신청서를 수정하는 중 <span style="font-size:.72rem;color:#6b7280;">(현재 ${sl})</span>
+      ${c.review_note ? `<div style="margin-top:4px;font-size:.78rem;color:#b91c1c;"><i class="fa-solid fa-comment-dots"></i> 관리자 보완 요청: ${escHtml(c.review_note)}</div>` : ''}
+      <div style="font-size:.7rem;color:#6b7280;margin-top:3px;">아래 내용을 고친 뒤 <b>수정 제출</b>을 누르면 관리자에게 다시 전달돼요.</div></div>
+    <button class="toggle-btn" style="font-size:.74rem;" onclick="myTripEditCancel()">수정 취소</button></div>`;
+  btn.innerHTML = '<i class="fa-solid fa-rotate-right"></i> 수정 제출';
+}
+function myTripEditCancel() {
+  myTripEditId = null;
+  myTripOtRows = [myTripOtBlank()]; myTripExpRows = [myTripExpBlank()];
+  myRenderDocs();
 }
 /* 내 출장 여비 신청 내역 — 상태(확인 대기/확인 완료/보완 요청)·인쇄·영수증 */
 async function myTripListLoad() {
@@ -10261,8 +10301,10 @@ async function myTripListLoad() {
           <td style="white-space:nowrap;">${fmt(c.trip_pay)}원</td>
           <td class="m-hide" style="white-space:nowrap;">${c.ot_total_min ? hm(c.ot_total_min) : '—'}</td>
           <td style="white-space:nowrap;">${c.expense_total ? fmt(c.expense_total) + '원' : '—'}${rc.length ? `<div style="font-size:.66rem;">${rc.map(r => `<button onclick="myTripReceiptOpen(${r.id})" style="border:none;background:none;color:#4f46e5;cursor:pointer;text-decoration:underline;font-size:.66rem;padding:0 2px;">영수증</button>`).join('')}</div>` : ''}</td>
-          <td><span style="background:${sb};color:${sc};border-radius:99px;padding:2px 9px;font-size:.7rem;font-weight:700;white-space:nowrap;">${sl}</span>${c.review_note ? `<div style="font-size:.66rem;color:#6b7280;max-width:160px;">${escHtml(c.review_note)}</div>` : ''}</td>
-          <td style="white-space:nowrap;"><button class="toggle-btn" style="font-size:.7rem;padding:3px 9px;" onclick="myTripPrintClaim(${c.id})"><i class="fa-solid fa-print"></i> 인쇄</button></td></tr>`;
+          <td><span style="background:${sb};color:${sc};border-radius:99px;padding:2px 9px;font-size:.7rem;font-weight:700;white-space:nowrap;">${sl}</span>${c.review_note ? `<div style="font-size:.66rem;color:#b91c1c;max-width:160px;">${escHtml(c.review_note)}</div>` : ''}${c.resubmit_count ? `<div style="font-size:.64rem;color:#6b7280;">재제출 ${c.resubmit_count}회</div>` : ''}</td>
+          <td style="white-space:nowrap;">
+            ${c.status !== 'confirmed' ? `<button class="toggle-btn" style="font-size:.7rem;padding:3px 9px;${c.status === 'returned' ? 'background:#4f46e5;color:#fff;border-color:#4f46e5;' : ''}" onclick="myTripEdit(${c.id})"><i class="fa-solid fa-pen"></i> ${c.status === 'returned' ? '수정해서 다시 제출' : '수정'}</button>` : ''}
+            <button class="toggle-btn" style="font-size:.7rem;padding:3px 9px;" onclick="myTripPrintClaim(${c.id})"><i class="fa-solid fa-print"></i> 인쇄</button></td></tr>`;
       }).join('')}</tbody></table></div>`;
 }
 function myTripPrintClaim(id) {

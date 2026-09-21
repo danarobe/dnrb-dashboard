@@ -11,6 +11,8 @@
 //   POST ?action=trip_receipt_upload   { file_name, mime, data_b64 } → { id, file_name, mime, size }  (비공개 버킷 wm-receipts)
 //   POST ?action=trip_submit           { kind, place, purpose, start_date, end_date, nights, note, ot:[…], expenses:[…] } → { row }
 //        금액·초과근로 시간은 서버가 다시 계산(단가표·15분 올림)하고, 영수증은 본인이 올린 것만 연결된다. 제출 시 관리자에게 알림.
+//   POST ?action=trip_update           { id, …trip_submit과 같은 필드 } → { row }  (2026-09-21) 본인 신청서가 '보완 요청' 또는 '확인 대기'일 때만
+//        수정해 다시 제출 → status submitted, resubmit_count+1, 직전 보완 사유는 prev_review_note로 보관. 확인 완료된 건은 수정 불가.
 //
 // ⚠ 보안 원칙: 로그인 계정(app_users.id) → wm_employees.app_user_id 로만 본인 행을 찾고,
 //   모든 조회·쓰기를 그 employee_id로 고정한다. 남의 id를 보내도 무시된다(클라이언트가 id를 못 정함).
@@ -182,15 +184,16 @@ Deno.serve(async (req) => {
     }
 
     // 신청서 제출('입력완료') — 계산은 서버가 다시 한다
-    if (action === "trip_submit") {
+    // 신청서 본문 검증·재계산 — 제출(trip_submit)·재제출(trip_update) 공용
+    const buildTrip = async (): Promise<{ error?: string; data?: Record<string, unknown>; usedIds: number[]; summary: string }> => {
       const kind = String(body.kind ?? "");
-      if (!(kind in TRIP_PER)) return json({ error: "출장 구분 오류" }, 400);
+      if (!(kind in TRIP_PER)) return { error: "출장 구분 오류", usedIds: [], summary: "" };
       const place = String(body.place ?? "").trim().slice(0, 120);
       const purpose = String(body.purpose ?? "").trim().slice(0, 300);
       const note = String(body.note ?? "").trim().slice(0, 500);
       const sd = String(body.start_date ?? ""), ed = String(body.end_date ?? "");
-      if (!place) return json({ error: "출장지를 입력해주세요" }, 400);
-      if (!D_RE.test(sd) || !D_RE.test(ed) || ed < sd) return json({ error: "출장 기간이 올바르지 않습니다" }, 400);
+      if (!place) return { error: "출장지를 입력해주세요", usedIds: [], summary: "" };
+      if (!D_RE.test(sd) || !D_RE.test(ed) || ed < sd) return { error: "출장 기간이 올바르지 않습니다", usedIds: [], summary: "" };
       const nights = Math.max(0, Math.min(60, Math.floor(Number(body.nights) || 0)));
       const per = TRIP_PER[kind];
       const otIn = Array.isArray(body.ot) ? (body.ot as Record<string, unknown>[]).slice(0, 60) : [];
@@ -212,19 +215,49 @@ Deno.serve(async (req) => {
         return { date: D_RE.test(String(x.date ?? "")) ? String(x.date) : "", item: String(x.item ?? "").trim().slice(0, 120), amount: Math.max(0, Math.floor(Number(x.amount) || 0)), memo: String(x.memo ?? "").trim().slice(0, 200), receipt_id: mine.has(rid) ? rid : null };
       }).filter((x) => x.item || x.amount > 0 || x.receipt_id);
       const expenseTotal = expenses.reduce((t, x) => t + x.amount, 0);
-      const rows = await rest("wm_trip_claims", {
-        method: "POST",
-        body: JSON.stringify({ employee_id: emp.id, kind, place, purpose: purpose || null, start_date: sd, end_date: ed, nights, per_night: per, trip_pay: nights * per, ot, ot_total_min: otTotal, expenses, expense_total: expenseTotal, note: note || null, status: "submitted" }),
-      });
-      const row = rows[0];
       const usedIds = expenses.map((x) => x.receipt_id).filter((v): v is number => v != null);
-      if (usedIds.length) await rest(`wm_trip_receipts?employee_id=eq.${emp.id}&id=in.(${usedIds.join(",")})`, { method: "PATCH", headers: { Prefer: "return=minimal" }, body: JSON.stringify({ claim_id: row.id }) });
+      const summary = `${sd}~${ed} ${place} (출장비 ${(nights * per).toLocaleString("ko-KR")}원${expenseTotal ? ` · 사비 ${expenseTotal.toLocaleString("ko-KR")}원` : ""})`;
+      return { data: { kind, place, purpose: purpose || null, start_date: sd, end_date: ed, nights, per_night: per, trip_pay: nights * per, ot, ot_total_min: otTotal, expenses, expense_total: expenseTotal, note: note || null }, usedIds, summary };
+    };
+    const notifyAdmins = async (msg: string) => {
       try {
         const admins = await rest("app_users?role=eq.admin&select=id");
-        if (admins.length) {
-          await rest("notifications", { method: "POST", headers: { Prefer: "return=minimal" }, body: JSON.stringify(admins.map((a: { id: string }) => ({ user_id: a.id, actor_name: emp.name, message: `출장 여비 신청서 — ${sd}~${ed} ${place} (출장비 ${(nights * per).toLocaleString("ko-KR")}원${expenseTotal ? ` · 사비 ${expenseTotal.toLocaleString("ko-KR")}원` : ""}) → 근무 관리 › 출장 여비`, link_menu: "wm", read: false }))) });
-        }
+        if (admins.length) await rest("notifications", { method: "POST", headers: { Prefer: "return=minimal" }, body: JSON.stringify(admins.map((a: { id: string }) => ({ user_id: a.id, actor_name: emp.name, message: msg, link_menu: "wm", read: false }))) });
       } catch { /* 알림 실패가 제출을 막지는 않는다 */ }
+    };
+
+    // 신청서 제출('입력완료') — 계산은 서버가 다시 한다
+    if (action === "trip_submit") {
+      const b = await buildTrip();
+      if (b.error || !b.data) return json({ error: b.error }, 400);
+      const rows = await rest("wm_trip_claims", { method: "POST", body: JSON.stringify({ employee_id: emp.id, ...b.data, status: "submitted" }) });
+      const row = rows[0];
+      if (b.usedIds.length) await rest(`wm_trip_receipts?employee_id=eq.${emp.id}&id=in.(${b.usedIds.join(",")})`, { method: "PATCH", headers: { Prefer: "return=minimal" }, body: JSON.stringify({ claim_id: row.id }) });
+      await notifyAdmins(`출장 여비 신청서 — ${b.summary} → 근무 관리 › 출장 여비`);
+      return json({ ok: true, row });
+    }
+
+    // 수정 후 재제출 (2026-09-21) — 본인 것 + 보완 요청/확인 대기 상태만. 확인 완료된 건은 관리자가 '되돌리기' 해야 수정 가능.
+    if (action === "trip_update") {
+      const id = Number(body.id);
+      if (!Number.isInteger(id) || id <= 0) return json({ error: "신청서 번호 오류" }, 400);
+      const [cur] = await rest(`wm_trip_claims?id=eq.${id}&employee_id=eq.${emp.id}&select=id,status,review_note,resubmit_count`);
+      if (!cur) return json({ error: "신청서가 없거나 본인 것이 아닙니다" }, 404);
+      if (cur.status === "confirmed") return json({ error: "이미 확인 완료된 신청서는 수정할 수 없어요 — 관리자에게 요청하세요" }, 409);
+      const b = await buildTrip();
+      if (b.error || !b.data) return json({ error: b.error }, 400);
+      const wasReturned = cur.status === "returned";
+      const rows = await rest(`wm_trip_claims?id=eq.${id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ ...b.data, status: "submitted", reviewed_by: null, reviewed_at: null, review_note: null,
+          prev_review_note: wasReturned ? (cur.review_note ?? null) : (cur.prev_review_note ?? null),
+          resubmit_count: Number(cur.resubmit_count ?? 0) + 1, resubmitted_at: new Date().toISOString() }),
+      });
+      const row = rows[0];
+      // 영수증 연결 갱신: 이번에 쓰인 것만 이 신청서에, 빠진 것은 연결 해제
+      await rest(`wm_trip_receipts?employee_id=eq.${emp.id}&claim_id=eq.${id}`, { method: "PATCH", headers: { Prefer: "return=minimal" }, body: JSON.stringify({ claim_id: null }) });
+      if (b.usedIds.length) await rest(`wm_trip_receipts?employee_id=eq.${emp.id}&id=in.(${b.usedIds.join(",")})`, { method: "PATCH", headers: { Prefer: "return=minimal" }, body: JSON.stringify({ claim_id: id }) });
+      await notifyAdmins(`출장 여비 신청서 ${wasReturned ? "보완 후 재제출" : "수정 재제출"} — ${b.summary} → 근무 관리 › 출장 여비`);
       return json({ ok: true, row });
     }
 
