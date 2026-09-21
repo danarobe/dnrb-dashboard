@@ -11,6 +11,9 @@
 //   POST ?action=trip_receipt_upload   { file_name, mime, data_b64 } → { id, file_name, mime, size }  (비공개 버킷 wm-receipts)
 //   POST ?action=trip_submit           { kind, place, purpose, start_date, end_date, nights, note, ot:[…], expenses:[…] } → { row }
 //        금액·초과근로 시간은 서버가 다시 계산(단가표·15분 올림)하고, 영수증은 본인이 올린 것만 연결된다. 제출 시 관리자에게 알림.
+//   GET  ?action=doc_request_list      → { rows } 내 서류 출력 요청 (2026-09-21)
+//   POST ?action=doc_request           { doc_type: cert|car, use?, car_no?, car_model? } → { row }  관리자에게 앱 알림+푸시, 관리자 PC에서 인쇄
+//   POST ?action=doc_request_cancel    { id } → 내 '요청' 상태 건 취소
 //   POST ?action=trip_update           { id, …trip_submit과 같은 필드 } → { row }  (2026-09-21) 본인 신청서가 '보완 요청' 또는 '확인 대기'일 때만
 //        수정해 다시 제출 → status submitted, resubmit_count+1, 직전 보완 사유는 prev_review_note로 보관. 확인 완료된 건은 수정 불가.
 //
@@ -151,6 +154,10 @@ Deno.serve(async (req) => {
       });
     }
 
+    if (action === "doc_request_list") {
+      return json({ rows: await rest(`wm_doc_requests?employee_id=eq.${emp.id}&select=*&order=requested_at.desc&limit=50`) });
+    }
+
     // ── 출장 여비: 내 신청 목록 / 내 영수증 (본인 employee_id 조건 고정) ──
     if (action === "trip_list") {
       const rows = await rest(`wm_trip_claims?employee_id=eq.${emp.id}&select=*&order=submitted_at.desc&limit=100`);
@@ -166,6 +173,46 @@ Deno.serve(async (req) => {
     }
 
     const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
+
+    // 관리자 전원에게 앱 알림 + 웹 푸시(휴대폰) — notify 함수에 직원 본인 토큰을 그대로 넘겨 호출 (2026-09-21 사용자 요청: 재제출도 알림).
+    // notify 호출이 실패하면 예전처럼 notifications 행만 직접 넣는다.
+    const notifyAdmins = async (msg: string, title = "출장 여비 신청서") => {
+      try {
+        const admins = await rest("app_users?role=eq.admin&select=id");
+        if (!admins.length) return;
+        const targets = admins.map((a: { id: string }) => a.id);
+        const r = await fetch(`${SB_URL}/functions/v1/notify`, {
+          method: "POST",
+          headers: { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}`, "Content-Type": "application/json", "x-auth-token": req.headers.get("x-auth-token") ?? "" },
+          body: JSON.stringify({ targets, actor_name: emp.name, message: msg, link_menu: "wm", title }),
+        });
+        if (!r.ok) await rest("notifications", { method: "POST", headers: { Prefer: "return=minimal" }, body: JSON.stringify(targets.map((id: string) => ({ user_id: id, actor_name: emp.name, message: msg, link_menu: "wm", read: false }))) });
+      } catch { /* 알림 실패가 제출을 막지는 않는다 */ }
+    };
+
+    // 서류 출력 요청 (2026-09-21) — 재직증명서(cert)·차량 등록 요청서(car). 관리자가 근무 관리 › 서류 요청에서 인쇄해 준다.
+    if (action === "doc_request") {
+      const docType = String(body.doc_type ?? "");
+      if (!["cert", "car"].includes(docType)) return json({ error: "서류 종류 오류" }, 400);
+      const payload: Record<string, string> = { use: String(body.use ?? "").trim().slice(0, 100) };
+      if (docType === "car") {
+        payload.car_no = String(body.car_no ?? "").trim().slice(0, 30);
+        payload.car_model = String(body.car_model ?? "").trim().slice(0, 40);
+        if (!payload.car_no) return json({ error: "차량 번호를 입력해주세요" }, 400);
+      }
+      const dup = await rest(`wm_doc_requests?employee_id=eq.${emp.id}&doc_type=eq.${docType}&status=eq.requested&select=id`);
+      if (dup.length) return json({ error: "이미 출력 요청이 접수돼 있어요 — 관리자가 처리하면 알려드립니다" }, 409);
+      const rows = await rest("wm_doc_requests", { method: "POST", body: JSON.stringify({ employee_id: emp.id, doc_type: docType, payload, status: "requested" }) });
+      const label = docType === "cert" ? "재직증명서" : "차량 등록 요청서";
+      await notifyAdmins(`${label} 출력 요청${payload.use ? ` (용도: ${payload.use})` : ""} → 근무 관리 › 서류 요청`, `${label} 출력 요청`);
+      return json({ ok: true, row: rows[0] });
+    }
+    if (action === "doc_request_cancel") {
+      const rows = await rest(`wm_doc_requests?id=eq.${Number(body.id)}&employee_id=eq.${emp.id}&status=eq.requested`, { method: "PATCH", body: JSON.stringify({ status: "cancelled", handled_at: new Date().toISOString() }) });
+      if (!rows.length) return json({ error: "취소할 수 있는 요청이 아닙니다" }, 400);
+      return json({ ok: true });
+    }
+
 
     // 영수증 업로드 — 신청서 제출 전에 파일마다 먼저 올리고 받은 id를 지출 행에 붙인다 (8MB, PDF·이미지)
     if (action === "trip_receipt_upload") {
@@ -219,22 +266,6 @@ Deno.serve(async (req) => {
       const summary = `${sd}~${ed} ${place} (출장비 ${(nights * per).toLocaleString("ko-KR")}원${expenseTotal ? ` · 사비 ${expenseTotal.toLocaleString("ko-KR")}원` : ""})`;
       return { data: { kind, place, purpose: purpose || null, start_date: sd, end_date: ed, nights, per_night: per, trip_pay: nights * per, ot, ot_total_min: otTotal, expenses, expense_total: expenseTotal, note: note || null }, usedIds, summary };
     };
-    // 관리자 전원에게 앱 알림 + 웹 푸시(휴대폰) — notify 함수에 직원 본인 토큰을 그대로 넘겨 호출 (2026-09-21 사용자 요청: 재제출도 알림).
-    // notify 호출이 실패하면 예전처럼 notifications 행만 직접 넣는다.
-    const notifyAdmins = async (msg: string, title = "출장 여비 신청서") => {
-      try {
-        const admins = await rest("app_users?role=eq.admin&select=id");
-        if (!admins.length) return;
-        const targets = admins.map((a: { id: string }) => a.id);
-        const r = await fetch(`${SB_URL}/functions/v1/notify`, {
-          method: "POST",
-          headers: { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}`, "Content-Type": "application/json", "x-auth-token": req.headers.get("x-auth-token") ?? "" },
-          body: JSON.stringify({ targets, actor_name: emp.name, message: msg, link_menu: "wm", title }),
-        });
-        if (!r.ok) await rest("notifications", { method: "POST", headers: { Prefer: "return=minimal" }, body: JSON.stringify(targets.map((id: string) => ({ user_id: id, actor_name: emp.name, message: msg, link_menu: "wm", read: false }))) });
-      } catch { /* 알림 실패가 제출을 막지는 않는다 */ }
-    };
-
     // 신청서 제출('입력완료') — 계산은 서버가 다시 한다
     if (action === "trip_submit") {
       const b = await buildTrip();

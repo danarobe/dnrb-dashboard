@@ -33,6 +33,8 @@
 //   trip_review       { id, status: confirmed|returned, note? } 관리자 확인/보완 요청 → 직원 알림
 //   trip_receipt      { id }                                   영수증 파일 바이트 중계
 //   trip_delete       { id }                                   신청서·영수증 삭제
+//   doc_request_list  { status? }                              서류 출력 요청 목록 (2026-09-21)
+//   doc_request_done  { id, status: printed|cancelled|requested, note? }  처리 → 직원 알림
 //
 // 대시보드가 만들거나 고친 행은 source='admin'(출퇴근) 등으로 표시된다 —
 // 병행 동기화(sync.sh)가 이 표시를 보고 기존 JSON 값으로 덮어쓰지 않는다.
@@ -696,6 +698,33 @@ Deno.serve(async (req) => {
       const [row] = await rest(`wm_trip_receipts?id=eq.${Number(body.id)}&select=*`);
       if (!row) return json({ error: '파일 없음' }, 404);
       return await storageStream(row.storage_path, row.mime, row.file_name, 'wm-receipts');
+    }
+    // ── 서류 출력 요청 (2026-09-21): 직원이 마이페이지에서 요청한 재직증명서·차량 등록 요청서를 관리자 PC에서 인쇄 ──
+    if (action === 'doc_request_list') {
+      const parts = ['select=*', 'order=requested_at.desc', 'limit=300'];
+      if (body.status) parts.push(`status=eq.${String(body.status)}`);
+      return json({ rows: await rest(`wm_doc_requests?${parts.join('&')}`) });
+    }
+    if (action === 'doc_request_done') {
+      const id = Number(body.id);
+      const status = String(body.status ?? '');
+      if (!['printed', 'cancelled', 'requested'].includes(status)) return json({ error: '상태 오류' }, 400);
+      const note = String(body.note ?? '').trim().slice(0, 200);
+      const [row] = await rest(`wm_doc_requests?id=eq.${id}`, { method: 'PATCH', body: JSON.stringify({ status, note: note || null, handled_by: status === 'requested' ? null : me.name, handled_at: status === 'requested' ? null : new Date().toISOString() }) });
+      if (!row) return json({ error: '요청 없음' }, 404);
+      await auditLog(me.id, 'doc_request_' + status, row.employee_id, { id, doc_type: row.doc_type, note });
+      if (status === 'printed') {
+        try {
+          const [emp] = await rest(`wm_employees?id=eq.${row.employee_id}&select=app_user_id`);
+          if (emp?.app_user_id) {
+            const label = row.doc_type === 'cert' ? '재직증명서' : '차량 등록 요청서';
+            const message = `${label} 출력 완료 — 관리자에게 받아가세요${note ? ` (${note})` : ''}`;
+            const r = await fetch(`${SB_URL}/functions/v1/notify`, { method: 'POST', headers: { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}`, 'Content-Type': 'application/json', 'x-auth-token': req.headers.get('x-auth-token') ?? '' }, body: JSON.stringify({ targets: [emp.app_user_id], actor_name: me.name, message, link_menu: 'my', title: `${label} 출력 완료` }) });
+            if (!r.ok) await rest('notifications', { method: 'POST', headers: { Prefer: 'return=minimal' }, body: JSON.stringify([{ user_id: emp.app_user_id, actor_name: me.name, message, link_menu: 'my', read: false }]) });
+          }
+        } catch { /* 알림 실패 무시 */ }
+      }
+      return json({ ok: true, row });
     }
     if (action === 'trip_delete') {
       const id = Number(body.id);
