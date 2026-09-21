@@ -219,10 +219,19 @@ Deno.serve(async (req) => {
       const summary = `${sd}~${ed} ${place} (출장비 ${(nights * per).toLocaleString("ko-KR")}원${expenseTotal ? ` · 사비 ${expenseTotal.toLocaleString("ko-KR")}원` : ""})`;
       return { data: { kind, place, purpose: purpose || null, start_date: sd, end_date: ed, nights, per_night: per, trip_pay: nights * per, ot, ot_total_min: otTotal, expenses, expense_total: expenseTotal, note: note || null }, usedIds, summary };
     };
-    const notifyAdmins = async (msg: string) => {
+    // 관리자 전원에게 앱 알림 + 웹 푸시(휴대폰) — notify 함수에 직원 본인 토큰을 그대로 넘겨 호출 (2026-09-21 사용자 요청: 재제출도 알림).
+    // notify 호출이 실패하면 예전처럼 notifications 행만 직접 넣는다.
+    const notifyAdmins = async (msg: string, title = "출장 여비 신청서") => {
       try {
         const admins = await rest("app_users?role=eq.admin&select=id");
-        if (admins.length) await rest("notifications", { method: "POST", headers: { Prefer: "return=minimal" }, body: JSON.stringify(admins.map((a: { id: string }) => ({ user_id: a.id, actor_name: emp.name, message: msg, link_menu: "wm", read: false }))) });
+        if (!admins.length) return;
+        const targets = admins.map((a: { id: string }) => a.id);
+        const r = await fetch(`${SB_URL}/functions/v1/notify`, {
+          method: "POST",
+          headers: { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}`, "Content-Type": "application/json", "x-auth-token": req.headers.get("x-auth-token") ?? "" },
+          body: JSON.stringify({ targets, actor_name: emp.name, message: msg, link_menu: "wm", title }),
+        });
+        if (!r.ok) await rest("notifications", { method: "POST", headers: { Prefer: "return=minimal" }, body: JSON.stringify(targets.map((id: string) => ({ user_id: id, actor_name: emp.name, message: msg, link_menu: "wm", read: false }))) });
       } catch { /* 알림 실패가 제출을 막지는 않는다 */ }
     };
 
@@ -257,7 +266,7 @@ Deno.serve(async (req) => {
       // 영수증 연결 갱신: 이번에 쓰인 것만 이 신청서에, 빠진 것은 연결 해제
       await rest(`wm_trip_receipts?employee_id=eq.${emp.id}&claim_id=eq.${id}`, { method: "PATCH", headers: { Prefer: "return=minimal" }, body: JSON.stringify({ claim_id: null }) });
       if (b.usedIds.length) await rest(`wm_trip_receipts?employee_id=eq.${emp.id}&id=in.(${b.usedIds.join(",")})`, { method: "PATCH", headers: { Prefer: "return=minimal" }, body: JSON.stringify({ claim_id: id }) });
-      await notifyAdmins(`출장 여비 신청서 ${wasReturned ? "보완 후 재제출" : "수정 재제출"} — ${b.summary} → 근무 관리 › 출장 여비`);
+      await notifyAdmins(`출장 여비 신청서 ${wasReturned ? "보완 후 재제출" : "수정 재제출"} — ${b.summary} → 근무 관리 › 출장 여비`, wasReturned ? "출장 여비 보완 후 재제출" : "출장 여비 수정 재제출");
       return json({ ok: true, row });
     }
 

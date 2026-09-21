@@ -1,6 +1,6 @@
 // ═══════════════════════════════════════════════
 // @멘션 알림 생성 + 웹 푸시 발송 (2026-08-20)
-//   POST { targets: [user_id...], actor_name, message, link_menu }
+//   POST { targets: [user_id...], actor_name, message, link_menu, title? }  — title(2026-09-21): 푸시 제목 지정(출장 여비 등 멘션이 아닌 알림용)
 //   1) notifications 테이블에 수신자별 행 삽입 (앱 내 종 아이콘용)
 //   2) 수신자의 push_subscriptions 전 기기로 웹 푸시 발송 (휴대폰 알림)
 //      — 만료된 구독(404/410)은 자동 삭제
@@ -29,7 +29,7 @@ Deno.serve(async (req) => {
   if (!me) return json({ error: "로그인이 필요합니다" }, 401);
 
   try {
-    const { targets, actor_name, message, link_menu } = await req.json().catch(() => ({}));
+    const { targets, actor_name, message, link_menu, title } = await req.json().catch(() => ({}));
     const ids = [...new Set((targets ?? []).map((t: unknown) => String(t)).filter(Boolean))].slice(0, 20);
     const msg = String(message ?? "").slice(0, 200);
     if (!ids.length || !msg) return json({ error: "targets, message 필수" }, 400);
@@ -53,7 +53,7 @@ Deno.serve(async (req) => {
       const subsRes = await rest(`push_subscriptions?user_id=in.(${ids.map((i) => `"${i}"`).join(",")})`);
       const subs = subsRes.ok ? await subsRes.json() : [];
       const payload = JSON.stringify({
-        title: `${actor}님이 나를 언급했어요`,
+        title: title ? String(title).slice(0, 60) : `${actor}님이 나를 언급했어요`,
         body: msg,
         url: `https://danarobe.github.io/dnrb-dashboard/${link ? "#" + link : ""}`,
       });

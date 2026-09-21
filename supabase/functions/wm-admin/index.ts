@@ -679,7 +679,14 @@ Deno.serve(async (req) => {
           const [emp] = await rest(`wm_employees?id=eq.${row.employee_id}&select=app_user_id`);
           if (emp?.app_user_id) {
             const label = status === 'confirmed' ? '확인 완료' : '보완 요청';
-            await rest('notifications', { method: 'POST', headers: { Prefer: 'return=minimal' }, body: JSON.stringify([{ user_id: emp.app_user_id, actor_name: me.name, message: `출장 여비 신청서(${row.start_date}~${row.end_date} ${row.place}) ${label}${note ? ` — ${note}` : ''} → 마이페이지 › 서류 발급`, link_menu: 'my', read: false }]) });
+            const message = `출장 여비 신청서(${row.start_date}~${row.end_date} ${row.place}) ${label}${note ? ` — ${note}` : ''} → 마이페이지 › 서류 발급`;
+            // notify 함수(앱 알림 + 웹 푸시)에 관리자 토큰을 넘겨 호출, 실패 시 앱 알림만 (2026-09-21)
+            const r = await fetch(`${SB_URL}/functions/v1/notify`, {
+              method: 'POST',
+              headers: { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}`, 'Content-Type': 'application/json', 'x-auth-token': req.headers.get('x-auth-token') ?? '' },
+              body: JSON.stringify({ targets: [emp.app_user_id], actor_name: me.name, message, link_menu: 'my', title: `출장 여비 ${label}` }),
+            });
+            if (!r.ok) await rest('notifications', { method: 'POST', headers: { Prefer: 'return=minimal' }, body: JSON.stringify([{ user_id: emp.app_user_id, actor_name: me.name, message, link_menu: 'my', read: false }]) });
           }
         } catch { /* 알림 실패 무시 */ }
       }
