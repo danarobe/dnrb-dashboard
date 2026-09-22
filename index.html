@@ -1209,6 +1209,12 @@
             <input type="file" accept=".xlsx,.xls,.csv" multiple onchange="rscanNaverUpload(this.files);this.value=''" style="display:none;" /></label>
           <span style="font-size:.74rem;color:#4b5563;">네이버페이센터 › 판매관리 › 반품/교환 관리에서 내려받은 엑셀(수거 송장번호·상품주문번호 포함)을 올리면 네이버페이 주문도 송장으로 찾을 수 있어요. 올릴 때마다 최근 파일 기준으로 갱신됩니다.</span>
         </div>
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:8px;">
+          <span style="font-size:.76rem;font-weight:700;color:#166534;"><i class="fa-solid fa-key" style="color:#16a34a;"></i> 문서 암호</span>
+          <input type="password" id="rscan-np-pw" placeholder="엑셀 내려받을 때 설정한 암호" oninput="rscanSavePw(this.value)" autocomplete="off"
+                 style="border:1.5px solid #d1d5db;border-radius:8px;padding:6px 10px;font-size:.8rem;min-width:200px;" />
+          <span style="font-size:.72rem;color:#6b7280;">네이버페이센터 엑셀은 문서 암호가 걸려 있어요. 한 번 넣어두면 이 브라우저에 저장되어 그대로 올려도 열립니다(서버로 보내지 않음, 취소·반품 메뉴의 네이버 파일 비밀번호와 같이 씀).</span>
+        </div>
         <div id="rscan-naver-status" style="font-size:.74rem;color:#6b7280;margin-top:6px;"></div>
       </div>
     </div>
@@ -2924,6 +2930,7 @@ const rscanState = { status: null, history: [], busy: false, timer: null, lastQ:
 async function rscanInit() {
   const inp = $('rscan-q'); if (inp) setTimeout(() => inp.focus(), 100);
   const sb = $('btn-rscan-set'); if (sb) sb.style.display = isAdmin() ? '' : 'none';
+  const pwEl = $('rscan-np-pw'); if (pwEl && !pwEl.value) pwEl.value = localStorage.getItem(NP_PW_KEY) || '';
   await rscanStatusLoad();
   if (!$('rscan-status').innerHTML) rscanStatusRender();
 }
@@ -3024,17 +3031,41 @@ function rscanHistoryRender() {
       <td>${x.alert ? `<span style="background:${x.alert.level === 'alert' ? '#fee2e2' : '#fef3c7'};color:${x.alert.level === 'alert' ? '#b91c1c' : '#92400e'};border-radius:99px;padding:1px 8px;font-size:.7rem;font-weight:700;">${x.alert.type}${x.alert.level === 'warn' ? ' 의심' : ''}</span>` : x.hits ? '<span style="color:#15803d;font-size:.74rem;font-weight:700;">일반</span>' : '<span style="color:#9ca3af;font-size:.74rem;">미발견</span>'}</td></tr>`).join('')}</tbody></table></div>`;
 }
 /* 네이버페이센터 반품/교환 목록 엑셀 → rscan_naver. 열은 헤더명으로 찾음(양식이 조금 달라도 되게 후보 여러 개) */
+/* 문서 암호 — 취소·반품 메뉴의 네이버 파일 비밀번호(NP_PW_KEY)와 같은 저장소를 쓴다(브라우저 localStorage, 서버 전송 없음) */
+function rscanSavePw(v) { localStorage.setItem(NP_PW_KEY, v || ''); const o = $('np-pw'); if (o) o.value = v || ''; }
+/* 파일 → 2차원 배열. 암호 걸린 xlsx(CFB 컨테이너)는 xlsx-populate로 복호화, 그 외(일반 xlsx·xls·csv)는 SheetJS */
+async function rscanReadGrid(file) {
+  const buf = await file.arrayBuffer();
+  const b = new Uint8Array(buf);
+  const isCfb = b[0] === 0xD0 && b[1] === 0xCF;
+  const pw = (($('rscan-np-pw') || {}).value || localStorage.getItem(NP_PW_KEY) || '').trim();
+  if (isCfb && pw && typeof XlsxPopulate !== 'undefined') {
+    try {
+      const wb = await XlsxPopulate.fromDataAsync(buf, { password: pw });
+      const sh = wb.sheet(0); const used = sh.usedRange();
+      if (!used) throw new Error('엑셀에 데이터가 없어요');
+      let rows = sh.range('A1:' + used.endCell().address()).value();
+      if (!Array.isArray(rows)) rows = [[rows]]; else if (!Array.isArray(rows[0])) rows = [rows];
+      return rows;
+    } catch (e) { console.warn('암호 엑셀 복호화 실패 — SheetJS로 재시도', e); }   // 암호 오류 또는 일반 .xls → 아래로
+  }
+  const XLSX = await loadSheetJS();
+  let wb;
+  try { wb = XLSX.read(buf, { type: 'array', codepage: 949 }); }
+  catch (e) {
+    if (/password|encrypt/i.test(String(e && e.message))) throw new Error(pw ? '엑셀을 열 수 없어요 — 문서 암호가 맞는지 확인해주세요' : '문서 암호가 걸린 엑셀이에요 — 아래 문서 암호 칸에 먼저 입력해주세요');
+    throw e;
+  }
+  return XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, defval: '' });
+}
 async function rscanNaverUpload(fileList) {
   const files = [...(fileList || [])]; if (!files.length) return;
+  const xlDate = n => { const d = new Date(Math.round((n - 25569) * 86400000)); const p = x => String(x).padStart(2, '0'); return `${d.getUTCFullYear()}-${p(d.getUTCMonth() + 1)}-${p(d.getUTCDate())} ${p(d.getUTCHours())}:${p(d.getUTCMinutes())}:${p(d.getUTCSeconds())}`; };
   const find = (cells, cands) => { const n = cells.map(c => String(c || '').replace(/\s/g, '')); for (const cand of cands) { const i = n.findIndex(c => c === cand || (cand.length >= 4 && c.includes(cand))); if (i >= 0) return i; } return -1; };
   let total = 0;
   for (const file of files) {
     try {
-      const XLSX = await loadSheetJS();
-      const buf = await file.arrayBuffer();
-      const wb = XLSX.read(buf, { type: 'array', codepage: 949 });
-      const ws = wb.Sheets[wb.SheetNames[0]];
-      const grid = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
+      const grid = await rscanReadGrid(file);
       let hi = -1, col = {};
       for (let i = 0; i < Math.min(grid.length, 15); i++) {
         const c = grid[i] || [];
@@ -3053,7 +3084,7 @@ async function rscanNaverUpload(fileList) {
         const c = grid[i] || [];
         const inv = String(c[col.inv] ?? '').replace(/[^0-9A-Za-z]/g, '');
         if (!inv) continue;
-        const v = k => col[k] >= 0 ? String(c[col[k]] ?? '').trim().slice(0, 200) : '';
+        const v = k => { if (!(col[k] >= 0)) return ''; const raw = c[col[k]]; if (k === 'date' && typeof raw === 'number' && raw > 30000 && raw < 80000) return xlDate(raw); return String(raw ?? '').trim().slice(0, 200); };
         rows.push({ invoice: inv, product_order_no: v('pon').replace(/\.0$/, ''), order_no: v('ono').replace(/\.0$/, ''), kind: v('kind'), reason: v('reason'), company: v('company'), claim_date: v('date').slice(0, 19), product_name: v('pname'), option_text: v('opt'), uploaded_by: SESSION.name, uploaded_at: new Date().toISOString() });
       }
       if (!rows.length) throw new Error('수거 송장번호가 있는 행이 없어요');
