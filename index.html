@@ -1187,6 +1187,9 @@
       </div>
     </div>
     <div class="section-body">
+      <!-- 소메뉴 (2026-09-22 사용자 요청): ① 송장 스캔 ② 불량·오배송 처리(최근 1달 경고 건 + 처리전/처리완료 체크, rscan_done 팀 공유) -->
+      <div id="rscan-tabs" style="display:flex;gap:2px;border-bottom:2px solid #e5e7eb;margin-bottom:14px;flex-wrap:wrap;"></div>
+      <div id="rscan-pane-scan" class="rscan-pane">
       <div style="font-size:.8rem;color:#6b7280;margin-bottom:10px;line-height:1.7;">
         · 반품 상자의 <b>반품 송장 바코드</b>를 스캐너로 찍거나 번호를 입력하면 카페24 주문건을 찾아 보여줍니다. 뒷자리 일부만 넣어도 돼요.<br>
         · 사유가 <b>불량·오배송</b>이면 빨간 경고와 소리가 나요(자사몰: 사유 코드 불량 K·V·D, 배송오류 C·J·W / 네이버페이: '오배송'·'상품 파손'·'불량'). 사유 문구에 불량·오배송 낌새가 있으면 노란 주의.<br>
@@ -1223,6 +1226,19 @@
           <span style="font-size:.72rem;color:#6b7280;">네이버페이센터 엑셀은 문서 암호가 걸려 있어요. 한 번 넣어두면 이 브라우저에 저장되어 그대로 올려도 열립니다(서버로 보내지 않음, 취소·반품 메뉴의 네이버 파일 비밀번호와 같이 씀).</span>
         </div>
         <div id="rscan-naver-status" style="font-size:.74rem;color:#6b7280;margin-top:6px;"></div>
+      </div>
+      </div><!-- /rscan-pane-scan -->
+      <div id="rscan-pane-issues" class="rscan-pane" style="display:none;">
+        <div style="font-size:.8rem;color:#6b7280;margin-bottom:10px;line-height:1.7;">
+          · <b>최근 1달</b>(주문일 기준, 어제까지) 반품·교환 중 사유가 <b>불량·오배송</b>으로 판정된 건입니다. 빨간 배지는 사유 코드·네이버 사유로 확실한 건, 노란 배지는 사유 문구로 의심되는 건이에요.<br>
+          · 처리가 끝나면 체크하세요 — <b>처리완료</b>로 바뀌고 팀 전체가 같은 상태를 봅니다(누가 언제 처리했는지 표시). 다시 체크를 풀면 처리전으로 돌아가요.
+        </div>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px;">
+          <span id="rscan-issue-filters" class="qp"></span>
+          <button class="toggle-btn" onclick="rscanIssuesLoad(true)"><i class="fa-solid fa-rotate"></i> 새로고침</button>
+          <span id="rscan-issues-meta" style="font-size:.74rem;color:#6b7280;"></span>
+        </div>
+        <div id="rscan-issues"></div>
       </div>
     </div>
   </div>
@@ -2937,6 +2953,72 @@ const RSCAN_DAYS_KEY = 'dnrb_rscan_days';
 const rscanState = { status: null, history: [], busy: false, timer: null, lastQ: '', days: [7, 14, 30, 90].includes(Number(localStorage.getItem('dnrb_rscan_days'))) ? Number(localStorage.getItem('dnrb_rscan_days')) : 14 };
 /* 바로가기 주소 형식 — 관리자 '경고 기준' 패널(rscan_settings)에서 바꿀 수 있음. {order_id}=카페24 주문번호, {product_order_no}=네이버 상품주문번호, {kind}=return|exchange */
 const RSCAN_URL_DEFAULTS = { cafe24_url: 'https://wnqka5000.cafe24.com/admin/php/shop1/s_new/order_detail.php?order_id={order_id}', naver_url: 'https://admin.pay.naver.com/o/v3/claim/{kind}' };
+const RSCAN_TABS = [['scan', '송장 스캔', null, 'fa-solid fa-barcode'], ['issues', '불량·오배송 처리', null, 'fa-solid fa-list-check']];
+rscanState.tab = 'scan'; rscanState.issues = null; rscanState.issueFilter = 'todo'; rscanState.issuesLoading = false;
+function rscanTabsRender() {
+  const todo = rscanState.issues ? rscanState.issues.issues.filter(i => !rscanState.issues.done[i.key]).length : null;
+  uiTabs('rscan-tabs', RSCAN_TABS.map(t => t[0] === 'issues' ? [t[0], t[1], todo ? `${todo}` : null, t[3]] : t), rscanState.tab, 'rscanSetTab');
+}
+function rscanSetTab(k) {
+  rscanState.tab = k; rscanTabsRender();
+  document.querySelectorAll('.rscan-pane').forEach(el => { el.style.display = 'none'; });
+  const pane = $('rscan-pane-' + k); if (pane) pane.style.display = 'block';
+  if (k === 'issues') { if (!rscanState.issues && !rscanState.issuesLoading) rscanIssuesLoad(); }
+  else { const inp = $('rscan-q'); if (inp) setTimeout(() => inp.focus(), 50); }
+}
+/* 불량·오배송 처리 목록 — 서버 rscan_issues(최근 30일 경고 건 + rscan_done 상태) */
+async function rscanIssuesLoad(force) {
+  if (rscanState.issuesLoading) return;
+  rscanState.issuesLoading = true;
+  const st0 = rscanState.status;
+  const needBuild = !st0 || !st0.row_count || st0.age_min == null || st0.age_min > 20 || Number(st0.days || 0) < 30;
+  $('rscan-issues').innerHTML = `<div class="empty-state"><p><i class="fa-solid fa-spinner fa-spin"></i> 불량·오배송 건을 모으는 중…${needBuild ? ' (최근 1달 카페24 목록을 만드는 중 — 약 15초)' : ''}</p></div>`;
+  try {
+    rscanState.issues = await anGet({ action: 'rscan_issues' });
+    if (rscanState.status) { rscanState.status.days = Math.max(Number(rscanState.status.days || 0), 30); rscanState.status.row_count = rscanState.issues.row_count; rscanState.status.built_at = rscanState.issues.built_at; rscanState.status.age_min = Math.round((Date.now() - new Date(rscanState.issues.built_at).getTime()) / 60000); rscanStatusRender(); }
+    rscanIssuesRender(); rscanTabsRender();
+  } catch (e) { $('rscan-issues').innerHTML = `<div class="empty-state"><p style="color:#b91c1c;">불러오지 못했어요 — ${escHtml(e.message)}</p></div>`; }
+  finally { rscanState.issuesLoading = false; }
+}
+function rscanIssuesSetFilter(f) { rscanState.issueFilter = f; rscanIssuesRender(); }
+function rscanIssuesRender() {
+  const r = rscanState.issues; if (!r) return;
+  const isDone = i => !!r.done[i.key];
+  const counts = { todo: r.issues.filter(i => !isDone(i)).length, done: r.issues.filter(isDone).length, all: r.issues.length };
+  $('rscan-issue-filters').innerHTML = [['todo', '처리전'], ['done', '처리완료'], ['all', '전체']].map(([k, l]) => `<button class="${rscanState.issueFilter === k ? 'active' : ''}" onclick="rscanIssuesSetFilter('${k}')">${l} ${counts[k]}</button>`).join('');
+  $('rscan-issues-meta').textContent = `최근 ${r.days}일(${r.start_date} ~ 어제) 반품·교환 ${fmt(r.row_count)}건 중 불량·오배송 ${counts.all}건`;
+  const list = r.issues.filter(i => rscanState.issueFilter === 'all' || (rscanState.issueFilter === 'done') === isDone(i));
+  if (!list.length) { $('rscan-issues').innerHTML = `<div class="empty-state"><p>${rscanState.issueFilter === 'todo' ? '처리전 건이 없어요 — 모두 처리됐어요' : '해당하는 건이 없어요'}</p></div>`; return; }
+  const when = t => t ? String(t).replace('T', ' ').slice(5, 16) : '';
+  const rows = list.map(i => {
+    const d = r.done[i.key]; const a = i.alert || {};
+    const badge = `<span style="background:${a.level === 'alert' ? '#fee2e2' : '#fef3c7'};color:${a.level === 'alert' ? '#b91c1c' : '#92400e'};border-radius:99px;padding:2px 9px;font-size:.72rem;font-weight:800;white-space:nowrap;">${escHtml(a.type || '')}${a.level === 'warn' ? ' 의심' : ''}</span>`;
+    const name = i.buyer && i.receiver && i.buyer !== i.receiver ? `${escHtml(i.buyer)} <span style="color:#6b7280;font-size:.72rem;">(수령 ${escHtml(i.receiver)})</span>` : escHtml(i.buyer || i.receiver || '—');
+    const items = (i.items || []).map(it => `<div>${escHtml(it.name || '')}${it.option ? ` <span style="color:#6b7280;">${escHtml(it.option)}</span>` : ''}${it.qty > 1 ? ` <b>×${it.qty}</b>` : ''}</div>`).join('') || '—';
+    return `<tr style="${d ? 'opacity:.55;' : ''}">
+      <td style="white-space:nowrap;"><label style="display:inline-flex;align-items:center;gap:6px;cursor:pointer;font-size:.76rem;font-weight:700;color:${d ? '#15803d' : '#b45309'};"><input type="checkbox" ${d ? 'checked' : ''} data-key="${escHtml(i.key)}" data-oid="${escHtml(i.order_id)}" onchange="rscanIssueToggle(this)" style="width:18px;height:18px;" /> ${d ? '처리완료' : '처리전'}</label>${d ? `<div style="font-size:.68rem;color:#6b7280;margin-top:2px;">${escHtml(d.by || '')} ${when(d.at)}</div>` : ''}</td>
+      <td style="white-space:nowrap;"><span style="background:${i.kind === 'exchange' ? '#e0e7ff' : '#fef3c7'};color:${i.kind === 'exchange' ? '#4338ca' : '#92400e'};border-radius:99px;padding:2px 9px;font-size:.72rem;font-weight:700;">${i.kind === 'exchange' ? '교환' : '반품'}</span> ${badge}</td>
+      <td style="text-align:left;white-space:nowrap;"><b>${escHtml(i.order_id)}</b>${i.naver ? ' <b style="color:#03c75a;font-size:.7rem;">N Pay</b>' : ''}<div style="display:flex;gap:4px;flex-wrap:wrap;margin-top:4px;">${rscanLinkBtns(i)}</div></td>
+      <td style="text-align:left;">${name}</td>
+      <td style="text-align:left;font-size:.78rem;">${items}</td>
+      <td class="m-hide" style="text-align:left;font-size:.76rem;color:#374151;max-width:260px;white-space:normal;">${escHtml(i.reason_type ? '[' + i.reason_type + '] ' : '')}${escHtml(i.reason || '')}${i.naver_reason ? `<div style="color:#15803d;">네이버: ${escHtml(i.naver_reason)}</div>` : ''}</td>
+      <td class="m-hide" style="white-space:nowrap;font-size:.76rem;">${escHtml(i.claim_date || i.order_date || '')}</td></tr>`;
+  }).join('');
+  $('rscan-issues').innerHTML = `<div class="table-wrap"><table style="width:100%;font-size:.82rem;"><thead><tr><th>처리</th><th>구분</th><th style="text-align:left;">주문번호</th><th style="text-align:left;">이름</th><th style="text-align:left;">상품</th><th class="m-hide" style="text-align:left;">사유</th><th class="m-hide">접수일</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+}
+async function rscanIssueToggle(cb) {
+  const r = rscanState.issues; if (!r) return;
+  const key = cb.dataset.key, done = cb.checked, prev = r.done[key];
+  if (done) r.done[key] = { by: SESSION.name, at: new Date().toISOString() }; else delete r.done[key];
+  rscanIssuesRender(); rscanTabsRender();
+  try {
+    await dbProxy('rscan_done?on_conflict=key', { method: 'POST', headers: { Prefer: 'resolution=merge-duplicates,return=minimal' }, body: JSON.stringify({ key, order_id: cb.dataset.oid, done, done_by: SESSION.name, done_at: new Date().toISOString() }) });
+    showToast(done ? '처리완료로 표시했어요' : '처리전으로 되돌렸어요');
+  } catch (e) {
+    if (prev) r.done[key] = prev; else delete r.done[key];
+    rscanIssuesRender(); rscanTabsRender(); showToast('저장 실패: ' + e.message);
+  }
+}
 function rscanSetDays(d) {
   rscanState.days = d; localStorage.setItem(RSCAN_DAYS_KEY, String(d));
   document.querySelectorAll('#rscan-days button').forEach(b => b.classList.toggle('active', Number(b.dataset.days) === d));
@@ -2960,6 +3042,7 @@ function rscanLinkBtns(h) {
   return c24 + nv;
 }
 async function rscanInit() {
+  rscanTabsRender(); rscanSetTab(rscanState.tab);
   const inp = $('rscan-q'); if (inp) setTimeout(() => inp.focus(), 100);
   const sb = $('btn-rscan-set'); if (sb) sb.style.display = isAdmin() ? '' : 'none';
   const pwEl = $('rscan-np-pw'); if (pwEl && !pwEl.value) pwEl.value = localStorage.getItem(NP_PW_KEY) || '';

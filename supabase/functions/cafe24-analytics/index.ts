@@ -338,10 +338,10 @@ Deno.serve(async (req) => {
     const token = await getAccessToken();
 
     // ── 반품 송장 스캔 (2026-09-22): 관리자·MD·CS/물류팀 ──
-    if (action === "rscan_build" || action === "rscan_lookup" || action === "rscan_status") {
+    if (action === "rscan_build" || action === "rscan_lookup" || action === "rscan_status" || action === "rscan_issues") {
       if (!["admin", "staff", "cs"].includes(authed.role)) return json({ error: "접근 권한이 없습니다" }, 403);
       const days = Math.min(180, Math.max(7, Number(url.searchParams.get("days") ?? 14) || 14));   // 7·14·30·90 중 선택(기본 14), 어제까지
-      const [row] = (await sbRest("rscan_index?kind=eq.cafe24&select=built_at,days,row_count" + (action === "rscan_lookup" ? ",payload" : ""))) ?? [];
+      const [row] = (await sbRest("rscan_index?kind=eq.cafe24&select=built_at,days,row_count" + (action === "rscan_lookup" || action === "rscan_issues" ? ",payload" : ""))) ?? [];
       const ageMin = row ? Math.round((Date.now() - new Date(row.built_at).getTime()) / 60000) : null;
       if (action === "rscan_status") {
         const nv = await sbRest("rscan_naver?select=uploaded_at,uploaded_by&order=uploaded_at.desc&limit=1");
@@ -351,6 +351,41 @@ Deno.serve(async (req) => {
       if (action === "rscan_build") {
         const rows = await rscanBuild(token, days);
         return json({ ok: true, row_count: rows.length, days, with_invoice: rows.filter((r: any) => r.invoice).length, built_at: new Date().toISOString() });
+      }
+      // ── 불량·오배송 처리 목록 (2026-09-22 소메뉴): 최근 1달(어제까지 30일, 주문일 기준) 반품·교환 중 경고 판정(alert/warn) 건 + 처리 상태(rscan_done)
+      if (action === "rscan_issues") {
+        const DAYS = 30;
+        let payload: Record<string, any>[] = (row?.payload ?? []) as Record<string, any>[];
+        const fresh = !!row && ageMin !== null && ageMin <= 20 && Number(row.days ?? 0) >= DAYS;
+        if (!fresh) payload = await rscanBuild(token, DAYS) as Record<string, any>[];
+        const startDate = rscanStartDate(DAYS);
+        const st = await rscanSettings();
+        // 네이버페이센터 표(상품주문번호 → 사유) — 네이버페이 주문은 카페24 사유가 비어 있을 수 있어 여기 사유로 판정 보강
+        const nvMap = new Map<string, Record<string, any>>();
+        for (const r of ((await sbRest("rscan_naver?select=invoice,product_order_no,kind,reason")) ?? []) as Record<string, any>[]) {
+          for (const pon of String(r.product_order_no ?? "").split(/[,\s]+/).filter(Boolean)) nvMap.set(pon, r);
+        }
+        const issues: Record<string, unknown>[] = [];
+        for (const e of payload) {
+          if (e.order_date && String(e.order_date) < startDate) continue;
+          let nv: Record<string, any> | null = null;
+          for (const id of (e.naver_ids ?? []) as unknown[]) { const hit = nvMap.get(String(id)); if (hit) { nv = hit; break; } }
+          const reason = e.naver ? `${e.reason ?? ""} ${nv?.reason ?? ""}`.trim() : String(e.reason ?? "");
+          const alert = rscanJudge({ ...e, reason }, st);
+          if (!alert) continue;
+          issues.push({
+            key: `${e.kind}:${e.order_id}:${e.claim_code ?? ""}`, kind: e.kind, order_id: e.order_id, order_date: e.order_date, claim_date: e.claim_date,
+            buyer: e.buyer ?? "", receiver: e.receiver ?? "", place: e.place ?? "", naver: !!e.naver, naver_ids: e.naver_ids ?? [],
+            reason: e.reason ?? "", reason_type: e.reason_type ?? null, naver_reason: nv?.reason ?? null, invoice: e.invoice ?? "", company: e.company ?? null,
+            status: e.status ?? "", items: ((e.items ?? []) as Record<string, any>[]).map((it) => ({ name: it.name, option: it.option ?? "", qty: it.qty ?? 0 })), alert,
+          });
+        }
+        issues.sort((a, b) => String(b.claim_date || b.order_date).localeCompare(String(a.claim_date || a.order_date)) || String(b.order_id).localeCompare(String(a.order_id)));
+        const since = new Date(); since.setUTCDate(since.getUTCDate() - 120);
+        const doneRows = ((await sbRest(`rscan_done?select=key,done,done_by,done_at&done_at=gte.${since.toISOString().slice(0, 10)}`)) ?? []) as Record<string, any>[];
+        const done: Record<string, unknown> = {};
+        for (const d of doneRows) if (d.done) done[String(d.key)] = { by: d.done_by, at: d.done_at };
+        return json({ days: DAYS, start_date: startDate, built_at: fresh ? row!.built_at : new Date().toISOString(), row_count: payload.length, issues, done });
       }
       // lookup
       const q = rscanDigits(url.searchParams.get("q"));
