@@ -147,7 +147,7 @@ async function rscanBuild(token: string, days: number) {
               claim_date: String(its[0]?.return_request_date ?? its[0]?.exchange_request_date ?? c.claim_due_date ?? "").slice(0, 10),
               status: its[0]?.status_text ?? its[0]?.order_status ?? "", status_extra: its[0]?.order_status_additional_info ?? "",
               buyer: o.billing_name ?? "", receiver: recv.name ?? "",
-              items: its.map((it) => ({ name: it.product_name, option: it.option_value ?? "", qty: Number(it.quantity ?? 0), tracking_no: it.tracking_no ?? "", status: it.status_text ?? "", naver_id: it.naver_pay_order_id ?? null })),
+              items: its.map((it) => ({ name: it.product_name, option: it.option_value ?? "", qty: Number(it.quantity ?? 0), tracking_no: it.tracking_no ?? "", status: it.status_text ?? "", naver_id: it.naver_pay_order_id ?? null, product_no: it.product_no ?? null })),
               naver_ids: [...new Set(its.map((it) => it.naver_pay_order_id).filter(Boolean))],
             });
           }
@@ -323,9 +323,13 @@ Deno.serve(async (req) => {
     // 매출 분석 에이전트(sales-agent 함수)는 AGENT_SECRET으로 admin 권한 호출 (2026-09-10) — 서버 간 전용, 브라우저엔 노출 안 됨
     const agentSecret = Deno.env.get("AGENT_SECRET") ?? "";
     const viaAgent = !!agentSecret && req.headers.get("x-agent-secret") === agentSecret;
+    // 반품 스캔 목록 자동 갱신(2026-09-22): pg_cron 잡 rscan-index-15min 이 x-cron-secret(CRON_SECRET)으로 rscan_build만 호출
+    const cronSecret = Deno.env.get("CRON_SECRET") ?? "";
+    const viaCron = action === "rscan_build" && !!cronSecret && req.headers.get("x-cron-secret") === cronSecret;
     const authed = viaSecret
       ? { id: "npm-sync", name: "상품관리 연동", role: "staff", exp: 0 }
       : viaAgent ? { id: "sales-agent", name: "매출 분석 에이전트", role: "admin", exp: 0 }
+      : viaCron ? { id: "cron", name: "자동 갱신", role: "admin", exp: 0 }
       : await verifyAuthToken(req);
     if (!authed) return json({ error: "로그인이 필요합니다" }, 401);
 
@@ -386,7 +390,7 @@ Deno.serve(async (req) => {
           const claim = {
             key: `${e.kind}:${e.order_id}:${e.claim_code ?? ""}`, claim_code: e.claim_code ?? "", claim_date: e.claim_date ?? "", status, status_extra: extra,
             reason: e.reason ?? "", reason_type: e.reason_type ?? null, naver_reason: nv?.reason ?? null, invoice: e.invoice ?? "", company: e.company ?? null,
-            items: ((e.items ?? []) as Record<string, any>[]).map((it) => ({ name: it.name, option: it.option ?? "", qty: it.qty ?? 0 })), alert, collected, exchanged,
+            items: ((e.items ?? []) as Record<string, any>[]).map((it) => ({ name: it.name, option: it.option ?? "", qty: it.qty ?? 0, product_no: it.product_no ?? null })), alert, collected, exchanged,
           };
           const gk = `${e.kind}:${e.order_id}`;
           let g = groups.get(gk);
@@ -411,11 +415,30 @@ Deno.serve(async (req) => {
         const doneMap: Record<string, unknown> = {};
         const cleared = new Set<string>();   // '처리완료 정리'로 목록에서 지운 키 (2026-09-22)
         for (const d of doneRows) { if (d.done) doneMap[String(d.key)] = { by: d.done_by, at: d.done_at }; if (d.cleared) cleared.add(String(d.key)); }
+        // 불량 다발 상품(2026-09-22 사용자 요청 6번): 정리된 건도 포함해 상품별 접수 건수 — 접수 안에 같은 상품이 여러 줄이면 접수 1건으로, 수량은 합산
+        const prodMap = new Map<string, Record<string, any>>();
+        for (const g of issues) for (const c of g.claims as Record<string, any>[]) {
+          const seen = new Set<string>();
+          for (const it of c.items as Record<string, any>[]) {
+            const pk = String(it.product_no ?? it.name ?? ""); if (!pk) continue;
+            let p = prodMap.get(pk);
+            if (!p) { p = { product_no: it.product_no ?? null, name: it.name ?? "", claims: 0, defect: 0, misdeliver: 0, suspect: 0, returns: 0, exchanges: 0, qty: 0, last_date: "", reasons: [] as string[], orders: new Set<string>() }; prodMap.set(pk, p); }
+            p.qty += Number(it.qty ?? 0);
+            if (seen.has(pk)) continue; seen.add(pk);
+            p.claims++; if (c.alert.level === "warn") p.suspect++; else if (c.alert.type === "오배송") p.misdeliver++; else p.defect++;
+            if (g.kind === "return") p.returns++; else p.exchanges++;
+            if (String(c.claim_date) > String(p.last_date)) p.last_date = c.claim_date;
+            const rs = String(c.reason || c.naver_reason || "").replace(/\s+/g, " ").trim();
+            if (rs && p.reasons.length < 3 && !p.reasons.includes(rs.slice(0, 60))) p.reasons.push(rs.slice(0, 60));
+            p.orders.add(String(g.order_id));
+          }
+        }
+        const products = [...prodMap.values()].map((p) => ({ ...p, orders: p.orders.size })).sort((a, b) => b.claims - a.claims || b.qty - a.qty);
         const visible = issues.filter((g) => !cleared.has(g.key) && !g.claims.some((c: Record<string, any>) => cleared.has(c.key)));
         // 그룹 처리 상태: 그룹 키 또는 (예전 방식) 접수 키 중 하나라도 처리완료면 처리완료
         const done: Record<string, unknown> = {};
         for (const g of visible) { const hit = doneMap[g.key] ?? g.claims.map((c: Record<string, any>) => doneMap[c.key]).find(Boolean); if (hit) done[g.key] = hit; }
-        return json({ days: DAYS, start_date: startDate, built_at: fresh ? row!.built_at : new Date().toISOString(), row_count: payload.length, issues: visible, cleared_count: issues.length - visible.length, done });
+        return json({ days: DAYS, start_date: startDate, built_at: fresh ? row!.built_at : new Date().toISOString(), row_count: payload.length, issues: visible, cleared_count: issues.length - visible.length, done, products });
       }
       // lookup
       const q = rscanDigits(url.searchParams.get("q"));

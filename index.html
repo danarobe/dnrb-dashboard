@@ -1197,6 +1197,7 @@
         <div><b>2.</b> 반품 택배의 <b>반품 송장 바코드</b>를 찍거나 번호를 입력하면 카페24 주문건을 찾아서 보여줍니다.</div>
         <div><b>3.</b> 사유가 <b>불량·오배송</b>이면 빨간 경고와 소리가 나요 <span style="color:#6b7280;">(불량은 빨강, 오배송은 보라)</span> / 접수 사유 문구가 <b>"불량·오배송으로 추측"</b>되면 노란 주의로 표기돼요.</div>
       </div>
+      <div id="rscan-naver-warn" style="display:none;margin-bottom:10px;"></div>
       <div id="rscan-status" style="display:flex;gap:14px;flex-wrap:wrap;font-size:.74rem;color:#6b7280;margin-bottom:12px;"></div>
       <div id="rscan-settings" style="display:none;margin-bottom:12px;"></div>
       <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:8px;font-size:.76rem;color:#4b5563;">
@@ -1246,6 +1247,17 @@
           <span id="rscan-issues-meta" style="font-size:.74rem;color:#6b7280;"></span>
         </div>
         <div id="rscan-issues"></div>
+      </div>
+      <div id="rscan-pane-products" class="rscan-pane" style="display:none;">
+        <div style="font-size:.8rem;color:#6b7280;margin-bottom:10px;line-height:1.7;">
+          · 최근 2달 불량·오배송 접수를 <b>상품별</b>로 모은 순위예요(처리완료·정리된 건도 포함). 접수가 잦은 상품은 품질·검수 문제를 먼저 살펴보세요.<br>
+          · 관리자·MD는 <b>관리 상품 지정</b>으로 반품 관리 메뉴의 관리 상품에 바로 올릴 수 있어요.
+        </div>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px;">
+          <button class="toggle-btn" onclick="rscanIssuesLoad(true)"><i class="fa-solid fa-rotate"></i> 새로고침</button>
+          <span id="rscan-products-meta" style="font-size:.74rem;color:#6b7280;"></span>
+        </div>
+        <div id="rscan-products"></div>
       </div>
     </div>
   </div>
@@ -2960,7 +2972,7 @@ const RSCAN_DAYS_KEY = 'dnrb_rscan_days';
 const rscanState = { status: null, history: [], busy: false, timer: null, lastQ: '', days: [7, 14, 30, 90].includes(Number(localStorage.getItem('dnrb_rscan_days'))) ? Number(localStorage.getItem('dnrb_rscan_days')) : 14 };
 /* 바로가기 주소 형식 — 관리자 '경고 기준' 패널(rscan_settings)에서 바꿀 수 있음. {order_id}=카페24 주문번호, {product_order_no}=네이버 상품주문번호, {kind}=return|exchange */
 const RSCAN_URL_DEFAULTS = { cafe24_url: 'https://wnqka5000.cafe24.com/admin/php/shop1/s_new/order_detail.php?order_id={order_id}', naver_url: 'https://admin.pay.naver.com/o/v3/claim/{kind}' };
-const RSCAN_TABS = [['scan', '송장 스캔', null, 'fa-solid fa-barcode'], ['issues', '불량·오배송 처리', null, 'fa-solid fa-list-check']];
+const RSCAN_TABS = [['scan', '송장 스캔', null, 'fa-solid fa-barcode'], ['issues', '불량·오배송 처리', null, 'fa-solid fa-list-check'], ['products', '불량 다발 상품', null, 'fa-solid fa-ranking-star']];
 rscanState.tab = 'scan'; rscanState.issues = null; rscanState.issueFilter = 'todo'; rscanState.issueKind = 'all'; rscanState.issuesLoading = false;
 function rscanTabsRender() {
   const todo = rscanState.issues ? rscanState.issues.issues.filter(i => !i.auto_done && !rscanState.issues.done[i.key]).length : null;
@@ -2970,7 +2982,10 @@ function rscanSetTab(k) {
   rscanState.tab = k; rscanTabsRender();
   document.querySelectorAll('.rscan-pane').forEach(el => { el.style.display = 'none'; });
   const pane = $('rscan-pane-' + k); if (pane) pane.style.display = 'block';
-  if (k === 'issues') { if (!rscanState.issues && !rscanState.issuesLoading) rscanIssuesLoad(); }
+  if (k === 'issues' || k === 'products') {
+    if (!rscanState.issues && !rscanState.issuesLoading) rscanIssuesLoad(); else if (k === 'products') rscanProductsRender();
+    if (k === 'products' && !rscanState.watch) rscanWatchLoad();
+  }
   else { const inp = $('rscan-q'); if (inp) setTimeout(() => inp.focus(), 50); }
 }
 /* 불량·오배송 처리 목록 — 서버 rscan_issues(최근 30일 경고 건 + rscan_done 상태) */
@@ -2980,11 +2995,12 @@ async function rscanIssuesLoad(force) {
   const st0 = rscanState.status;
   const needBuild = !st0 || !st0.row_count || st0.age_min == null || st0.age_min > 20 || Number(st0.days || 0) < 60;
   $('rscan-issues').innerHTML = `<div class="empty-state"><p><i class="fa-solid fa-spinner fa-spin"></i> 불량·오배송 건을 모으는 중…${needBuild ? ' (최근 2달 카페24 목록을 만드는 중 — 약 30초)' : ''}</p></div>`;
+  if ($('rscan-products')) $('rscan-products').innerHTML = $('rscan-issues').innerHTML;
   try {
     rscanState.issues = await anGet({ action: 'rscan_issues' });
     if (rscanState.status) { rscanState.status.days = Math.max(Number(rscanState.status.days || 0), 60); rscanState.status.row_count = rscanState.issues.row_count; rscanState.status.built_at = rscanState.issues.built_at; rscanState.status.age_min = Math.round((Date.now() - new Date(rscanState.issues.built_at).getTime()) / 60000); rscanStatusRender(); }
-    rscanIssuesRender(); rscanTabsRender();
-  } catch (e) { $('rscan-issues').innerHTML = `<div class="empty-state"><p style="color:#b91c1c;">불러오지 못했어요 — ${escHtml(e.message)}</p></div>`; }
+    rscanIssuesRender(); rscanProductsRender(); rscanTabsRender();
+  } catch (e) { $('rscan-issues').innerHTML = `<div class="empty-state"><p style="color:#b91c1c;">불러오지 못했어요 — ${escHtml(e.message)}</p></div>`; if ($('rscan-products')) $('rscan-products').innerHTML = $('rscan-issues').innerHTML; }
   finally { rscanState.issuesLoading = false; }
 }
 function rscanIssuesSetFilter(f) { rscanState.issueFilter = f; rscanIssuesRender(); }
@@ -3076,6 +3092,49 @@ async function rscanIssuesXlsx() {
     showToast(`${list.length}건 엑셀 저장`);
   } catch (e) { showToast('엑셀 저장 실패: ' + e.message); }
 }
+/* 불량 다발 상품(2026-09-22) — rscan_issues 응답의 products(정리된 건 포함, 상품별 접수 건수) */
+async function rscanWatchLoad() {
+  if (!(isAdmin() || isStaff())) return;
+  try { const rows = await dbProxy('return_watch?select=product_no,discontinued'); rscanState.watch = new Map((rows || []).map(x => [Number(x.product_no), x])); }
+  catch (e) { console.warn('관리 상품 목록 로드 실패', e); rscanState.watch = new Map(); }
+  rscanProductsRender();
+}
+function rscanProductsRender() {
+  const r = rscanState.issues; const box = $('rscan-products'); if (!r || !box) return;
+  const list = r.products || [];
+  $('rscan-products-meta').textContent = `최근 ${r.days}일(${r.start_date} ~ 어제) 불량·오배송 접수 기준 · 상품 ${list.length}개`;
+  if (!list.length) { box.innerHTML = '<div class="empty-state"><p>해당 기간에 불량·오배송 접수가 없어요</p></div>'; return; }
+  const canWatch = isAdmin() || isStaff();
+  const chip = (n, label, bg, fg) => n ? `<span style="background:${bg};color:${fg};border-radius:99px;padding:1px 8px;font-size:.7rem;font-weight:800;white-space:nowrap;">${label} ${n}</span>` : '';
+  const rows = list.map((p, i) => {
+    const w = rscanState.watch && p.product_no != null ? rscanState.watch.get(Number(p.product_no)) : null;
+    const manage = !canWatch ? '' : p.product_no == null ? '<span style="color:#9ca3af;font-size:.72rem;">상품번호 없음</span>'
+      : w ? `<span style="color:${w.discontinued ? '#6b7280' : '#15803d'};font-size:.74rem;font-weight:700;"><i class="fa-solid fa-star"></i> ${w.discontinued ? '판매 중단' : '관리 중'}</span>`
+      : `<button class="toggle-btn" style="font-size:.72rem;padding:3px 9px;" data-no="${p.product_no}" data-name="${escHtml(p.name)}" data-n="${p.claims}" onclick="rscanWatchAdd(this)"><i class="fa-regular fa-star"></i> 관리 상품 지정</button>`;
+    return `<tr>
+      <td style="font-weight:800;color:${i < 3 ? '#4f46e5' : '#6b7280'};">${i + 1}</td>
+      <td style="text-align:left;"><b>${escHtml(p.name)}</b>${p.product_no != null ? `<div style="font-size:.7rem;color:#9ca3af;">#${p.product_no}</div>` : ''}</td>
+      <td style="white-space:nowrap;"><b style="font-size:.95rem;">${p.claims}</b><div style="display:flex;gap:3px;flex-wrap:wrap;justify-content:center;margin-top:3px;">${chip(p.defect, '불량', '#fee2e2', '#b91c1c')}${chip(p.misdeliver, '오배송', '#f3e8ff', '#6b21a8')}${chip(p.suspect, '의심', '#fef3c7', '#92400e')}</div></td>
+      <td class="m-hide" style="white-space:nowrap;font-size:.78rem;">반품 ${p.returns} · 교환 ${p.exchanges}</td>
+      <td class="m-hide">${p.qty}</td>
+      <td class="m-hide" style="white-space:nowrap;font-size:.76rem;">${escHtml(p.last_date || '')}</td>
+      <td class="m-hide" style="text-align:left;font-size:.74rem;color:#4b5563;max-width:280px;white-space:normal;">${(p.reasons || []).map(x => `<div>· ${escHtml(x)}</div>`).join('')}</td>
+      <td style="white-space:nowrap;">${manage}</td></tr>`;
+  }).join('');
+  box.innerHTML = `<div class="table-wrap"><table style="width:100%;font-size:.82rem;"><thead><tr><th>순위</th><th style="text-align:left;">상품</th><th>접수</th><th class="m-hide">반품 / 교환</th><th class="m-hide">수량</th><th class="m-hide">최근 접수</th><th class="m-hide" style="text-align:left;">사유 예시</th><th>관리</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+}
+async function rscanWatchAdd(btn) {
+  const no = Number(btn.dataset.no), name = btn.dataset.name, n = btn.dataset.n;
+  if (!confirm(`'${name}' 을(를) 반품 관리의 관리 상품으로 지정할까요?`)) return;
+  try {
+    await dbProxy('return_watch', { method: 'POST', headers: { Prefer: 'return=minimal,resolution=merge-duplicates' },
+      body: JSON.stringify({ product_no: no, product_name: name, reason: `불량·오배송 접수 ${n}건 (반품 스캔 최근 ${(rscanState.issues || {}).days || 60}일)`, created_by: SESSION ? SESSION.name : '' }) });
+    if (!rscanState.watch) rscanState.watch = new Map();
+    rscanState.watch.set(no, { product_no: no, discontinued: false });
+    if (typeof rwState !== 'undefined') rwState.watch = null;   // 반품 관리 메뉴가 다음에 열릴 때 다시 불러오게
+    rscanProductsRender(); showToast('관리 상품으로 지정했어요 — 반품 관리 메뉴에서 볼 수 있어요');
+  } catch (e) { showToast('지정 실패: ' + e.message); }
+}
 /* 처리완료 정리(2026-09-22 사용자 요청) — 처리완료(자동 수거 완료 포함) 건을 rscan_done에 cleared=true로 적어 목록에서 제외. 구분·상태 필터와 무관하게 전부 */
 async function rscanIssuesClear() {
   const r = rscanState.issues; if (!r) { showToast('먼저 목록을 불러와주세요'); return; }
@@ -3144,6 +3203,17 @@ function rscanStatusRender() {
   $('rscan-status').innerHTML = `<span><b>카페24 반품·교환 목록</b> ${st.row_count ? `${fmt(st.row_count)}건 · 최근 ${st.days}일(어제까지) · ${st.age_min == null ? '' : st.age_min < 1 ? '방금' : st.age_min + '분 전'} 갱신` : '<span style="color:#c2410c;">아직 없음 — 첫 조회 때 자동으로 만들어요(약 1분)</span>'}</span>
     <span><b>네이버페이센터 표</b> ${st.naver && st.naver.count ? `${fmt(st.naver.count)}건 · ${escHtml((st.naver.last || {}).uploaded_by || '')} ${when((st.naver.last || {}).uploaded_at)}` : '<span style="color:#c2410c;">미업로드 — 네이버페이 주문은 송장으로 못 찾아요</span>'}</span>`;
   const nv = $('rscan-naver-status'); if (nv) nv.textContent = st.naver && st.naver.count ? `현재 ${fmt(st.naver.count)}건 저장됨 (${escHtml((st.naver.last || {}).uploaded_by || '')} ${when((st.naver.last || {}).uploaded_at)})` : '';
+  // 오늘 네이버페이센터 엑셀 미등록 경고(2026-09-22 사용자 요청 3번) — 한국 날짜 기준 마지막 업로드가 오늘이 아니면 빨간 띠
+  const warn = $('rscan-naver-warn');
+  if (warn) {
+    const todayK = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(new Date());
+    const lastAt = (st.naver && st.naver.last && st.naver.last.uploaded_at) ? new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(new Date(st.naver.last.uploaded_at)) : '';
+    if (lastAt === todayK) {
+      warn.style.display = ''; warn.innerHTML = `<div style="background:#dcfce7;border:1.5px solid #86efac;border-radius:10px;padding:7px 12px;font-size:.78rem;color:#15803d;font-weight:700;"><i class="fa-solid fa-circle-check"></i> 오늘 네이버페이센터 엑셀 등록됨 (${escHtml(st.naver.last.uploaded_by || '')} ${when(st.naver.last.uploaded_at)})</div>`;
+    } else {
+      warn.style.display = ''; warn.innerHTML = `<div style="background:#fee2e2;border:2px solid #ef4444;border-radius:10px;padding:10px 14px;font-size:.86rem;color:#b91c1c;font-weight:800;display:flex;gap:10px;align-items:center;flex-wrap:wrap;"><span><i class="fa-solid fa-triangle-exclamation"></i> 오늘 네이버페이센터 반품·교환 엑셀이 아직 등록되지 않았어요${lastAt ? ` <span style="font-weight:600;font-size:.76rem;">(마지막 등록 ${escHtml(lastAt)})</span>` : ''}</span><span style="font-weight:600;font-size:.76rem;color:#7f1d1d;">등록 전엔 네이버페이 주문을 송장으로 못 찾아요.</span><button class="toggle-btn" style="font-size:.74rem;padding:3px 10px;border-color:#fca5a5;color:#b91c1c;" onclick="const z=$('rscan-naver');if(z){z.scrollIntoView({behavior:'smooth',block:'center'});z.style.boxShadow='0 0 0 4px rgba(239,68,68,.35)';setTimeout(()=>z.style.boxShadow='',2500);}">엑셀 올리러 가기</button></div>`;
+    }
+  }
 }
 async function rscanBuild() {
   const btn = $('btn-rscan-build'); btnBusy(btn, `카페24에서 최근 ${rscanState.days}일 모으는 중`);
