@@ -19,7 +19,7 @@
 // 필요 secret: AUTH_SECRET
 // ═══════════════════════════════════════════════
 import bcrypt from "npm:bcryptjs@2.4.3";
-import { handleOptions, json, signAuthToken, verifyAuthTokenString } from "../_shared/util.ts";
+import { handleOptions, json, signAuthToken, verifyAuthTokenString, cacheGet, cacheSet, safeEqual } from "../_shared/util.ts";
 
 const SB_URL = Deno.env.get("SUPABASE_URL")!;
 const SB_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -101,8 +101,16 @@ Deno.serve(async (req) => {
       const id = String(body.id ?? "").trim();
       const password = String(body.password ?? "");
       if (!id || !password) return json({ error: "아이디와 비밀번호를 입력해주세요" }, 400);
+      // 무차별 대입 방지 (보안 점검 2026-09-22): 아이디별 10회·IP별 30회 실패 시 15분 잠금 (api_cache 카운터, meta-budget PIN 잠금과 같은 방식)
+      const ip = (req.headers.get("x-forwarded-for") ?? "").split(",")[0].trim().slice(0, 64) || "noip";
+      const LOCK_MS = 15 * 60 * 1000;
+      const kId = `loginfail:id:${id.toLowerCase().slice(0, 64)}`, kIp = `loginfail:ip:${ip}`;
+      const nId = Number(((await cacheGet(kId, LOCK_MS)) as { n?: number } | null)?.n ?? 0);
+      const nIp = Number(((await cacheGet(kIp, LOCK_MS)) as { n?: number } | null)?.n ?? 0);
+      if (nId >= 10 || nIp >= 30) return json({ error: "로그인 시도가 너무 많아요 — 15분 뒤 다시 시도해주세요" }, 429);
       const user = await getUser(id);
       if (!user || !bcrypt.compareSync(password, String(user.password_hash))) {
+        await Promise.all([cacheSet(kId, { n: nId + 1 }), cacheSet(kIp, { n: nIp + 1 })]);
         return json({ error: "아이디 또는 비밀번호가 올바르지 않습니다" }, 401);
       }
       const payload = {
@@ -117,7 +125,7 @@ Deno.serve(async (req) => {
     //    여기 없는 아이디(상품관리 전용 계정)면 404 → 저쪽이 로그인 화면으로 보낸다.
     if (action === "issue_for") {
       const secret = Deno.env.get("NPM_SYNC_SECRET") ?? "";
-      if (!secret || req.headers.get("x-sync-secret") !== secret) return json({ error: "접근 권한이 없습니다" }, 403);
+      if (!secret || !safeEqual(req.headers.get("x-sync-secret") ?? "", secret)) return json({ error: "접근 권한이 없습니다" }, 403);
       const user = await getUser(String(body.id ?? "").trim());
       if (!user) return json({ error: "대시보드에 없는 계정" }, 404);
       const payload = { id: String(user.id), name: String(user.name), role: String(user.role), exp: Date.now() + TOKEN_TTL };
@@ -167,6 +175,10 @@ Deno.serve(async (req) => {
     const meRow = await getUser(me.id);
     if (!meRow) return json({ error: "로그인이 필요합니다" }, 401);
     me.role = String(meRow.role);
+
+    // ── 토큰 확인 (2026-09-22 보안 점검): 상품관리에서 #sso 해시로 넘어온 토큰을 클라이언트가 그대로 믿지 않고
+    //    여기서 서명·만료·계정을 확인한 뒤 DB의 현재 이름·역할과 토큰 만료를 돌려준다.
+    if (action === "me") return json({ id: me.id, name: String(meRow.name ?? me.id), role: me.role, exp: me.exp });
 
     // ── 상품관리 시스템 SSO 토큰 (2026-09-07): 대시보드 로그인 상태로 같은 아이디·이름·역할을 2분짜리 HMAC 토큰에 담아
     //    newproduct-manager /api/sso 로 넘긴다. 서명 키는 두 시스템이 이미 공유하는 NPM_SYNC_SECRET. 역할은 DB 원본값(logistics 구분 필요).

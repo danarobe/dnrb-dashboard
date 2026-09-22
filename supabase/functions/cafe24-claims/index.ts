@@ -15,7 +15,7 @@
 //   - 혼합 주문(한 주문에 취소+반품 공존): 취소 1건 + 반품 1건으로 각각 집계,
 //     금액은 cancellation/return 클레임별로 분리 반영
 // ═══════════════════════════════════════════════
-import { cacheGet, cacheSet, handleOptions, json, getToken, saveToken, verifyAuthToken } from "../_shared/util.ts";
+import { cacheGet, cacheSet, handleOptions, json, getToken, saveToken, verifyAuthToken, safeEqual } from "../_shared/util.ts";
 
 const MALL_ID = Deno.env.get("CAFE24_MALL_ID")!;
 const CLIENT_ID = Deno.env.get("CAFE24_CLIENT_ID")!;
@@ -83,13 +83,14 @@ async function cafe24Get(path: string, token: string): Promise<Record<string, un
       "X-Cafe24-Api-Version": API_VERSION,
     },
   });
-  let res = await doFetch(token);
-  if (res.status === 401) res = await doFetch(await getAccessToken(true));
+  let tok = token;
+  let res = await doFetch(tok);
+  if (res.status === 401) { tok = await getAccessToken(true); res = await doFetch(tok); }
   for (let i = 0; res.status === 429 && i < RATE_LIMIT_RETRIES; i++) {
     const ra = Number(res.headers.get("Retry-After"));
     await res.body?.cancel();
     await sleep(isFinite(ra) && ra > 0 ? ra * 1000 : Math.min(1000 * 2 ** i, 8000));
-    res = await doFetch(token);
+    res = await doFetch(tok);
   }
   const body = await res.json();
   if (!res.ok) throw new Error(`cafe24 GET ${path} → ${res.status}: ${JSON.stringify(body)}`);
@@ -189,7 +190,7 @@ Deno.serve(async (req) => {
   // 취소·반품 데이터는 관리자 전용 (직원은 서버 차단)
   // 매출 분석 에이전트(sales-agent)는 AGENT_SECRET으로 admin 권한 호출 (2026-09-10)
   const agentSecret = Deno.env.get("AGENT_SECRET") ?? "";
-  const viaAgent = !!agentSecret && req.headers.get("x-agent-secret") === agentSecret;
+  const viaAgent = !!agentSecret && safeEqual(req.headers.get("x-agent-secret") ?? "", agentSecret);
   const authed = viaAgent ? { id: "sales-agent", name: "매출 분석 에이전트", role: "admin", exp: 0 } : await verifyAuthToken(req);
   if (!authed || authed.role !== "admin") return json({ error: "접근 권한이 없습니다" }, 403);
 

@@ -11,7 +11,7 @@
 //   조회수/주문수 — 카페24 애널리틱스 API (ca-api.cafe24data.com, scope: mall.read_analytics)
 //   카테고리     — Admin API (scope: mall.read_category)
 // ═══════════════════════════════════════════════
-import { cacheGet, cacheSet, handleOptions, json, getToken, saveToken, verifyAuthToken } from "../_shared/util.ts";
+import { cacheGet, cacheSet, handleOptions, json, getToken, saveToken, verifyAuthToken, safeEqual } from "../_shared/util.ts";
 
 const MALL_ID = Deno.env.get("CAFE24_MALL_ID")!;
 const CLIENT_ID = Deno.env.get("CAFE24_CLIENT_ID")!;
@@ -172,16 +172,18 @@ async function apiGet(url: string, token: string): Promise<Record<string, unknow
       "X-Cafe24-Api-Version": API_VERSION,
     },
   });
-  let res = await doFetch(token);
+  let tok = token;
+  let res = await doFetch(tok);
   if (res.status === 401) {
     // 동시 갱신 경쟁으로 토큰이 무효화된 경우 → 강제 재발급 후 1회 재시도
-    res = await doFetch(await getAccessToken(true));
+    tok = await getAccessToken(true);
+    res = await doFetch(tok);
   }
   for (let i = 0; res.status === 429 && i < RATE_LIMIT_RETRIES; i++) {
     const ra = Number(res.headers.get("Retry-After"));
     await res.body?.cancel();
     await sleep(isFinite(ra) && ra > 0 ? ra * 1000 : Math.min(1000 * 2 ** i, 8000));
-    res = await doFetch(token);
+    res = await doFetch(tok);   // 갱신된 토큰으로 재시도 (보안 점검 2026-09-22 — 예전엔 무효화된 원래 토큰을 썼음)
   }
   const body = await res.json();
   if (!res.ok) throw new Error(`GET ${url.replace(/\?.*$/, "")} → ${res.status}: ${JSON.stringify(body)}`);
@@ -319,13 +321,13 @@ Deno.serve(async (req) => {
     // 예외: madeavg만 상품관리 시스템(newproduct-manager) 서버가 NPM_SYNC_SECRET으로 호출 가능
     // (2026-09-03 사용자 요청 — 자체제작 주문 점검을 상품관리에도. syncexport와 동일 키)
     const syncSecret = Deno.env.get("NPM_SYNC_SECRET") ?? "";
-    const viaSecret = action === "madeavg" && !!syncSecret && req.headers.get("x-sync-secret") === syncSecret;
+    const viaSecret = action === "madeavg" && !!syncSecret && safeEqual(req.headers.get("x-sync-secret") ?? "", syncSecret);
     // 매출 분석 에이전트(sales-agent 함수)는 AGENT_SECRET으로 admin 권한 호출 (2026-09-10) — 서버 간 전용, 브라우저엔 노출 안 됨
     const agentSecret = Deno.env.get("AGENT_SECRET") ?? "";
-    const viaAgent = !!agentSecret && req.headers.get("x-agent-secret") === agentSecret;
+    const viaAgent = !!agentSecret && safeEqual(req.headers.get("x-agent-secret") ?? "", agentSecret);
     // 반품 스캔 목록 자동 갱신(2026-09-22): pg_cron 잡 rscan-index-15min 이 x-cron-secret(CRON_SECRET)으로 rscan_build만 호출
     const cronSecret = Deno.env.get("CRON_SECRET") ?? "";
-    const viaCron = action === "rscan_build" && !!cronSecret && req.headers.get("x-cron-secret") === cronSecret;
+    const viaCron = action === "rscan_build" && !!cronSecret && safeEqual(req.headers.get("x-cron-secret") ?? "", cronSecret);
     const authed = viaSecret
       ? { id: "npm-sync", name: "상품관리 연동", role: "staff", exp: 0 }
       : viaAgent ? { id: "sales-agent", name: "매출 분석 에이전트", role: "admin", exp: 0 }
@@ -357,8 +359,16 @@ Deno.serve(async (req) => {
         return json({ built_at: row?.built_at ?? null, days: row?.days ?? null, row_count: row?.row_count ?? 0, age_min: ageMin, naver: { count: (nvCount ?? []).length, last: nv?.[0] ?? null }, settings: await rscanSettings() });
       }
       if (action === "rscan_build") {
-        const rows = await rscanBuild(token, days);
-        return json({ ok: true, row_count: rows.length, days, with_invoice: rows.filter((r: any) => r.invoice).length, built_at: new Date().toISOString() });
+        const manual = authed.id !== "cron";
+        const bdays = !manual || authed.role === "admin" ? days : Math.min(days, 90);
+        // 남용 방지(보안 점검 2026-09-22): 비관리자 수동 갱신은 15분 안에 만든(=cron 주기) 같은 범위 인덱스가 있으면 재사용,
+        // 새로 만들 땐 기존 범위보다 줄이지 않는다(남이 쓰는 90일 인덱스를 14일로 덮어쓰지 않게). cron·관리자는 요청대로 생성.
+        if (manual && authed.role !== "admin" && row && ageMin !== null && ageMin < 15 && Number(row.days ?? 0) >= bdays) {
+          return json({ ok: true, reused: true, row_count: row.row_count, days: row.days, with_invoice: null, built_at: row.built_at });
+        }
+        const useDays = manual && authed.role !== "admin" ? Math.min(90, Math.max(bdays, Number(row?.days ?? 0))) : bdays;
+        const rows = await rscanBuild(token, useDays);
+        return json({ ok: true, row_count: rows.length, days: useDays, with_invoice: rows.filter((r: any) => r.invoice).length, built_at: new Date().toISOString() });
       }
       // ── 불량·오배송 처리 목록 (2026-09-22 소메뉴): 최근 1달(어제까지 30일, 주문일 기준) 반품·교환 중 경고 판정(alert/warn) 건 + 처리 상태(rscan_done)
       if (action === "rscan_issues") {
@@ -485,8 +495,9 @@ Deno.serve(async (req) => {
 
     // ── 특정 카테고리의 상품번호 목록 ──
     if (action === "category_products") {
-      const catNo = url.searchParams.get("category_no");
-      if (!catNo) return json({ error: "category_no 필수" }, 400);
+      if (!["admin", "staff"].includes(authed.role)) return json({ error: "접근 권한이 없습니다" }, 403);   // 보안 점검 2026-09-22
+      const catNo = Number(url.searchParams.get("category_no"));
+      if (!Number.isInteger(catNo) || catNo <= 0) return json({ error: "category_no 오류" }, 400);   // 경로 삽입 방지
       // 주의: 이 엔드포인트는 offset을 무시함 (실측) — limit만 크게 잡아 한 번에 조회
       const body = await apiGet(
         `${API_BASE}/admin/categories/${catNo}/products?display_group=1&limit=1000`, token);
@@ -1348,6 +1359,7 @@ Deno.serve(async (req) => {
     const rows = [...map.values()];
     for (const r of rows) r.rate = r.views > 0 ? +(r.order_count / r.views * 100).toFixed(2) : 0;
     rows.sort((a, b) => b.views - a.views);
+    if (authed.role !== "admin") for (const r of rows) r.order_amount = 0;   // 주문금액은 관리자만 — performance와 동일 (보안 점검 2026-09-22)
 
     const totals = rows.reduce((t, r) => ({
       views: t.views + r.views,

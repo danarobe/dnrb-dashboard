@@ -20,7 +20,7 @@
 //               WRITE_PIN, WRITE_USER_IDS("id1,id2"), CRON_SECRET, META_ACCESS_TOKEN(읽기 — 현재값 조회용)
 // secrets 변경 후에는 이 함수 재배포 필요.
 // ═══════════════════════════════════════════════
-import { cacheGet, cacheSet, handleOptions, json, verifyAuthToken } from "../_shared/util.ts";
+import { cacheGet, cacheSet, handleOptions, json, verifyAuthToken, safeEqual } from "../_shared/util.ts";
 
 const GRAPH = "https://graph.facebook.com/v23.0";
 const SB_URL = Deno.env.get("SUPABASE_URL")!;
@@ -82,8 +82,9 @@ async function metaSetBudget(id: string, won: number): Promise<void> {
 
 // 예산 변경 후 관련 서버 캐시 비우기 — 화면이 바로 새 값을 보게
 async function clearMetaCaches(): Promise<void> {
-  await pg(`api_cache?key=like.${encodeURIComponent("meta:hierarchy")}*`, "DELETE").catch(() => {});
-  await pg(`api_cache?key=like.${encodeURIComponent("meta:budgethist")}*`, "DELETE").catch(() => {});
+  // 컬럼명은 cache_key (예전 `key`는 존재하지 않는 컬럼이라 400이 조용히 삼켜져 캐시가 안 지워졌음 — 보안 점검 2026-09-22 수정)
+  await pg(`api_cache?cache_key=like.${encodeURIComponent("meta:hierarchy")}*`, "DELETE").catch(() => {});
+  await pg(`api_cache?cache_key=like.${encodeURIComponent("meta:budgethist")}*`, "DELETE").catch(() => {});
 }
 
 // PIN 검증 + 15분 5회 잠금
@@ -131,7 +132,7 @@ Deno.serve(async (req) => {
     // 자정 실행 경로 — 사용자 토큰 대신 cron 비밀 헤더
     if (action === "run") {
       const secret = env("CRON_SECRET");
-      if (!secret || req.headers.get("x-cron-secret") !== secret) return json({ error: "권한 없음" }, 403);
+      if (!secret || !safeEqual(req.headers.get("x-cron-secret") ?? "", secret)) return json({ error: "권한 없음" }, 403);
       return json(await runPending());
     }
 
@@ -170,7 +171,7 @@ Deno.serve(async (req) => {
       const objectId = String(body.object_id ?? "");
       const level = String(body.level ?? "");
       const st = String(body.status ?? "");
-      if (!objectId || !["campaign", "adset", "ad"].includes(level)) return json({ error: "대상이 올바르지 않습니다" }, 400);
+      if (!/^\d{1,32}$/.test(objectId) || !["campaign", "adset", "ad"].includes(level)) return json({ error: "대상이 올바르지 않습니다" }, 400);
       if (!["ACTIVE", "PAUSED"].includes(st)) return json({ error: "상태 값이 올바르지 않습니다" }, 400);
       if (!env("META_WRITE_TOKEN")) return json({ error: "Meta 쓰기 토큰(META_WRITE_TOKEN)이 아직 설정되지 않았습니다" }, 400);
       const res2 = await fetch(`${GRAPH}/${objectId}`, {
@@ -196,7 +197,7 @@ Deno.serve(async (req) => {
     const objectId = String(body.object_id ?? "");
     const level = String(body.level ?? "");
     const newBudget = Math.round(num(body.new_budget));
-    if (!objectId || !["campaign", "adset"].includes(level)) return json({ error: "대상이 올바르지 않습니다" }, 400);
+    if (!/^\d{1,32}$/.test(objectId) || !["campaign", "adset"].includes(level)) return json({ error: "대상이 올바르지 않습니다" }, 400);
     if (newBudget < MIN_BUDGET || newBudget > MAX_BUDGET) {
       return json({ error: `예산은 ${MIN_BUDGET.toLocaleString()}원 ~ ${MAX_BUDGET.toLocaleString()}원 사이여야 합니다 (상한선 서버 강제)` }, 400);
     }

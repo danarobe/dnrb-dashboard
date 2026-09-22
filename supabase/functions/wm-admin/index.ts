@@ -348,7 +348,7 @@ Deno.serve(async (req) => {
       } else if (body.year) {
         parts.push(`date=gte.${body.year}-01-01`, `date=lte.${body.year}-12-31`);
       }
-      if (body.status) parts.push(`status=eq.${body.status}`);
+      if (body.status) { if (!/^[a-z_]{1,20}$/.test(String(body.status))) return json({ error: "status 값 오류" }, 400); parts.push(`status=eq.${body.status}`); }
       return json(await rest(`wm_leaves?${parts.join('&')}`));
     }
 
@@ -659,7 +659,7 @@ Deno.serve(async (req) => {
     // ── 출장 여비 신청서 (2026-09-17): 직원이 마이페이지에서 '입력완료'한 건을 확인/보완 요청 ──
     if (action === 'trip_list') {
       const parts = ['select=*', 'order=submitted_at.desc', 'limit=500'];
-      if (body.status) parts.push(`status=eq.${String(body.status)}`);
+      if (body.status) { if (!/^[a-z_]{1,20}$/.test(String(body.status))) return json({ error: "status 값 오류" }, 400); parts.push(`status=eq.${String(body.status)}`); }
       if (body.year) parts.push(`start_date=gte.${Number(body.year)}-01-01`, `start_date=lte.${Number(body.year)}-12-31`);
       const rows = await rest(`wm_trip_claims?${parts.join('&')}`);
       const ids = rows.map((r: { id: number }) => r.id);
@@ -702,7 +702,7 @@ Deno.serve(async (req) => {
     // ── 서류 출력 요청 (2026-09-21): 직원이 마이페이지에서 요청한 재직증명서·차량 등록 요청서를 관리자 PC에서 인쇄 ──
     if (action === 'doc_request_list') {
       const parts = ['select=*', 'order=requested_at.desc', 'limit=300'];
-      if (body.status) parts.push(`status=eq.${String(body.status)}`);
+      if (body.status) { if (!/^[a-z_]{1,20}$/.test(String(body.status))) return json({ error: "status 값 오류" }, 400); parts.push(`status=eq.${String(body.status)}`); }
       return json({ rows: await rest(`wm_doc_requests?${parts.join('&')}`) });
     }
     if (action === 'doc_request_done') {

@@ -6,7 +6,7 @@
 // 테이블 anon 정책을 제거하고 이 함수로만 접근한다 (외부 직접 접근 차단).
 // path는 PostgREST 경로 그대로 (예: "cr_archive?select=*&order=created_at.desc")
 // ═══════════════════════════════════════════════
-import { handleOptions, json, verifyAuthToken, CORS_HEADERS } from "../_shared/util.ts";
+import { handleOptions, json, verifyAuthToken, CORS_HEADERS, safeEqual } from "../_shared/util.ts";
 
 const SB_URL = Deno.env.get("SUPABASE_URL")!;
 const SB_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -66,7 +66,7 @@ Deno.serve(async (req) => {
     // (2026-09-03 사용자 요청 — 자체제작 주문 점검 제작처 태그를 양쪽에서 공유)
     if (!me && table === "made_products") {
       const syncSecret = Deno.env.get("NPM_SYNC_SECRET") ?? "";
-      if (syncSecret && req.headers.get("x-sync-secret") === syncSecret) {
+      if (syncSecret && safeEqual(req.headers.get("x-sync-secret") ?? "", syncSecret)) {
         me = { id: "npm-sync", name: "상품관리 연동", role: "staff", exp: 0 };
       }
     }
@@ -74,6 +74,25 @@ Deno.serve(async (req) => {
     if (!METHODS.has(m)) return json({ error: "잘못된 요청" }, 400);
     if (!/^[a-z_]+$/.test(table) || !TABLE_ROLES[table]) return json({ error: "허용되지 않은 테이블" }, 403);
     if (!TABLE_ROLES[table].includes(me.role)) return json({ error: "접근 권한이 없습니다" }, 403);
+    // ── 보안 점검(2026-09-22) — 쿼리스트링 제한 ──
+    const qsAll = new URLSearchParams(p.split("?")[1] ?? "");
+    // ① 리소스 임베딩(select=*,app_users(*) 같은 FK 따라가기) 금지 — 화이트리스트 밖 테이블(app_users 비밀번호 해시 등)이 읽히는 통로
+    if (/\(/.test(qsAll.get("select") ?? "") || [...qsAll.keys()].some((k) => k.includes("."))) return json({ error: "허용되지 않은 조회" }, 400);
+    // ② 조건 없는 PATCH/DELETE 금지 — 표 전체를 지우거나 바꾸는 요청 차단
+    const FILTER_FREE = new Set(["select", "order", "limit", "offset", "columns", "on_conflict"]);
+    if ((m === "PATCH" || m === "DELETE") && ![...qsAll.keys()].some((k) => !FILTER_FREE.has(k))) return json({ error: "조건 없는 수정·삭제는 허용되지 않습니다" }, 400);
+    // ③ Prefer 헤더는 알려진 값만
+    if (prefer !== undefined && prefer !== null && !/^[A-Za-z0-9=,\- ]{0,80}$/.test(String(prefer))) return json({ error: "잘못된 요청" }, 400);
+    // ④ 본문 크기 상한 (배열 1,000행 · 4MB)
+    if (body !== undefined && body !== null) {
+      if (Array.isArray(body) && body.length > 1000) return json({ error: "한 번에 1,000행까지만 보낼 수 있어요" }, 413);
+      if (JSON.stringify(body).length > 4_000_000) return json({ error: "요청 본문이 너무 큽니다" }, 413);
+    }
+    // ⑤ 반품 스캔 바로가기 주소 형식은 https 만 (화면에서도 검사하지만 서버가 최종)
+    if (table === "rscan_settings" && m !== "GET" && body && typeof body === "object" && !Array.isArray(body)) {
+      const st = (body as Record<string, unknown>).settings as Record<string, unknown> | undefined;
+      for (const k of ["cafe24_url", "naver_url"]) { const v = st?.[k]; if (v && !/^https:\/\//i.test(String(v))) return json({ error: "바로가기 주소는 https:// 로 시작해야 해요" }, 400); }
+    }
 
     // ── 직원 구매요청 커스텀 규칙 (2026-08-31 사용자 지정) ──
     // 등록(POST)은 전원(본인 명의 강제) · 상태/입금/확인 변경은 admin 또는 구매 담당자(purchase_managers)만 ·
@@ -128,6 +147,8 @@ Deno.serve(async (req) => {
       if (m === "POST" && body && String((body as Record<string, unknown>)[authorField]) !== me.id) {
         return json({ error: "작성자 정보가 올바르지 않습니다" }, 400);
       }
+      // 작성자 테이블은 upsert 금지 — on_conflict로 남의 행을 덮어쓰는 우회 차단 (보안 점검 2026-09-22)
+      if (m === "POST" && (qsAll.has("on_conflict") || /merge-duplicates/i.test(String(prefer ?? "")))) return json({ error: "허용되지 않은 요청" }, 400);
     }
 
     const headers: Record<string, string> = {

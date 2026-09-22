@@ -10,7 +10,8 @@
   <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin />
   <link rel="preconnect" href="https://eeffmbusaqaadeojjlnc.supabase.co" />
   <link rel="preload" as="font" type="font/woff2" crossorigin href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.4.0/webfonts/fa-solid-900.woff2" />
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.4.0/css/all.min.css" />
+  <!-- 외부 스크립트·스타일은 무결성 해시(SRI)로 고정 — CDN이 바뀐 파일을 주면 로드 거부 (보안 점검 2026-09-22). 버전을 올리면 해시도 같이 갱신할 것 -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.4.0/css/all.min.css" integrity="sha384-iw3OoTErCYJJB9mCa8LNS2hbsQ7M3C0EpIsO/H5+EGAkPGc6rk+V8i04oW/K5xq0" crossorigin="anonymous" />
   <!-- 웹 푸시(휴대폰 알림)용 — 아이폰은 '홈 화면에 추가' 후에만 푸시 허용 가능 (iOS 정책) -->
   <link rel="manifest" href="./manifest.json" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
@@ -19,7 +20,7 @@
   <!-- Pretendard 링크 제거(2026-08-19): 구글 폰트에 없는 서체라 매번 로드 실패 — 실패하는 CSS는
        첫 페인트를 막아 로딩만 늦춘다. 글꼴은 아래 font-family 대체 목록(시스템 서체)이 동일하게 적용됨 -->
 
-  <script defer src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js" integrity="sha384-e6nUZLBkQ86NJ6TVVKAeSaK8jWa3NhkYWZFomE39AvDbQWeie9PlQqM3pmYW5d1g" crossorigin="anonymous"></script>
   <!-- 암호화된 엑셀(.xlsx) 복호화용 — 네이버페이센터 다운로드 파일 -->
   <!-- xlsx-populate(190KB)는 엑셀 저장·암호 엑셀 읽기 때만 loadXlsxPopulate()로 지연 로드 (2026-09-22 성능 점검) -->
   <script src="./config.js"></script>
@@ -2313,15 +2314,16 @@ function sbHeaders() {
 const AUTH_KEY = 'dnrb_session';
 let SESSION = null;
 
+let PENDING_SSO = null;   // 상품관리에서 넘어온 토큰 — 서버(auth me) 확인 전까지 세션으로 쓰지 않는다
 function loadSession() {
-  // 상품관리 시스템에서 넘어온 세션 (#sso=base64url(json), 2026-09-07 계정 공통화) — 받은 뒤 주소에서 지운다.
-  // 토큰은 auth 함수가 서명한 것이라 이후 모든 서버 호출에서 다시 검증된다 (여기서 믿고 저장만).
+  // 상품관리 시스템에서 넘어온 세션 (#sso=base64url(json), 2026-09-07 계정 공통화) — 주소에서 먼저 지우고,
+  // 토큰만 꺼내 서버에 확인(adoptSso)한 뒤 서버가 돌려준 아이디·이름·역할·만료를 저장한다 (보안 점검 2026-09-22: 해시의 role/exp를 믿지 않음).
   try {
     const m = location.hash.match(/[#&]sso=([A-Za-z0-9_-]+)/);
     if (m) {
-      const s = JSON.parse(decodeURIComponent(escape(atob(m[1].replace(/-/g, '+').replace(/_/g, '/')))));
-      if (s && s.token && s.id && s.exp > Date.now()) localStorage.setItem(AUTH_KEY, JSON.stringify({ token: s.token, id: s.id, name: s.name, role: s.role, exp: s.exp }));
       history.replaceState(null, '', location.pathname + location.search);
+      const s = JSON.parse(decodeURIComponent(escape(atob(m[1].replace(/-/g, '+').replace(/_/g, '/')))));
+      if (s && typeof s.token === 'string' && s.token.length < 2000) PENDING_SSO = s.token;
     }
   } catch {}
   try {
@@ -2334,6 +2336,16 @@ const isAdmin = () => SESSION?.role === 'admin';
 const isCS    = () => SESSION?.role === 'cs' || SESSION?.role === 'logistics';   // 물류팀 = CS와 동일 권한 (2026-08-27, 표시명만 다름)
 const ROLE_LABEL = { admin: '관리자', staff: 'MD', marketer: '마케터', cs: 'CS팀', logistics: '물류팀' };
 
+async function adoptSso(token) {
+  try {
+    const res = await fetch(fnUrl('auth', {}), { method: 'POST', headers: { apikey: SB.SUPABASE_ANON_KEY, Authorization: 'Bearer ' + SB.SUPABASE_ANON_KEY, 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'me', token }) });
+    const d = await res.json();
+    if (!res.ok || !d || d.error || !d.id) return false;
+    localStorage.setItem(AUTH_KEY, JSON.stringify({ token, id: d.id, name: d.name, role: d.role, exp: d.exp }));
+    SESSION = { token, id: d.id, name: d.name, role: d.role, exp: d.exp };
+    return true;
+  } catch { return false; }
+}
 async function authApi(body) {
   const res = await fetch(fnUrl('auth', {}), {
     method: 'POST', headers: sbHeaders(), body: JSON.stringify(body),
@@ -2442,8 +2454,8 @@ async function adDashPanel() {
     const pm = adDashState.perms[u.id] || AD_PERM_DEFAULT;
     const summary = on ? `<span style="font-size:.64rem;opacity:.85;margin-left:4px;">메뉴 ${(pm.menus || []).length} · 동작 ${(pm.actions || []).length}</span>` : '';
     return `<span style="display:inline-flex;align-items:center;gap:2px;">
-      <button onclick="adDashToggle('${escHtml(u.id)}')" style="border:1.5px solid ${on ? 'transparent' : '#d1d5db'};background:${on ? '#4f46e5' : '#fff'};color:${on ? '#fff' : '#4b5563'};border-radius:${on ? '99px 0 0 99px' : '99px'};padding:4px 12px;font-size:.76rem;font-weight:700;cursor:pointer;">${escHtml(u.name)}${summary}</button>
-      ${on ? `<button onclick="adDashPermOpen('${escHtml(u.id)}')" title="세부 권한" style="border:1.5px solid #c7d2fe;border-left:none;background:#eef2ff;color:#4338ca;border-radius:0 99px 99px 0;padding:4px 10px;font-size:.72rem;font-weight:700;cursor:pointer;"><i class="fa-solid fa-sliders"></i> 권한</button>` : ''}</span>`;
+      <button onclick="adDashToggle(${jsArg(u.id)})" style="border:1.5px solid ${on ? 'transparent' : '#d1d5db'};background:${on ? '#4f46e5' : '#fff'};color:${on ? '#fff' : '#4b5563'};border-radius:${on ? '99px 0 0 99px' : '99px'};padding:4px 12px;font-size:.76rem;font-weight:700;cursor:pointer;">${escHtml(u.name)}${summary}</button>
+      ${on ? `<button onclick="adDashPermOpen(${jsArg(u.id)})" title="세부 권한" style="border:1.5px solid #c7d2fe;border-left:none;background:#eef2ff;color:#4338ca;border-radius:0 99px 99px 0;padding:4px 10px;font-size:.72rem;font-weight:700;cursor:pointer;"><i class="fa-solid fa-sliders"></i> 권한</button>` : ''}</span>`;
   }).join(' ');
   box.style.display = 'block';
   box.innerHTML = `<div style="background:#f8f9ff;border:1.5px solid #e0e7ff;border-radius:12px;padding:10px 14px;">
@@ -2470,7 +2482,7 @@ function adDashPermOpen(uid) {
     <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px;">
       <button class="toggle-btn" onclick="adDashPermPreset('view')">보기 전용</button>
       <button class="toggle-btn" onclick="adDashPermPreset('all')">전체</button>
-      <button class="toggle-btn" style="background:#4f46e5;color:#fff;border-color:#4f46e5;" onclick="adDashPermSave('${escHtml(uid)}')">저장</button></div>
+      <button class="toggle-btn" style="background:#4f46e5;color:#fff;border-color:#4f46e5;" onclick="adDashPermSave(${jsArg(uid)})">저장</button></div>
     <div style="font-size:.68rem;color:#6b7280;margin-top:8px;">저장 즉시 광고 대시보드에 반영됩니다(친구 앱은 요청마다 권한을 다시 확인해요). 관리자 계정은 이 설정과 무관하게 전체 권한입니다.</div>`;
   $('addash-perm-modal').style.display = 'flex';
 }
@@ -2510,6 +2522,7 @@ const ADMGR_LEGACY_USERS = ['admin'];   // 사용자 본인 계정 = 아이디 '
 const admgrLegacyAllowed = () => !!SESSION && ADMGR_LEGACY_USERS.includes(SESSION.id);
 function logout() {
   localStorage.removeItem(AUTH_KEY);
+  try { localStorage.removeItem(NP_PW_KEY); } catch {}   // 네이버 엑셀 문서 암호는 공용 PC를 위해 로그아웃 때 지운다 (보안 점검 2026-09-22)
   location.reload();
 }
 
@@ -2565,7 +2578,7 @@ async function loadUsers() {
       d.users.map(u => {
         const isMe = u.id === SESSION.id;
         const roleBtn = isMe ? '<span style="font-size:.75rem;color:#6b7280;">(본인)</span>'
-          : `<select onchange="setUserRole('${escHtml(u.id)}', this.value)" style="border:1px solid #d1d5db;border-radius:6px;padding:4px 8px;font-size:.82rem;cursor:pointer;font-weight:600;color:#374151;">
+          : `<select onchange="setUserRole(${jsArg(u.id)}, this.value)" style="border:1px solid #d1d5db;border-radius:6px;padding:4px 8px;font-size:.82rem;cursor:pointer;font-weight:600;color:#374151;">
               <option value="admin" ${u.role === 'admin' ? 'selected' : ''}>관리자</option>
               <option value="staff" ${u.role === 'staff' ? 'selected' : ''}>MD</option>
               <option value="marketer" ${u.role === 'marketer' ? 'selected' : ''}>마케터</option>
@@ -2573,10 +2586,10 @@ async function loadUsers() {
               <option value="logistics" ${u.role === 'logistics' ? 'selected' : ''}>물류팀</option>
             </select>`;
         const delBtn = (u.role === 'admin') ? '' :
-          `<button onclick="deleteUser('${escHtml(u.id)}')" style="border:1px solid #fecaca;background:#fff;color:#dc2626;border-radius:6px;padding:4px 12px;font-size:.82rem;cursor:pointer;font-weight:600;">삭제</button>`;
+          `<button onclick="deleteUser(${jsArg(u.id)})" style="border:1px solid #fecaca;background:#fff;color:#dc2626;border-radius:6px;padding:4px 12px;font-size:.82rem;cursor:pointer;font-weight:600;">삭제</button>`;
         const roleColor = { admin: '#4f46e5', cs: '#0891b2', marketer: '#b45309', logistics: '#15803d' }[u.role];
         const nameCell = u.role === 'admin' ? escHtml(u.name)
-          : `<span onclick="userDetail('${escHtml(u.id)}')" title="클릭하면 근무 정보(입사일·연봉·계좌 등)를 봅니다" style="cursor:pointer;color:#4338ca;font-weight:600;border-bottom:1px dashed #a5b4fc;">${escHtml(u.name)}</span>`;
+          : `<span onclick="userDetail(${jsArg(u.id)})" title="클릭하면 근무 정보(입사일·연봉·계좌 등)를 봅니다" style="cursor:pointer;color:#4338ca;font-weight:600;border-bottom:1px dashed #a5b4fc;">${escHtml(u.name)}</span>`;
         return `<tr>
         <td>${escHtml(u.id)}</td><td>${nameCell}</td>
         <td>${roleColor ? `<b style="color:${roleColor};">${ROLE_LABEL[u.role]}</b>` : 'MD'}</td>
@@ -3177,6 +3190,7 @@ function rscanOpen(btn) {
     url = (st.naver_url || RSCAN_URL_DEFAULTS.naver_url).replace('{product_order_no}', encodeURIComponent(d.pon || '')).replace('{kind}', d.kind === 'exchange' ? 'exchange' : 'return');
     if (d.pon && navigator.clipboard) navigator.clipboard.writeText(d.pon).then(() => showToast('상품주문번호 복사됨 — 네이버페이센터 검색창에 붙여넣으세요')).catch(() => {});
   }
+  if (!/^https:\/\//i.test(url)) { showToast('바로가기 주소 설정이 올바르지 않아요 (https 만 허용)'); return; }   // 보안 점검 2026-09-22
   window.open(url, '_blank', 'noopener');
 }
 function rscanLinkBtns(h) {
@@ -3304,7 +3318,7 @@ function rscanRender(r) {
   const cards = r.hits.map(h => { const ct = h.alert ? rscanTheme(h.alert) : null; return `<div style="border:${ct ? (h.alert.level === 'alert' ? '2.5px' : '1.5px') + ' solid ' + ct.border : '1.5px solid #e5e7eb'};border-radius:12px;padding:12px 14px;margin-bottom:8px;background:${ct && h.alert.level === 'alert' ? ct.bg : '#fff'};${ct && h.alert.level === 'alert' ? 'color:' + ct.text + ';' : ''}">
     <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;">
       <b style="font-size:.95rem;">주문 ${escHtml(h.order_id)}</b>
-      <button onclick="navigator.clipboard&&navigator.clipboard.writeText('${escHtml(h.order_id)}').then(()=>showToast('주문번호 복사'))" class="toggle-btn" style="font-size:.7rem;padding:2px 8px;">복사</button>
+      <button onclick="navigator.clipboard&&navigator.clipboard.writeText(${jsArg(h.order_id)}).then(()=>showToast('주문번호 복사'))" class="toggle-btn" style="font-size:.7rem;padding:2px 8px;">복사</button>
       ${rscanLinkBtns(h)}
       <span style="background:${h.kind === 'exchange' ? '#e0e7ff' : '#fef3c7'};color:${h.kind === 'exchange' ? '#4338ca' : '#92400e'};border-radius:99px;padding:2px 10px;font-size:.72rem;font-weight:700;">${h.kind === 'exchange' ? '교환' : '반품'}${h.naver_kind ? ' (네이버: ' + escHtml(h.naver_kind) + ')' : ''}</span>
       <span style="font-size:.76rem;color:#6b7280;">${escHtml(h.place)}${h.naver ? ' <b style="color:#03c75a;">N Pay</b>' : ''} · 주문 ${h.order_date} · 접수 ${h.claim_date || '—'} · 상태 <b>${escHtml(h.status || '—')}</b>${h.status_extra ? ' (' + escHtml(h.status_extra) + ')' : ''}</span></div>
@@ -3345,7 +3359,14 @@ async function rscanReadGrid(file) {
   }
   const XLSX = await loadSheetJS();
   let wb;
-  try { wb = XLSX.read(buf, { type: 'array', codepage: 949 }); }
+  const isZip = b[0] === 0x50 && b[1] === 0x4B;
+  try {
+    if (isCfb || isZip) wb = XLSX.read(buf, { type: 'array' });
+    else {   // CSV/텍스트 — UTF-8(BOM 포함) 우선, 깨지면 EUC-KR (배열 입력에는 codepage 옵션이 적용되지 않음 — 실측)
+      let text; try { text = new TextDecoder('utf-8', { fatal: true }).decode(buf); } catch { text = new TextDecoder('euc-kr').decode(buf); }
+      wb = XLSX.read(text.replace(/^\uFEFF/, ''), { type: 'string' });
+    }
+  }
   catch (e) {
     if (/password|encrypt/i.test(String(e && e.message))) throw new Error(pw ? '엑셀을 열 수 없어요 — 문서 암호가 맞는지 확인해주세요' : '문서 암호가 걸린 엑셀이에요 — 아래 문서 암호 칸에 먼저 입력해주세요');
     throw e;
@@ -4774,7 +4795,7 @@ async function purchMgrPanel() {
   }
   const chips = purchState.users.map(u => {
     const on = purchState.mgrs.has(u.id);
-    return `<button onclick="purchMgrToggle('${escHtml(u.id)}')" style="border:1.5px solid ${on ? 'transparent' : '#d1d5db'};background:${on ? '#4f46e5' : '#fff'};color:${on ? '#fff' : '#4b5563'};border-radius:99px;padding:4px 12px;font-size:.76rem;font-weight:700;cursor:pointer;">${escHtml(u.name)}</button>`;
+    return `<button onclick="purchMgrToggle(${jsArg(u.id)})" style="border:1.5px solid ${on ? 'transparent' : '#d1d5db'};background:${on ? '#4f46e5' : '#fff'};color:${on ? '#fff' : '#4b5563'};border-radius:99px;padding:4px 12px;font-size:.76rem;font-weight:700;cursor:pointer;">${escHtml(u.name)}</button>`;
   }).join(' ');
   box.innerHTML = `<div style="background:#f8f9ff;border:1.5px solid #e0e7ff;border-radius:12px;padding:10px 14px;">
     <div style="font-size:.78rem;font-weight:800;color:#4338ca;margin-bottom:6px;">상태 변경 담당자 <span style="font-weight:500;color:#6b7280;font-size:.72rem;">— 선택된 직원만 불출완료·주문필요·입금을 바꿀 수 있습니다 (관리자는 항상 가능)</span></div>
@@ -6650,7 +6671,7 @@ function loadXlsxPopulate() {
   if (window.XlsxPopulate) return Promise.resolve(window.XlsxPopulate);
   if (!_xlsxPopP) _xlsxPopP = new Promise((res, rej) => {
     const sc = document.createElement('script');
-    sc.src = 'https://cdn.jsdelivr.net/npm/xlsx-populate@1.21.0/browser/xlsx-populate.min.js';
+    sc.src = 'https://cdn.jsdelivr.net/npm/xlsx-populate@1.21.0/browser/xlsx-populate.min.js'; sc.integrity = 'sha384-YnsK3VaaV54M5EcU58Pt9SdJqzL0iZpQzQAcav+18Kgn5tbwk16y/3g6FpT2d83h'; sc.crossOrigin = 'anonymous';
     sc.onload = () => window.XlsxPopulate ? res(window.XlsxPopulate) : rej(new Error('엑셀 라이브러리 로드 실패 — 페이지를 새로고침해주세요'));
     sc.onerror = () => { _xlsxPopP = null; rej(new Error('엑셀 라이브러리를 불러오지 못했어요 (인터넷 연결 확인)')); };
     document.head.appendChild(sc);
@@ -6663,7 +6684,8 @@ function loadSheetJS() {
   if (window.XLSX) return Promise.resolve(window.XLSX);
   if (!_sheetJsP) _sheetJsP = new Promise((res, rej) => {
     const sc = document.createElement('script');
-    sc.src = 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
+    // SheetJS 0.20.3 (공식 CDN) — cdnjs의 0.18.5는 파일 파싱 취약점(CVE-2023-30533·2024-22363)이 있는 마지막 배포판이라 교체 (보안 점검 2026-09-22)
+    sc.src = 'https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js'; sc.integrity = 'sha384-EnyY0/GSHQGSxSgMwaIPzSESbqoOLSexfnSMN2AP+39Ckmn92stwABZynq1JyzdT'; sc.crossOrigin = 'anonymous';
     sc.onload = () => res(window.XLSX);
     sc.onerror = () => { _sheetJsP = null; rej(new Error('엑셀 라이브러리를 불러오지 못했어요 (인터넷 연결 확인)')); };
     document.head.appendChild(sc);
@@ -6749,7 +6771,7 @@ function madeMatchList(no) {
   $('made-match-list').innerHTML = hit.length ? hit.map(x => `<div style="display:flex;align-items:center;gap:10px;padding:7px 6px;border-bottom:1px dashed #eef0f5;">
       <div style="flex:1;min-width:0;"><div style="font-weight:600;word-break:break-all;">${escHtml(x.e.name)}</div>
         <div style="font-size:.68rem;color:#6b7280;">옵션 ${x.e.rows.length}개 · 현재고 ${fmt(x.e.stock)} · 미발송 ${fmt(x.e.unshipped)}${x.usedBy ? ` · <span style="color:#c2410c;">다른 상품(${x.usedBy})에 매칭됨</span>` : ''}</div></div>
-      <button onclick="madeMatchSet(${no}, ${JSON.stringify(x.e.name).replace(/"/g, '&quot;')})" style="border:1px solid #c7d2fe;background:#eef2ff;color:#4338ca;border-radius:6px;padding:4px 10px;font-size:.72rem;font-weight:700;cursor:pointer;white-space:nowrap;">이 상품으로 매칭</button>
+      <button onclick="madeMatchSet(${no}, ${jsArg(x.e.name)})" style="border:1px solid #c7d2fe;background:#eef2ff;color:#4338ca;border-radius:6px;padding:4px 10px;font-size:.72rem;font-weight:700;cursor:pointer;white-space:nowrap;">이 상품으로 매칭</button>
     </div>`).join('') + (all.length > 60 && hit.length === 60 ? '<div style="padding:8px;color:#9ca3af;font-size:.72rem;">60개까지만 표시 — 검색어를 더 입력하세요</div>' : '')
     : '<div style="padding:16px;color:#9ca3af;text-align:center;">검색 결과 없음 — 셀메이트에 아직 등록 전인 상품일 수 있어요</div>';
 }
@@ -8701,8 +8723,16 @@ async function metaPrevLoad(adId, fmt) {
   // 자동 전환: 형식 미지정 + 이름에 '릴스' → 릴스 형식 (피드는 지원 비율 안내만 나옴)
   if (!fmt && /릴스/i.test(d.name || '')) return metaPrevLoad(adId, 'reels');
   if (d.iframe) {
-    $('meta-preview-body').innerHTML = d.iframe;   // Meta가 주는 공식 미리보기 iframe (영상 재생 포함)
-    const ifr = $('meta-preview-body').querySelector('iframe');
+    // Meta가 주는 공식 미리보기 iframe(영상 재생 포함) — 받은 HTML을 그대로 넣지 않고 iframe src만 facebook.com 도메인일 때 다시 만든다 (보안 점검 2026-09-22)
+    const srcIfr = new DOMParser().parseFromString(String(d.iframe), 'text/html').querySelector('iframe');
+    const srcUrl = srcIfr ? (srcIfr.getAttribute('src') || '') : '';
+    const body = $('meta-preview-body'); body.replaceChildren();
+    let ifr = null;
+    if (/^https:\/\/([a-z0-9-]+\.)*facebook\.com\//i.test(srcUrl)) {
+      ifr = document.createElement('iframe'); ifr.src = srcUrl; ifr.setAttribute('scrolling', srcIfr.getAttribute('scrolling') || 'yes'); ifr.setAttribute('allowfullscreen', '');
+      ifr.setAttribute('width', srcIfr.getAttribute('width') || '320'); ifr.setAttribute('height', srcIfr.getAttribute('height') || '525');
+      body.appendChild(ifr);
+    } else body.innerHTML = '<div style="padding:30px;color:#6b7280;">미리보기 주소가 예상 형식이 아니에요</div>';
     if (ifr) {
       ifr.style.maxWidth = '100%'; ifr.style.border = 'none';
       // Meta는 릴스 형식 미리보기를 274×213(가로형) 상자로 내려주지만 내용은 세로 영상이라 상자 안에서 잘리고 스크롤바가 생긴다
@@ -9026,11 +9056,11 @@ async function wmLoadAtt() {
     const sel = $('wm-att-emp');
     if (sel.options.length <= 1) {
       sel.innerHTML = '<option value="">전체</option>'
-        + emps.map(e => `<option value="${e.id}">${e.name} (${e.type === 'employee' ? '직원' : '알바'})</option>`).join('');
+        + emps.map(e => `<option value="${escHtml(e.id)}">${escHtml(e.name)} (${e.type === 'employee' ? '직원' : '알바'})</option>`).join('');
     }
     wmRenderAtt();
   } catch (err) {
-    $('wm-att-result').innerHTML = `<div class="empty-state"><p>불러오지 못했어요 — ${err.message}</p></div>`;
+    $('wm-att-result').innerHTML = `<div class="empty-state"><p>불러오지 못했어요 — ${escHtml(err.message)}</p></div>`;
   }
 }
 
@@ -9061,7 +9091,7 @@ function wmRenderAtt() {
       <b style="font-size:.82rem;color:#92400e;">시간 수정 신청 ${pend.length}건 대기 중</b>
       <div style="margin-top:6px;font-size:.78rem;color:#78350f;line-height:2;">
         ${pend.map(p => `<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
-          <span>· ${nameOf[p.employee_id]?.name || p.employee_id} — ${p.date} 출근 ${(p.requested_clock_in || '').substring(11, 16)}${p.requested_clock_out ? ' / 퇴근 ' + p.requested_clock_out.substring(11, 16) : ''} <span style="color:#a16207;">(${p.reason || '사유 없음'})</span></span>
+          <span>· ${escHtml(nameOf[p.employee_id]?.name || p.employee_id)} — ${escHtml(p.date)} 출근 ${escHtml((p.requested_clock_in || '').substring(11, 16))}${p.requested_clock_out ? ' / 퇴근 ' + escHtml(p.requested_clock_out.substring(11, 16)) : ''} <span style="color:#a16207;">(${escHtml(p.reason || '사유 없음')})</span></span>
           <button class="toggle-btn" style="font-size:.68rem;padding:2px 8px;background:#16a34a;color:#fff;border-color:#16a34a;" onclick="wmEditReview(${p.id},'approved')">승인</button>
           <button class="toggle-btn" style="font-size:.68rem;padding:2px 8px;color:#dc2626;" onclick="wmEditReview(${p.id},'rejected')">거절</button>
         </div>`).join('')}
@@ -9086,14 +9116,14 @@ function wmRenderAtt() {
     if (!r.clock_out) openCnt++;
     return `<tr>
       <td style="white-space:nowrap;">${r.date} <span style="color:#6b7280;">(${WM_DAY[d.getDay()]})</span></td>
-      <td style="font-weight:600;">${e.name || '?'}</td>
+      <td style="font-weight:600;">${escHtml(e.name || '?')}</td>
       <td><span class="badge badge-${e.type === 'employee' ? 'admin' : 'staff'}" style="font-size:.68rem;">${e.type === 'employee' ? '직원' : '알바'}</span></td>
       <td>${(r.clock_in || '').substring(11, 16)}</td>
       <td>${r.clock_out ? r.clock_out.substring(11, 16) : '<span style="color:#f59e0b;font-weight:600;">미퇴근</span>'}</td>
       <td>${raw ? wmHM(raw) : '-'}</td>
       <td>${meal ? '<span style="color:#0ea5e9;font-size:.72rem;">60분 공제</span>' : ''}</td>
       <td style="font-weight:600;">${eff ? wmHM(eff) : '-'}</td>
-      <td style="font-size:.72rem;color:#6b7280;">${r.is_edited ? '<span style="color:#d97706;">수정됨</span> ' : ''}${r.source === 'admin' ? '<span style="color:#7c3aed;">관리자입력</span> ' : ''}${r.note || ''}</td>
+      <td style="font-size:.72rem;color:#6b7280;">${r.is_edited ? '<span style="color:#d97706;">수정됨</span> ' : ''}${r.source === 'admin' ? '<span style="color:#7c3aed;">관리자입력</span> ' : ''}${escHtml(r.note || '')}</td>
       <td style="white-space:nowrap;">
         <button class="toggle-btn" style="font-size:.68rem;padding:2px 8px;" onclick="wmAttFormOpen(${r.id})">수정</button>
         <button class="toggle-btn" style="font-size:.68rem;padding:2px 8px;color:#dc2626;" onclick="wmAttDelete(${r.id})">삭제</button>
@@ -9120,7 +9150,7 @@ async function wmLoadSal() {
     wmState.ym = ym;
     wmRenderSal();
   } catch (err) {
-    $('wm-sal-result').innerHTML = `<div class="empty-state"><p>계산하지 못했어요 — ${err.message}</p></div>`;
+    $('wm-sal-result').innerHTML = `<div class="empty-state"><p>계산하지 못했어요 — ${escHtml(err.message)}</p></div>`;
   }
 }
 
@@ -9135,7 +9165,7 @@ function wmRenderSal() {
     const defer = (r.weeklyBreakdown || []).filter(w => w.deferredToNext).length;
     return `<tr>
       <td style="width:28px;"><input type="checkbox" class="wm-sal-chk" value="${i}" onchange="wmSalSelChanged()" title="명세서 인쇄 대상 선택" /></td>
-      <td style="font-weight:600;">${e.name}</td>
+      <td style="font-weight:600;">${escHtml(e.name)}</td>
       <td><span class="badge badge-${pt ? 'staff' : 'admin'}" style="font-size:.68rem;">${pt ? '알바' : '직원'}</span></td>
       <td>${r.totalHours || 0}시간</td>
       <td>${fmt(pt ? r.basePay : r.monthlySalary)}원</td>
@@ -9204,7 +9234,7 @@ function wmSlipHtml(r, forPdf, ym) {
   const qualWeeks = wb.filter(w => w.qualifies).length;
 
   const weeks = wb.map(w => `<tr>
-      <td>${w.weekStart}${w.publicHolidays?.length ? ` <span style="font-size:11px;color:#0369a1;background:#e0f2fe;border-radius:4px;padding:1px 5px;">${w.publicHolidays.map(h => h.name).join(', ')}</span>` : ''}</td>
+      <td>${w.weekStart}${w.publicHolidays?.length ? ` <span style="font-size:11px;color:#0369a1;background:#e0f2fe;border-radius:4px;padding:1px 5px;">${escHtml(w.publicHolidays.map(h => h.name).join(', '))}</span>` : ''}</td>
       <td>${w.weekHoursTotal}시간</td>
       <td${w.weekHours !== w.weekHoursTotal ? ' style="color:#0ea5e9;"' : ''}>${w.weekHours}시간</td>
       <td>${w.deferredToNext
@@ -9341,7 +9371,7 @@ async function wmSlipFilesLoad() {
         <td style="white-space:nowrap;">
           <label class="toggle-btn" style="cursor:pointer;display:inline-flex;align-items:center;gap:5px;margin:0;"><i class="fa-solid fa-upload"></i> ${f ? '교체' : '업로드'}<input type="file" accept="${accept}" style="display:none;" onchange="wmSlipFileUpload(${e.id}, this)" /></label>
           ${f ? `<button class="toggle-btn" onclick="wmSlipFileOpen(${f.id}, true)" title="내려받기"><i class="fa-solid fa-download"></i></button>
-          <button class="toggle-btn" onclick="wmSlipFileDelete(${f.id}, '${escHtml(e.name)}')" style="color:#b91c1c;" title="삭제"><i class="fa-solid fa-trash"></i></button>` : ''}
+          <button class="toggle-btn" onclick="wmSlipFileDelete(${f.id}, ${jsArg(e.name)})" style="color:#b91c1c;" title="삭제"><i class="fa-solid fa-trash"></i></button>` : ''}
         </td></tr>`;
     }).join('');
     box.innerHTML = `<div style="font-size:.8rem;color:#4b5563;margin-bottom:8px;"><b>${ym.slice(0, 4)}년 ${Number(ym.slice(5))}월</b> — 등록 ${done} / ${list.length}명</div>
@@ -9746,7 +9776,7 @@ function wmAttFormOpen(id) {
   $('wm-attf-title').textContent = r ? `출퇴근 수정 — ${(wmState.emps || []).find(e => e.id === r.employee_id)?.name || ''} ${r.date}` : '출퇴근 수동 등록';
   const sel = $('wm-attf-emp');
   sel.innerHTML = (wmState.emps || []).filter(e => e.active !== false)
-    .map(e => `<option value="${e.id}">${e.name} (${e.type === 'employee' ? '직원' : '알바'})</option>`).join('');
+    .map(e => `<option value="${escHtml(e.id)}">${escHtml(e.name)} (${e.type === 'employee' ? '직원' : '알바'})</option>`).join('');
   sel.disabled = !!r;
   if (r) sel.value = r.employee_id;
   $('wm-attf-date').value = r ? r.date : ($('wm-att-ym').value ? $('wm-att-ym').value + '-01' : '');
@@ -9833,7 +9863,7 @@ async function wmLoadLeaves() {
     setTimeout(wmLoadPendingLeaves, 0);   // 대기 신청 배너 (월 필터와 무관하게 올해 전체)
     const sel = $('wm-lvf-emp');
     sel.innerHTML = (wmState.emps || []).filter(e => e.active !== false)
-      .map(e => `<option value="${e.id}">${e.name} (${e.type === 'employee' ? '직원' : '알바'})</option>`).join('');
+      .map(e => `<option value="${escHtml(e.id)}">${escHtml(e.name)} (${e.type === 'employee' ? '직원' : '알바'})</option>`).join('');
     { // 직원별 보기 필터 — 활성 직원 + (선택돼 있던 비활성 직원 유지)
       const f = $('wm-lv-emp'); const keep = f.value;
       f.innerHTML = '<option value="">전체 직원</option>' + (wmState.emps || []).filter(e => e.active !== false || String(e.id) === keep)
@@ -9845,11 +9875,11 @@ async function wmLoadLeaves() {
       .map(e => {
         const rem = (e.annual_leave_total ?? 0) - (e.annual_used ?? 0);
         return `<span style="background:${rem <= 2 ? '#fee2e2' : '#eff6ff'};border:1px solid ${rem <= 2 ? '#fecaca' : '#bfdbfe'};border-radius:16px;padding:3px 11px;font-size:.74rem;">
-          ${e.name} <b style="color:${rem <= 2 ? '#dc2626' : '#2563eb'};">잔여 ${rem}일</b> <span style="color:#6b7280;">(${e.annual_used ?? 0}/${e.annual_leave_total} 사용)</span></span>`;
+          ${escHtml(e.name)} <b style="color:${rem <= 2 ? '#dc2626' : '#2563eb'};">잔여 ${rem}일</b> <span style="color:#6b7280;">(${e.annual_used ?? 0}/${e.annual_leave_total} 사용)</span></span>`;
       }).join('');
     wmRenderLeaves();
   } catch (err) {
-    $('wm-lv-result').innerHTML = `<div class="empty-state"><p>불러오지 못했어요 — ${err.message}</p></div>`;
+    $('wm-lv-result').innerHTML = `<div class="empty-state"><p>불러오지 못했어요 — ${escHtml(err.message)}</p></div>`;
   }
 }
 
@@ -9907,10 +9937,10 @@ function wmRenderLeaves() {
     const [sl, sc, sb] = WM_LV_STATUS[r.status] || [r.status, '#6b7280', '#f3f4f6'];
     return `<tr>
       <td style="white-space:nowrap;">${r.date}</td>
-      <td style="font-weight:600;">${e.name || '?'}</td>
+      <td style="font-weight:600;">${escHtml(e.name || '?')}</td>
       <td><span class="badge badge-${e.type === 'employee' ? 'admin' : 'staff'}" style="font-size:.68rem;">${e.type === 'employee' ? '직원' : '알바'}</span></td>
       <td>${WM_LV_TYPE[r.type] || r.type}</td>
-      <td style="font-size:.75rem;color:#6b7280;">${r.reason || ''}</td>
+      <td style="font-size:.75rem;color:#6b7280;">${escHtml(r.reason || '')}</td>
       <td><span style="background:${sb};color:${sc};border-radius:4px;padding:1px 8px;font-size:.7rem;font-weight:600;">${sl}</span></td>
       <td style="white-space:nowrap;">
         ${r.status === 'pending' ? `
@@ -9989,7 +10019,7 @@ async function wmLoadEmps() {
           ? (e.annual_used ? `<span style="font-size:.72rem;color:#6b7280;">사용 ${e.annual_used}일</span>` : '-')
           : `<b style="color:${(e.annual_leave_total - e.annual_used) <= 2 ? '#dc2626' : '#2563eb'};">잔여 ${e.annual_leave_total - e.annual_used}</b> <span style="font-size:.7rem;color:#6b7280;">/ ${e.annual_leave_total} (사용 ${e.annual_used})</span>`}</td>
         <td>${pt ? (e.fixed_clock_in || '-') : '-'}</td>
-        <td style="font-size:.72rem;">${e.bank_name || ''} ${e.bank_account || ''}</td>
+        <td style="font-size:.72rem;">${escHtml(e.bank_name || '')} ${escHtml(e.bank_account || '')}</td>
         <td>${e.pin_set_at ? '<span style="color:#16a34a;font-size:.7rem;">설정됨</span>' : '<span style="color:#6b7280;font-size:.7rem;">미설정</span>'}</td>
         <td style="white-space:nowrap;">
           <button class="toggle-btn" style="font-size:.68rem;padding:2px 8px;" onclick="wmEmpFormOpen(${e.id})">수정</button>
@@ -10006,7 +10036,7 @@ async function wmLoadEmps() {
         <span style="font-size:.7rem;color:#6b7280;">정직원은 대시보드 '직원 관리'에서 계정을 만든 뒤 여기서 연결하세요 — 이름은 계정을 따라갑니다.</span>
       </div>`;
   } catch (err) {
-    $('wm-emp-result').innerHTML = `<div class="empty-state"><p>불러오지 못했어요 — ${err.message}</p></div>`;
+    $('wm-emp-result').innerHTML = `<div class="empty-state"><p>불러오지 못했어요 — ${escHtml(err.message)}</p></div>`;
   }
 }
 
@@ -10147,21 +10177,21 @@ async function wmLoadDevices() {
     const rows = await wmApi({ action: 'device_list' });
     if (!rows.length) { $('wm-dev-result').innerHTML = '<div style="font-size:.75rem;color:#6b7280;">등록된 기기가 없습니다. 위 버튼으로 등록 코드를 발급해 매장 PC의 키오스크 화면에 입력하세요.</div>'; return; }
     const body = rows.map(d => `<tr style="${d.active ? '' : 'opacity:.45;'}">
-      <td style="font-weight:600;">${d.label}${d.pairing_pending ? ' <span style="color:#d97706;font-size:.65rem;">(등록 대기 중)</span>' : ''}${d.active ? '' : ' <span style="color:#dc2626;font-size:.65rem;">(해지됨)</span>'}</td>
+      <td style="font-weight:600;">${escHtml(d.label)}${d.pairing_pending ? ' <span style="color:#d97706;font-size:.65rem;">(등록 대기 중)</span>' : ''}${d.active ? '' : ' <span style="color:#dc2626;font-size:.65rem;">(해지됨)</span>'}</td>
       <td style="font-size:.72rem;">${d.last_seen_at ? new Date(d.last_seen_at).toLocaleString('ko-KR', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '-'}</td>
-      <td style="font-size:.72rem;font-family:monospace;">${d.last_ip || '-'}</td>
+      <td style="font-size:.72rem;font-family:monospace;">${escHtml(d.last_ip || '-')}</td>
       <td style="font-size:.72rem;font-family:monospace;">${(d.allowed_ips || []).join('<br>') || '-'}</td>
       <td style="white-space:nowrap;">
         ${d.active && d.last_ip && !(d.allowed_ips || []).includes(d.last_ip)
           ? `<button class="toggle-btn" style="font-size:.68rem;padding:2px 8px;background:#16a34a;color:#fff;border-color:#16a34a;" onclick="wmDeviceAllowIp('${d.id}','${d.last_ip}')">현재 IP 승인</button>` : ''}
-        ${d.active ? `<button class="toggle-btn" style="font-size:.68rem;padding:2px 8px;color:#dc2626;" onclick="wmDeviceRevoke('${d.id}','${d.label.replace(/'/g, '')}')">해지</button>` : ''}
+        ${d.active ? `<button class="toggle-btn" style="font-size:.68rem;padding:2px 8px;color:#dc2626;" onclick="wmDeviceRevoke(${jsArg(d.id)},${jsArg(d.label)})">해지</button>` : ''}
       </td>
     </tr>`).join('');
     $('wm-dev-result').innerHTML = `<div style="overflow-x:auto;"><table style="width:100%;font-size:.78rem;">
       <thead><tr><th>기기</th><th>마지막 접속</th><th>최근 IP</th><th>승인된 IP</th><th></th></tr></thead>
       <tbody>${body}</tbody></table></div>`;
   } catch (err) {
-    $('wm-dev-result').innerHTML = `<div style="font-size:.75rem;color:#dc2626;">기기 목록을 불러오지 못했어요 — ${err.message}</div>`;
+    $('wm-dev-result').innerHTML = `<div style="font-size:.75rem;color:#dc2626;">기기 목록을 불러오지 못했어요 — ${escHtml(err.message)}</div>`;
   }
 }
 
@@ -10201,14 +10231,14 @@ async function wmLoadHolidays() {
     const thisYear = new Date().getFullYear();
     const rows = wmState.hol.filter(h => Number(h.date.slice(0, 4)) <= thisYear + 1);   // 올해+내년만 표시
     const body = rows.map(h => `<tr>
-      <td style="white-space:nowrap;">${h.date}</td><td>${h.name}</td>
+      <td style="white-space:nowrap;">${escHtml(h.date)}</td><td>${escHtml(h.name)}</td>
       <td><button class="toggle-btn" style="font-size:.68rem;padding:2px 8px;color:#dc2626;" onclick="wmHolidayDelete(${h.id})">삭제</button></td>
     </tr>`).join('');
     $('wm-hol-result').innerHTML = `<div style="font-size:.72rem;color:#6b7280;margin-bottom:8px;">전체 ${wmState.hol.length}건 중 올해·내년 ${rows.length}건 표시</div>
       <div style="overflow-x:auto;"><table style="width:100%;font-size:.8rem;max-width:480px;">
       <thead><tr><th>날짜</th><th>이름</th><th></th></tr></thead><tbody>${body}</tbody></table></div>`;
   } catch (err) {
-    $('wm-hol-result').innerHTML = `<div class="empty-state"><p>불러오지 못했어요 — ${err.message}</p></div>`;
+    $('wm-hol-result').innerHTML = `<div class="empty-state"><p>불러오지 못했어요 — ${escHtml(err.message)}</p></div>`;
   }
 }
 
@@ -10968,7 +10998,8 @@ let _pdfLibP = null;
 function loadPdfLibs() {
   if (window.html2canvas && window.jspdf) return Promise.resolve();
   if (!_pdfLibP) _pdfLibP = Promise.all(['https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js', 'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js'].map(src => new Promise((res, rej) => {
-    const sc = document.createElement('script'); sc.src = src; sc.onload = res; sc.onerror = () => rej(new Error('PDF 라이브러리를 불러오지 못했어요 (인터넷 연결 확인)')); document.head.appendChild(sc);
+    const PDF_SRI = { 'https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js': 'sha384-ZZ1pncU3bQe8y31yfZdMFdSpttDoPmOZg2wguVK9almUodir1PghgT0eY7Mrty8H', 'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js': 'sha384-JcnsjUPPylna1s1fvi1u12X5qjY5OL56iySh75FdtrwhO/SWXgMjoVqcKyIIWOLk' };
+    const sc = document.createElement('script'); sc.src = src; if (PDF_SRI[src]) { sc.integrity = PDF_SRI[src]; sc.crossOrigin = 'anonymous'; } sc.onload = res; sc.onerror = () => rej(new Error('PDF 라이브러리를 불러오지 못했어요 (인터넷 연결 확인)')); document.head.appendChild(sc);
   }))).catch(e => { _pdfLibP = null; throw e; });
   return _pdfLibP;
 }
@@ -12394,8 +12425,11 @@ function renderReasons(reasons, total, barClass) {
 }
 
 function escHtml(s) {
-  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
 }
+/* onclick="fn(${jsArg(x)})" 처럼 속성 안 JS 문자열 인자에 쓴다 — JSON 문자열 리터럴로 만든 뒤 HTML 이스케이프 (보안 점검 2026-09-22).
+   '${escHtml(x)}' 방식은 브라우저가 속성을 먼저 디코딩해 따옴표가 되살아나므로 안전하지 않다. */
+function jsArg(v) { return escHtml(JSON.stringify(String(v ?? ''))); }
 
 /* ══════════════════════════════════════
    [ C ] 판매 성과 분석 (기존 기능 유지)
@@ -13867,12 +13901,12 @@ function bootApp() {
 
   // 세션 확인 → 로그인 화면 또는 대시보드 시작
   loadSession();
-  if (SESSION) {
-    $('login-overlay').style.display = 'none';
-    bootApp();
-  } else {
-    $('login-overlay').style.display = 'flex';
-  }
+  const start = () => {
+    if (SESSION) { $('login-overlay').style.display = 'none'; bootApp(); }
+    else { $('login-overlay').style.display = 'flex'; }
+  };
+  if (PENDING_SSO) { const t = PENDING_SSO; PENDING_SSO = null; adoptSso(t).then(start); }   // 상품관리 → 워크스페이스: 서버 확인 후 시작
+  else start();
 })();
 /* 소재 미리보기 모달은 여러 메뉴(광고 효율·판매 성과 ON 광고)에서 쓰므로 body 직속으로 옮긴다.
    섹션 안에 두면 다른 메뉴에서 열었을 때 숨은 섹션(.page-sec)에 같이 가려져 안 보인다(실사례). */

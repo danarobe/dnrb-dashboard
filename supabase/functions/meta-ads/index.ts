@@ -12,7 +12,7 @@
 // 필요 secrets: META_ACCESS_TOKEN (비즈니스 설정 > 시스템 사용자 토큰, ads_read 권한),
 //               META_AD_ACCOUNT_ID (act_ 제외 숫자만 또는 act_숫자)
 // ═══════════════════════════════════════════════
-import { cacheGet, cacheSet, handleOptions, json, verifyAuthToken } from "../_shared/util.ts";
+import { cacheGet, cacheSet, handleOptions, json, verifyAuthToken, safeEqual } from "../_shared/util.ts";
 
 const GRAPH = "https://graph.facebook.com/v23.0";
 
@@ -115,7 +115,7 @@ Deno.serve(async (req) => {
   // 상품관리는 이걸로 ①업로드완료→광고테스트 자동 진입 ②우수/OFF/애매 평가 자동 반영을 한다.
   if (action === "syncexport") {
     const secret = Deno.env.get("NPM_SYNC_SECRET") ?? "";
-    if (!secret || req.headers.get("x-sync-secret") !== secret) return json({ error: "접근 권한이 없습니다" }, 403);
+    if (!secret || !safeEqual(req.headers.get("x-sync-secret") ?? "", secret)) return json({ error: "접근 권한이 없습니다" }, 403);
     const c2 = creds();
     if (!c2) return json({ error: "not_connected" }, 200);
     try {
@@ -180,7 +180,7 @@ Deno.serve(async (req) => {
   // 관리자 + MD(staff) 허용 — MD는 UI에서 광고비·전환값·총매출 블러 (CS는 차단)
   // 매출 분석 에이전트(sales-agent)는 AGENT_SECRET으로 admin 권한 호출 (2026-09-10) — summary만 쓴다
   const agentSecret = Deno.env.get("AGENT_SECRET") ?? "";
-  const viaAgent = !!agentSecret && req.headers.get("x-agent-secret") === agentSecret;
+  const viaAgent = !!agentSecret && safeEqual(req.headers.get("x-agent-secret") ?? "", agentSecret);
   const authed = viaAgent ? { id: "sales-agent", name: "매출 분석 에이전트", role: "admin", exp: 0 } : await verifyAuthToken(req);
   if (!authed || !["admin", "staff"].includes(authed.role)) return json({ error: "접근 권한이 없습니다" }, 403);
 
@@ -839,8 +839,8 @@ Deno.serve(async (req) => {
     // '이전 7일' = 최근 7일 바로 앞 7일. Meta에 해당 프리셋이 없어 time_range로 직접 지정하며,
     // 기준일은 last_7d 응답의 date_start(광고계정 시간대 기준)에서 역산 — 응답이 비면 Asia/Seoul로 폴백.
     if (action === "adstats") {
-      const adId = url.searchParams.get("ad_id");
-      if (!adId) return json({ error: "ad_id 필수" }, 400);
+      const adId = url.searchParams.get("ad_id") ?? "";
+      if (!/^\d{1,32}$/.test(adId)) return json({ error: "ad_id 오류" }, 400);   // 그래프 경로 삽입 방지 (보안 점검 2026-09-22)
       const FIELDS = "spend,purchase_roas,action_values,date_start,date_stop";
       const presets = ["today", "yesterday", "last_3d", "last_7d", "last_14d", "last_30d"];
       const results = await Promise.all(presets.map((p) =>
@@ -884,8 +884,8 @@ Deno.serve(async (req) => {
 
     // 소재 미리보기 — 실제 게재 형태의 iframe + 썸네일 (이미지·영상 모두 iframe 안에서 재생됨)
     if (action === "preview") {
-      const adId = url.searchParams.get("ad_id");
-      if (!adId) return json({ error: "ad_id 필수" }, 400);
+      const adId = url.searchParams.get("ad_id") ?? "";
+      if (!/^\d{1,32}$/.test(adId)) return json({ error: "ad_id 오류" }, 400);   // 그래프 경로 삽입 방지 (보안 점검 2026-09-22)
       // fmt 파라미터(2026-09-01 확장): 릴스 기반 광고는 피드(INSTAGRAM_STANDARD) 미리보기가
       // '지원되는 화면 비율' 안내만 나온다(실사고) — 클라이언트가 형식을 골라 요청한다.
       const FMTS: Record<string, string> = {

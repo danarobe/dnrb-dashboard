@@ -24,7 +24,7 @@
 - 알림: 출장 여비·서류 요청·급여 명세서 관련 알림은 `notify` 함수 경유(앱 종 + 웹 푸시, `title` 파라미터) → §7-5.
 - 친구 광고 대시보드(ad-dashboard) 연동: 메뉴 '광고관리자' = SSO 링크(`auth sso_issue {aud}`·`verify`, 전용 토큰), 허용 목록 `ad_dashboard_users` + 세부 권한 `perms`(직원 관리 칩·모달), 내장 광고관리자는 '광고관리자(기존)'으로 `admin` 계정만 → §5 광고관리자.
 - **반품 송장 스캔(#rscan, 2026-09-22 신설)** → §7-0.
-- 마이그레이션 0007~0018(supabase/migrations) 전부 적용됨(0017 rscan_done·0018 cleared 2026-09-22). 함수 최신 배포: auth·db·notify·wm-me·wm-admin·cafe24-analytics.
+- 마이그레이션 0007~0019(supabase/migrations) 전부 적용됨(0017 rscan_done·0018 cleared·0019 옛 anon 정책 drop 2026-09-22). 함수 최신 배포: auth·db·notify·wm-me·wm-admin·cafe24-analytics.
 
 **진행 중 / 사용자 답 대기**
 1. **반품 스캔 — 네이버페이센터 반품/교환 엑셀 샘플 대기**: 실제 열 이름을 못 봤다. (2026-09-22b~d: 문서 암호·같은 송장 합치기·기간 선택·바로가기 버튼까지 추가됨 — §7-0. **카페24 주문 상세 바로가기 주소 형식 실검증 대기**: 사용자가 눌러 보고 틀리면 실제 주소를 받아 기본값 수정.) 받으면 `rscanNaverUpload`의 헤더 후보(수거송장번호·상품주문번호·클레임구분·사유·택배사·요청일)를 실양식에 맞추고 실파일로 검증. 경고 코드 기본값(K·V·D / C·J·W)은 6개월 실데이터 추정 — 사용자 실사용 피드백 반영.
@@ -33,6 +33,8 @@
 4. 상품 진열/판매 상태 변경 추적: 매일 스냅샷 자동화는 **미착수**(사용자가 근사치만 요청). 2026-09-14 수동 스냅샷을 api_cache에 넣었으나 **api_cache는 1시간 지나면 자동 삭제**되므로 이미 없음 — 만들려면 전용 테이블 + 일일 cron.
 5. 휴가 관리에서 직원 1명 연차 초과 사용(잔여 음수) 지적함 — 사용자 확인 대기. 경력증명서 1건 발급(직위·담당 업무 문구는 임의 기입, 사용자 정정 시 재발급).
 6. 급여 명세서·출장 여비·서류 요청은 **마이페이지 계정이 연결된 직원만** 사용 가능(알바 7명 미연결 — 직원 관리에서 연결 필요).
+
+**성능·보안 점검(2026-09-22 사용자 요청 — 기능 무변경 원칙, §7-6에 상세)**: 성능 = xlsx-populate 지연 로드·FA 웹폰트 preload·숨은 상품 분석 표 지연 렌더·이미지 lazy. 보안 = db 프록시(임베딩·조건 없는 수정삭제·작성자 테이블 upsert·Prefer·본문 크기·바로가기 https), 로그인 잠금(아이디 10회·IP 30회/15분), AUTH_SECRET 실패 닫힘·상수 시간 비교, category_products/ad_id/object_id 검증, notify 발신자 강제·시간당 60건, rscan_build 남용 방지, summary 주문금액 비관리자 0, 화면 이스케이프 30여 곳(escHtml에 `'` 추가·`jsArg`), #sso 해시 서버 확인(auth `me`), Meta 미리보기 iframe 재구성, SRI 6개·SheetJS 0.20.3, sw.js 주소 검증, 로그아웃 시 문서 암호 삭제. **남긴 것(보고만)**: CORS `*`(외부 앱들이 브라우저에서 호출 — 좁히려면 origin 목록 필요), 비밀번호 변경 시 기존 토큰 무효화 없음(7일), MD 화면의 광고비 블러(CSS)는 값이 DOM에 있음, 영수증 업로드 용량 한도 없음, CSP 없음(인라인 스크립트 구조).
 
 **이번 세션에서 배운 함정(§1에도 반영)**
 - index.html 대량 수정은 python 치환 스크립트를 **파일로 저장해 두고** 실행(실패 시 재실행). 앵커에 빈 줄이 끼어 있으면 `grep -v` 로 본 출력과 달라 MISMATCH — `cat -vet`로 확인. 수정 후 반드시 `<script>` 블록 `new Function` 문법 검사.
@@ -405,6 +407,28 @@ AUTHOR_FIELDS(notes/comments=author_id, likes=user_id): POST는 본인 id 필수
 - **경고 판정 `rscanJudge`**(rscan_settings로 조정, 기본 `RSCAN_DEFAULTS`): 자사몰 코드 불량 K·V·D / 오배송 C·J·W → **빨간 경고(alert)**, 사유 원문 키워드(불량·파손·하자·오염·이염·올풀림·박음질·봉제·구멍·얼룩 / 오배송·잘못 발송·다른 상품·타상품·다른 색상·누락) → **노란 주의(warn)**, 네이버페이 사유 '오배송'·'상품 파손'·'파손'·'불량' → 빨간 경고.
 - **화면**: 상단 안내 = 사용자 지정 '주의사항 · 사용법' 3항목(2026-09-22j: ① 매일 아침 네이버페이센터 엑셀 등록 후 진행 ② 송장 바코드 스캔 → 카페24 주문 ③ 불량·오배송 빨간 경고+소리 / 추측은 노란 주의 — 문구 바꿀 땐 사용자 확인). 메뉴 '반품 스캔'(운영, `menu-rscan`, CS 허용 목록에 추가 — ⚠ 2026-09-22e: 버튼 표시 목록(updateAuthUI)에는 있었지만 `showMenu`의 CS/물류팀 리다이렉트 목록(`['my','purch']`)에 빠져 눌러도 판매 성과로 튕기던 버그 수정. **CS/물류팀에 메뉴를 열 땐 두 목록을 함께 고칠 것**) — 큰 입력칸(autofocus, Enter 또는 13자리 이상 자동 조회 `rscanAutoLookup`), 결과 = 배너(빨강 깜빡임+경고음 4음 / 노랑 2음 / 초록 1음, `rscanBeep` WebAudio, 체크박스로 끔) + 주문 카드(주문번호 복사·반품/교환·주문처·N Pay·주문일·접수일·상태·사유 코드/원문·송장·택배사·클레임코드·구매자/수령인·품목 표), 세션 스캔 기록, **네이버페이센터 엑셀 드롭존**(`rscanNaverUpload` — **문서 암호 칸 `rscan-np-pw`(2026-09-22b)**: 네이버페이센터 엑셀은 내려받을 때 문서 암호가 필수라 `rscanReadGrid`가 CFB(D0CF) 파일은 xlsx-populate로 복호화(취소·반품 메뉴의 네이버 파일 비밀번호 `NP_PW_KEY` localStorage와 공유, `rscanSavePw`가 양쪽 입력 동기화, 서버 전송 없음), 실패·일반 파일은 SheetJS로 재시도, SheetJS가 password 오류를 내면 암호 미입력/불일치 안내. 날짜 열이 엑셀 직렬값(숫자)이면 `xlDate`로 'YYYY-MM-DD HH:mm:ss' 변환. **같은 송장 여러 줄 합치기(2026-09-22c, 실파일 오류 'ON CONFLICT DO UPDATE command cannot affect row a second time')**: 한 수거 송장에 상품이 여러 개면 송장번호가 반복돼 같은 배치 upsert가 실패 → 클라이언트가 송장별로 1행으로 합침(상품주문번호 쉼표 join, 사유 ' / ', 구분 '·', 상품명·옵션 ', ' — 중복 제거), 서버 `rscan_lookup`은 product_order_no를 쉼표/공백으로 나눠 `naver_ids`에 하나라도 있으면 그 주문으로 연결(PK는 invoice 그대로). 검증: xlsx-populate로 만든 암호 파일 — 암호 없음·틀림 안내, 맞으면 2행 파싱·직렬값 날짜 변환, 일반 xlsx는 암호가 있어도 그대로 읽힘 / 헤더 후보로 열 탐색: 수거송장번호/반품송장번호/…·상품주문번호·클레임구분·사유·택배사·요청일, 200건씩 upsert; 실제 양식 미확인 — 사용자 샘플 받으면 후보 보강), 관리자 '경고 기준' 패널(`rscanSettingsToggle/Save`), '목록 갱신'.
 - 검증: 물류팀 QA 토큰으로 build 200(43s) → lookup 7065701833289 1건(모렌 프릴 가디건, 변심 O → 경고 없음) / 뒷 8자리 1건 / 없는 번호 0건 / V 코드 건 → alert 불량.
+
+## 7-6. 성능·보안 점검 (2026-09-22 사용자 요청 — "가볍게, 그 다음 보안, 기능은 전부 정상")
+
+**성능(측정: 비로그인 로컬 — DOM 1,441개·긴 작업 0·콘솔 오류 0, HTML 937KB/gzip 251KB)**
+- xlsx-populate(190KB) `loadXlsxPopulate()` 지연 로드(사용처 9곳 전부 async라 `await`), FA `fa-solid-900.woff2` preload, `renderAnalytics`는 `#sec-an`이 숨겨져 있으면 `anState.renderPending`만 세우고 `showMenu('an')`에서 그림, 미리보기 `<img loading="lazy">`.
+- 그대로 둔 것: Chart.js(홈 즉시 사용), 상시 폴링 없음(notifLoad 60초 스로틀), 차트 destroy·btnBusy 타이머 정리 OK. **HTML 단일 파일 크기(주석 포함)는 빌드 단계 없이는 못 줄임** — 필요하면 별도 결정.
+
+**보안 — 서버(Explore 에이전트 검토 → 수정·검증 27건 curl 테스트 통과)**
+- `_shared/util.ts`: `safeEqual`(상수 시간 비교, 서명·모든 x-*-secret 비교에 사용), `hmacB64`는 AUTH_SECRET 비면 throw(실패 닫힘). **util 수정 → 11개 함수 전부 재배포함**(auth·cafe24-oauth·cafe24-claims·cafe24-analytics·naver-claims·db·meta-ads·meta-budget·wm-me·wm-admin·notify).
+- `db`: ① `select`에 `(` 또는 `a.b` 키 → 400(FK 임베딩으로 app_users.password_hash 읽히던 통로 — `ad_dashboard_users.user_id→app_users`) ② PATCH/DELETE는 필터 키 필수(select/order/limit/offset/columns/on_conflict 제외) ③ Prefer 허용 문자 `[A-Za-z0-9=,- ]` ④ 본문 배열 1,000행·4MB ⑤ rscan_settings cafe24_url/naver_url https 필수 ⑥ AUTHOR_FIELDS 테이블(회의록·댓글·좋아요·푸시구독)은 on_conflict/merge-duplicates 금지. **클라이언트 호출은 전부 필터 있음·임베딩 없음 확인**(새 호출을 만들 땐 이 규칙 지킬 것).
+- `auth`: 로그인 실패 아이디 10회·IP(x-forwarded-for) 30회 / 15분 → 429(api_cache `loginfail:*`). **`me` 액션**(로그인 토큰 확인 → DB 이름·역할·만료) — #sso 해시용.
+- `cafe24-analytics`: `category_products` 정수 검증+admin/staff, `rscan_build` 비관리자는 15분 내 같은 범위 인덱스 재사용·범위 축소 금지·90일 상한(cron·관리자는 그대로), 기본 summary 비관리자 order_amount=0, 429 재시도 시 갱신 토큰 사용(claims도).
+- `meta-ads` adstats/preview `ad_id` `^\d{1,32}$`, `meta-budget` object_id 동일 + 캐시 삭제 컬럼명 버그(`key`→`cache_key`) 수정, `notify` 발신자 이름 = 토큰의 이름 강제 + 사용자별 시간당 60건, `wm-admin` status `^[a-z_]{1,20}$`, migrations/0019 옛 anon 정책 drop(멱등).
+- DB 점검: public 테이블 전부 RLS on, 정책은 다른 프로젝트 표 3개(kakao_log·kakao_status·topics)만 — 손대지 않음. 버킷 2개 비공개·정책 없음. 함수 verify_jwt 전부 true(cafe24-oauth만 false, 의도).
+
+**보안 — 화면**
+- `escHtml`에 `'`→`&#39;` 추가, **`jsArg(v)`** = `escHtml(JSON.stringify(String(v)))` — `onclick="fn(${jsArg(x)})"` 용(9곳 교체: 직원 관리·광고 대시보드 권한·구매 담당자·주문번호 복사·명세서 파일 삭제). `'${escHtml(x)}'`는 속성 디코딩 후 따옴표가 되살아나 안전하지 않음 — **새 코드는 jsArg 또는 data- 속성**.
+- 근무 관리 미이스케이프 20여 곳(휴가 사유·근태 수정 사유·직원 이름·메모·공휴일명·계좌·기기명·IP·select option), `madeMatchSet` 인자, 오류 문구 6곳 escHtml.
+- `#sso` 해시: 주소 먼저 지우고 토큰만 `PENDING_SSO`에 두었다가 `adoptSso()`가 auth `me`로 확인 → 서버가 준 id/name/role/exp만 저장(해시의 role·exp 불신). 실패 시 로그인 화면.
+- Meta 미리보기: `d.iframe` HTML을 통째로 innerHTML 하지 않고 DOMParser로 iframe src만 꺼내 `https://*.facebook.com/`일 때 새 iframe 생성(릴스 세로 강제 로직 유지).
+- `rscanOpen` 읽기 시에도 https 검사, `logout()`이 문서 암호(NP_PW_KEY) 삭제, sw.js 알림 클릭 주소는 scope 안일 때만.
+- SRI: FA css·Chart.js(정적), xlsx-populate·SheetJS·html2canvas·jsPDF(동적 로더에 integrity/crossOrigin). **SheetJS 0.18.5(cdnjs) → 0.20.3(cdn.sheetjs.com)** — xlsx·EUC-KR CSV·xls 파싱 실측 정상. 버전 올릴 땐 해시 재계산(`curl | openssl dgst -sha384 -binary | base64`).
 
 ## 7-1. 반품 관리 메뉴 `#rwatch` (2026-08-08, 관리자 + MD)
 

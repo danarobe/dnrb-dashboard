@@ -10,8 +10,17 @@ export const CORS_HEADERS: Record<string, string> = {
 // ── 대시보드 사용자 인증 토큰 (HMAC-SHA256 서명, AUTH_SECRET 필요) ──
 export interface AuthUser { id: string; name: string; role: string; exp: number }
 
+// 상수 시간 문자열 비교 (보안 점검 2026-09-22 — 비밀키·서명 비교에 `===` 대신 사용)
+export function safeEqual(a: string, b: string): boolean {
+  const ea = new TextEncoder().encode(String(a ?? "")), eb = new TextEncoder().encode(String(b ?? ""));
+  let diff = ea.length ^ eb.length;
+  for (let i = 0; i < Math.max(ea.length, eb.length); i++) diff |= (ea[i] ?? 0) ^ (eb[i] ?? 0);
+  return diff === 0;
+}
+
 async function hmacB64(data: string): Promise<string> {
   const secret = Deno.env.get("AUTH_SECRET") ?? "";
+  if (!secret) throw new Error("AUTH_SECRET 미설정 — 토큰 서명·검증 불가");   // 비어 있으면 빈 키로 서명되는 사고 방지(보안 점검 2026-09-22): 실패 닫힘
   const key = await crypto.subtle.importKey(
     "raw", new TextEncoder().encode(secret),
     { name: "HMAC", hash: "SHA-256" }, false, ["sign"],
@@ -29,7 +38,7 @@ export async function verifyAuthTokenString(token: string): Promise<AuthUser | n
   const dot = token.lastIndexOf(".");
   if (dot < 1) return null;
   const payload = token.slice(0, dot), sig = token.slice(dot + 1);
-  if (await hmacB64(payload) !== sig) return null;
+  if (!safeEqual(await hmacB64(payload), sig)) return null;
   try {
     const u = JSON.parse(decodeURIComponent(escape(atob(payload)))) as AuthUser;
     if (!u.exp || u.exp < Date.now()) return null;

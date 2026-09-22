@@ -7,7 +7,7 @@
 // 필요 secrets: VAPID_PUBLIC_KEY / VAPID_PRIVATE_KEY / VAPID_SUBJECT
 // ═══════════════════════════════════════════════
 import webpush from "npm:web-push@3.6.7";
-import { handleOptions, json, verifyAuthToken } from "../_shared/util.ts";
+import { handleOptions, json, verifyAuthToken, cacheGet, cacheSet } from "../_shared/util.ts";
 
 const SB_URL = Deno.env.get("SUPABASE_URL")!;
 const SB_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -33,7 +33,13 @@ Deno.serve(async (req) => {
     const ids = [...new Set((targets ?? []).map((t: unknown) => String(t)).filter(Boolean))].slice(0, 20);
     const msg = String(message ?? "").slice(0, 200);
     if (!ids.length || !msg) return json({ error: "targets, message 필수" }, 400);
-    const actor = String(actor_name ?? me.name ?? me.id).slice(0, 40);
+    void actor_name;   // 클라이언트가 보낸 이름은 무시 — 사칭 방지 (보안 점검 2026-09-22)
+    const actor = String(me.name || me.id).slice(0, 40);
+    // 사용자별 시간당 60건 제한
+    const rk = `notifyrate:${me.id}`;
+    const rn = Number(((await cacheGet(rk, 60 * 60 * 1000)) as { n?: number } | null)?.n ?? 0);
+    if (rn >= 60) return json({ error: "알림을 너무 많이 보냈어요 — 잠시 뒤 다시 시도해주세요" }, 429);
+    await cacheSet(rk, { n: rn + 1 });
     const link = String(link_menu ?? "").slice(0, 20);
 
     // 1) 앱 내 알림 행 삽입
