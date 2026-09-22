@@ -109,11 +109,16 @@ function rscanJudge(entry: Record<string, any>, st: typeof RSCAN_DEFAULTS) {
 }
 const rscanDigits = (v: unknown) => String(v ?? "").replace(/[^0-9A-Za-z]/g, "");
 // 최근 days일 반품·교환 주문 → 인덱스 행. 창은 30일씩(카페24 조회 범위 제한), 페이지 200.
+// 기간은 '어제까지 최근 N일'(주문일 기준, 한국 시간) — 2026-09-22 사용자 요청. 오늘 주문은 반품 수거가 있을 수 없어 제외해도 무해.
+function rscanYesterday() {
+  const d = new Date(new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Seoul" }).format(new Date()) + "T00:00:00Z");
+  d.setUTCDate(d.getUTCDate() - 1); return d;
+}
+function rscanStartDate(days: number) { const d = rscanYesterday(); d.setUTCDate(d.getUTCDate() - (days - 1)); return d.toISOString().slice(0, 10); }
 async function rscanBuild(token: string, days: number) {
-  const today = new Date(new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Seoul" }).format(new Date()) + "T00:00:00Z");
   const fmtD = (d: Date) => d.toISOString().slice(0, 10);
   const windows: [string, string][] = [];
-  let end = new Date(today), left = days;
+  let end = rscanYesterday(), left = days;
   while (left > 0) { const span = Math.min(30, left); const start = new Date(end); start.setUTCDate(start.getUTCDate() - (span - 1)); windows.push([fmtD(start), fmtD(end)]); end = new Date(start); end.setUTCDate(end.getUTCDate() - 1); left -= span; }
   const out: Record<string, unknown>[] = [];
   const seen = new Set<string>();
@@ -335,7 +340,7 @@ Deno.serve(async (req) => {
     // ── 반품 송장 스캔 (2026-09-22): 관리자·MD·CS/물류팀 ──
     if (action === "rscan_build" || action === "rscan_lookup" || action === "rscan_status") {
       if (!["admin", "staff", "cs"].includes(authed.role)) return json({ error: "접근 권한이 없습니다" }, 403);
-      const days = Math.min(180, Math.max(7, Number(url.searchParams.get("days") ?? 90) || 90));
+      const days = Math.min(180, Math.max(7, Number(url.searchParams.get("days") ?? 14) || 14));   // 7·14·30·90 중 선택(기본 14), 어제까지
       const [row] = (await sbRest("rscan_index?kind=eq.cafe24&select=built_at,days,row_count" + (action === "rscan_lookup" ? ",payload" : ""))) ?? [];
       const ageMin = row ? Math.round((Date.now() - new Date(row.built_at).getTime()) / 60000) : null;
       if (action === "rscan_status") {
@@ -351,9 +356,12 @@ Deno.serve(async (req) => {
       const q = rscanDigits(url.searchParams.get("q"));
       if (q.length < 6) return json({ error: "송장번호를 6자리 이상 입력해주세요" }, 400);
       let payload: Record<string, any>[] = (row?.payload ?? []) as Record<string, any>[];
-      if (!row || ageMin === null || ageMin > 20) {           // 인덱스가 없거나 20분 넘게 오래됐으면 지금 다시 만든다
-        payload = await rscanBuild(token, row?.days ?? days) as Record<string, any>[];
-      }
+      // 인덱스가 없거나 20분 넘게 오래됐거나 요청 기간보다 짧으면 요청 기간으로 다시 만든다(짧을수록 빠름 — 90일 43초, 14일 약 7초).
+      // 더 긴 인덱스가 신선하면 재사용하고 요청 기간(어제까지 N일)으로 잘라서 본다.
+      const fresh = !!row && ageMin !== null && ageMin <= 20 && Number(row.days ?? 0) >= days;
+      if (!fresh) payload = await rscanBuild(token, days) as Record<string, any>[];
+      const startDate = rscanStartDate(days);
+      payload = payload.filter((e) => !e.order_date || String(e.order_date) >= startDate);
       const st = await rscanSettings();
       const matchInv = (inv: string) => inv && (inv === q || inv.endsWith(q) || q.endsWith(inv));
       let hits = payload.filter((e) => matchInv(String(e.invoice ?? "")));
@@ -369,7 +377,7 @@ Deno.serve(async (req) => {
         }
       }
       const result = hits.map((e) => ({ ...e, alert: rscanJudge({ ...e, reason: e.naver ? `${e.reason} ${e.naver_reason ?? ""}` : e.reason }, st) }));
-      return json({ q, hits: result, naver_row: naverRow && !hits.length ? naverRow : null, index: { built_at: row?.built_at ?? new Date().toISOString(), row_count: payload.length, days: row?.days ?? days } });
+      return json({ q, hits: result, naver_row: naverRow && !hits.length ? naverRow : null, index: { built_at: fresh ? row!.built_at : new Date().toISOString(), row_count: payload.length, days, start_date: startDate } });
     }
 
     // ── 카테고리 목록 ──
