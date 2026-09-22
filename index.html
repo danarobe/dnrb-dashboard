@@ -3088,6 +3088,18 @@ async function rscanNaverUpload(fileList) {
         rows.push({ invoice: inv, product_order_no: v('pon').replace(/\.0$/, ''), order_no: v('ono').replace(/\.0$/, ''), kind: v('kind'), reason: v('reason'), company: v('company'), claim_date: v('date').slice(0, 19), product_name: v('pname'), option_text: v('opt'), uploaded_by: SESSION.name, uploaded_at: new Date().toISOString() });
       }
       if (!rows.length) throw new Error('수거 송장번호가 있는 행이 없어요');
+      // 한 수거 송장에 상품이 여러 줄이면 송장번호가 반복됨(실사례 — 같은 배치 upsert 충돌) → 송장 하나로 합치고 상품주문번호·상품명은 쉼표로 모아 둠
+      const merged = new Map();
+      const joinU = (a, b, sep) => { const set = new Set(String(a || '').split(sep).map(x => x.trim()).filter(Boolean)); String(b || '').split(sep).map(x => x.trim()).filter(Boolean).forEach(x => set.add(x)); return [...set].join(sep); };
+      for (const r of rows) {
+        const m = merged.get(r.invoice);
+        if (!m) { merged.set(r.invoice, r); continue; }
+        m.product_order_no = joinU(m.product_order_no, r.product_order_no, ',');
+        m.order_no = m.order_no || r.order_no; m.kind = joinU(m.kind, r.kind, '·'); m.reason = joinU(m.reason, r.reason, ' / ');
+        m.company = m.company || r.company; m.claim_date = m.claim_date || r.claim_date;
+        m.product_name = joinU(m.product_name, r.product_name, ', '); m.option_text = joinU(m.option_text, r.option_text, ', ');
+      }
+      rows.length = 0; rows.push(...merged.values());
       for (let i = 0; i < rows.length; i += 200) {
         await dbProxy('rscan_naver?on_conflict=invoice', { method: 'POST', headers: { Prefer: 'resolution=merge-duplicates,return=minimal' }, body: JSON.stringify(rows.slice(i, i + 200)) });
       }

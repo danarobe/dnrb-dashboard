@@ -362,8 +362,9 @@ Deno.serve(async (req) => {
         const nv = await sbRest(`rscan_naver?select=*&invoice=like.*${encodeURIComponent(q)}`);
         naverRow = (nv ?? []).find((r: any) => matchInv(String(r.invoice))) ?? null;
         if (naverRow) {
-          const pon = String(naverRow.product_order_no ?? "");
-          hits = payload.filter((e) => pon && (e.naver_ids ?? []).includes(pon));
+          // 한 수거 송장에 상품 여러 개면 클라이언트가 상품주문번호를 쉼표로 합쳐 저장 → 그중 하나라도 맞으면 그 주문
+          const pons = String(naverRow.product_order_no ?? "").split(/[,\s]+/).filter(Boolean);
+          hits = payload.filter((e) => pons.length && (e.naver_ids ?? []).some((id: unknown) => pons.includes(String(id))));
           hits = hits.map((e) => ({ ...e, invoice: naverRow!.invoice, company: naverRow!.company ?? e.company, reason: e.reason || naverRow!.reason || "", naver_reason: naverRow!.reason ?? null, naver_kind: naverRow!.kind ?? null }));
         }
       }
