@@ -1190,10 +1190,12 @@
       <!-- 소메뉴 (2026-09-22 사용자 요청): ① 송장 스캔 ② 불량·오배송 처리(최근 1달 경고 건 + 처리전/처리완료 체크, rscan_done 팀 공유) -->
       <div id="rscan-tabs" style="display:flex;gap:2px;border-bottom:2px solid #e5e7eb;margin-bottom:14px;flex-wrap:wrap;"></div>
       <div id="rscan-pane-scan" class="rscan-pane">
-      <div style="font-size:.8rem;color:#6b7280;margin-bottom:10px;line-height:1.7;">
-        · 반품 상자의 <b>반품 송장 바코드</b>를 스캐너로 찍거나 번호를 입력하면 카페24 주문건을 찾아 보여줍니다. 뒷자리 일부만 넣어도 돼요.<br>
-        · 사유가 <b>불량·오배송</b>이면 빨간 경고와 소리가 나요(자사몰: 사유 코드 불량 K·V·D, 배송오류 C·J·W / 네이버페이: '오배송'·'상품 파손'·'불량'). 사유 문구에 불량·오배송 낌새가 있으면 노란 주의.<br>
-        · <b>네이버페이 주문</b>은 카페24에 반품 송장이 없어요. 네이버페이센터의 반품·교환 목록 엑셀을 아래에 올려두면 그 송장으로도 찾습니다.
+      <!-- 주의사항·사용법 (2026-09-22 사용자 지정 문구) -->
+      <div style="background:#f8f9ff;border:1.5px solid #e0e7ff;border-radius:12px;padding:10px 14px;margin-bottom:12px;font-size:.8rem;color:#374151;line-height:1.8;">
+        <div style="font-weight:800;color:#4338ca;margin-bottom:2px;"><i class="fa-solid fa-circle-info"></i> 주의사항 · 사용법</div>
+        <div><b>1.</b> 매일 아침, <b>"네이버페이센터 반품·교환 엑셀"</b> 등록 후 진행해주세요. <span style="color:#6b7280;">(아래 올리기 칸 — 네이버페이 주문은 이 엑셀이 있어야 송장으로 찾을 수 있어요)</span></div>
+        <div><b>2.</b> 반품 택배의 <b>반품 송장 바코드</b>를 찍거나 번호를 입력하면 카페24 주문건을 찾아서 보여줍니다.</div>
+        <div><b>3.</b> 사유가 <b>불량·오배송</b>이면 빨간 경고와 소리가 나요 <span style="color:#6b7280;">(불량은 빨강, 오배송은 보라)</span> / 접수 사유 문구가 <b>"불량·오배송으로 추측"</b>되면 노란 주의로 표기돼요.</div>
       </div>
       <div id="rscan-status" style="display:flex;gap:14px;flex-wrap:wrap;font-size:.74rem;color:#6b7280;margin-bottom:12px;"></div>
       <div id="rscan-settings" style="display:none;margin-bottom:12px;"></div>
