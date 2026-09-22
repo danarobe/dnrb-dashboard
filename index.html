@@ -1236,6 +1236,7 @@
         <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px;">
           <span id="rscan-issue-filters" class="qp"></span>
           <button class="toggle-btn" onclick="rscanIssuesLoad(true)"><i class="fa-solid fa-rotate"></i> 새로고침</button>
+          <button class="toggle-btn" onclick="rscanIssuesXlsx()" title="지금 보이는 목록(필터 적용)을 엑셀로 저장"><i class="fa-solid fa-file-excel" style="color:#15803d;"></i> 엑셀 다운로드</button>
           <span id="rscan-issues-meta" style="font-size:.74rem;color:#6b7280;"></span>
         </div>
         <div id="rscan-issues"></div>
@@ -3005,6 +3006,45 @@ function rscanIssuesRender() {
       <td class="m-hide" style="white-space:nowrap;font-size:.76rem;">${escHtml(i.claim_date || i.order_date || '')}</td></tr>`;
   }).join('');
   $('rscan-issues').innerHTML = `<div class="table-wrap"><table style="width:100%;font-size:.82rem;"><thead><tr><th>처리</th><th>구분</th><th style="text-align:left;">주문번호</th><th style="text-align:left;">이름</th><th style="text-align:left;">상품</th><th class="m-hide" style="text-align:left;">사유</th><th class="m-hide">접수일</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+}
+/* 불량·오배송 처리 목록 엑셀 — 현재 필터(처리전/처리완료/전체)에 보이는 건만, 화면과 같은 순서 */
+async function rscanIssuesXlsx() {
+  const r = rscanState.issues; if (!r) { showToast('먼저 목록을 불러와주세요'); return; }
+  const isDone = i => !!r.done[i.key];
+  const list = r.issues.filter(i => rscanState.issueFilter === 'all' || (rscanState.issueFilter === 'done') === isDone(i));
+  if (!list.length) { showToast('내려받을 건이 없어요'); return; }
+  try {
+    if (typeof XlsxPopulate === 'undefined') throw new Error('엑셀 라이브러리 로드 실패 — 페이지를 새로고침해주세요');
+    const wb = await XlsxPopulate.fromBlankAsync();
+    const ws = wb.sheet(0).name('불량오배송');
+    const headers = ['처리 상태', '처리자', '처리 시각', '구분', '판정', '판정 근거', '주문번호', '주문일', '접수일', '구매자', '수령인', '주문처', '접수 상품', '옵션', '수량', '사유 코드', '사유', '네이버 사유', '반품 송장', '택배사', '주문 상태'];
+    headers.forEach((h, i) => ws.cell(1, i + 1).value(h).style({ bold: true, fill: 'EEF2FF' }));
+    [9, 9, 16, 6, 8, 16, 20, 11, 11, 10, 10, 12, 40, 22, 6, 8, 30, 20, 16, 12, 12].forEach((w, i) => ws.column(i + 1).width(w));
+    const when = t => t ? String(t).replace('T', ' ').slice(0, 16) : '';
+    let ri = 2;
+    for (const i of list) {
+      const d = r.done[i.key]; const a = i.alert || {};
+      const items = (i.items && i.items.length) ? i.items : [{ name: '', option: '', qty: '' }];
+      items.forEach((it, k) => {   // 품목이 여러 개면 줄을 나누고 주문 정보는 첫 줄에만
+        const first = k === 0;
+        const row = first
+          ? [d ? '처리완료' : '처리전', d ? (d.by || '') : '', d ? when(d.at) : '', i.kind === 'exchange' ? '교환' : '반품', `${a.type || ''}${a.level === 'warn' ? ' 의심' : ''}`, a.by ? `${a.by} ${a.hit || ''}` : '',
+             i.order_id, i.order_date || '', i.claim_date || '', i.buyer || '', i.receiver || '', `${i.place || ''}${i.naver ? ' (N Pay)' : ''}`]
+          : ['', '', '', '', '', '', '', '', '', '', '', ''];
+        row.push(it.name || '', it.option || '', it.qty === '' ? '' : Number(it.qty || 0));
+        row.push(...(first ? [i.reason_type || '', i.reason || '', i.naver_reason || '', i.invoice || '', i.company || '', i.status || ''] : ['', '', '', '', '', '']));
+        row.forEach((v, ci) => { if (v !== '' && v != null) ws.cell(ri, ci + 1).value(v); });
+        ri++;
+      });
+    }
+    ws.freezePanes(0, 1);
+    const blob = await wb.outputAsync();
+    const a = document.createElement('a');
+    const label = { todo: '처리전', done: '처리완료', all: '전체' }[rscanState.issueFilter] || '';
+    a.href = URL.createObjectURL(blob); a.download = `불량오배송_${label}_${new Date().toISOString().slice(0, 10).replace(/-/g, '')}.xlsx`;
+    document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 3000);
+    showToast(`${list.length}건 엑셀 저장`);
+  } catch (e) { showToast('엑셀 저장 실패: ' + e.message); }
 }
 async function rscanIssueToggle(cb) {
   const r = rscanState.issues; if (!r) return;

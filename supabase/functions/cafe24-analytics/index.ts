@@ -135,7 +135,11 @@ async function rscanBuild(token: string, days: number) {
           for (const c of (claims.length ? claims : [{}])) {
             const key = `${kind}:${o.order_id}:${c.claim_code ?? ""}`;
             if (seen.has(key)) continue; seen.add(key);
-            const its = items.filter((it) => !c.claim_code || it.claim_code === c.claim_code || !it.claim_code);
+            // 고객이 반품·교환 접수한 품목만(2026-09-22 사용자 지적 — 전에는 claim_code 없는 정상 품목까지 섞여 주문 상품이 다 보였음):
+            // ① 이 클레임 코드가 붙은 품목 → ② 없으면 반품(R)·교환(E) 상태인 품목 → ③ 그래도 없으면 전체(안전망)
+            let its = c.claim_code ? items.filter((it) => it.claim_code === c.claim_code) : [];
+            if (!its.length) its = items.filter((it) => /^[RE]\d/.test(String(it.order_status ?? "")));
+            if (!its.length) its = items;
             out.push({
               kind, invoice: rscanDigits(c.return_invoice_no), company: c.return_shipping_company_name ?? null,
               order_id: o.order_id, order_date: String(o.order_date ?? "").slice(0, 10), place: o.order_place_name ?? "", naver,
