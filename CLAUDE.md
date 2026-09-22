@@ -354,6 +354,14 @@ AUTHOR_FIELDS(notes/comments=author_id, likes=user_id): POST는 본인 id 필수
 - 8/1~3 Meta 실측: Meta ROAS 5.46·카페24 ROAS 6.09 (광고비·구매 절대액은 공개 문서에 기재 금지).
 - 배송정책: 배송비 3,000(7만↑ 무료), 교환·전체반품 왕복 6,000, 부분반품 잔여 7만 기준 3,000/6,000.
 
+## 7-0. 반품 송장 스캔 `#rscan` (2026-09-22 사용자 요청 — 관리자 + MD + CS/물류팀)
+- **문제**: 수거된 반품 상자의 반품 송장 바코드를 찍어도 카페24에서 주문을 못 찾고, 어느 건이 불량·오배송(검수 필요)인지 바로 모른다. 네이버페이 주문은 반품 송장을 네이버페이센터에서만 볼 수 있다.
+- **실측(2026-09-22)**: 카페24 `orders?embed=return|exchange`에 `return_invoice_no`·`return_shipping_company_name`이 있음(자사몰 반품 99%·교환 55%). **네이버페이(NCHECKOUT) 주문은 전부 null**. 별도 `/admin/return(s)`·`/claims` 엔드포인트는 없음(404). 사유 코드(`claim_reason_type`) 6개월 원문 판정: **K·V=상품불량, J·W=배송오류/오배송, C=배송지 오류**, O/P/A=변심·불만족·사이즈, E=사이즈 변경(불량 아님), H=품절. 네이버 사유는 `claim_reason` 괄호 안 '(구매자 주문취소 : 오배송|상품 파손|구매 의사 취소…)'. 기존 `naver-claims`(스마트스토어 커머스API)는 이 몰 네이버페이 주문형 클레임을 못 봄(0건) → **네이버페이센터 엑셀 업로드**로 보완.
+- **서버 `cafe24-analytics`**: `rscan_build&days=90`(최근 N일 R00/R10/R30/R34/R40 + E00~E40 주문을 30일 창·200건 페이지로 모아 `rscan_index`(kind cafe24, payload JSONB)에 저장 — 90일 43초·4,496건, 송장 있는 건 2,777) / `rscan_lookup&q=`(숫자만, 6자리 이상, 정확·뒷자리 일치; 없으면 `rscan_naver` 수거 송장 → 상품주문번호 → `items.naver_pay_order_id`로 카페24 주문 연결; **인덱스가 없거나 20분 넘으면 조회 시 자동 재생성**) / `rscan_status`. 권한 admin/staff/cs. **api_cache는 1시간 지나면 지워지므로 인덱스는 전용 테이블**(migrations/0016: rscan_index·rscan_naver·rscan_settings, db 프록시 rscan_naver 전원·rscan_settings 쓰기 admin).
+- **경고 판정 `rscanJudge`**(rscan_settings로 조정, 기본 `RSCAN_DEFAULTS`): 자사몰 코드 불량 K·V·D / 오배송 C·J·W → **빨간 경고(alert)**, 사유 원문 키워드(불량·파손·하자·오염·이염·올풀림·박음질·봉제·구멍·얼룩 / 오배송·잘못 발송·다른 상품·타상품·다른 색상·누락) → **노란 주의(warn)**, 네이버페이 사유 '오배송'·'상품 파손'·'파손'·'불량' → 빨간 경고.
+- **화면**: 메뉴 '반품 스캔'(운영, `menu-rscan`, CS 허용 목록에 추가) — 큰 입력칸(autofocus, Enter 또는 13자리 이상 자동 조회 `rscanAutoLookup`), 결과 = 배너(빨강 깜빡임+경고음 4음 / 노랑 2음 / 초록 1음, `rscanBeep` WebAudio, 체크박스로 끔) + 주문 카드(주문번호 복사·반품/교환·주문처·N Pay·주문일·접수일·상태·사유 코드/원문·송장·택배사·클레임코드·구매자/수령인·품목 표), 세션 스캔 기록, **네이버페이센터 엑셀 드롭존**(`rscanNaverUpload` — 헤더 후보로 열 탐색: 수거송장번호/반품송장번호/…·상품주문번호·클레임구분·사유·택배사·요청일, 200건씩 upsert; 실제 양식 미확인 — 사용자 샘플 받으면 후보 보강), 관리자 '경고 기준' 패널(`rscanSettingsToggle/Save`), '목록 갱신'.
+- 검증: 물류팀 QA 토큰으로 build 200(43s) → lookup 7065701833289 1건(모렌 프릴 가디건, 변심 O → 경고 없음) / 뒷 8자리 1건 / 없는 번호 0건 / V 코드 건 → alert 불량.
+
 ## 7-1. 반품 관리 메뉴 `#rwatch` (2026-08-08, 관리자 + MD)
 
 목적: 잘 팔리는데 반품이 많은 상품을 잡아 대응하고, '관리 상품'으로 모아 추적.

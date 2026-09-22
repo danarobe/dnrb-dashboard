@@ -28,6 +28,8 @@ const TABLE_ROLES: Record<string, string[]> = {
   project_tasks: ["admin"],     // 프로젝트 관리 업무 (관리자 전용 — 사용자 결정 2026-08-19)
   board_topics: ["admin"],      // 대표 회의보드 안건 (관리자 전용 — 사용자 결정 2026-08-19, 대표끼리 서로 수정 가능이라 AUTHOR_FIELDS 미적용)
   made_products: ["admin", "staff"],
+  rscan_naver: ["admin", "staff", "cs"],      // 반품 송장 스캔 — 네이버페이센터 엑셀에서 만든 수거 송장 표 (2026-09-22, 물류팀 포함)
+  rscan_settings: ["admin", "staff", "cs"],   // 반품 송장 스캔 — 경고 사유 설정 (읽기 전원, 쓰기 admin은 커스텀 규칙)
   made_check_files: ["admin", "staff"],   // 자체제작 재고·입고 점검 — 셀메이트 CSV·이지픽 엑셀 파싱 결과 공유 저장 (2026-09-21)
   made_watch_products: ["admin", "staff"],  // 자체제작 외 함께 점검할 지정 상품 (2026-09-21)   // 자체제작 주문 점검 — 제작처(중국/국내)·리드타임 태그. 읽기·쓰기 admin+MD (2026-09-03 사용자 요청으로 MD에도 지정 권한)
   purchase_requests: ["admin", "staff", "cs"],   // 직원 구매요청 (2026-08-31) — 등록 전원, 상태·입금·확인은 아래 커스텀 규칙
@@ -75,7 +77,7 @@ Deno.serve(async (req) => {
     // ── 직원 구매요청 커스텀 규칙 (2026-08-31 사용자 지정) ──
     // 등록(POST)은 전원(본인 명의 강제) · 상태/입금/확인 변경은 admin 또는 구매 담당자(purchase_managers)만 ·
     // 일반 직원의 PATCH는 본인 행 + 내용 필드만 · DELETE는 본인 행만(admin은 전체) · 담당자 목록 쓰기는 admin만.
-    if ((table === "purchase_managers" || table === "ad_dashboard_users") && m !== "GET" && me.role !== "admin") {
+    if ((table === "purchase_managers" || table === "ad_dashboard_users" || table === "rscan_settings") && m !== "GET" && me.role !== "admin") {
       return json({ error: "담당자 지정은 관리자만 가능합니다" }, 403);
     }
     if (table === "purchase_requests") {

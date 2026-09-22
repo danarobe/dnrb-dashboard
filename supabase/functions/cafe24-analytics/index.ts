@@ -66,6 +66,91 @@ async function getAccessToken(force = false): Promise<string> {
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+// ── Supabase 테이블 직접 접근(서비스 키) — 반품 송장 스캔 인덱스/설정용 (2026-09-22) ──
+async function sbRest(path: string, init: RequestInit = {}): Promise<any> {
+  const res = await fetch(`${Deno.env.get("SUPABASE_URL")}/rest/v1/${path}`, {
+    ...init,
+    headers: { apikey: Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!, Authorization: `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`, "Content-Type": "application/json", Prefer: "return=representation", ...(init.headers ?? {}) },
+  });
+  const text = await res.text();
+  if (!res.ok) throw new Error(`db ${res.status}: ${text.slice(0, 200)}`);
+  return text ? JSON.parse(text) : null;
+}
+
+/* ══ 반품 송장 스캔 (2026-09-22 사용자 요청) ══
+   문제: 수거된 반품 상자의 송장 바코드를 찍어도 카페24에서 주문을 못 찾고, 불량·오배송 건인지 바로 알 수 없다.
+   해법: 최근 N일 반품(R*)·교환(E*) 주문을 embed=return|exchange 로 모아 return_invoice_no → 주문 인덱스를 만들어 두고(rscan_index),
+        스캔한 번호로 조회. 네이버페이 주문은 카페24에 반품 송장이 없어(실측 0건) 네이버페이센터 엑셀(rscan_naver)로 보완.
+   경고 규칙(기본값, rscan_settings로 조정): 자사몰 claim_reason_type 불량 K·V·D / 배송오류 C·J·W (6개월 실데이터 사유 원문으로 판정),
+        사유 원문 키워드(불량·파손·하자·오염·이염·올풀림·박음질·봉제 / 오배송·잘못 발송·다른 상품·타상품), 네이버페이 사유 '오배송'·'상품 파손'·'불량'. */
+const RSCAN_DEFAULTS = {
+  defect_codes: ["K", "V", "D"], misdeliver_codes: ["C", "J", "W"],
+  defect_words: ["불량", "파손", "하자", "오염", "이염", "올풀림", "올 풀림", "박음질", "봉제", "구멍", "얼룩"],
+  misdeliver_words: ["오배송", "잘못 발송", "잘못발송", "다른 상품", "다른상품", "타상품", "잘못된 상품", "다른 색상", "다른색상", "누락"],
+  naver_words: ["오배송", "상품 파손", "파손", "불량"],
+};
+async function rscanSettings() {
+  try { const rows = await sbRest("rscan_settings?id=eq.1&select=settings"); return { ...RSCAN_DEFAULTS, ...((rows?.[0]?.settings) ?? {}) }; } catch { return RSCAN_DEFAULTS; }
+}
+function rscanJudge(entry: Record<string, any>, st: typeof RSCAN_DEFAULTS) {
+  const reason = String(entry.reason ?? "");
+  const has = (words: string[]) => words.find((w) => w && reason.includes(w));
+  if (entry.naver) {
+    const w = has(st.naver_words);
+    if (w) return { level: "alert", type: /오배송/.test(w) ? "오배송" : "불량", by: "네이버 사유", hit: w };
+    return null;
+  }
+  const t = String(entry.reason_type ?? "");
+  if (t && st.defect_codes.includes(t)) return { level: "alert", type: "불량", by: "사유 코드", hit: t };
+  if (t && st.misdeliver_codes.includes(t)) return { level: "alert", type: "오배송", by: "사유 코드", hit: t };
+  let w = has(st.defect_words); if (w) return { level: "warn", type: "불량", by: "사유 문구", hit: w };
+  w = has(st.misdeliver_words); if (w) return { level: "warn", type: "오배송", by: "사유 문구", hit: w };
+  return null;
+}
+const rscanDigits = (v: unknown) => String(v ?? "").replace(/[^0-9A-Za-z]/g, "");
+// 최근 days일 반품·교환 주문 → 인덱스 행. 창은 30일씩(카페24 조회 범위 제한), 페이지 200.
+async function rscanBuild(token: string, days: number) {
+  const today = new Date(new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Seoul" }).format(new Date()) + "T00:00:00Z");
+  const fmtD = (d: Date) => d.toISOString().slice(0, 10);
+  const windows: [string, string][] = [];
+  let end = new Date(today), left = days;
+  while (left > 0) { const span = Math.min(30, left); const start = new Date(end); start.setUTCDate(start.getUTCDate() - (span - 1)); windows.push([fmtD(start), fmtD(end)]); end = new Date(start); end.setUTCDate(end.getUTCDate() - 1); left -= span; }
+  const out: Record<string, unknown>[] = [];
+  const seen = new Set<string>();
+  for (const [kind, status, embed] of [["return", "R00,R10,R30,R34,R40", "items,return,receivers"], ["exchange", "E00,E10,E20,E30,E40", "items,exchange,receivers"]] as const) {
+    for (const [a, b] of windows) {
+      for (let offset = 0; offset < 6000; offset += 200) {
+        const body = await apiGet(`${API_BASE}/admin/orders?start_date=${a}&end_date=${b}&order_status=${status}&embed=${embed}&limit=200&offset=${offset}&date_type=order_date`, token);
+        const orders = (body.orders ?? []) as Record<string, any>[];
+        for (const o of orders) {
+          const claims = (o[kind] ?? []) as Record<string, any>[];
+          const items = (o.items ?? []) as Record<string, any>[];
+          const recv = ((o.receivers ?? []) as Record<string, any>[])[0] ?? {};
+          const naver = o.order_place_id === "NCHECKOUT";
+          for (const c of (claims.length ? claims : [{}])) {
+            const key = `${kind}:${o.order_id}:${c.claim_code ?? ""}`;
+            if (seen.has(key)) continue; seen.add(key);
+            const its = items.filter((it) => !c.claim_code || it.claim_code === c.claim_code || !it.claim_code);
+            out.push({
+              kind, invoice: rscanDigits(c.return_invoice_no), company: c.return_shipping_company_name ?? null,
+              order_id: o.order_id, order_date: String(o.order_date ?? "").slice(0, 10), place: o.order_place_name ?? "", naver,
+              claim_code: c.claim_code ?? null, reason_type: c.claim_reason_type ?? null, reason: String(c.claim_reason ?? "").trim(),
+              claim_date: String(its[0]?.return_request_date ?? its[0]?.exchange_request_date ?? c.claim_due_date ?? "").slice(0, 10),
+              status: its[0]?.status_text ?? its[0]?.order_status ?? "", status_extra: its[0]?.order_status_additional_info ?? "",
+              buyer: o.billing_name ?? "", receiver: recv.name ?? "",
+              items: its.map((it) => ({ name: it.product_name, option: it.option_value ?? "", qty: Number(it.quantity ?? 0), tracking_no: it.tracking_no ?? "", status: it.status_text ?? "", naver_id: it.naver_pay_order_id ?? null })),
+              naver_ids: [...new Set(its.map((it) => it.naver_pay_order_id).filter(Boolean))],
+            });
+          }
+        }
+        if (orders.length < 200) break;
+      }
+    }
+  }
+  await sbRest("rscan_index?on_conflict=kind", { method: "POST", headers: { Prefer: "resolution=merge-duplicates,return=minimal" }, body: JSON.stringify({ kind: "cafe24", built_at: new Date().toISOString(), days, row_count: out.length, payload: out }) });
+  return out;
+}
+
 // 카페24 요청 한도(429 "Too much requests occur. (40/40)") — 홈처럼 여러 조회가 겹치면 쉽게 걸린다.
 // 버킷이 다시 차기를 기다렸다가 재시도한다. Retry-After가 오면 그 값을 우선 따른다.
 const RATE_LIMIT_RETRIES = 6;
@@ -246,6 +331,45 @@ Deno.serve(async (req) => {
     const respond = async (body: unknown) => { await cacheSet(cacheKey, body); return json(body); };
 
     const token = await getAccessToken();
+
+    // ── 반품 송장 스캔 (2026-09-22): 관리자·MD·CS/물류팀 ──
+    if (action === "rscan_build" || action === "rscan_lookup" || action === "rscan_status") {
+      if (!["admin", "staff", "cs"].includes(authed.role)) return json({ error: "접근 권한이 없습니다" }, 403);
+      const days = Math.min(180, Math.max(7, Number(url.searchParams.get("days") ?? 90) || 90));
+      const [row] = (await sbRest("rscan_index?kind=eq.cafe24&select=built_at,days,row_count" + (action === "rscan_lookup" ? ",payload" : ""))) ?? [];
+      const ageMin = row ? Math.round((Date.now() - new Date(row.built_at).getTime()) / 60000) : null;
+      if (action === "rscan_status") {
+        const nv = await sbRest("rscan_naver?select=uploaded_at,uploaded_by&order=uploaded_at.desc&limit=1");
+        const nvCount = await sbRest("rscan_naver?select=invoice");
+        return json({ built_at: row?.built_at ?? null, days: row?.days ?? null, row_count: row?.row_count ?? 0, age_min: ageMin, naver: { count: (nvCount ?? []).length, last: nv?.[0] ?? null }, settings: await rscanSettings() });
+      }
+      if (action === "rscan_build") {
+        const rows = await rscanBuild(token, days);
+        return json({ ok: true, row_count: rows.length, days, with_invoice: rows.filter((r: any) => r.invoice).length, built_at: new Date().toISOString() });
+      }
+      // lookup
+      const q = rscanDigits(url.searchParams.get("q"));
+      if (q.length < 6) return json({ error: "송장번호를 6자리 이상 입력해주세요" }, 400);
+      let payload: Record<string, any>[] = (row?.payload ?? []) as Record<string, any>[];
+      if (!row || ageMin === null || ageMin > 20) {           // 인덱스가 없거나 20분 넘게 오래됐으면 지금 다시 만든다
+        payload = await rscanBuild(token, row?.days ?? days) as Record<string, any>[];
+      }
+      const st = await rscanSettings();
+      const matchInv = (inv: string) => inv && (inv === q || inv.endsWith(q) || q.endsWith(inv));
+      let hits = payload.filter((e) => matchInv(String(e.invoice ?? "")));
+      let naverRow: Record<string, any> | null = null;
+      if (!hits.length) {   // 네이버페이센터 엑셀 표에서 수거 송장 → 상품주문번호 → 카페24 주문
+        const nv = await sbRest(`rscan_naver?select=*&invoice=like.*${encodeURIComponent(q)}`);
+        naverRow = (nv ?? []).find((r: any) => matchInv(String(r.invoice))) ?? null;
+        if (naverRow) {
+          const pon = String(naverRow.product_order_no ?? "");
+          hits = payload.filter((e) => pon && (e.naver_ids ?? []).includes(pon));
+          hits = hits.map((e) => ({ ...e, invoice: naverRow!.invoice, company: naverRow!.company ?? e.company, reason: e.reason || naverRow!.reason || "", naver_reason: naverRow!.reason ?? null, naver_kind: naverRow!.kind ?? null }));
+        }
+      }
+      const result = hits.map((e) => ({ ...e, alert: rscanJudge({ ...e, reason: e.naver ? `${e.reason} ${e.naver_reason ?? ""}` : e.reason }, st) }));
+      return json({ q, hits: result, naver_row: naverRow && !hits.length ? naverRow : null, index: { built_at: row?.built_at ?? new Date().toISOString(), row_count: payload.length, days: row?.days ?? days } });
+    }
 
     // ── 카테고리 목록 ──
     if (action === "categories") {
