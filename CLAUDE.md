@@ -24,7 +24,7 @@
 - 알림: 출장 여비·서류 요청·급여 명세서 관련 알림은 `notify` 함수 경유(앱 종 + 웹 푸시, `title` 파라미터) → §7-5.
 - 친구 광고 대시보드(ad-dashboard) 연동: 메뉴 '광고관리자' = SSO 링크(`auth sso_issue {aud}`·`verify`, 전용 토큰), 허용 목록 `ad_dashboard_users` + 세부 권한 `perms`(직원 관리 칩·모달), 내장 광고관리자는 '광고관리자(기존)'으로 `admin` 계정만 → §5 광고관리자.
 - **반품 송장 스캔(#rscan, 2026-09-22 신설)** → §7-0.
-- 마이그레이션 0007~0017(supabase/migrations) 전부 적용됨(0017 rscan_done 2026-09-22). 함수 최신 배포: auth·db·notify·wm-me·wm-admin·cafe24-analytics.
+- 마이그레이션 0007~0018(supabase/migrations) 전부 적용됨(0017 rscan_done·0018 cleared 2026-09-22). 함수 최신 배포: auth·db·notify·wm-me·wm-admin·cafe24-analytics.
 
 **진행 중 / 사용자 답 대기**
 1. **반품 스캔 — 네이버페이센터 반품/교환 엑셀 샘플 대기**: 실제 열 이름을 못 봤다. (2026-09-22b~d: 문서 암호·같은 송장 합치기·기간 선택·바로가기 버튼까지 추가됨 — §7-0. **카페24 주문 상세 바로가기 주소 형식 실검증 대기**: 사용자가 눌러 보고 틀리면 실제 주소를 받아 기본값 수정.) 받으면 `rscanNaverUpload`의 헤더 후보(수거송장번호·상품주문번호·클레임구분·사유·택배사·요청일)를 실양식에 맞추고 실파일로 검증. 경고 코드 기본값(K·V·D / C·J·W)은 6개월 실데이터 추정 — 사용자 실사용 피드백 반영.
@@ -392,6 +392,9 @@ AUTHOR_FIELDS(notes/comments=author_id, likes=user_id): POST는 본인 id 필수
   - **주문 단위 묶음(2026-09-22h 사용자 요청)**: 응답 `issues`는 그룹(`key`=`kind:order_id`, 반품/교환은 줄 따로) + `claims[]`(접수별 claim_code·claim_date·status·status_extra·items·reason·alert·collected·exchanged). 사용자가 본 '같은 주문 두 줄'은 접수 2건 중 하나가 **교환철회**였음 → `status_extra`/`status`에 '철회'가 든 접수는 제외. 그룹 대표 판정은 alert 우선. `naver_ids`는 접수 합집합.
   - **구분 칩** `#rscan-issue-kinds` 전체/반품/교환(`rscanState.issueKind`) + 상태 칩 처리전/처리완료/전체(구분 필터 안에서 집계). 탭 배지 = 자동·수동 처리완료 제외한 처리전 건수.
   - **자동 처리완료(반품만)**: `auto_done` = 접수 전부 `collected`(status '반품완료' 또는 '반품처리중'+extra '환불전'. 실데이터: 반품처리중 extra는 '수거전'/'환불전' 둘뿐, 반품접수는 '수거접수완료') → 체크박스 checked+disabled, '수거 완료 · 자동'. 미수거는 '수거 전'/'일부 수거 완료' 표시. **교환은 자동 없음** — status '교환완료'면 '카페24 교환완료 (참고)' 안내만, 처리완료는 수동 체크(사용자 지정).
+  - **기간 2달(2026-09-22i 사용자 정정, 처음 1달)**: 서버 `DAYS = 60`, 클라 needBuild 기준 60·문구 '최근 2달'. 신선한 90일 인덱스가 있으면 재사용.
+  - **처리완료 정리(2026-09-22i)**: 버튼 `rscanIssuesClear` → 처리완료(자동 수거 완료 포함, 필터 무관 전부)를 confirm 후 `rscan_done`에 `cleared=true, cleared_at`(migrations/0018)로 upsert(200건씩) → 서버가 그룹 키/접수 키 중 cleared인 그룹을 응답에서 제외(`cleared_count`로 건수만 알림). 카페24 데이터·처리 기록은 보존, 되돌리려면 SQL로 cleared=false. 목적: 처리된 건이 화면에 쌓이지 않게(실제 메모리 부담은 rscan_index 재생성이 매번 하므로 없음).
+  - **스캔 경고 구분(2026-09-22i)**: `rscanTheme(alert)` — 불량=빨강(#ef4444, 삼각 느낌표) / 오배송=보라(#9333ea, 트럭) / 의심=노랑 / 정상=초록. 경고 배너 1.7rem 큰 글씨 + 카드 배경·글자색을 테마색으로, 입력칸 테두리 4초 경고색(`rscanFlashInput`), 깜빡임 그림자색도 테마. `rscanBeep(kind, type)` — 불량 4음(880/660 교대), **오배송 = 1200Hz 3연타 + 520Hz 길게 ×2회**, 의심은 2음(오배송 의심은 740→980 상승), 정상 1음.
   - `rscan_done` 키는 이제 그룹 키 `kind:order_id`로 저장. 서버는 그룹 키 또는 옛 접수 키(`kind:order_id:claim_code`) 중 하나라도 done이면 처리완료로 인정(done=false 행은 무시). 검증: 30일 61주문(반품 47·교환 14, 반품 자동 처리완료 37, 교환 전부 교환완료 참고 표시).
 - **조회 기간 선택(2026-09-22d 사용자 요청 — 조회가 너무 느려서)**: 칩 `#rscan-days` 최근 7일·14일·1달(30)·3달(90), **주문일 기준 '어제까지'**(`rscanYesterday/rscanStartDate`, 오늘 주문은 반품 수거가 있을 수 없음). 선택은 `dnrb_rscan_days` localStorage(기본 14). 서버 `rscan_lookup&days=`: 인덱스가 **신선(≤20분)하고 인덱스 기간 ≥ 요청 기간이면 재사용 + order_date≥시작일로 잘라서** 응답(실측 2초), 아니면 요청 기간으로 재생성(실측 7일 3초·14일 7초·90일 43초). '목록 갱신'도 선택 기간으로. 칩을 바꾸면 입력된 번호로 자동 재조회. 없음 안내에 '기간을 늘려 보세요'.
 - **바로가기 버튼(2026-09-22d)**: 결과 카드에 '카페24 주문'(항상)·'네이버페이센터'(N Pay 주문만, 클릭 시 상품주문번호 클립보드 복사 토스트) — `rscanLinkBtns/rscanOpen`(data- 속성, 새 탭). 주소 형식은 `rscan_settings.settings.cafe24_url / naver_url`(관리자 '경고 기준' 패널 하단, `{order_id}`·`{product_order_no}`·`{kind}` 치환, https 필수) — 기본값 `RSCAN_URL_DEFAULTS`: 카페24 `…/admin/php/shop1/s_new/order_detail.php?order_id={order_id}`(구 관리자 주문 상세 팝업 — **비로그인 curl은 403이라 실검증 못 함, 사용자 확인 대기**), 네이버 `https://admin.pay.naver.com/o/v3/claim/{kind}`(반품/교환 관리 목록 — 비로그인 시 로그인으로 302라 존재 확인됨, 상세 딥링크는 미확인). 카페24 주소가 틀리면 사용자가 실제 주문 상세 주소를 알려 주고 설정 패널에서 바꾸거나 기본값을 수정.

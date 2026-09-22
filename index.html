@@ -1230,7 +1230,7 @@
       </div><!-- /rscan-pane-scan -->
       <div id="rscan-pane-issues" class="rscan-pane" style="display:none;">
         <div style="font-size:.8rem;color:#6b7280;margin-bottom:10px;line-height:1.7;">
-          · <b>최근 1달</b>(주문일 기준, 어제까지) 반품·교환 중 사유가 <b>불량·오배송</b>으로 판정된 건입니다. 빨간 배지는 사유 코드·네이버 사유로 확실한 건, 노란 배지는 사유 문구로 의심되는 건이에요.<br>
+          · <b>최근 2달</b>(주문일 기준, 어제까지) 반품·교환 중 사유가 <b>불량·오배송</b>으로 판정된 건입니다. 빨간 배지는 사유 코드·네이버 사유로 확실한 건, 노란 배지는 사유 문구로 의심되는 건이에요.<br>
           · 같은 주문의 접수가 여러 개면 한 줄 안에 접수별로 나열돼요(반품과 교환은 줄이 따로). 처리가 끝나면 체크하세요 — <b>처리완료</b>로 바뀌고 팀 전체가 같은 상태를 봅니다(누가 언제 처리했는지 표시). 다시 체크를 풀면 처리전으로 돌아가요.<br>
           · <b>반품</b>은 카페24에서 수거가 끝나면(반품처리중·환불전 또는 반품완료) <b>자동으로 처리완료</b>가 돼요. <b>교환</b>은 주문 상태가 교환완료여도 참고 표시만 하고, 처리완료는 직접 체크해야 해요.
         </div>
@@ -1240,6 +1240,7 @@
           <span id="rscan-issue-filters" class="qp"></span>
           <button class="toggle-btn" onclick="rscanIssuesLoad(true)"><i class="fa-solid fa-rotate"></i> 새로고침</button>
           <button class="toggle-btn" onclick="rscanIssuesXlsx()" title="지금 보이는 목록(필터 적용)을 엑셀로 저장"><i class="fa-solid fa-file-excel" style="color:#15803d;"></i> 엑셀 다운로드</button>
+          <button class="toggle-btn" onclick="rscanIssuesClear()" title="처리완료(자동 포함) 건을 이 목록에서 지웁니다 — 카페24 데이터는 그대로"><i class="fa-solid fa-broom" style="color:#b45309;"></i> 처리완료 정리</button>
           <span id="rscan-issues-meta" style="font-size:.74rem;color:#6b7280;"></span>
         </div>
         <div id="rscan-issues"></div>
@@ -2975,11 +2976,11 @@ async function rscanIssuesLoad(force) {
   if (rscanState.issuesLoading) return;
   rscanState.issuesLoading = true;
   const st0 = rscanState.status;
-  const needBuild = !st0 || !st0.row_count || st0.age_min == null || st0.age_min > 20 || Number(st0.days || 0) < 30;
-  $('rscan-issues').innerHTML = `<div class="empty-state"><p><i class="fa-solid fa-spinner fa-spin"></i> 불량·오배송 건을 모으는 중…${needBuild ? ' (최근 1달 카페24 목록을 만드는 중 — 약 15초)' : ''}</p></div>`;
+  const needBuild = !st0 || !st0.row_count || st0.age_min == null || st0.age_min > 20 || Number(st0.days || 0) < 60;
+  $('rscan-issues').innerHTML = `<div class="empty-state"><p><i class="fa-solid fa-spinner fa-spin"></i> 불량·오배송 건을 모으는 중…${needBuild ? ' (최근 2달 카페24 목록을 만드는 중 — 약 30초)' : ''}</p></div>`;
   try {
     rscanState.issues = await anGet({ action: 'rscan_issues' });
-    if (rscanState.status) { rscanState.status.days = Math.max(Number(rscanState.status.days || 0), 30); rscanState.status.row_count = rscanState.issues.row_count; rscanState.status.built_at = rscanState.issues.built_at; rscanState.status.age_min = Math.round((Date.now() - new Date(rscanState.issues.built_at).getTime()) / 60000); rscanStatusRender(); }
+    if (rscanState.status) { rscanState.status.days = Math.max(Number(rscanState.status.days || 0), 60); rscanState.status.row_count = rscanState.issues.row_count; rscanState.status.built_at = rscanState.issues.built_at; rscanState.status.age_min = Math.round((Date.now() - new Date(rscanState.issues.built_at).getTime()) / 60000); rscanStatusRender(); }
     rscanIssuesRender(); rscanTabsRender();
   } catch (e) { $('rscan-issues').innerHTML = `<div class="empty-state"><p style="color:#b91c1c;">불러오지 못했어요 — ${escHtml(e.message)}</p></div>`; }
   finally { rscanState.issuesLoading = false; }
@@ -2998,7 +2999,7 @@ function rscanIssuesRender() {
   $('rscan-issue-kinds').innerHTML = [['all', '전체'], ['return', '반품'], ['exchange', '교환']].map(([k, l]) => `<button class="${rscanState.issueKind === k ? 'active' : ''}" onclick="rscanIssuesSetKind('${k}')">${l} ${kc[k]}</button>`).join('');
   const counts = { todo: byKind.filter(g => !rscanIssueDone(g)).length, done: byKind.filter(rscanIssueDone).length, all: byKind.length };
   $('rscan-issue-filters').innerHTML = [['todo', '처리전'], ['done', '처리완료'], ['all', '전체']].map(([k, l]) => `<button class="${rscanState.issueFilter === k ? 'active' : ''}" onclick="rscanIssuesSetFilter('${k}')">${l} ${counts[k]}</button>`).join('');
-  $('rscan-issues-meta').textContent = `최근 ${r.days}일(${r.start_date} ~ 어제) 반품·교환 ${fmt(r.row_count)}건 중 불량·오배송 주문 ${r.issues.length}건`;
+  $('rscan-issues-meta').textContent = `최근 ${r.days}일(${r.start_date} ~ 어제) 반품·교환 ${fmt(r.row_count)}건 중 불량·오배송 주문 ${r.issues.length}건${r.cleared_count ? ` (정리된 ${r.cleared_count}건 제외)` : ''}`;
   const list = rscanIssueList();
   if (!list.length) { $('rscan-issues').innerHTML = `<div class="empty-state"><p>${rscanState.issueFilter === 'todo' ? '처리전 건이 없어요 — 모두 처리됐어요' : '해당하는 건이 없어요'}</p></div>`; return; }
   const when = t => t ? String(t).replace('T', ' ').slice(5, 16) : '';
@@ -3072,6 +3073,20 @@ async function rscanIssuesXlsx() {
     document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 3000);
     showToast(`${list.length}건 엑셀 저장`);
   } catch (e) { showToast('엑셀 저장 실패: ' + e.message); }
+}
+/* 처리완료 정리(2026-09-22 사용자 요청) — 처리완료(자동 수거 완료 포함) 건을 rscan_done에 cleared=true로 적어 목록에서 제외. 구분·상태 필터와 무관하게 전부 */
+async function rscanIssuesClear() {
+  const r = rscanState.issues; if (!r) { showToast('먼저 목록을 불러와주세요'); return; }
+  const targets = r.issues.filter(rscanIssueDone);
+  if (!targets.length) { showToast('정리할 처리완료 건이 없어요'); return; }
+  if (!confirm(`처리완료 ${targets.length}건을 이 목록에서 지울까요?\n\n카페24 데이터와 처리 기록은 그대로이고, 불량·오배송 처리 목록에서만 사라져요.`)) return;
+  const now = new Date().toISOString();
+  const rows = targets.map(g => { const d = r.done[g.key] || {}; return { key: g.key, order_id: g.order_id, done: true, done_by: d.by || (g.auto_done ? '자동(수거 완료)' : SESSION.name), done_at: d.at || now, cleared: true, cleared_at: now }; });
+  try {
+    for (let i = 0; i < rows.length; i += 200) await dbProxy('rscan_done?on_conflict=key', { method: 'POST', headers: { Prefer: 'resolution=merge-duplicates,return=minimal' }, body: JSON.stringify(rows.slice(i, i + 200)) });
+    r.issues = r.issues.filter(g => !rscanIssueDone(g)); r.cleared_count = (r.cleared_count || 0) + targets.length;
+    rscanIssuesRender(); rscanTabsRender(); showToast(`처리완료 ${targets.length}건을 목록에서 정리했어요`);
+  } catch (e) { showToast('정리 실패: ' + e.message); rscanIssuesLoad(true); }
 }
 async function rscanIssueToggle(cb) {
   const r = rscanState.issues; if (!r) return;
@@ -3163,14 +3178,31 @@ async function rscanLookup() {
   } catch (e) { $('rscan-result').innerHTML = `<div class="empty-state"><p style="color:#b91c1c;">조회 실패 — ${escHtml(e.message)}</p></div>`; }
   finally { rscanState.busy = false; inp.select(); inp.focus(); }
 }
-function rscanBeep(kind) {
+/* 경고 테마 — 불량(빨강)·오배송(보라)·의심(노랑)·정상(초록). 소리도 종류별로 다름(2026-09-22 사용자 요청) */
+function rscanTheme(alert) {
+  if (!alert) return { bg: '#dcfce7', border: '#22c55e', text: '#15803d', glow: '34,197,94', icon: 'fa-circle-check' };
+  if (alert.level !== 'alert') return { bg: '#fef3c7', border: '#f59e0b', text: '#92400e', glow: '245,158,11', icon: 'fa-circle-exclamation' };
+  return alert.type === '오배송'
+    ? { bg: '#f3e8ff', border: '#9333ea', text: '#6b21a8', glow: '147,51,234', icon: 'fa-truck-arrow-right' }
+    : { bg: '#fee2e2', border: '#ef4444', text: '#b91c1c', glow: '239,68,68', icon: 'fa-triangle-exclamation' };
+}
+function rscanBeep(kind, type) {
   if (!$('rscan-sound') || !$('rscan-sound').checked) return;
   try {
     const ac = new (window.AudioContext || window.webkitAudioContext)();
-    const seq = kind === 'alert' ? [[880, 0, .15], [660, .18, .15], [880, .36, .15], [660, .54, .3]] : kind === 'warn' ? [[740, 0, .12], [740, .2, .12]] : [[1046, 0, .12]];
+    // 불량: 높낮이 번갈아 4음 / 오배송: 짧게 3번 + 낮게 길게, 두 번 반복 / 의심: 2음(오배송 의심은 올라가는 2음) / 정상: 1음
+    const seq = kind === 'alert'
+      ? (type === '오배송' ? [[1200, 0, .09], [1200, .13, .09], [1200, .26, .09], [520, .42, .4], [1200, .9, .09], [1200, 1.03, .09], [1200, 1.16, .09], [520, 1.32, .4]]
+                           : [[880, 0, .15], [660, .18, .15], [880, .36, .15], [660, .54, .3]])
+      : kind === 'warn' ? (type === '오배송' ? [[740, 0, .12], [980, .2, .12]] : [[740, 0, .12], [740, .2, .12]]) : [[1046, 0, .12]];
     for (const [f, t, d] of seq) { const o = ac.createOscillator(), g = ac.createGain(); o.type = 'square'; o.frequency.value = f; g.gain.value = kind === 'ok' ? .05 : .12; o.connect(g); g.connect(ac.destination); o.start(ac.currentTime + t); o.stop(ac.currentTime + t + d); }
-    setTimeout(() => ac.close(), 1500);
+    setTimeout(() => ac.close(), 2500);
   } catch { /* 소리 실패 무시 */ }
+}
+function rscanFlashInput(theme) {   // 입력칸 테두리를 잠깐 경고색으로
+  const inp = $('rscan-q'); if (!inp) return;
+  inp.style.borderColor = theme.border; inp.style.boxShadow = `0 0 0 4px rgba(${theme.glow},.25)`;
+  clearTimeout(rscanState.flashT); rscanState.flashT = setTimeout(() => { inp.style.borderColor = '#4f46e5'; inp.style.boxShadow = ''; }, 4000);
 }
 function rscanRender(r) {
   const box = $('rscan-result');
@@ -3184,29 +3216,30 @@ function rscanRender(r) {
     return;
   }
   const top = r.hits.find(h => h.alert && h.alert.level === 'alert') || r.hits.find(h => h.alert) || null;
-  rscanBeep(top ? top.alert.level : 'ok');
+  const th = rscanTheme(top ? top.alert : null);
+  rscanBeep(top ? top.alert.level : 'ok', top ? top.alert.type : ''); rscanFlashInput(th);
   const banner = top
     ? (top.alert.level === 'alert'
-      ? `<div style="background:#fee2e2;border:2px solid #ef4444;border-radius:14px;padding:16px 18px;margin-bottom:10px;animation:rscanBlink 1s ease-in-out 3;">
-          <div style="font-size:1.25rem;font-weight:900;color:#b91c1c;"><i class="fa-solid fa-triangle-exclamation"></i> ${top.alert.type} 건 — 검수 필요</div>
-          <div style="font-size:.82rem;color:#7f1d1d;margin-top:4px;">${escHtml(top.alert.by)} ${escHtml(String(top.alert.hit))} · ${escHtml(top.kind === 'exchange' ? '교환' : '반품')} 접수 · 사유: ${escHtml(top.reason || '(비어 있음)')}${top.naver_reason ? ' / 네이버: ' + escHtml(top.naver_reason) : ''}</div></div>`
-      : `<div style="background:#fef3c7;border:2px solid #f59e0b;border-radius:14px;padding:14px 18px;margin-bottom:10px;">
-          <div style="font-size:1.05rem;font-weight:800;color:#92400e;"><i class="fa-solid fa-circle-exclamation"></i> ${top.alert.type} 의심 — 사유 문구에 "${escHtml(String(top.alert.hit))}" (확인 권장)</div>
-          <div style="font-size:.8rem;color:#78350f;margin-top:3px;">사유: ${escHtml(top.reason || '')}</div></div>`)
-    : `<div style="background:#dcfce7;border:2px solid #22c55e;border-radius:14px;padding:12px 18px;margin-bottom:10px;">
-        <div style="font-size:1rem;font-weight:800;color:#15803d;"><i class="fa-solid fa-circle-check"></i> 변심·기타 사유 — 일반 반품 처리</div></div>`;
-  const cards = r.hits.map(h => `<div style="border:1.5px solid ${h.alert ? (h.alert.level === 'alert' ? '#fca5a5' : '#fcd34d') : '#e5e7eb'};border-radius:12px;padding:12px 14px;margin-bottom:8px;background:#fff;">
+      ? `<div style="background:${th.bg};border:3px solid ${th.border};border-radius:14px;padding:18px 20px;margin-bottom:10px;animation:rscanBlink 1s ease-in-out 3;color:${th.text};">
+          <div style="font-size:1.7rem;font-weight:900;letter-spacing:-.01em;line-height:1.2;"><i class="fa-solid ${th.icon}"></i> ${escHtml(top.alert.type)} 건 — 검수 필요</div>
+          <div style="font-size:.86rem;margin-top:6px;font-weight:600;">${escHtml(top.alert.by)} ${escHtml(String(top.alert.hit))} · ${escHtml(top.kind === 'exchange' ? '교환' : '반품')} 접수 · 사유: ${escHtml(top.reason || '(비어 있음)')}${top.naver_reason ? ' / 네이버: ' + escHtml(top.naver_reason) : ''}</div></div>`
+      : `<div style="background:${th.bg};border:2px solid ${th.border};border-radius:14px;padding:14px 18px;margin-bottom:10px;color:${th.text};">
+          <div style="font-size:1.05rem;font-weight:800;"><i class="fa-solid ${th.icon}"></i> ${escHtml(top.alert.type)} 의심 — 사유 문구에 "${escHtml(String(top.alert.hit))}" (확인 권장)</div>
+          <div style="font-size:.8rem;margin-top:3px;">사유: ${escHtml(top.reason || '')}</div></div>`)
+    : `<div style="background:${th.bg};border:2px solid ${th.border};border-radius:14px;padding:12px 18px;margin-bottom:10px;">
+        <div style="font-size:1rem;font-weight:800;color:${th.text};"><i class="fa-solid ${th.icon}"></i> 변심·기타 사유 — 일반 반품 처리</div></div>`;
+  const cards = r.hits.map(h => { const ct = h.alert ? rscanTheme(h.alert) : null; return `<div style="border:${ct ? (h.alert.level === 'alert' ? '2.5px' : '1.5px') + ' solid ' + ct.border : '1.5px solid #e5e7eb'};border-radius:12px;padding:12px 14px;margin-bottom:8px;background:${ct && h.alert.level === 'alert' ? ct.bg : '#fff'};${ct && h.alert.level === 'alert' ? 'color:' + ct.text + ';' : ''}">
     <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;">
       <b style="font-size:.95rem;">주문 ${escHtml(h.order_id)}</b>
       <button onclick="navigator.clipboard&&navigator.clipboard.writeText('${escHtml(h.order_id)}').then(()=>showToast('주문번호 복사'))" class="toggle-btn" style="font-size:.7rem;padding:2px 8px;">복사</button>
       ${rscanLinkBtns(h)}
       <span style="background:${h.kind === 'exchange' ? '#e0e7ff' : '#fef3c7'};color:${h.kind === 'exchange' ? '#4338ca' : '#92400e'};border-radius:99px;padding:2px 10px;font-size:.72rem;font-weight:700;">${h.kind === 'exchange' ? '교환' : '반품'}${h.naver_kind ? ' (네이버: ' + escHtml(h.naver_kind) + ')' : ''}</span>
       <span style="font-size:.76rem;color:#6b7280;">${escHtml(h.place)}${h.naver ? ' <b style="color:#03c75a;">N Pay</b>' : ''} · 주문 ${h.order_date} · 접수 ${h.claim_date || '—'} · 상태 <b>${escHtml(h.status || '—')}</b>${h.status_extra ? ' (' + escHtml(h.status_extra) + ')' : ''}</span></div>
-    <div style="font-size:.8rem;color:#374151;margin-top:6px;">사유 <b>${escHtml(h.reason_type ? '[' + h.reason_type + '] ' : '')}${escHtml(h.reason || '—')}</b>${h.naver_reason ? ` · 네이버 사유 <b>${escHtml(h.naver_reason)}</b>` : ''} · 반품 송장 ${escHtml(h.invoice || '—')}${h.company ? ' (' + escHtml(h.company) + ')' : ''} · 클레임 ${escHtml(h.claim_code || '—')}</div>
-    <div style="font-size:.8rem;color:#374151;margin-top:2px;">구매자 ${escHtml(h.buyer || '—')} · 수령인 ${escHtml(h.receiver || '—')}</div>
+    <div style="font-size:.8rem;margin-top:6px;${h.alert && h.alert.level === 'alert' ? 'font-weight:700;' : 'color:#374151;'}">사유 <b>${escHtml(h.reason_type ? '[' + h.reason_type + '] ' : '')}${escHtml(h.reason || '—')}</b>${h.naver_reason ? ` · 네이버 사유 <b>${escHtml(h.naver_reason)}</b>` : ''} · 반품 송장 ${escHtml(h.invoice || '—')}${h.company ? ' (' + escHtml(h.company) + ')' : ''} · 클레임 ${escHtml(h.claim_code || '—')}</div>
+    <div style="font-size:.8rem;margin-top:2px;${h.alert && h.alert.level === 'alert' ? '' : 'color:#374151;'}">구매자 ${escHtml(h.buyer || '—')} · 수령인 ${escHtml(h.receiver || '—')}</div>
     <table style="width:100%;margin-top:8px;font-size:.8rem;"><thead><tr><th style="text-align:left;">상품</th><th style="text-align:left;">옵션</th><th>수량</th><th class="m-hide">품목 상태</th><th class="m-hide">발송 송장</th></tr></thead>
-      <tbody>${(h.items || []).map(it => `<tr><td style="text-align:left;font-weight:600;">${escHtml(it.name)}</td><td style="text-align:left;">${escHtml(it.option || '—')}</td><td>${it.qty}</td><td class="m-hide">${escHtml(it.status || '')}</td><td class="m-hide" style="font-family:monospace;font-size:.72rem;">${escHtml(it.tracking_no || '')}</td></tr>`).join('')}</tbody></table></div>`).join('');
-  box.innerHTML = `<style>@keyframes rscanBlink{0%,100%{box-shadow:0 0 0 0 rgba(239,68,68,.0)}50%{box-shadow:0 0 0 8px rgba(239,68,68,.35)}}</style>` + banner + cards;
+      <tbody>${(h.items || []).map(it => `<tr><td style="text-align:left;font-weight:600;">${escHtml(it.name)}</td><td style="text-align:left;">${escHtml(it.option || '—')}</td><td>${it.qty}</td><td class="m-hide">${escHtml(it.status || '')}</td><td class="m-hide" style="font-family:monospace;font-size:.72rem;">${escHtml(it.tracking_no || '')}</td></tr>`).join('')}</tbody></table></div>`; }).join('');
+  box.innerHTML = `<style>@keyframes rscanBlink{0%,100%{box-shadow:0 0 0 0 rgba(${th.glow},0)}50%{box-shadow:0 0 0 10px rgba(${th.glow},.4)}}</style>` + banner + cards;
 }
 function rscanHistoryRender() {
   const h = rscanState.history; const box = $('rscan-history'); if (!box) return;

@@ -358,7 +358,7 @@ Deno.serve(async (req) => {
       }
       // ── 불량·오배송 처리 목록 (2026-09-22 소메뉴): 최근 1달(어제까지 30일, 주문일 기준) 반품·교환 중 경고 판정(alert/warn) 건 + 처리 상태(rscan_done)
       if (action === "rscan_issues") {
-        const DAYS = 30;
+        const DAYS = 60;   // 최근 2달(어제까지) — 2026-09-22 사용자 정정(처음 1달)
         let payload: Record<string, any>[] = (row?.payload ?? []) as Record<string, any>[];
         const fresh = !!row && ageMin !== null && ageMin <= 20 && Number(row.days ?? 0) >= DAYS;
         if (!fresh) payload = await rscanBuild(token, DAYS) as Record<string, any>[];
@@ -407,13 +407,15 @@ Deno.serve(async (req) => {
         }));
         issues.sort((a, b) => String(b.claim_date || b.order_date).localeCompare(String(a.claim_date || a.order_date)) || String(b.order_id).localeCompare(String(a.order_id)));
         const since = new Date(); since.setUTCDate(since.getUTCDate() - 120);
-        const doneRows = ((await sbRest(`rscan_done?select=key,done,done_by,done_at&done_at=gte.${since.toISOString().slice(0, 10)}`)) ?? []) as Record<string, any>[];
+        const doneRows = ((await sbRest(`rscan_done?select=key,done,done_by,done_at,cleared&done_at=gte.${since.toISOString().slice(0, 10)}`)) ?? []) as Record<string, any>[];
         const doneMap: Record<string, unknown> = {};
-        for (const d of doneRows) if (d.done) doneMap[String(d.key)] = { by: d.done_by, at: d.done_at };
+        const cleared = new Set<string>();   // '처리완료 정리'로 목록에서 지운 키 (2026-09-22)
+        for (const d of doneRows) { if (d.done) doneMap[String(d.key)] = { by: d.done_by, at: d.done_at }; if (d.cleared) cleared.add(String(d.key)); }
+        const visible = issues.filter((g) => !cleared.has(g.key) && !g.claims.some((c: Record<string, any>) => cleared.has(c.key)));
         // 그룹 처리 상태: 그룹 키 또는 (예전 방식) 접수 키 중 하나라도 처리완료면 처리완료
         const done: Record<string, unknown> = {};
-        for (const g of issues) { const hit = doneMap[g.key] ?? g.claims.map((c: Record<string, any>) => doneMap[c.key]).find(Boolean); if (hit) done[g.key] = hit; }
-        return json({ days: DAYS, start_date: startDate, built_at: fresh ? row!.built_at : new Date().toISOString(), row_count: payload.length, issues, done });
+        for (const g of visible) { const hit = doneMap[g.key] ?? g.claims.map((c: Record<string, any>) => doneMap[c.key]).find(Boolean); if (hit) done[g.key] = hit; }
+        return json({ days: DAYS, start_date: startDate, built_at: fresh ? row!.built_at : new Date().toISOString(), row_count: payload.length, issues: visible, cleared_count: issues.length - visible.length, done });
       }
       // lookup
       const q = rscanDigits(url.searchParams.get("q"));
