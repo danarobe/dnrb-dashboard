@@ -369,26 +369,50 @@ Deno.serve(async (req) => {
         for (const r of ((await sbRest("rscan_naver?select=invoice,product_order_no,kind,reason")) ?? []) as Record<string, any>[]) {
           for (const pon of String(r.product_order_no ?? "").split(/[,\s]+/).filter(Boolean)) nvMap.set(pon, r);
         }
-        const issues: Record<string, unknown>[] = [];
+        // 주문 단위로 묶기(2026-09-22 사용자 요청 — 같은 주문의 접수가 여러 개면 한 줄 안에 나열). 키 = kind:order_id (반품/교환은 따로 줄)
+        // 철회된 접수(status_extra '교환철회' 등)는 제외. 수거 완료 판단 = 반품완료 또는 반품처리중+'환불전'(실데이터: 반품처리중은 '수거전'/'환불전' 둘뿐, 반품접수는 '수거접수완료')
+        const groups = new Map<string, Record<string, any>>();
         for (const e of payload) {
           if (e.order_date && String(e.order_date) < startDate) continue;
+          const extra = String(e.status_extra ?? ""), status = String(e.status ?? "");
+          if (/철회/.test(extra) || /철회/.test(status)) continue;
           let nv: Record<string, any> | null = null;
           for (const id of (e.naver_ids ?? []) as unknown[]) { const hit = nvMap.get(String(id)); if (hit) { nv = hit; break; } }
           const reason = e.naver ? `${e.reason ?? ""} ${nv?.reason ?? ""}`.trim() : String(e.reason ?? "");
           const alert = rscanJudge({ ...e, reason }, st);
           if (!alert) continue;
-          issues.push({
-            key: `${e.kind}:${e.order_id}:${e.claim_code ?? ""}`, kind: e.kind, order_id: e.order_id, order_date: e.order_date, claim_date: e.claim_date,
-            buyer: e.buyer ?? "", receiver: e.receiver ?? "", place: e.place ?? "", naver: !!e.naver, naver_ids: e.naver_ids ?? [],
+          const collected = e.kind === "return" && (status === "반품완료" || /환불전/.test(extra));
+          const exchanged = e.kind === "exchange" && status === "교환완료";
+          const claim = {
+            key: `${e.kind}:${e.order_id}:${e.claim_code ?? ""}`, claim_code: e.claim_code ?? "", claim_date: e.claim_date ?? "", status, status_extra: extra,
             reason: e.reason ?? "", reason_type: e.reason_type ?? null, naver_reason: nv?.reason ?? null, invoice: e.invoice ?? "", company: e.company ?? null,
-            status: e.status ?? "", items: ((e.items ?? []) as Record<string, any>[]).map((it) => ({ name: it.name, option: it.option ?? "", qty: it.qty ?? 0 })), alert,
-          });
+            items: ((e.items ?? []) as Record<string, any>[]).map((it) => ({ name: it.name, option: it.option ?? "", qty: it.qty ?? 0 })), alert, collected, exchanged,
+          };
+          const gk = `${e.kind}:${e.order_id}`;
+          let g = groups.get(gk);
+          if (!g) {
+            g = { key: gk, kind: e.kind, order_id: e.order_id, order_date: e.order_date, buyer: e.buyer ?? "", receiver: e.receiver ?? "", place: e.place ?? "", naver: !!e.naver, naver_ids: [] as string[], claims: [] as Record<string, any>[], claim_date: "", alert };
+            groups.set(gk, g);
+          }
+          g.claims.push(claim);
+          for (const id of (e.naver_ids ?? []) as unknown[]) if (!g.naver_ids.includes(String(id))) g.naver_ids.push(String(id));
+          if (String(claim.claim_date) > String(g.claim_date)) g.claim_date = claim.claim_date;
+          if (alert.level === "alert" && g.alert.level !== "alert") g.alert = alert;   // 확실한 판정이 하나라도 있으면 그걸 대표로
         }
+        const issues = [...groups.values()].map((g) => ({
+          ...g,
+          auto_done: g.kind === "return" && g.claims.every((c: Record<string, any>) => c.collected),   // 반품: 전부 수거 완료면 자동 처리완료
+          exchanged: g.kind === "exchange" && g.claims.every((c: Record<string, any>) => c.exchanged),  // 교환: 참고 표시만(수동 처리)
+          collected_some: g.claims.some((c: Record<string, any>) => c.collected), exchanged_some: g.claims.some((c: Record<string, any>) => c.exchanged),
+        }));
         issues.sort((a, b) => String(b.claim_date || b.order_date).localeCompare(String(a.claim_date || a.order_date)) || String(b.order_id).localeCompare(String(a.order_id)));
         const since = new Date(); since.setUTCDate(since.getUTCDate() - 120);
         const doneRows = ((await sbRest(`rscan_done?select=key,done,done_by,done_at&done_at=gte.${since.toISOString().slice(0, 10)}`)) ?? []) as Record<string, any>[];
+        const doneMap: Record<string, unknown> = {};
+        for (const d of doneRows) if (d.done) doneMap[String(d.key)] = { by: d.done_by, at: d.done_at };
+        // 그룹 처리 상태: 그룹 키 또는 (예전 방식) 접수 키 중 하나라도 처리완료면 처리완료
         const done: Record<string, unknown> = {};
-        for (const d of doneRows) if (d.done) done[String(d.key)] = { by: d.done_by, at: d.done_at };
+        for (const g of issues) { const hit = doneMap[g.key] ?? g.claims.map((c: Record<string, any>) => doneMap[c.key]).find(Boolean); if (hit) done[g.key] = hit; }
         return json({ days: DAYS, start_date: startDate, built_at: fresh ? row!.built_at : new Date().toISOString(), row_count: payload.length, issues, done });
       }
       // lookup

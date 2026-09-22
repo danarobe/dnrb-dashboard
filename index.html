@@ -1231,9 +1231,12 @@
       <div id="rscan-pane-issues" class="rscan-pane" style="display:none;">
         <div style="font-size:.8rem;color:#6b7280;margin-bottom:10px;line-height:1.7;">
           · <b>최근 1달</b>(주문일 기준, 어제까지) 반품·교환 중 사유가 <b>불량·오배송</b>으로 판정된 건입니다. 빨간 배지는 사유 코드·네이버 사유로 확실한 건, 노란 배지는 사유 문구로 의심되는 건이에요.<br>
-          · 처리가 끝나면 체크하세요 — <b>처리완료</b>로 바뀌고 팀 전체가 같은 상태를 봅니다(누가 언제 처리했는지 표시). 다시 체크를 풀면 처리전으로 돌아가요.
+          · 같은 주문의 접수가 여러 개면 한 줄 안에 접수별로 나열돼요(반품과 교환은 줄이 따로). 처리가 끝나면 체크하세요 — <b>처리완료</b>로 바뀌고 팀 전체가 같은 상태를 봅니다(누가 언제 처리했는지 표시). 다시 체크를 풀면 처리전으로 돌아가요.<br>
+          · <b>반품</b>은 카페24에서 수거가 끝나면(반품처리중·환불전 또는 반품완료) <b>자동으로 처리완료</b>가 돼요. <b>교환</b>은 주문 상태가 교환완료여도 참고 표시만 하고, 처리완료는 직접 체크해야 해요.
         </div>
         <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px;">
+          <span id="rscan-issue-kinds" class="qp"></span>
+          <span style="width:1px;height:18px;background:#e5e7eb;"></span>
           <span id="rscan-issue-filters" class="qp"></span>
           <button class="toggle-btn" onclick="rscanIssuesLoad(true)"><i class="fa-solid fa-rotate"></i> 새로고침</button>
           <button class="toggle-btn" onclick="rscanIssuesXlsx()" title="지금 보이는 목록(필터 적용)을 엑셀로 저장"><i class="fa-solid fa-file-excel" style="color:#15803d;"></i> 엑셀 다운로드</button>
@@ -2955,9 +2958,9 @@ const rscanState = { status: null, history: [], busy: false, timer: null, lastQ:
 /* 바로가기 주소 형식 — 관리자 '경고 기준' 패널(rscan_settings)에서 바꿀 수 있음. {order_id}=카페24 주문번호, {product_order_no}=네이버 상품주문번호, {kind}=return|exchange */
 const RSCAN_URL_DEFAULTS = { cafe24_url: 'https://wnqka5000.cafe24.com/admin/php/shop1/s_new/order_detail.php?order_id={order_id}', naver_url: 'https://admin.pay.naver.com/o/v3/claim/{kind}' };
 const RSCAN_TABS = [['scan', '송장 스캔', null, 'fa-solid fa-barcode'], ['issues', '불량·오배송 처리', null, 'fa-solid fa-list-check']];
-rscanState.tab = 'scan'; rscanState.issues = null; rscanState.issueFilter = 'todo'; rscanState.issuesLoading = false;
+rscanState.tab = 'scan'; rscanState.issues = null; rscanState.issueFilter = 'todo'; rscanState.issueKind = 'all'; rscanState.issuesLoading = false;
 function rscanTabsRender() {
-  const todo = rscanState.issues ? rscanState.issues.issues.filter(i => !rscanState.issues.done[i.key]).length : null;
+  const todo = rscanState.issues ? rscanState.issues.issues.filter(i => !i.auto_done && !rscanState.issues.done[i.key]).length : null;
   uiTabs('rscan-tabs', RSCAN_TABS.map(t => t[0] === 'issues' ? [t[0], t[1], todo ? `${todo}` : null, t[3]] : t), rscanState.tab, 'rscanSetTab');
 }
 function rscanSetTab(k) {
@@ -2982,65 +2985,89 @@ async function rscanIssuesLoad(force) {
   finally { rscanState.issuesLoading = false; }
 }
 function rscanIssuesSetFilter(f) { rscanState.issueFilter = f; rscanIssuesRender(); }
+function rscanIssuesSetKind(k) { rscanState.issueKind = k; rscanIssuesRender(); }
+const rscanIssueDone = g => !!(g.auto_done || rscanState.issues.done[g.key]);   // 반품 수거 완료(자동) 또는 수동 체크
+function rscanIssueList() {   // 현재 구분·상태 필터에 보이는 주문 목록
+  const r = rscanState.issues; if (!r) return [];
+  return r.issues.filter(g => (rscanState.issueKind === 'all' || g.kind === rscanState.issueKind) && (rscanState.issueFilter === 'all' || (rscanState.issueFilter === 'done') === rscanIssueDone(g)));
+}
 function rscanIssuesRender() {
   const r = rscanState.issues; if (!r) return;
-  const isDone = i => !!r.done[i.key];
-  const counts = { todo: r.issues.filter(i => !isDone(i)).length, done: r.issues.filter(isDone).length, all: r.issues.length };
+  const byKind = r.issues.filter(g => rscanState.issueKind === 'all' || g.kind === rscanState.issueKind);
+  const kc = { all: r.issues.length, return: r.issues.filter(g => g.kind === 'return').length, exchange: r.issues.filter(g => g.kind === 'exchange').length };
+  $('rscan-issue-kinds').innerHTML = [['all', '전체'], ['return', '반품'], ['exchange', '교환']].map(([k, l]) => `<button class="${rscanState.issueKind === k ? 'active' : ''}" onclick="rscanIssuesSetKind('${k}')">${l} ${kc[k]}</button>`).join('');
+  const counts = { todo: byKind.filter(g => !rscanIssueDone(g)).length, done: byKind.filter(rscanIssueDone).length, all: byKind.length };
   $('rscan-issue-filters').innerHTML = [['todo', '처리전'], ['done', '처리완료'], ['all', '전체']].map(([k, l]) => `<button class="${rscanState.issueFilter === k ? 'active' : ''}" onclick="rscanIssuesSetFilter('${k}')">${l} ${counts[k]}</button>`).join('');
-  $('rscan-issues-meta').textContent = `최근 ${r.days}일(${r.start_date} ~ 어제) 반품·교환 ${fmt(r.row_count)}건 중 불량·오배송 ${counts.all}건`;
-  const list = r.issues.filter(i => rscanState.issueFilter === 'all' || (rscanState.issueFilter === 'done') === isDone(i));
+  $('rscan-issues-meta').textContent = `최근 ${r.days}일(${r.start_date} ~ 어제) 반품·교환 ${fmt(r.row_count)}건 중 불량·오배송 주문 ${r.issues.length}건`;
+  const list = rscanIssueList();
   if (!list.length) { $('rscan-issues').innerHTML = `<div class="empty-state"><p>${rscanState.issueFilter === 'todo' ? '처리전 건이 없어요 — 모두 처리됐어요' : '해당하는 건이 없어요'}</p></div>`; return; }
   const when = t => t ? String(t).replace('T', ' ').slice(5, 16) : '';
-  const rows = list.map(i => {
-    const d = r.done[i.key]; const a = i.alert || {};
-    const badge = `<span style="background:${a.level === 'alert' ? '#fee2e2' : '#fef3c7'};color:${a.level === 'alert' ? '#b91c1c' : '#92400e'};border-radius:99px;padding:2px 9px;font-size:.72rem;font-weight:800;white-space:nowrap;">${escHtml(a.type || '')}${a.level === 'warn' ? ' 의심' : ''}</span>`;
-    const name = i.buyer && i.receiver && i.buyer !== i.receiver ? `${escHtml(i.buyer)} <span style="color:#6b7280;font-size:.72rem;">(수령 ${escHtml(i.receiver)})</span>` : escHtml(i.buyer || i.receiver || '—');
-    const items = (i.items || []).map(it => `<div>${escHtml(it.name || '')}${it.option ? ` <span style="color:#6b7280;">${escHtml(it.option)}</span>` : ''}${it.qty > 1 ? ` <b>×${it.qty}</b>` : ''}</div>`).join('') || '—';
-    return `<tr style="${d ? 'opacity:.55;' : ''}">
-      <td style="white-space:nowrap;"><label style="display:inline-flex;align-items:center;gap:6px;cursor:pointer;font-size:.76rem;font-weight:700;color:${d ? '#15803d' : '#b45309'};"><input type="checkbox" ${d ? 'checked' : ''} data-key="${escHtml(i.key)}" data-oid="${escHtml(i.order_id)}" onchange="rscanIssueToggle(this)" style="width:18px;height:18px;" /> ${d ? '처리완료' : '처리전'}</label>${d ? `<div style="font-size:.68rem;color:#6b7280;margin-top:2px;">${escHtml(d.by || '')} ${when(d.at)}</div>` : ''}</td>
-      <td style="white-space:nowrap;"><span style="background:${i.kind === 'exchange' ? '#e0e7ff' : '#fef3c7'};color:${i.kind === 'exchange' ? '#4338ca' : '#92400e'};border-radius:99px;padding:2px 9px;font-size:.72rem;font-weight:700;">${i.kind === 'exchange' ? '교환' : '반품'}</span> ${badge}</td>
-      <td style="text-align:left;white-space:nowrap;"><b>${escHtml(i.order_id)}</b>${i.naver ? ' <b style="color:#03c75a;font-size:.7rem;">N Pay</b>' : ''}<div style="display:flex;gap:4px;flex-wrap:wrap;margin-top:4px;">${rscanLinkBtns(i)}</div></td>
-      <td style="text-align:left;">${name}</td>
-      <td style="text-align:left;font-size:.78rem;">${items}</td>
-      <td class="m-hide" style="text-align:left;font-size:.76rem;color:#374151;max-width:260px;white-space:normal;">${escHtml(i.reason_type ? '[' + i.reason_type + '] ' : '')}${escHtml(i.reason || '')}${i.naver_reason ? `<div style="color:#15803d;">네이버: ${escHtml(i.naver_reason)}</div>` : ''}</td>
-      <td class="m-hide" style="white-space:nowrap;font-size:.76rem;">${escHtml(i.claim_date || i.order_date || '')}</td></tr>`;
+  const badge = a => a ? `<span style="background:${a.level === 'alert' ? '#fee2e2' : '#fef3c7'};color:${a.level === 'alert' ? '#b91c1c' : '#92400e'};border-radius:99px;padding:1px 8px;font-size:.7rem;font-weight:800;white-space:nowrap;">${escHtml(a.type || '')}${a.level === 'warn' ? ' 의심' : ''}</span>` : '';
+  const stBadge = c => {   // 접수별 주문 상태(수거 단계·교환완료 참고)
+    const t = `${c.status || ''}${c.status_extra ? ' · ' + c.status_extra : ''}`; if (!t) return '';
+    const col = c.collected || c.exchanged ? '#15803d' : c.status_extra === '수거전' ? '#b45309' : '#6b7280';
+    return `<span style="color:${col};font-size:.7rem;font-weight:700;">${escHtml(t)}</span>`;
+  };
+  const rows = list.map(g => {
+    const d = r.done[g.key]; const done = rscanIssueDone(g);
+    let doneCell;
+    if (g.auto_done) doneCell = `<label style="display:inline-flex;align-items:center;gap:6px;font-size:.76rem;font-weight:700;color:#15803d;"><input type="checkbox" checked disabled style="width:18px;height:18px;" /> 처리완료</label><div style="font-size:.68rem;color:#15803d;margin-top:2px;">수거 완료 · 자동</div>`;
+    else doneCell = `<label style="display:inline-flex;align-items:center;gap:6px;cursor:pointer;font-size:.76rem;font-weight:700;color:${d ? '#15803d' : '#b45309'};"><input type="checkbox" ${d ? 'checked' : ''} data-key="${escHtml(g.key)}" data-oid="${escHtml(g.order_id)}" onchange="rscanIssueToggle(this)" style="width:18px;height:18px;" /> ${d ? '처리완료' : '처리전'}</label>${d ? `<div style="font-size:.68rem;color:#6b7280;margin-top:2px;">${escHtml(d.by || '')} ${when(d.at)}</div>` : ''}`;
+    if (g.kind === 'exchange' && g.exchanged_some) doneCell += `<div style="font-size:.68rem;color:#15803d;margin-top:3px;white-space:nowrap;"><i class="fa-solid fa-circle-info"></i> 카페24 ${g.exchanged ? '교환완료' : '일부 교환완료'} (참고)</div>`;
+    else if (g.kind === 'return' && !g.auto_done) doneCell += `<div style="font-size:.68rem;color:#6b7280;margin-top:3px;white-space:nowrap;">${g.collected_some ? '일부 수거 완료' : '수거 전'}</div>`;
+    const name = g.buyer && g.receiver && g.buyer !== g.receiver ? `${escHtml(g.buyer)} <span style="color:#6b7280;font-size:.72rem;">(수령 ${escHtml(g.receiver)})</span>` : escHtml(g.buyer || g.receiver || '—');
+    const multi = g.claims.length > 1;
+    const claims = g.claims.map(c => `<div style="${multi ? 'padding:4px 0;border-top:1px dashed #e5e7eb;' : ''}">
+        <div style="font-size:.7rem;color:#6b7280;display:flex;gap:6px;flex-wrap:wrap;align-items:center;">${multi ? badge(c.alert) : ''}<span>접수 ${escHtml(c.claim_code || '—')} · ${escHtml(c.claim_date || '')}</span>${stBadge(c)}</div>
+        ${(c.items || []).map(it => `<div>${escHtml(it.name || '')}${it.option ? ` <span style="color:#6b7280;">${escHtml(it.option)}</span>` : ''}${it.qty > 1 ? ` <b>×${it.qty}</b>` : ''}</div>`).join('') || '<div>—</div>'}</div>`).join('').replace('border-top:1px dashed #e5e7eb;', '');
+    const reasons = g.claims.map(c => `<div style="${multi ? 'padding:3px 0;' : ''}">${escHtml(c.reason_type ? '[' + c.reason_type + '] ' : '')}${escHtml(c.reason || (c.reason_type ? '' : '—'))}${c.naver_reason ? `<div style="color:#15803d;">네이버: ${escHtml(c.naver_reason)}</div>` : ''}</div>`).join('');
+    return `<tr style="${done ? 'opacity:.55;' : ''}">
+      <td style="white-space:nowrap;vertical-align:top;">${doneCell}</td>
+      <td style="white-space:nowrap;vertical-align:top;"><span style="background:${g.kind === 'exchange' ? '#e0e7ff' : '#fef3c7'};color:${g.kind === 'exchange' ? '#4338ca' : '#92400e'};border-radius:99px;padding:2px 9px;font-size:.72rem;font-weight:700;">${g.kind === 'exchange' ? '교환' : '반품'}</span> ${badge(g.alert)}${multi ? `<div style="font-size:.68rem;color:#6b7280;margin-top:3px;">접수 ${g.claims.length}건</div>` : ''}</td>
+      <td style="text-align:left;white-space:nowrap;vertical-align:top;"><b>${escHtml(g.order_id)}</b>${g.naver ? ' <b style="color:#03c75a;font-size:.7rem;">N Pay</b>' : ''}<div style="display:flex;gap:4px;flex-wrap:wrap;margin-top:4px;">${rscanLinkBtns(g)}</div></td>
+      <td style="text-align:left;vertical-align:top;">${name}</td>
+      <td style="text-align:left;font-size:.78rem;vertical-align:top;">${claims}</td>
+      <td class="m-hide" style="text-align:left;font-size:.76rem;color:#374151;max-width:260px;white-space:normal;vertical-align:top;">${reasons}</td>
+      <td class="m-hide" style="white-space:nowrap;font-size:.76rem;vertical-align:top;">${escHtml(g.claim_date || g.order_date || '')}</td></tr>`;
   }).join('');
-  $('rscan-issues').innerHTML = `<div class="table-wrap"><table style="width:100%;font-size:.82rem;"><thead><tr><th>처리</th><th>구분</th><th style="text-align:left;">주문번호</th><th style="text-align:left;">이름</th><th style="text-align:left;">상품</th><th class="m-hide" style="text-align:left;">사유</th><th class="m-hide">접수일</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+  $('rscan-issues').innerHTML = `<div class="table-wrap"><table style="width:100%;font-size:.82rem;"><thead><tr><th>처리</th><th>구분</th><th style="text-align:left;">주문번호</th><th style="text-align:left;">이름</th><th style="text-align:left;">접수 상품</th><th class="m-hide" style="text-align:left;">사유</th><th class="m-hide">접수일</th></tr></thead><tbody>${rows}</tbody></table></div>`;
 }
-/* 불량·오배송 처리 목록 엑셀 — 현재 필터(처리전/처리완료/전체)에 보이는 건만, 화면과 같은 순서 */
+/* 불량·오배송 처리 목록 엑셀 — 현재 구분·상태 필터에 보이는 주문만, 접수 품목당 1행(주문 정보는 첫 행에만) */
 async function rscanIssuesXlsx() {
   const r = rscanState.issues; if (!r) { showToast('먼저 목록을 불러와주세요'); return; }
-  const isDone = i => !!r.done[i.key];
-  const list = r.issues.filter(i => rscanState.issueFilter === 'all' || (rscanState.issueFilter === 'done') === isDone(i));
+  const list = rscanIssueList();
   if (!list.length) { showToast('내려받을 건이 없어요'); return; }
   try {
     if (typeof XlsxPopulate === 'undefined') throw new Error('엑셀 라이브러리 로드 실패 — 페이지를 새로고침해주세요');
     const wb = await XlsxPopulate.fromBlankAsync();
     const ws = wb.sheet(0).name('불량오배송');
-    const headers = ['처리 상태', '처리자', '처리 시각', '구분', '판정', '판정 근거', '주문번호', '주문일', '접수일', '구매자', '수령인', '주문처', '접수 상품', '옵션', '수량', '사유 코드', '사유', '네이버 사유', '반품 송장', '택배사', '주문 상태'];
+    const headers = ['처리 상태', '처리자', '처리 시각', '구분', '판정', '주문번호', '주문일', '구매자', '수령인', '주문처', '접수번호', '접수일', '접수 판정', '주문 상태', '접수 상품', '옵션', '수량', '사유 코드', '사유', '네이버 사유', '반품 송장', '택배사'];
     headers.forEach((h, i) => ws.cell(1, i + 1).value(h).style({ bold: true, fill: 'EEF2FF' }));
-    [9, 9, 16, 6, 8, 16, 20, 11, 11, 10, 10, 12, 40, 22, 6, 8, 30, 20, 16, 12, 12].forEach((w, i) => ws.column(i + 1).width(w));
+    [12, 9, 16, 6, 8, 20, 11, 10, 10, 12, 20, 11, 8, 18, 40, 22, 6, 8, 30, 20, 16, 12].forEach((w, i) => ws.column(i + 1).width(w));
     const when = t => t ? String(t).replace('T', ' ').slice(0, 16) : '';
+    const jt = a => a ? `${a.type || ''}${a.level === 'warn' ? ' 의심' : ''}` : '';
     let ri = 2;
-    for (const i of list) {
-      const d = r.done[i.key]; const a = i.alert || {};
-      const items = (i.items && i.items.length) ? i.items : [{ name: '', option: '', qty: '' }];
-      items.forEach((it, k) => {   // 품목이 여러 개면 줄을 나누고 주문 정보는 첫 줄에만
-        const first = k === 0;
-        const row = first
-          ? [d ? '처리완료' : '처리전', d ? (d.by || '') : '', d ? when(d.at) : '', i.kind === 'exchange' ? '교환' : '반품', `${a.type || ''}${a.level === 'warn' ? ' 의심' : ''}`, a.by ? `${a.by} ${a.hit || ''}` : '',
-             i.order_id, i.order_date || '', i.claim_date || '', i.buyer || '', i.receiver || '', `${i.place || ''}${i.naver ? ' (N Pay)' : ''}`]
-          : ['', '', '', '', '', '', '', '', '', '', '', ''];
-        row.push(it.name || '', it.option || '', it.qty === '' ? '' : Number(it.qty || 0));
-        row.push(...(first ? [i.reason_type || '', i.reason || '', i.naver_reason || '', i.invoice || '', i.company || '', i.status || ''] : ['', '', '', '', '', '']));
-        row.forEach((v, ci) => { if (v !== '' && v != null) ws.cell(ri, ci + 1).value(v); });
-        ri++;
-      });
+    for (const g of list) {
+      const d = r.done[g.key];
+      let firstOfGroup = true;
+      for (const c of g.claims) {
+        const items = (c.items && c.items.length) ? c.items : [{ name: '', option: '', qty: '' }];
+        items.forEach((it, k) => {
+          const row = firstOfGroup
+            ? [g.auto_done ? '처리완료(자동)' : d ? '처리완료' : '처리전', !g.auto_done && d ? (d.by || '') : '', !g.auto_done && d ? when(d.at) : '', g.kind === 'exchange' ? '교환' : '반품', jt(g.alert), g.order_id, g.order_date || '', g.buyer || '', g.receiver || '', `${g.place || ''}${g.naver ? ' (N Pay)' : ''}`]
+            : ['', '', '', '', '', '', '', '', '', ''];
+          row.push(...(k === 0 ? [c.claim_code || '', c.claim_date || '', jt(c.alert), `${c.status || ''}${c.status_extra ? ' · ' + c.status_extra : ''}`] : ['', '', '', '']));
+          row.push(it.name || '', it.option || '', it.qty === '' ? '' : Number(it.qty || 0));
+          row.push(...(k === 0 ? [c.reason_type || '', c.reason || '', c.naver_reason || '', c.invoice || '', c.company || ''] : ['', '', '', '', '']));
+          row.forEach((v, ci) => { if (v !== '' && v != null) ws.cell(ri, ci + 1).value(v); });
+          ri++; firstOfGroup = false;
+        });
+      }
     }
     ws.freezePanes(0, 1);
     const blob = await wb.outputAsync();
     const a = document.createElement('a');
-    const label = { todo: '처리전', done: '처리완료', all: '전체' }[rscanState.issueFilter] || '';
+    const label = `${{ all: '전체', return: '반품', exchange: '교환' }[rscanState.issueKind]}_${{ todo: '처리전', done: '처리완료', all: '전체' }[rscanState.issueFilter]}`;
     a.href = URL.createObjectURL(blob); a.download = `불량오배송_${label}_${new Date().toISOString().slice(0, 10).replace(/-/g, '')}.xlsx`;
     document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 3000);
     showToast(`${list.length}건 엑셀 저장`);
