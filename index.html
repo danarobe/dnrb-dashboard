@@ -9,6 +9,7 @@
   <!-- 사전 연결: CDN(아이콘·차트·엑셀)과 Supabase — 첫 화면·첫 조회 단축 -->
   <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin />
   <link rel="preconnect" href="https://eeffmbusaqaadeojjlnc.supabase.co" />
+  <link rel="preload" as="font" type="font/woff2" crossorigin href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.4.0/webfonts/fa-solid-900.woff2" />
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.4.0/css/all.min.css" />
   <!-- 웹 푸시(휴대폰 알림)용 — 아이폰은 '홈 화면에 추가' 후에만 푸시 허용 가능 (iOS 정책) -->
   <link rel="manifest" href="./manifest.json" />
@@ -20,7 +21,7 @@
 
   <script defer src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
   <!-- 암호화된 엑셀(.xlsx) 복호화용 — 네이버페이센터 다운로드 파일 -->
-  <script defer src="https://cdn.jsdelivr.net/npm/xlsx-populate@1.21.0/browser/xlsx-populate.min.js"></script>
+  <!-- xlsx-populate(190KB)는 엑셀 저장·암호 엑셀 읽기 때만 loadXlsxPopulate()로 지연 로드 (2026-09-22 성능 점검) -->
   <script src="./config.js"></script>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -3057,7 +3058,7 @@ async function rscanIssuesXlsx() {
   const list = rscanIssueList();
   if (!list.length) { showToast('내려받을 건이 없어요'); return; }
   try {
-    if (typeof XlsxPopulate === 'undefined') throw new Error('엑셀 라이브러리 로드 실패 — 페이지를 새로고침해주세요');
+    await loadXlsxPopulate();
     const wb = await XlsxPopulate.fromBlankAsync();
     const ws = wb.sheet(0).name('불량오배송');
     const headers = ['처리 상태', '처리자', '처리 시각', '구분', '판정', '주문번호', '주문일', '구매자', '수령인', '주문처', '접수번호', '접수일', '접수 판정', '주문 상태', '접수 상품', '옵션', '수량', '사유 코드', '사유', '네이버 사유', '반품 송장', '택배사'];
@@ -3331,8 +3332,9 @@ async function rscanReadGrid(file) {
   const b = new Uint8Array(buf);
   const isCfb = b[0] === 0xD0 && b[1] === 0xCF;
   const pw = (($('rscan-np-pw') || {}).value || localStorage.getItem(NP_PW_KEY) || '').trim();
-  if (isCfb && pw && typeof XlsxPopulate !== 'undefined') {
+  if (isCfb && pw) {
     try {
+      await loadXlsxPopulate();
       const wb = await XlsxPopulate.fromDataAsync(buf, { password: pw });
       const sh = wb.sheet(0); const used = sh.usedRange();
       if (!used) throw new Error('엑셀에 데이터가 없어요');
@@ -3545,6 +3547,9 @@ function anRateBadge(rate) {
 }
 
 function renderAnalytics() {
+  const secAn = $('sec-an');
+  if (secAn && secAn.style.display === 'none') { anState.renderPending = true; return; }   // 2026-09-22 성능: 메뉴가 안 보이면 열 때 그린다(showMenu)
+  anState.renderPending = false;
   const rows = anFilteredRows();
   const sum = $('an-summary'), result = $('an-result'), toolbar = $('an-toolbar');
 
@@ -5430,7 +5435,7 @@ const PROJ_XLSX_HEADERS = ['프로젝트', '섹션', '업무', '하위 업무', 
 
 async function projDownloadXlsx(template) {
   try {
-    if (typeof XlsxPopulate === 'undefined') throw new Error('엑셀 라이브러리 로드 실패 — 페이지를 새로고침해주세요');
+    await loadXlsxPopulate();
     const wb = await XlsxPopulate.fromBlankAsync();
     const ws = wb.sheet(0).name('업무목록');
     PROJ_XLSX_HEADERS.forEach((h, i) => ws.cell(1, i + 1).value(h).style({ bold: true, fill: 'EEF2FF' }));
@@ -5483,7 +5488,7 @@ async function projUploadXlsx(ev) {
   ev.target.value = '';                                  // 같은 파일 재선택 가능하게
   if (!file) return;
   try {
-    if (typeof XlsxPopulate === 'undefined') throw new Error('엑셀 라이브러리 로드 실패 — 페이지를 새로고침해주세요');
+    await loadXlsxPopulate();
     const wb = await XlsxPopulate.fromDataAsync(await file.arrayBuffer());
     const used = wb.sheet(0).usedRange();
     if (!used) throw new Error('엑셀에 데이터가 없습니다');
@@ -6625,7 +6630,7 @@ async function madeStkExport() {
   for (const g of list) for (const r of g.rows) lines.push([g.name, r.opt || '단일', r.code || '', r.stock, r.unshipped, r.avail, r.incoming, r.after, r.safe != null ? r.safe : '', r.shortage, r.warn ? ['주의', r.warnLow ? '5개 미만' : '', r.warnSafe ? '안정재고 미달' : ''].filter(Boolean).join(' ') : '', g.watched ? '지정' : 'made/자체제작', r.ez ? r.ez.ordered : '', r.ez ? r.ez.received : '']);
   if (!lines.length) { showToast('내보낼 행이 없어요'); return; }
   try {
-    if (typeof XlsxPopulate === 'undefined') throw new Error('엑셀 라이브러리 로드 실패 — 새로고침해주세요');
+    await loadXlsxPopulate();
     const wb = await XlsxPopulate.fromBlankAsync();
     const ws = wb.sheet(0).name('재고입고점검');
     const today = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Seoul' });
@@ -6638,6 +6643,19 @@ async function madeStkExport() {
     const a = document.createElement('a'); a.href = url; a.download = `자체제작_재고입고점검_${today}.xlsx`; document.body.appendChild(a); a.click(); a.remove();
     setTimeout(() => URL.revokeObjectURL(url), 60000);
   } catch (e) { showToast('엑셀 만들기 실패: ' + e.message); }
+}
+// xlsx-populate 지연 로드 (2026-09-22 성능 점검) — 매 접속마다 190KB를 받던 것을 엑셀 저장·암호 엑셀 읽기 때만. 모든 사용처는 async 함수라 await 가능.
+let _xlsxPopP = null;
+function loadXlsxPopulate() {
+  if (window.XlsxPopulate) return Promise.resolve(window.XlsxPopulate);
+  if (!_xlsxPopP) _xlsxPopP = new Promise((res, rej) => {
+    const sc = document.createElement('script');
+    sc.src = 'https://cdn.jsdelivr.net/npm/xlsx-populate@1.21.0/browser/xlsx-populate.min.js';
+    sc.onload = () => window.XlsxPopulate ? res(window.XlsxPopulate) : rej(new Error('엑셀 라이브러리 로드 실패 — 페이지를 새로고침해주세요'));
+    sc.onerror = () => { _xlsxPopP = null; rej(new Error('엑셀 라이브러리를 불러오지 못했어요 (인터넷 연결 확인)')); };
+    document.head.appendChild(sc);
+  });
+  return _xlsxPopP;
 }
 // SheetJS 지연 로드 — 이지픽 .xls(BIFF)는 xlsx-populate로 못 읽어 cdnjs SheetJS를 필요할 때만 불러온다 (2026-09-09)
 let _sheetJsP = null;
@@ -8295,7 +8313,7 @@ function admgrTestRowSets() {
 // 테스트 소재 엑셀 추출 — 지금 화면에 보이는 표 그대로 (필터·검색·정렬 반영). 날짜는 기존 admgrKstDate(5775행 부근) 재사용
 async function admgrTestXlsx() {
   try {
-    if (typeof XlsxPopulate === 'undefined') throw new Error('엑셀 라이브러리 로드 실패 — 페이지를 새로고침해주세요');
+    await loadXlsxPopulate();
     const t = admgrState.test;
     const { rows } = admgrTestRowSets();
     if (!rows.length) { showToast('내려받을 소재가 없습니다'); return; }
@@ -8697,7 +8715,7 @@ async function metaPrevLoad(adId, fmt) {
       }
     }
   } else if (d.thumbnail) {
-    $('meta-preview-body').innerHTML = `<img src="${escHtml(d.thumbnail)}" style="max-width:100%;border-radius:10px;" />`;
+    $('meta-preview-body').innerHTML = `<img src="${escHtml(d.thumbnail)}" loading="lazy" decoding="async" style="max-width:100%;border-radius:10px;" />`;
   } else {
     $('meta-preview-body').innerHTML = '<div style="padding:30px;color:#6b7280;">미리보기를 가져오지 못했습니다</div>';
   }
@@ -9549,7 +9567,7 @@ function wmTripDetail(id) {
       const blob = await wmFetchBlob('wm-admin', {}, { action: 'trip_receipt', id: r.id });
       const url = URL.createObjectURL(blob); wmTripDetailUrls.push(url);
       const el = $('wm-trip-rc-' + r.id);
-      if (el) el.innerHTML = `<img src="${url}" alt="" style="max-width:100%;max-height:120px;object-fit:contain;border-radius:4px;" />`;
+      if (el) el.innerHTML = `<img src="${url}" alt="" loading="lazy" decoding="async" style="max-width:100%;max-height:120px;object-fit:contain;border-radius:4px;" />`;
     } catch { const el = $('wm-trip-rc-' + r.id); if (el) el.textContent = '미리보기 실패'; }
   });
 }
@@ -9584,7 +9602,7 @@ async function wmTripOtExport(onlyId) {
   if (!lines.length) { showToast('내보낼 초과근로 내역이 없어요'); return; }
   lines.sort((a, b) => (a[0] + a[3]).localeCompare(b[0] + b[3], 'ko'));
   try {
-    if (typeof XlsxPopulate === 'undefined') throw new Error('엑셀 라이브러리 로드 실패 — 페이지를 새로고침해주세요');
+    await loadXlsxPopulate();
     const wb = await XlsxPopulate.fromBlankAsync();
     const ws = wb.sheet(0).name('초과근로');
     const single = onlyId ? claims[0] : null;
@@ -9705,7 +9723,7 @@ async function wmExportAtt() {
   if (!x) return;
   if (!x.data.length) { showToast('내려받을 기록이 없습니다'); return; }
   try {
-    if (typeof XlsxPopulate === 'undefined') throw new Error('엑셀 라이브러리 로드 실패 — 페이지를 새로고침해주세요');
+    await loadXlsxPopulate();
     const wb = await XlsxPopulate.fromBlankAsync();
     const ws = wb.sheet(0).name(`${x.m}월`);
     ws.cell(1, 1).value(`${x.y}년 ${x.m}월 출퇴근 기록`).style({ bold: true, fontSize: 14 });
@@ -11380,6 +11398,7 @@ function showMenu(key) {
   if (key === 'profit' && isAdmin()) loadProfitArchive();
   if (key === 'rwatch') rwInit();
   if (key === 'rscan') rscanInit();
+  if (key === 'an' && anState.renderPending) renderAnalytics();   // 시작 시 미뤄 둔 상품 분석 표
   if (key === 'perf') perfTrendInit();
 }
 
@@ -11834,7 +11853,7 @@ async function readFileSmart(file) {
   const isZip = b[0] === 0x50 && b[1] === 0x4B;   // 일반 xlsx (zip)
   if (!isCfb && !isZip) return await readFileAsText(file);
 
-  if (typeof XlsxPopulate === 'undefined') throw new Error('엑셀 라이브러리 로드 실패 — 페이지를 새로고침해주세요');
+  await loadXlsxPopulate();
   const pw = localStorage.getItem(NP_PW_KEY) || '';
   if (isCfb && !pw) throw new Error('암호화된 엑셀입니다 — 위의 네이버 파일 비밀번호를 먼저 입력해주세요');
   let wb;
