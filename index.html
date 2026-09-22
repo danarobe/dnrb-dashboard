@@ -2923,8 +2923,9 @@ async function anGet(params) {
 const rscanState = { status: null, history: [], busy: false, timer: null, lastQ: '' };
 async function rscanInit() {
   const inp = $('rscan-q'); if (inp) setTimeout(() => inp.focus(), 100);
-  $('btn-rscan-set').style.display = isAdmin() ? '' : 'none';
-  rscanStatusLoad();
+  const sb = $('btn-rscan-set'); if (sb) sb.style.display = isAdmin() ? '' : 'none';
+  await rscanStatusLoad();
+  if (!$('rscan-status').innerHTML) rscanStatusRender();
 }
 async function rscanStatusLoad() {
   try { rscanState.status = await anGet({ action: 'rscan_status' }); } catch (e) { $('rscan-status').innerHTML = `<span style="color:#b91c1c;">상태를 불러오지 못했어요 — ${escHtml(e.message)}</span>`; return; }
@@ -2962,7 +2963,11 @@ async function rscanLookup() {
     rscanState.history.unshift({ q, at: new Date(), hits: r.hits.length, alert: r.hits.find(h => h.alert) ? r.hits.find(h => h.alert).alert : null, first: r.hits[0] || null });
     rscanState.history = rscanState.history.slice(0, 30);
     rscanHistoryRender();
-    if (r.index && rscanState.status) { rscanState.status.row_count = r.index.row_count; rscanState.status.built_at = r.index.built_at; rscanState.status.age_min = Math.round((Date.now() - new Date(r.index.built_at).getTime()) / 60000); rscanStatusRender(); }
+    if (r.index) {   // 조회 결과에 실린 인덱스 정보로 상태 줄 갱신 (첫 조회가 상태 로드보다 먼저 끝나도 비지 않게)
+      rscanState.status = rscanState.status || { naver: { count: 0, last: null }, days: r.index.days };
+      rscanState.status.row_count = r.index.row_count; rscanState.status.built_at = r.index.built_at; rscanState.status.days = r.index.days;
+      rscanState.status.age_min = Math.round((Date.now() - new Date(r.index.built_at).getTime()) / 60000); rscanStatusRender();
+    }
   } catch (e) { $('rscan-result').innerHTML = `<div class="empty-state"><p style="color:#b91c1c;">조회 실패 — ${escHtml(e.message)}</p></div>`; }
   finally { rscanState.busy = false; inp.select(); inp.focus(); }
 }
