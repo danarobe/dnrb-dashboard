@@ -3057,7 +3057,7 @@ function rscanIssuesRender() {
     return `<tr style="${done ? 'opacity:.55;' : ''}">
       <td style="white-space:nowrap;vertical-align:top;">${doneCell}</td>
       <td style="white-space:nowrap;vertical-align:top;"><span style="background:${g.kind === 'exchange' ? '#e0e7ff' : '#fef3c7'};color:${g.kind === 'exchange' ? '#4338ca' : '#92400e'};border-radius:99px;padding:2px 9px;font-size:.72rem;font-weight:700;">${g.kind === 'exchange' ? '교환' : '반품'}</span> ${badge(g.alert)}${multi ? `<div style="font-size:.68rem;color:#6b7280;margin-top:3px;">접수 ${g.claims.length}건</div>` : ''}</td>
-      <td style="text-align:left;white-space:nowrap;vertical-align:top;"><b>${escHtml(g.order_id)}</b>${g.naver ? ' <b style="color:#03c75a;font-size:.7rem;">N Pay</b>' : ''}<div style="display:flex;gap:4px;flex-wrap:wrap;margin-top:4px;">${rscanLinkBtns(g)}</div></td>
+      <td style="text-align:left;white-space:nowrap;vertical-align:top;"><b>${escHtml(g.order_id)}</b>${g.naver ? ' <b style="color:#03c75a;font-size:.7rem;">N Pay</b>' : ''}${g.naver && (g.naver_ids || []).length ? `<div style="margin-top:3px;">${rscanNaverIdsHtml(g.naver_ids, true)}</div>` : ''}<div style="display:flex;gap:4px;flex-wrap:wrap;margin-top:4px;">${rscanLinkBtns(g)}</div></td>
       <td style="text-align:left;vertical-align:top;">${name}</td>
       <td style="text-align:left;font-size:.78rem;vertical-align:top;">${claims}</td>
       <td class="m-hide" style="text-align:left;font-size:.76rem;color:#374151;max-width:260px;white-space:normal;vertical-align:top;">${reasons}</td>
@@ -3188,17 +3188,25 @@ function rscanOpen(btn) {
   if (d.site === 'cafe24') url = (st.cafe24_url || RSCAN_URL_DEFAULTS.cafe24_url).replace('{order_id}', encodeURIComponent(d.oid || ''));
   else {
     url = (st.naver_url || RSCAN_URL_DEFAULTS.naver_url).replace('{product_order_no}', encodeURIComponent(d.pon || '')).replace('{kind}', d.kind === 'exchange' ? 'exchange' : 'return');
-    // 네이버페이센터는 타일·상세조건을 골라도 주소가 안 바뀌어(2026-09-23 사용자 확인) 링크로 상태를 못 연다 → 수취인명을 복사해 두어 '반품수거완료' 타일 → 수취인명 검색창에 붙여넣기만 하면 되게
-    const copyText = d.recv || d.pon || '';
-    if (copyText && navigator.clipboard) navigator.clipboard.writeText(copyText).then(() => showToast(`${d.recv ? '수취인명' : '상품주문번호'} '${copyText}' 복사됨 — 반품수거완료 타일을 누르고 검색창에 붙여넣으세요`)).catch(() => {});
+    // 네이버페이센터는 타일·상세조건을 골라도 주소가 안 바뀌어(2026-09-23 사용자 확인) 링크로 상태를 못 연다 → 카페24 품목의 네이버페이 상품주문번호를 복사해 두어
+    // 상세조건을 '상품주문번호'로 바꾸고 붙여넣기만 하면 되게 (2026-09-23 사용자 결정 — 수취인명이 아니라 상품주문번호)
+    const copyText = d.pon || '';
+    if (copyText && navigator.clipboard) navigator.clipboard.writeText(copyText).then(() => showToast(`네이버페이 상품주문번호 ${copyText} 복사됨 — 상세조건을 '상품주문번호'로 바꾸고 붙여넣으세요`)).catch(() => {});
+    else if (!copyText) showToast('이 주문에는 네이버페이 상품주문번호가 없어요');
   }
   if (!/^https:\/\//i.test(url)) { showToast('바로가기 주소 설정이 올바르지 않아요 (https 만 허용)'); return; }   // 보안 점검 2026-09-22
   window.open(url, '_blank', 'noopener');
 }
+/* 네이버페이 상품주문번호 표시(카페24 품목 naver_pay_order_id) — 여러 품목이면 전부, 각각 복사 버튼 (2026-09-23 사용자 요청) */
+function rscanNaverIdsHtml(ids, small) {
+  const list = [...new Set((ids || []).map(x => String(x || '')).filter(Boolean))];
+  if (!list.length) return '';
+  return `<span style="display:inline-flex;gap:4px;flex-wrap:wrap;align-items:center;font-size:${small ? '.7rem' : '.78rem'};"><b style="color:#03c75a;">N</b><span style="color:#374151;">상품주문번호</span>${list.map(id => `<span style="font-family:monospace;font-weight:700;">${escHtml(id)}</span><button class="toggle-btn" style="font-size:.66rem;padding:1px 6px;" data-v="${escHtml(id)}" onclick="navigator.clipboard&&navigator.clipboard.writeText(this.dataset.v).then(()=>showToast('네이버페이 상품주문번호 복사'))">복사</button>`).join('')}</span>`;
+}
 function rscanLinkBtns(h) {
   const pon = (h.naver_ids || [])[0] || h.naver_pon || '';
   const c24 = `<button class="toggle-btn" style="font-size:.7rem;padding:2px 9px;border-color:#c7d2fe;color:#4338ca;" data-site="cafe24" data-oid="${escHtml(h.order_id || '')}" onclick="rscanOpen(this)"><i class="fa-solid fa-arrow-up-right-from-square"></i> 카페24 주문</button>`;
-  const nv = h.naver ? `<button class="toggle-btn" style="font-size:.7rem;padding:2px 9px;border-color:#bbf7d0;color:#15803d;" data-site="naver" data-pon="${escHtml(pon)}" data-recv="${escHtml(h.receiver || h.buyer || '')}" data-kind="${escHtml(h.kind || '')}" onclick="rscanOpen(this)" title="반품/교환 관리 목록을 열고 수취인명을 복사합니다"><i class="fa-solid fa-arrow-up-right-from-square"></i> 네이버페이센터</button>` : '';
+  const nv = h.naver ? `<button class="toggle-btn" style="font-size:.7rem;padding:2px 9px;border-color:#bbf7d0;color:#15803d;" data-site="naver" data-pon="${escHtml(pon)}" data-kind="${escHtml(h.kind || '')}" onclick="rscanOpen(this)" title="반품/교환 관리 목록을 열고 네이버페이 상품주문번호를 복사합니다"><i class="fa-solid fa-arrow-up-right-from-square"></i> 네이버페이센터</button>` : '';
   return c24 + nv;
 }
 async function rscanInit() {
@@ -3326,6 +3334,7 @@ function rscanRender(r) {
       <span style="font-size:.76rem;color:#6b7280;">${escHtml(h.place)}${h.naver ? ' <b style="color:#03c75a;">N Pay</b>' : ''} · 주문 ${h.order_date} · 접수 ${h.claim_date || '—'} · 상태 <b>${escHtml(h.status || '—')}</b>${h.status_extra ? ' (' + escHtml(h.status_extra) + ')' : ''}</span></div>
     <div style="font-size:.8rem;margin-top:6px;${h.alert && h.alert.level === 'alert' ? 'font-weight:700;' : 'color:#374151;'}">사유 <b>${escHtml(h.reason_type ? '[' + h.reason_type + '] ' : '')}${escHtml(h.reason || '—')}</b>${h.naver_reason ? ` · 네이버 사유 <b>${escHtml(h.naver_reason)}</b>` : ''} · 반품 송장 ${escHtml(h.invoice || '—')}${h.company ? ' (' + escHtml(h.company) + ')' : ''} · 클레임 ${escHtml(h.claim_code || '—')}</div>
     <div style="font-size:.8rem;margin-top:2px;${h.alert && h.alert.level === 'alert' ? '' : 'color:#374151;'}">구매자 ${escHtml(h.buyer || '—')} · 수령인 ${escHtml(h.receiver || '—')}</div>
+    ${h.naver && (h.naver_ids || []).length ? `<div style="margin-top:4px;">${rscanNaverIdsHtml(h.naver_ids)}</div>` : ''}
     <table style="width:100%;margin-top:8px;font-size:.8rem;"><thead><tr><th style="text-align:left;">상품</th><th style="text-align:left;">옵션</th><th>수량</th><th class="m-hide">품목 상태</th><th class="m-hide">발송 송장</th></tr></thead>
       <tbody>${(h.items || []).map(it => `<tr><td style="text-align:left;font-weight:600;">${escHtml(it.name)}</td><td style="text-align:left;">${escHtml(it.option || '—')}</td><td>${it.qty}</td><td class="m-hide">${escHtml(it.status || '')}</td><td class="m-hide" style="font-family:monospace;font-size:.72rem;">${escHtml(it.tracking_no || '')}</td></tr>`).join('')}</tbody></table></div>`; }).join('');
   box.innerHTML = `<style>@keyframes rscanBlink{0%,100%{box-shadow:0 0 0 0 rgba(${th.glow},0)}50%{box-shadow:0 0 0 10px rgba(${th.glow},.4)}}</style>` + banner + cards;
