@@ -506,7 +506,9 @@
     .qp button:hover { background: rgba(99,102,241,.12); }
     .qp button.active { background: #4f46e5; color: #fff; border-color: #4f46e5; }
     /* 불량·오배송 처리 표 사유 칸 — 한 줄로 줄이고(…), 마우스를 올리면 툴팁, 클릭하면 펼침 (2026-09-23 사용자 요청) */
-    .rscan-reason { max-width: 240px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; }
+    .rscan-issues-tbl th, .rscan-issues-tbl td { padding: 6px 7px; }
+    .rscan-issues-tbl .toggle-btn { padding: 2px 7px; font-size: .68rem; }
+    .rscan-reason { max-width: 220px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; }
     .rscan-reason.open { white-space: normal; }
     .rscan-reason .naver { color: #15803d; }
 
@@ -3064,14 +3066,15 @@ function rscanIssuesRender() {
     }).join('');
     return `<tr style="${done ? 'opacity:.55;' : ''}">
       <td style="white-space:nowrap;vertical-align:top;">${doneCell}</td>
+      <td style="white-space:nowrap;vertical-align:top;font-size:.7rem;color:#4b5563;">${escHtml((g.claim_date || g.order_date || '').slice(2))}</td>
       <td style="white-space:nowrap;vertical-align:top;"><span style="background:${g.kind === 'exchange' ? '#e0e7ff' : '#fef3c7'};color:${g.kind === 'exchange' ? '#4338ca' : '#92400e'};border-radius:99px;padding:2px 9px;font-size:.72rem;font-weight:700;">${g.kind === 'exchange' ? '교환' : '반품'}</span> ${badge(g.alert)}${multi ? `<div style="font-size:.68rem;color:#6b7280;margin-top:3px;">접수 ${g.claims.length}건</div>` : ''}</td>
       <td style="text-align:left;white-space:nowrap;vertical-align:top;"><b>${escHtml(g.order_id)}</b>${g.naver ? ' <b style="color:#03c75a;font-size:.7rem;">N Pay</b>' : ''}${g.naver && (g.naver_ids || []).length ? `<div style="margin-top:3px;">${rscanNaverIdsHtml(g.naver_ids, true)}</div>` : ''}<div style="display:flex;gap:4px;flex-wrap:wrap;margin-top:4px;">${rscanLinkBtns(g)}</div></td>
       <td style="text-align:left;vertical-align:top;">${name}</td>
       <td style="text-align:left;font-size:.78rem;vertical-align:top;">${claims}</td>
-      <td class="m-hide" style="text-align:left;font-size:.76rem;color:#374151;max-width:240px;vertical-align:top;" title="마우스를 올리면 전체 사유, 클릭하면 펼침">${reasons}</td>
-      <td class="m-hide" style="white-space:nowrap;font-size:.76rem;vertical-align:top;">${escHtml(g.claim_date || g.order_date || '')}</td></tr>`;
+      <td class="m-hide" style="text-align:left;font-size:.74rem;color:#374151;max-width:220px;vertical-align:top;" title="마우스를 올리면 전체 사유, 클릭하면 펼침">${reasons}</td></tr>`;
   }).join('');
-  $('rscan-issues').innerHTML = `<div class="table-wrap"><table style="width:100%;font-size:.82rem;"><thead><tr><th>처리</th><th>구분</th><th style="text-align:left;">주문번호</th><th style="text-align:left;">이름</th><th style="text-align:left;">접수 상품</th><th class="m-hide" style="text-align:left;">사유</th><th class="m-hide">접수일</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+  // 표가 옆으로 퍼지지 않게 글씨·여백을 줄임 (2026-09-23 사용자 요청) — 접수일은 처리·구분 사이(작은 글씨, 연도 생략 'YY-MM-DD')
+  $('rscan-issues').innerHTML = `<div class="table-wrap"><table class="rscan-issues-tbl" style="width:100%;font-size:.78rem;"><thead><tr><th>처리</th><th>접수일</th><th>구분</th><th style="text-align:left;">주문번호</th><th style="text-align:left;">이름</th><th style="text-align:left;">접수 상품</th><th class="m-hide" style="text-align:left;">사유</th></tr></thead><tbody>${rows}</tbody></table></div>`;
 }
 /* 불량·오배송 처리 목록 엑셀 — 현재 구분·상태 필터에 보이는 주문만, 접수 품목당 1행(주문 정보는 첫 행에만) */
 async function rscanIssuesXlsx() {
