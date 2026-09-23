@@ -12528,8 +12528,9 @@ const PA_VER = /(?<![a-z])ver/i;
 /* 핵심명 = 앞·뒤 괄호/대괄호를 전부 벗긴 상품명.
    2026-08-26 수정: "[Best] (2사이즈) 클레르 블라우스 (5 colors)"처럼 대괄호 태그나
    앞쪽 괄호가 여러 개면 예전 코드(앞 괄호 1개+뒤 괄호만)로는 핵심명이 안 나와 매칭이 전멸했다(실사례 1383). */
+const PA_BRAND_SUFFIX = /\s*[-–—|]\s*(danarobe|dana|다나로브|다나)\s*$/i;   // 2026-09-23: 상품명 끝 ' - Danarobe' 접미사(SEO)로 광고 매칭이 깨짐 → 먼저 뗀다
 function paKey(name) {
-  let s = String(name || '').trim();
+  let s = String(name || '').trim().replace(PA_BRAND_SUFFIX, '').trim();
   for (;;) {
     const m = s.match(/^\s*(?:\([^)]*\)|\[[^\]]*\])\s*(.*)$/);
     if (m) s = m[1]; else break;

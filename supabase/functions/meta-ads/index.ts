@@ -319,6 +319,19 @@ Deno.serve(async (req) => {
         limit: "500",
       }, c.token).catch((e) => { throw new Error(`활성 광고 목록: ${(e as Error).message}`); });
       const activeIds = new Set(listRows.map((a) => String(a.id ?? "")));
+      // ⚠ 2026-09-23 실측: effective_status=ACTIVE 목록(130개)에 **오늘 지출 중인 광고 83개가 빠져 있었다**(계층 현황의 인사이트에는 있음 —
+      //   9/14~17 등록 _test 소재들). Meta 목록 필터를 믿지 않고, **어제·오늘 지출이 있는 광고를 인사이트로 받아 목록에 없으면 활성으로 합친다**
+      //   ('돈이 나가고 있다 = 돌고 있다'). 이름은 인사이트의 ad_name.
+      let recovered = 0;
+      try {
+        const spent = await graphGetAll(`${c.account}/insights`, {
+          time_range: JSON.stringify({ since: yesterday, until: seoulToday() }), level: "ad", fields: "ad_id,ad_name,spend", limit: "500",
+        }, c.token);
+        for (const r of spent) {
+          const id = String(r.ad_id ?? "");
+          if (id && num(r.spend) > 0 && !activeIds.has(id)) { listRows.push({ id, name: r.ad_name }); activeIds.add(id); recovered++; }
+        }
+      } catch { /* 보조 경로 실패는 무시 — 목록만으로 진행 */ }
       // (2026-09-15 조사 기록) 목록에서 "빠진" 것처럼 보였던 우디 니트 테스트 소재 4개는 실제로는 목록에 있었다 — 광고명이 NFD(자모 분해)로 저장돼
       //   NFC 문자열 포함 검사(그리고 Meta의 name CONTAIN 필터)에 안 걸렸을 뿐. 이름으로 광고를 찾을 때는 양쪽을 NFC로 정규화할 것.
       const list = { data: listRows };
@@ -356,7 +369,7 @@ Deno.serve(async (req) => {
         };
       });
       const truncated = listRows.length >= 500 * 8;   // graphGetAll 상한(8페이지)
-      const body = { until: yesterday, count: rows.length, truncated, source, ads: rows };
+      const body = { until: yesterday, count: rows.length, truncated, source, recovered_from_spend: recovered, ads: rows };
       await cacheSet(cacheKey, body);
       return json(body);
     }
