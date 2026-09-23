@@ -147,6 +147,7 @@ async function rscanBuild(token: string, days: number) {
               claim_date: String(its[0]?.return_request_date ?? its[0]?.exchange_request_date ?? c.claim_due_date ?? "").slice(0, 10),
               status: its[0]?.status_text ?? its[0]?.order_status ?? "", status_extra: its[0]?.order_status_additional_info ?? "",
               buyer: o.billing_name ?? "", receiver: recv.name ?? "",
+              address: [recv.address1, recv.address2].filter(Boolean).join(" ").trim(), phone: String(recv.cellphone ?? recv.phone ?? "").replace(/[^0-9]/g, ""),   // 이름·주소 찾기용 (2026-09-23)
               items: its.map((it) => ({ name: it.product_name, option: it.option_value ?? "", qty: Number(it.quantity ?? 0), tracking_no: it.tracking_no ?? "", status: it.status_text ?? "", naver_id: it.naver_pay_order_id ?? null, product_no: it.product_no ?? null })),
               naver_ids: [...new Set(its.map((it) => it.naver_pay_order_id).filter(Boolean))],
             });
@@ -348,10 +349,10 @@ Deno.serve(async (req) => {
     const token = await getAccessToken();
 
     // ── 반품 송장 스캔 (2026-09-22): 관리자·MD·CS/물류팀 ──
-    if (action === "rscan_build" || action === "rscan_lookup" || action === "rscan_status" || action === "rscan_issues") {
+    if (action === "rscan_build" || action === "rscan_lookup" || action === "rscan_status" || action === "rscan_issues" || action === "rscan_find") {
       if (!["admin", "staff", "cs"].includes(authed.role)) return json({ error: "접근 권한이 없습니다" }, 403);
       const days = Math.min(180, Math.max(7, Number(url.searchParams.get("days") ?? 14) || 14));   // 7·14·30·90 중 선택(기본 14), 어제까지
-      const [row] = (await sbRest("rscan_index?kind=eq.cafe24&select=built_at,days,row_count" + (action === "rscan_lookup" || action === "rscan_issues" ? ",payload" : ""))) ?? [];
+      const [row] = (await sbRest("rscan_index?kind=eq.cafe24&select=built_at,days,row_count" + (action === "rscan_lookup" || action === "rscan_issues" || action === "rscan_find" ? ",payload" : ""))) ?? [];
       const ageMin = row ? Math.round((Date.now() - new Date(row.built_at).getTime()) / 60000) : null;
       if (action === "rscan_status") {
         const nv = await sbRest("rscan_naver?select=uploaded_at,uploaded_by&order=uploaded_at.desc&limit=1");
@@ -449,6 +450,27 @@ Deno.serve(async (req) => {
         const done: Record<string, unknown> = {};
         for (const g of visible) { const hit = doneMap[g.key] ?? g.claims.map((c: Record<string, any>) => doneMap[c.key]).find(Boolean); if (hit) done[g.key] = hit; }
         return json({ days: DAYS, start_date: startDate, built_at: fresh ? row!.built_at : new Date().toISOString(), row_count: payload.length, issues: visible, cleared_count: issues.length - visible.length, done, products });
+      }
+      // ── 이름·수령인·배송지 주소·전화로 찾기 (2026-09-23 사용자 요청): 송장이 카페24에 없는 고객 직접 발송 반품용. 수거 전 반품·교환만, 철회 제외
+      if (action === "rscan_find") {
+        const norm = (v: unknown) => String(v ?? "").replace(/\s+/g, "").toLowerCase();
+        const q = norm(url.searchParams.get("q"));
+        const qd = q.replace(/[^0-9]/g, "");
+        if (q.length < 2) return json({ error: "두 글자 이상 입력해주세요" }, 400);
+        let payload: Record<string, any>[] = (row?.payload ?? []) as Record<string, any>[];
+        const fresh = !!row && ageMin !== null && ageMin <= 20 && Number(row.days ?? 0) >= days;
+        if (!fresh) payload = await rscanBuild(token, days) as Record<string, any>[];
+        const startDate = rscanStartDate(days);
+        const st = await rscanSettings();
+        const hits = payload.filter((e) => {
+          if (e.order_date && String(e.order_date) < startDate) return false;
+          const status = String(e.status ?? ""), extra = String(e.status_extra ?? "");
+          if (/철회/.test(extra) || /철회/.test(status)) return false;
+          const pending = e.kind === "return" ? !(status === "반품완료" || /환불전/.test(extra)) : status !== "교환완료";
+          if (!pending) return false;
+          return norm(e.buyer).includes(q) || norm(e.receiver).includes(q) || norm(e.address).includes(q) || (qd.length >= 4 && String(e.phone ?? "").includes(qd));
+        }).slice(0, 30).map((e) => ({ ...e, phone: e.phone ? String(e.phone).replace(/^(\d{3})(\d{3,4})(\d{4})$/, "$1-****-$3") : "", alert: rscanJudge(e, st) }));
+        return json({ q: url.searchParams.get("q"), hits, index: { built_at: fresh ? row!.built_at : new Date().toISOString(), row_count: payload.length, days, start_date: startDate } });
       }
       // lookup
       const q = rscanDigits(url.searchParams.get("q"));

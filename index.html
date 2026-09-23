@@ -1221,6 +1221,14 @@
         <button class="btn-analyze" onclick="rscanLookup()" style="padding:12px 22px;">조회</button>
         <label style="display:flex;align-items:center;gap:5px;font-size:.76rem;color:#4b5563;font-weight:600;cursor:pointer;"><input type="checkbox" id="rscan-sound" checked /> 경고음</label>
       </div>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:12px;">
+        <input id="rscan-find" placeholder="송장이 안 찾아지면: 구매자명 · 수령인 · 배송지 주소로 찾기 (수거 전 반품·교환)" autocomplete="off"
+          oninput="rscanFindAuto(this.value)" onkeydown="if(event.key==='Enter'){event.preventDefault();rscanFind(true);}"
+          style="flex:1;min-width:240px;border:1.5px solid #d1d5db;border-radius:10px;padding:9px 12px;font-size:.9rem;outline:none;" />
+        <button class="toggle-btn" onclick="rscanFind(true)"><i class="fa-solid fa-magnifying-glass"></i> 찾기</button>
+        <span style="font-size:.72rem;color:#6b7280;">두 글자부터 자동 조회 · 결과가 하나면 Enter로 바로 열림</span>
+      </div>
+      <div id="rscan-find-result"></div>
       <div id="rscan-result"></div>
       <div id="rscan-history" style="margin-top:16px;"></div>
       <div id="rscan-naver" ondragover="event.preventDefault();this.style.background='#eef2ff'" ondragleave="this.style.background=''" ondrop="event.preventDefault();this.style.background='';rscanNaverUpload(event.dataTransfer.files)"
@@ -3193,9 +3201,46 @@ function rscanSetDays(d) {
   const q = ($('rscan-q') || {}).value || '';
   if (q.replace(/[^0-9A-Za-z]/g, '').length >= 6) { rscanState.lastQ = ''; rscanLookup(); }   // 이미 번호가 있으면 새 기간으로 다시 조회
 }
-function rscanOpen(btn) {
+function rscanOpen(btn) { return rscanOpenLink(btn.dataset); }
+/* 이름·수령인·주소 찾기 (2026-09-23 사용자 요청 — 카페24에 송장이 없는 고객 직접 발송 반품) — 수거 전 반품·교환만 대상 */
+function rscanFindAuto(v) {
+  clearTimeout(rscanState.findT);
+  const q = String(v || '').trim();
+  if (q.length < 2) { $('rscan-find-result').innerHTML = ''; return; }
+  rscanState.findT = setTimeout(() => { if ($('rscan-find').value.trim() === q) rscanFind(false); }, 450);
+}
+async function rscanFind(openIfSingle) {
+  const q = ($('rscan-find').value || '').trim();
+  if (q.length < 2) { showToast('두 글자 이상 입력해주세요'); return; }
+  const box = $('rscan-find-result');
+  box.innerHTML = `<div class="empty-state"><p><i class="fa-solid fa-spinner fa-spin"></i> '${escHtml(q)}' 찾는 중…</p></div>`;
+  try {
+    const r = await anGet({ action: 'rscan_find', q, days: Math.max(rscanState.days, 30) });   // 수거 전 건은 주문일이 좀 지났을 수 있어 최소 30일
+    if ($('rscan-find').value.trim() !== q) return;   // 늦게 온 응답 버림
+    rscanState.findHits = r.hits || [];
+    if (!r.hits.length) { box.innerHTML = `<div style="background:#f3f4f6;border:1.5px solid #d1d5db;border-radius:12px;padding:12px 16px;font-size:.82rem;color:#374151;"><b>'${escHtml(q)}'</b> — 수거 전 반품·교환(최근 ${r.index.days}일) 중에 맞는 건이 없어요. 이름 일부·주소 일부(동 이름 등)로 다시 넣어 보세요.</div>`; return; }
+    const when = t => t ? String(t).slice(5) : '';
+    box.innerHTML = `<div style="font-size:.76rem;color:#6b7280;margin-bottom:6px;"><b>'${escHtml(q)}'</b> 수거 전 반품·교환 ${r.hits.length}건${r.hits.length >= 30 ? ' (30건까지만 표시 — 더 정확히 입력)' : ''}${r.hits.length === 1 ? ' · Enter를 누르면 바로 열려요' : ''}</div>` +
+      r.hits.map((h, i) => { const th = h.alert ? rscanTheme(h.alert) : null; return `<div style="border:1.5px solid ${th ? th.border : '#e5e7eb'};border-radius:12px;padding:10px 14px;margin-bottom:8px;background:#fff;">
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+          <b style="font-size:.92rem;">주문 ${escHtml(h.order_id)}</b>
+          <span style="background:${h.kind === 'exchange' ? '#e0e7ff' : '#fef3c7'};color:${h.kind === 'exchange' ? '#4338ca' : '#92400e'};border-radius:99px;padding:2px 10px;font-size:.72rem;font-weight:700;">${h.kind === 'exchange' ? '교환' : '반품'}</span>
+          ${h.naver ? '<b style="color:#03c75a;font-size:.72rem;">N Pay</b>' : ''}${h.alert ? `<span style="background:${th.bg};color:${th.text};border-radius:99px;padding:2px 9px;font-size:.7rem;font-weight:800;">${escHtml(h.alert.type)}${h.alert.level === 'warn' ? ' 의심' : ''}</span>` : ''}
+          <span style="font-size:.74rem;color:#6b7280;">접수 ${escHtml(when(h.claim_date))} · ${escHtml(h.status || '')}${h.status_extra ? ' · ' + escHtml(h.status_extra) : ''}</span>
+          <span style="margin-left:auto;display:flex;gap:4px;flex-wrap:wrap;">${rscanLinkBtns(h)}</span></div>
+        <div style="font-size:.8rem;color:#374151;margin-top:5px;">구매자 <b>${escHtml(h.buyer || '—')}</b> · 수령인 <b>${escHtml(h.receiver || '—')}</b>${h.phone ? ' · ' + escHtml(h.phone) : ''}</div>
+        <div style="font-size:.78rem;color:#4b5563;">${escHtml(h.address || '주소 없음')}</div>
+        <div style="font-size:.78rem;color:#374151;margin-top:3px;">${(h.items || []).map(it => `${escHtml(it.name || '')}${it.option ? ' <span style="color:#6b7280;">' + escHtml(it.option) + '</span>' : ''}${it.qty > 1 ? ' ×' + it.qty : ''}`).join(' / ')}</div>
+        ${h.naver && (h.naver_ids || []).length ? `<div style="margin-top:4px;">${rscanNaverIdsHtml(h.naver_ids, true)}</div>` : ''}</div>`; }).join('');
+    if (openIfSingle && r.hits.length === 1) {   // Enter(사용자 동작) 안에서만 창을 열 수 있다 — 자동 조회 결과는 버튼으로
+      const h = r.hits[0];
+      rscanOpenLink({ site: h.naver ? 'naver' : 'cafe24', oid: h.order_id, pon: (h.naver_ids || [])[0] || '', kind: h.kind });
+    }
+  } catch (e) { box.innerHTML = `<div class="empty-state"><p style="color:#b91c1c;">찾기 실패 — ${escHtml(e.message)}</p></div>`; }
+}
+function rscanOpenLink(d) {
   const st = (rscanState.status || {}).settings || {};
-  const d = btn.dataset; let url;
+  let url;
   if (d.site === 'cafe24') url = (st.cafe24_url || RSCAN_URL_DEFAULTS.cafe24_url).replace('{order_id}', encodeURIComponent(d.oid || ''));
   else {
     url = (st.naver_url || RSCAN_URL_DEFAULTS.naver_url).replace('{product_order_no}', encodeURIComponent(d.pon || '')).replace('{kind}', d.kind === 'exchange' ? 'exchange' : 'return');
@@ -3320,7 +3365,7 @@ function rscanRender(r) {
       <div style="font-size:1rem;font-weight:800;color:#374151;"><i class="fa-regular fa-circle-question"></i> ${escHtml(r.q)} — 일치하는 주문이 없어요</div>
       ${r.naver_row ? `<div style="font-size:.8rem;color:#4b5563;margin-top:6px;">네이버페이센터 표에는 있어요: 상품주문번호 ${escHtml(r.naver_row.product_order_no || '')} · ${escHtml(r.naver_row.kind || '')} · ${escHtml(r.naver_row.reason || '')} — 카페24 최근 ${r.index.days}일(어제까지) 반품·교환 주문에서 그 상품주문번호를 찾지 못했어요. 기간을 늘려 보거나 '목록 갱신' 후 다시 시도하세요.</div>
            <div style="margin-top:8px;">${rscanLinkBtns({ naver: true, naver_pon: String(r.naver_row.product_order_no || '').split(',')[0], kind: /교환/.test(r.naver_row.kind || '') ? 'exchange' : 'return' }).replace(/<button[^>]*data-site="cafe24"[\s\S]*?<\/button>/, '')}</div>`
-        : `<div style="font-size:.78rem;color:#6b7280;margin-top:6px;">최근 ${r.index.days}일(어제까지) 카페24 반품·교환 목록(${fmt(r.index.row_count)}건)과 네이버페이센터 표에 없는 번호예요. <b>조회 기간을 늘려</b> 다시 찾아보세요. 네이버페이 주문이면 네이버페이센터 엑셀을 올려주세요. 방금 접수된 건이면 '목록 갱신'을 눌러주세요.</div>`}</div>`;
+        : `<div style="font-size:.78rem;color:#6b7280;margin-top:6px;">최근 ${r.index.days}일(어제까지) 카페24 반품·교환 목록(${fmt(r.index.row_count)}건)과 네이버페이센터 표에 없는 번호예요. <b>조회 기간을 늘려</b> 다시 찾아보세요. 네이버페이 주문이면 네이버페이센터 엑셀을 올려주세요. 방금 접수된 건이면 '목록 갱신'을 눌러주세요.<br>고객이 직접 보낸 반품(우체국·편의점)은 카페24에 송장이 없어요 — 위의 <b>이름·주소 찾기</b> 칸에 상자의 보내는 사람 이름이나 주소를 넣어 보세요.</div>`}</div>`;
     return;
   }
   const top = r.hits.find(h => h.alert && h.alert.level === 'alert') || r.hits.find(h => h.alert) || null;
