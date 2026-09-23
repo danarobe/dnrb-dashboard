@@ -505,6 +505,10 @@
     }
     .qp button:hover { background: rgba(99,102,241,.12); }
     .qp button.active { background: #4f46e5; color: #fff; border-color: #4f46e5; }
+    /* 불량·오배송 처리 표 사유 칸 — 한 줄로 줄이고(…), 마우스를 올리면 툴팁, 클릭하면 펼침 (2026-09-23 사용자 요청) */
+    .rscan-reason { max-width: 240px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; }
+    .rscan-reason.open { white-space: normal; }
+    .rscan-reason .naver { color: #15803d; }
 
     /* 모바일 열 숨김 공용 클래스 (④ — 판매 성과·상품 분석) */
     @media (max-width: 700px) {
@@ -2985,7 +2989,8 @@ async function anGet(params) {
 const RSCAN_DAYS_KEY = 'dnrb_rscan_days';
 const rscanState = { status: null, history: [], busy: false, timer: null, lastQ: '', days: [7, 14, 30, 90].includes(Number(localStorage.getItem('dnrb_rscan_days'))) ? Number(localStorage.getItem('dnrb_rscan_days')) : 14 };
 /* 바로가기 주소 형식 — 관리자 '경고 기준' 패널(rscan_settings)에서 바꿀 수 있음. {order_id}=카페24 주문번호, {product_order_no}=네이버 상품주문번호, {kind}=return|exchange */
-const RSCAN_URL_DEFAULTS = { cafe24_url: 'https://wnqka5000.cafe24.com/admin/php/shop1/s_new/order_detail.php?order_id={order_id}', naver_url: 'https://admin.pay.naver.com/o/v3/claim/{kind}' };
+// 카페24 주문 상세: 공개 코드에서 확인된 실제 사용 형식(order_detail.php?order_id=…&menu_no=78 — menu_no가 빠지면 관리자 프레임 밖 접근으로 막힐 수 있음, 2026-09-23). 그 PC에서 카페24 관리자에 로그인돼 있어야 열린다.
+const RSCAN_URL_DEFAULTS = { cafe24_url: 'https://wnqka5000.cafe24.com/admin/php/shop1/s_new/order_detail.php?order_id={order_id}&menu_no=78', naver_url: 'https://admin.pay.naver.com/o/v3/claim/{kind}' };
 const RSCAN_TABS = [['scan', '송장 스캔', null, 'fa-solid fa-barcode'], ['issues', '불량·오배송 처리', null, 'fa-solid fa-list-check'], ['products', '불량 다발 상품', null, 'fa-solid fa-ranking-star']];
 rscanState.tab = 'scan'; rscanState.issues = null; rscanState.issueFilter = 'todo'; rscanState.issueKind = 'all'; rscanState.issuesLoading = false;
 function rscanTabsRender() {
@@ -3053,14 +3058,17 @@ function rscanIssuesRender() {
     const claims = g.claims.map(c => `<div style="${multi ? 'padding:4px 0;border-top:1px dashed #e5e7eb;' : ''}">
         <div style="font-size:.7rem;color:#6b7280;display:flex;gap:6px;flex-wrap:wrap;align-items:center;">${multi ? badge(c.alert) : ''}<span>접수 ${escHtml(c.claim_code || '—')} · ${escHtml(c.claim_date || '')}</span>${stBadge(c)}</div>
         ${(c.items || []).map(it => `<div>${escHtml(it.name || '')}${it.option ? ` <span style="color:#6b7280;">${escHtml(it.option)}</span>` : ''}${it.qty > 1 ? ` <b>×${it.qty}</b>` : ''}</div>`).join('') || '<div>—</div>'}</div>`).join('').replace('border-top:1px dashed #e5e7eb;', '');
-    const reasons = g.claims.map(c => `<div style="${multi ? 'padding:3px 0;' : ''}">${escHtml(c.reason_type ? '[' + c.reason_type + '] ' : '')}${escHtml(c.reason || (c.reason_type ? '' : '—'))}${c.naver_reason ? `<div style="color:#15803d;">네이버: ${escHtml(c.naver_reason)}</div>` : ''}</div>`).join('');
+    const reasons = g.claims.map(c => {
+      const full = `${c.reason_type ? '[' + c.reason_type + '] ' : ''}${(c.reason || '').replace(/\s+/g, ' ').trim() || (c.reason_type ? '' : '—')}${c.naver_reason ? ` / 네이버: ${c.naver_reason}` : ''}`;
+      return `<div class="rscan-reason" title="${escHtml(full)}" onclick="this.classList.toggle('open')" style="${multi ? 'padding:3px 0;' : ''}">${escHtml(c.reason_type ? '[' + c.reason_type + '] ' : '')}${escHtml((c.reason || '').replace(/\s+/g, ' ').trim() || (c.reason_type ? '' : '—'))}${c.naver_reason ? `<span class="naver"> / 네이버: ${escHtml(c.naver_reason)}</span>` : ''}</div>`;
+    }).join('');
     return `<tr style="${done ? 'opacity:.55;' : ''}">
       <td style="white-space:nowrap;vertical-align:top;">${doneCell}</td>
       <td style="white-space:nowrap;vertical-align:top;"><span style="background:${g.kind === 'exchange' ? '#e0e7ff' : '#fef3c7'};color:${g.kind === 'exchange' ? '#4338ca' : '#92400e'};border-radius:99px;padding:2px 9px;font-size:.72rem;font-weight:700;">${g.kind === 'exchange' ? '교환' : '반품'}</span> ${badge(g.alert)}${multi ? `<div style="font-size:.68rem;color:#6b7280;margin-top:3px;">접수 ${g.claims.length}건</div>` : ''}</td>
       <td style="text-align:left;white-space:nowrap;vertical-align:top;"><b>${escHtml(g.order_id)}</b>${g.naver ? ' <b style="color:#03c75a;font-size:.7rem;">N Pay</b>' : ''}${g.naver && (g.naver_ids || []).length ? `<div style="margin-top:3px;">${rscanNaverIdsHtml(g.naver_ids, true)}</div>` : ''}<div style="display:flex;gap:4px;flex-wrap:wrap;margin-top:4px;">${rscanLinkBtns(g)}</div></td>
       <td style="text-align:left;vertical-align:top;">${name}</td>
       <td style="text-align:left;font-size:.78rem;vertical-align:top;">${claims}</td>
-      <td class="m-hide" style="text-align:left;font-size:.76rem;color:#374151;max-width:260px;white-space:normal;vertical-align:top;">${reasons}</td>
+      <td class="m-hide" style="text-align:left;font-size:.76rem;color:#374151;max-width:240px;vertical-align:top;" title="마우스를 올리면 전체 사유, 클릭하면 펼침">${reasons}</td>
       <td class="m-hide" style="white-space:nowrap;font-size:.76rem;vertical-align:top;">${escHtml(g.claim_date || g.order_date || '')}</td></tr>`;
   }).join('');
   $('rscan-issues').innerHTML = `<div class="table-wrap"><table style="width:100%;font-size:.82rem;"><thead><tr><th>처리</th><th>구분</th><th style="text-align:left;">주문번호</th><th style="text-align:left;">이름</th><th style="text-align:left;">접수 상품</th><th class="m-hide" style="text-align:left;">사유</th><th class="m-hide">접수일</th></tr></thead><tbody>${rows}</tbody></table></div>`;
