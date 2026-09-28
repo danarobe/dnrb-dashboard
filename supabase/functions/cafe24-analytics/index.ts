@@ -515,10 +515,50 @@ Deno.serve(async (req) => {
     const token = await getAccessToken();
 
     // ── 미발송 관리 (2026-09-28 사용자 요청): 관리자·MD·CS/물류팀. 10분 캐시(권한 검사 뒤), 새로고침은 nocache=1
-    if (action === "unship_list") {
+    if (action === "unship_list" || action === "unship_mark") {
       if (!["admin", "staff", "cs"].includes(authed.role)) return json({ error: "접근 권한이 없습니다" }, 403);
-      const cached = await fromCache(); if (cached) return json(cached);
-      return await respond(await unshipCollect(token));
+      // 상품별 입고일·특수 관리(unship_products)는 캐시하지 않고 매번 읽는다 — 목록(카페24 조회)만 10분 캐시
+      const readMarks = async () => ((await sbRest("unship_products?select=key,product_no,product_name,supplier,supplier_product,arrival_date,arrival_history,special,special_note,special_by,special_at,updated_at")) ?? []) as Record<string, any>[];
+      if (action === "unship_list") {
+        let base = await fromCache() as Record<string, unknown> | null;
+        if (!base) { base = await unshipCollect(token); await cacheSet(cacheKey, base); }
+        return json({ ...base, marks: await readMarks() });
+      }
+      // ── 입고일·특수 관리 저장 (2026-09-28 사용자 요청): POST {key, product_no, product_name, supplier, supplier_product, arrival_date?, special?, special_note?}
+      //    arrival_date가 바뀌면 이력에 {date, prev, at, by} 추가(최근 30건). 늦춰진 변경이 있으면 화면이 '추가 지연'으로 표시.
+      if (req.method !== "POST") return json({ error: "POST로 호출해주세요" }, 405);
+      const b = await req.json().catch(() => ({})) as Record<string, unknown>;
+      const key = String(b.key ?? "");
+      if (!/^\d{1,12}$/.test(key)) return json({ error: "상품번호가 올바르지 않습니다" }, 400);
+      const [cur] = ((await sbRest(`unship_products?key=eq.${key}&select=*`)) ?? []) as Record<string, any>[];
+      const now = new Date().toISOString();
+      const txt = (v: unknown, n: number) => v == null ? null : String(v).trim().slice(0, n) || null;
+      const row: Record<string, unknown> = {
+        key, product_no: Number(key),
+        product_name: txt(b.product_name, 200) ?? cur?.product_name ?? null, supplier: txt(b.supplier, 120) ?? cur?.supplier ?? null,
+        supplier_product: txt(b.supplier_product, 200) ?? cur?.supplier_product ?? null,
+        arrival_date: cur?.arrival_date ?? null, arrival_history: cur?.arrival_history ?? [],
+        special: cur?.special ?? false, special_note: cur?.special_note ?? null, special_by: cur?.special_by ?? null, special_at: cur?.special_at ?? null, updated_at: now,
+      };
+      if ("arrival_date" in b) {
+        const d = b.arrival_date == null || b.arrival_date === "" ? null : String(b.arrival_date);
+        if (d !== null && !/^\d{4}-\d{2}-\d{2}$/.test(d)) return json({ error: "입고일 형식이 올바르지 않습니다" }, 400);
+        const prev = cur?.arrival_date ? String(cur.arrival_date).slice(0, 10) : null;
+        if (d !== prev) {
+          row.arrival_date = d;
+          row.arrival_history = [...((cur?.arrival_history ?? []) as unknown[]), { date: d, prev, at: now, by: authed.name }].slice(-30);
+        }
+      }
+      if ("special" in b) {
+        const on = b.special === true;
+        if (on && !cur?.special) { row.special_by = authed.name; row.special_at = now; }
+        if (!on) { row.special_by = null; row.special_at = null; row.special_note = null; }
+        row.special = on;
+      }
+      if ("special_note" in b && row.special) row.special_note = txt(b.special_note, 200);
+      if (!cur && ((await sbRest("unship_products?select=key")) ?? []).length >= 3000) return json({ error: "기록이 너무 많아요 — 관리자에게 알려주세요" }, 400);
+      await sbRest("unship_products?on_conflict=key", { method: "POST", headers: { Prefer: "resolution=merge-duplicates,return=minimal" }, body: JSON.stringify(row) });
+      return json({ ok: true, mark: row });
     }
 
     // ── 반품 송장 스캔 (2026-09-22): 관리자·MD·CS/물류팀 ──
