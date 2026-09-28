@@ -117,8 +117,9 @@ function rscanYesterday() {
 function rscanStartDate(days: number) { const d = rscanYesterday(); d.setUTCDate(d.getUTCDate() - (days - 1)); return d.toISOString().slice(0, 10); }
 /* ── 반품 불가 품목 표시 (2026-09-28 사용자 지정) ──
    block(반품 불가): 상품명에 비키니·모노키니·swim·수영복 / ACC 카테고리(이름이 정확히 'ACC'인 모든 카테고리) 상품 중 주얼리·양말·모자(상품명 키워드)
-   check(확인 필요): 품목에 할인이 적용됨(additional_discount_price > 0 — 1+1·기간할인·등급할인 등) 또는 세일 카테고리(이름에 sale·세일·할인) 상품
-                     → 할인 상품은 "일부만" 반품 불가라 확인 표시로만 둔다.
+                     + 할인 적용 품목(additional_discount_price > 0) 중 1+1·신상 7%가 아닌 것
+   check(확인 필요): 주문 당시 할인은 없었지만 지금 세일 카테고리(이름에 sale·세일·할인, 1+1 제외)에 있는 상품
+   표시 없음(반품 가능): 1+1 상품, 신상 7% 세일
    카테고리 상품 목록은 30분 캐시(api_cache rscan:nrsets). */
 type NrSets = { acc: number[]; sale: Record<string, string[]> };
 async function rscanNrSets(token: string): Promise<NrSets> {
@@ -159,11 +160,22 @@ function rscanItemFlags(it: Record<string, any>, sets: NrSets): { level: "block"
       : /모자|볼캡|버킷햇|벙거지|비니|(?:^|\s)캡(?=$|[\s(])|(?:^|\s)햇(?=$|[\s(])/.test(name) ? "모자" : "";
     if (kind) flags.push({ level: "block", type: kind, text: `${kind}(ACC) — 반품 불가` });
   }
+  // 할인 상품 (2026-09-28 사용자 확정): 1+1 과 신상 7% 세일은 반품 가능, 그 밖의 할인은 반품 불가.
+  //  · 1+1 = 상품명에 '1+1' 이 있거나 이름에 '1+1' 이 든 카테고리(현재 '1+1 할인')의 상품 — 실데이터상 할인율은 11~51%로 제각각이라 비율로는 못 가림
+  //  · 신상 7% = 할인율 6.0~7.6% (실측 6.9~7.1%, 100원 단위 절사 때문에 정확히 7이 아님)
+  //  · 주문 당시 할인이 없었는데 지금 세일 카테고리에 있는 상품은 정가 구매일 수 있어 '확인'으로만 표시
   const disc = Number(it.additional_discount_price ?? it.disc ?? 0) || 0;
-  const price = Number(it.product_price ?? it.price ?? 0) || 0;
-  if (disc > 0) flags.push({ level: "check", type: "할인", text: `할인 적용 ${Math.round(disc).toLocaleString("ko-KR")}원${price > 0 ? ` (${Math.round(disc / price * 100)}%)` : ""} — 반품 가능 여부 확인` });
-  const sc = no ? sets.sale[String(no)] : null;
-  if (sc && sc.length) flags.push({ level: "check", type: "세일", text: `세일 카테고리(${sc.join(", ")}) — 반품 가능 여부 확인` });
+  const price = (Number(it.product_price ?? it.price ?? 0) || 0) + (Number(it.option_price ?? 0) || 0);
+  const pct = price > 0 ? disc / price * 100 : 0;
+  const sc = (no ? sets.sale[String(no)] : null) ?? [];
+  const onePlusOne = /1\s*\+\s*1/.test(name) || sc.some((n) => /1\s*\+\s*1/.test(n));
+  const newArrival7 = disc > 0 && pct >= 6.0 && pct <= 7.6;
+  if (disc > 0 && !onePlusOne && !newArrival7) {
+    flags.push({ level: "block", type: "할인", text: `할인 상품 ${Math.round(disc).toLocaleString("ko-KR")}원${price > 0 ? ` (${Math.round(pct)}%)` : ""} — 반품 불가` });
+  } else if (disc <= 0 && !onePlusOne) {
+    const others = sc.filter((n) => !/1\s*\+\s*1/.test(n));
+    if (others.length) flags.push({ level: "check", type: "세일", text: `세일 카테고리(${others.join(", ")}) 상품 · 주문 당시 할인 없음 — 확인` });
+  }
   return flags;
 }
 async function rscanBuild(token: string, days: number) {
