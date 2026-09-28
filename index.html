@@ -1515,6 +1515,14 @@
         <button class="btn-analyze" onclick="stableExportMainCSV()"><i class="fa-solid fa-download"></i> 안정재고 분석 CSV</button>
         <button onclick="stableExportNewCSV()" style="background:#fffbeb;border:1.5px solid #fde68a;border-radius:8px;padding:9px 16px;font-size:.82rem;cursor:pointer;font-weight:600;color:#92400e;">신규 편성 CSV</button>
         <span style="font-size:.75rem;color:#6b7280;">분석 CSV는 현재 필터가 적용된 목록 기준입니다</span>
+        <span style="flex-basis:100%;height:0;"></span>
+        <!-- 셀메이트 반영 (2026-09-28) — 셀메이트는 API가 없어 이 PC 브라우저의 Tampermonkey 연결 스크립트(window.SELLMATE_STOCK)를 거친다. 안정재고만 바꾸고 현재재고는 건드리지 않음 -->
+        <button onclick="stableApplyOpen()" style="background:#4f46e5;border:1.5px solid #4f46e5;border-radius:8px;padding:9px 16px;font-size:.82rem;cursor:pointer;font-weight:700;color:#fff;"><i class="fa-solid fa-arrow-right-arrow-left"></i> 셀메이트에 반영</button>
+        <button onclick="stableApplyLogOpen()" class="toggle-btn"><i class="fa-solid fa-clock-rotate-left"></i> 반영 기록 · 되돌리기</button>
+        <span id="stable-bridge-state" style="font-size:.75rem;color:#6b7280;"></span>
+      </div>
+      <div id="stable-apply-modal" style="display:none;position:fixed;inset:0;z-index:210;background:rgba(15,23,42,.45);align-items:flex-start;justify-content:center;padding:4vh 12px;overflow:auto;" onclick="if(event.target===this)stableApplyClose()">
+        <div style="background:#fff;border-radius:16px;max-width:980px;width:100%;padding:18px 20px;box-shadow:0 20px 60px rgba(0,0,0,.25);" id="stable-apply-body"></div>
       </div>
     </div>
   </div>
@@ -7370,6 +7378,201 @@ function renderStableResult() {
     $('stable-new-wrap').style.display = 'none';
   }
   $('stable-export').style.display = 'flex';
+}
+
+/* ══ 안정재고 → 셀메이트 반영 (2026-09-28 사용자 요청) ══
+   셀메이트는 API·엑셀 일괄수정이 없어, 관리자 브라우저에 설치한 Tampermonkey 연결 스크립트(window.SELLMATE_STOCK: find/read/applyBatch)가
+   로그인된 셀메이트의 재고조정 화면으로 안정재고만 바꾼다(현재재고 변경 칸은 항상 비움, 상품 30개/회, 스크립트가 직접 확인 창).
+   흐름: 미리보기(체크 선택) → 상품명으로 셀메이트 상품번호 찾기(이름 완전 일치) → 옵션명 완전 일치만 → 반영 → 다시 읽어 검증 → stable_apply_log 기록 → 되돌리기 가능.
+   이름이 애매하게 맞는 건 반영하지 않고 '건너뜀'으로 보여 준다(괄호 표기 차이 폴백 금지 — 2026-09-09 사용자 결정과 같은 원칙). */
+const stableApply = { rows: [], sel: new Set(), busy: false, note: '' };
+const stableBridge = () => (window.SELLMATE_STOCK && typeof window.SELLMATE_STOCK.applyBatch === 'function') ? window.SELLMATE_STOCK : null;
+function stableApplyClose() { if (stableApply.busy) { showToast('반영 중에는 닫을 수 없어요'); return; } $('stable-apply-modal').style.display = 'none'; }
+function stableBridgeHelp() {
+  return `<div style="background:#fffbeb;border:1.5px solid #fde68a;border-radius:12px;padding:12px 14px;font-size:.82rem;color:#78350f;line-height:1.7;">
+    <b><i class="fa-solid fa-plug-circle-xmark"></i> 셀메이트 연결 스크립트가 이 브라우저에 없어요.</b><br>
+    ① 엣지(또는 크롬)에 Tampermonkey를 설치하고 확장 관리 화면에서 '개발자 모드'를 켭니다.<br>
+    ② Tampermonkey 대시보드 › 유틸리티 › 파일에서 가져오기로 <b>danarobe-sellmate-stock.user.js</b> 를 설치합니다.<br>
+    ③ 같은 브라우저에서 셀메이트에 로그인한 뒤 이 페이지를 새로고침합니다.</div>`;
+}
+function stableApplyOpen() {
+  if (!isAdmin()) { showToast('접근 권한이 없습니다'); return; }
+  const cand = stableFiltered().filter(r => r.rec !== null && r.rec !== r.stable);
+  if (!cand.length) { showToast('반영할 변경 항목이 없습니다 (필터를 확인하세요)'); return; }
+  stableApply.rows = cand.slice(0, 600).map((r, i) => ({ i, ref: r, name: r.name, option: r.option, from: r.stable, to: r.rec, avg: r.avg }));
+  stableApply.sel = new Set(); stableApply.note = cand.length > 600 ? `변경 항목 ${fmt(cand.length)}건 중 앞 600건만 표시 — 필터로 좁혀 주세요` : '';
+  $('stable-apply-modal').style.display = 'flex';
+  stableApplyRender();
+}
+function stableApplyToggle(i, on) { on ? stableApply.sel.add(i) : stableApply.sel.delete(i); stableApplyCount(); }
+function stableApplyAll(on) { stableApply.sel = new Set(on ? stableApply.rows.map(r => r.i) : []); document.querySelectorAll('#stable-apply-body input[data-i]').forEach(c => { c.checked = on; }); stableApplyCount(); }
+function stableApplyCount() {
+  const picked = stableApply.rows.filter(r => stableApply.sel.has(r.i));
+  const prods = new Set(picked.map(r => r.name)).size;
+  const el = $('stable-apply-count'); if (el) el.innerHTML = `선택 <b>${picked.length}</b>건 · 상품 <b>${prods}</b>개${prods > 30 ? ' <span style="color:#b91c1c;font-weight:700;">— 한 번에 상품 30개까지</span>' : ''}`;
+  const b = $('stable-apply-go'); if (b) b.disabled = !picked.length || prods > 30 || !stableBridge();
+}
+function stableApplyRender(resultHtml) {
+  const S = stableBridge();
+  const rows = stableApply.rows.map(r => `<tr>
+    <td><input type="checkbox" data-i="${r.i}" ${stableApply.sel.has(r.i) ? 'checked' : ''} onchange="stableApplyToggle(${r.i}, this.checked)" style="width:17px;height:17px;" /></td>
+    <td style="text-align:left;">${escHtml(r.name)}</td><td style="text-align:left;">${escHtml(r.option || '—')}</td>
+    <td>${r.from}</td><td style="color:#6b7280;">→</td><td style="font-weight:800;color:${r.to > r.from ? '#b91c1c' : '#1d4ed8'};">${r.to}</td><td style="color:#6b7280;">${r.to - r.from > 0 ? '+' : ''}${r.to - r.from}</td><td class="m-hide">${r.avg.toFixed(1)}</td></tr>`).join('');
+  $('stable-apply-body').innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px;">
+      <h3 style="margin:0;font-size:1rem;"><i class="fa-solid fa-arrow-right-arrow-left" style="color:#4f46e5;"></i> 셀메이트에 안정재고 반영</h3>
+      <button class="toggle-btn" onclick="stableApplyClose()">닫기 ✕</button></div>
+    <div style="font-size:.8rem;color:#4b5563;line-height:1.7;margin-bottom:10px;">
+      · 체크한 옵션의 <b>안정재고만</b> 셀메이트에서 바꿉니다. 현재재고는 바꾸지 않아요.<br>
+      · 셀메이트의 상품명·옵션명이 <b>정확히 같은 것만</b> 반영하고, 애매한 건 건너뜁니다. 바꾸기 전 값은 기록해 두어 되돌릴 수 있어요.<br>
+      · 처음에는 <b>한두 건만</b> 골라 반영한 뒤 셀메이트에서 값을 확인해 보세요.</div>
+    ${S ? `<div style="background:#ecfdf5;border:1.5px solid #a7f3d0;border-radius:10px;padding:7px 12px;font-size:.78rem;color:#065f46;font-weight:700;margin-bottom:10px;"><i class="fa-solid fa-plug-circle-check"></i> 셀메이트 연결 스크립트 v${escHtml(String(S.version || ''))} 연결됨</div>` : stableBridgeHelp()}
+    ${stableApply.note ? `<div style="font-size:.76rem;color:#b45309;margin:8px 0;">${escHtml(stableApply.note)}</div>` : ''}
+    <div id="stable-apply-result">${resultHtml || ''}</div>
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:10px 0;">
+      <button class="toggle-btn" onclick="stableApplyAll(true)">전체 선택</button><button class="toggle-btn" onclick="stableApplyAll(false)">전체 해제</button>
+      <span id="stable-apply-count" style="font-size:.8rem;color:#374151;"></span>
+      <button id="stable-apply-go" class="btn-analyze" style="margin-left:auto;" onclick="stableApplyRun()"><i class="fa-solid fa-paper-plane"></i> 선택 항목 셀메이트에 반영</button></div>
+    <div class="table-wrap" style="max-height:46vh;overflow:auto;"><table style="width:100%;font-size:.8rem;"><thead><tr><th></th><th style="text-align:left;">상품명</th><th style="text-align:left;">옵션</th><th>기존</th><th></th><th>추천</th><th>차이</th><th class="m-hide">1일 평균</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+  stableApplyCount();
+}
+function stableSameName(a, b) { return stkNorm(a) === stkNorm(b) && stkNorm(a) !== ''; }
+function stableMatchOption(info, optName) {
+  const n = stkNorm(optName);
+  if (!n && info.options.length === 1) return info.options[0];                       // 단일 옵션 상품
+  let c = info.options.filter(o => stkNorm(o.name) === n);
+  if (c.length !== 1) { const t = stkOptTokens(optName).join('|'); c = t ? info.options.filter(o => stkOptTokens(o.name).join('|') === t) : []; }   // 순서만 다른 경우(연청, L ↔ L, 연청)
+  return c.length === 1 ? c[0] : null;
+}
+async function stableFindProduct(S, name) {
+  const cands = await S.find(name);
+  for (const no of cands) { const info = await S.read(no); if (stableSameName(info.name, name)) return info; }
+  return null;
+}
+async function stableApplyExec(S, plan, kind, refBatch) {   // plan: [{info, changes:[{opt, to, row?}]}]
+  const batch = plan.map(p => ({ p_no: p.info.p_no, name: p.info.name, changes: p.changes.map(c => ({ opt_idx: c.opt.opt_idx, s_count: c.to, label: c.opt.name })) }));
+  const results = await S.applyBatch(batch, kind === 'rollback' ? '워크스페이스 안정재고 되돌리기' : '워크스페이스 안정재고 편성');
+  const batchId = `${new Date().toISOString().slice(0, 19).replace(/[-:T]/g, '')}-${Math.random().toString(36).slice(2, 7)}`;
+  const logs = [], done = [];
+  plan.forEach((p, pi) => {
+    const res = results[pi] || { ok: false, error: '처리되지 않음(앞에서 중단)', rows: [] };
+    p.changes.forEach(c => {
+      const rr = (res.rows || []).find(x => x.opt_idx === c.opt.opt_idx);
+      const ok = !!(rr && rr.ok && rr.target);
+      logs.push({ batch_id: batchId, kind, ref_batch: refBatch || null, p_no: p.info.p_no, opt_idx: c.opt.opt_idx, product_name: p.info.name, option_name: c.opt.name, before_val: rr ? rr.before : c.opt.safe, after_val: c.to, result_val: rr ? rr.after : null, ok, error: ok ? null : String(res.error || (rr ? `반영 후 값이 ${rr.after} (요청 ${c.to})` : '결과 없음')).slice(0, 300) });
+      done.push({ p: p.info.name, o: c.opt.name, from: rr ? rr.before : c.opt.safe, to: c.to, ok, error: logs[logs.length - 1].error, row: c.row });
+    });
+    // 같은 상품의 다른 옵션이나 현재재고가 바뀌었으면 경고로 남긴다(바뀌면 안 됨)
+    (res.rows || []).filter(x => !x.target && (!x.ok || x.stock_before !== x.stock_after)).forEach(x => done.push({ p: p.info.name, o: x.name, from: x.before, to: x.after, ok: false, error: '대상이 아닌 옵션 값이 달라짐 — 셀메이트에서 확인 필요', row: null }));
+  });
+  let logErr = '';
+  try { for (let i = 0; i < logs.length; i += 200) await dbProxy('stable_apply_log', { method: 'POST', headers: { Prefer: 'return=minimal' }, body: JSON.stringify(logs.slice(i, i + 200)) }); }
+  catch (e) { logErr = e.message; }
+  return { batchId, done, logErr };
+}
+function stableResultHtml(title, done, skipped, logErr) {
+  const ok = done.filter(d => d.ok), bad = done.filter(d => !d.ok);
+  const line = (d, color) => `<div style="color:${color};">· ${escHtml(d.p)} / ${escHtml(d.o || '—')} : ${d.from ?? '?'} → ${d.to ?? '?'}${d.error ? ` <span style="color:#6b7280;">(${escHtml(d.error)})</span>` : ''}</div>`;
+  return `<div style="border:1.5px solid ${bad.length ? '#fca5a5' : '#a7f3d0'};background:${bad.length ? '#fef2f2' : '#f0fdf4'};border-radius:12px;padding:10px 14px;font-size:.8rem;line-height:1.7;margin-bottom:10px;">
+    <b>${escHtml(title)}</b> — 성공 ${ok.length}건${bad.length ? ` · <span style="color:#b91c1c;">실패 ${bad.length}건</span>` : ''}${skipped.length ? ` · 건너뜀 ${skipped.length}건` : ''}
+    ${logErr ? `<div style="color:#b91c1c;">기록 저장 실패: ${escHtml(logErr)} — 되돌리기용 기록이 남지 않았어요. 아래 내용을 따로 보관하세요.</div>` : ''}
+    ${bad.map(d => line(d, '#b91c1c')).join('')}${skipped.map(s => `<div style="color:#92400e;">· ${escHtml(s.name)} / ${escHtml(s.option || '—')} <span style="color:#6b7280;">(건너뜀: ${escHtml(s.reason)})</span></div>`).join('')}
+    <details style="margin-top:4px;"><summary style="cursor:pointer;color:#065f46;">성공 ${ok.length}건 보기</summary>${ok.map(d => line(d, '#065f46')).join('')}</details></div>`;
+}
+async function stableApplyRun() {
+  const S = stableBridge(); if (!S) { showToast('셀메이트 연결 스크립트가 없습니다'); return; }
+  if (stableApply.busy) return;
+  const picked = stableApply.rows.filter(r => stableApply.sel.has(r.i));
+  const groups = new Map(); picked.forEach(r => { if (!groups.has(r.name)) groups.set(r.name, []); groups.get(r.name).push(r); });
+  if (!picked.length || groups.size > 30) { showToast('선택을 확인하세요 (한 번에 상품 30개까지)'); return; }
+  stableApply.busy = true;
+  const box = $('stable-apply-result'), say = t => { box.innerHTML = `<div class="empty-state"><p><i class="fa-solid fa-spinner fa-spin"></i> ${escHtml(t)}</p></div>`; };
+  const skipped = [], plan = [];
+  try {
+    let n = 0;
+    for (const [name, rows] of groups) {
+      say(`셀메이트에서 상품 찾는 중… (${++n}/${groups.size}) ${name}`);
+      const info = await stableFindProduct(S, name);
+      if (!info) { rows.forEach(r => skipped.push({ name, option: r.option, reason: '셀메이트에서 이름이 같은 상품을 찾지 못함' })); continue; }
+      const changes = [];
+      for (const r of rows) {
+        const opt = stableMatchOption(info, r.option);
+        if (!opt) skipped.push({ name, option: r.option, reason: '셀메이트 옵션명과 일치하지 않음' });
+        else if (opt.safe === r.to) skipped.push({ name, option: r.option, reason: `이미 ${r.to}` });
+        else changes.push({ opt, to: r.to, row: r });
+      }
+      if (changes.length) plan.push({ info, changes });
+    }
+    if (!plan.length) { box.innerHTML = stableResultHtml('반영할 항목이 없어요', [], skipped, ''); return; }
+    say(`셀메이트에 반영 중… 상품 ${plan.length}개 (확인 창이 뜨면 확인을 눌러 주세요)`);
+    const { done, logErr } = await stableApplyExec(S, plan, 'apply', null);
+    done.filter(d => d.ok && d.row).forEach(d => { const ref = d.row.ref; ref.stable = d.to; ref.changed = false; if (typeof ref.status === 'string' && ref.rec === ref.stable) ref.status = '적정'; stableApply.sel.delete(d.row.i); });
+    stableApply.rows = stableApply.rows.filter(r => r.ref.rec !== r.ref.stable).map(r => ({ ...r, from: r.ref.stable }));
+    const html = stableResultHtml('셀메이트 반영 결과', done, skipped, logErr);
+    try { renderStableResult(); } catch (e) { console.warn(e); }
+    stableApplyRender(html);
+    showToast(`셀메이트 반영: 성공 ${done.filter(d => d.ok).length}건${done.some(d => !d.ok) ? ' · 실패 ' + done.filter(d => !d.ok).length + '건' : ''}`);
+  } catch (e) {
+    box.innerHTML = `<div style="border:1.5px solid #fca5a5;background:#fef2f2;border-radius:12px;padding:10px 14px;font-size:.82rem;color:#b91c1c;">${e.code === 'cancel' ? '반영을 취소했어요. 셀메이트는 바뀌지 않았습니다.' : '반영하지 못했어요 — ' + escHtml(e.message)}</div>`;
+  } finally { stableApply.busy = false; }
+}
+/* 반영 기록 · 되돌리기 */
+async function stableApplyLogOpen() {
+  if (!isAdmin()) { showToast('접근 권한이 없습니다'); return; }
+  $('stable-apply-modal').style.display = 'flex';
+  const body = $('stable-apply-body');
+  body.innerHTML = '<div class="empty-state"><p><i class="fa-solid fa-spinner fa-spin"></i> 반영 기록을 불러오는 중…</p></div>';
+  try {
+    const rows = await dbProxy('stable_apply_log?select=*&order=created_at.desc&limit=1000');
+    const batches = new Map(); (rows || []).forEach(r => { if (!batches.has(r.batch_id)) batches.set(r.batch_id, []); batches.get(r.batch_id).push(r); });
+    stableApply.logBatches = batches;
+    const rolled = new Set((rows || []).filter(r => r.kind === 'rollback' && r.ref_batch).map(r => r.ref_batch));
+    const when = t => { const d = new Date(t), p = n => String(n).padStart(2, '0'); return `${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`; };
+    const list = [...batches.entries()].slice(0, 40).map(([id, rs]) => {
+      const ok = rs.filter(r => r.ok).length, bad = rs.length - ok, prods = new Set(rs.map(r => r.p_no)).size;
+      return `<div style="border:1.5px solid #e5e7eb;border-radius:12px;padding:10px 14px;margin-bottom:8px;">
+        <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;font-size:.82rem;">
+          <b>${escHtml(when(rs[0].created_at))}</b><span>${escHtml(rs[0].by_name || '')}</span>
+          <span style="background:${rs[0].kind === 'rollback' ? '#fef3c7' : '#e0e7ff'};color:${rs[0].kind === 'rollback' ? '#92400e' : '#4338ca'};border-radius:99px;padding:2px 10px;font-size:.72rem;font-weight:700;">${rs[0].kind === 'rollback' ? '되돌리기' : '반영'}</span>
+          <span>상품 ${prods}개 · 옵션 ${rs.length}개 · 성공 ${ok}${bad ? ` · <b style="color:#b91c1c;">실패 ${bad}</b>` : ''}</span>
+          ${rolled.has(id) ? '<span style="color:#92400e;font-size:.74rem;font-weight:700;">되돌린 적 있음</span>' : ''}
+          ${rs[0].kind === 'apply' && ok ? `<button class="toggle-btn" style="margin-left:auto;font-size:.74rem;" data-batch="${escHtml(id)}" onclick="stableRollback(this.dataset.batch)"><i class="fa-solid fa-rotate-left"></i> 이 반영 되돌리기</button>` : ''}</div>
+        <details style="margin-top:4px;font-size:.78rem;"><summary style="cursor:pointer;color:#4b5563;">내역 보기</summary>
+          ${rs.map(r => `<div style="color:${r.ok ? '#374151' : '#b91c1c'};">· ${escHtml(r.product_name || '')} / ${escHtml(r.option_name || '—')} : ${r.before_val ?? '?'} → ${r.after_val ?? '?'}${r.ok ? '' : ` (실패: ${escHtml(r.error || '')})`}</div>`).join('')}</details></div>`;
+    }).join('');
+    body.innerHTML = `<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:10px;"><h3 style="margin:0;font-size:1rem;"><i class="fa-solid fa-clock-rotate-left" style="color:#4f46e5;"></i> 셀메이트 반영 기록</h3><button class="toggle-btn" onclick="stableApplyClose()">닫기 ✕</button></div>
+      ${stableBridge() ? '' : stableBridgeHelp()}<div id="stable-apply-result"></div>
+      ${list || '<div class="empty-state"><p>아직 반영 기록이 없어요.</p></div>'}`;
+  } catch (e) { body.innerHTML = `<div class="empty-state"><p style="color:#b91c1c;">기록을 불러오지 못했어요 — ${escHtml(e.message)}</p><button class="toggle-btn" onclick="stableApplyClose()">닫기</button></div>`; }
+}
+async function stableRollback(batchId) {
+  const S = stableBridge(); if (!S) { showToast('셀메이트 연결 스크립트가 없습니다'); return; }
+  if (stableApply.busy) return;
+  const rs = ((stableApply.logBatches || new Map()).get(batchId) || []).filter(r => r.ok && r.before_val != null);
+  if (!rs.length) { showToast('되돌릴 항목이 없습니다'); return; }
+  const byP = new Map(); rs.forEach(r => { if (!byP.has(r.p_no)) byP.set(r.p_no, []); byP.get(r.p_no).push(r); });
+  if (byP.size > 30) { showToast('상품이 30개를 넘는 묶음은 나눠서 되돌려야 해요'); return; }
+  stableApply.busy = true;
+  const box = $('stable-apply-result');
+  try {
+    const plan = [], skipped = [];
+    for (const [pNo, list] of byP) {
+      box.innerHTML = `<div class="empty-state"><p><i class="fa-solid fa-spinner fa-spin"></i> 현재 값을 읽는 중… ${escHtml(list[0].product_name || '')}</p></div>`;
+      const info = await S.read(pNo);
+      const changes = [];
+      list.forEach(r => { const opt = info.options.find(o => o.opt_idx === r.opt_idx);
+        if (!opt) skipped.push({ name: r.product_name, option: r.option_name, reason: '셀메이트에 옵션이 없음' });
+        else if (opt.safe === r.before_val) skipped.push({ name: r.product_name, option: r.option_name, reason: `이미 ${r.before_val}` });
+        else if (opt.safe !== r.after_val) skipped.push({ name: r.product_name, option: r.option_name, reason: `반영 뒤 누군가 ${opt.safe}(으)로 바꿔 되돌리지 않음` });
+        else changes.push({ opt, to: r.before_val, row: null }); });
+      if (changes.length) plan.push({ info, changes });
+    }
+    if (!plan.length) { box.innerHTML = stableResultHtml('되돌릴 항목이 없어요', [], skipped, ''); return; }
+    const { done, logErr } = await stableApplyExec(S, plan, 'rollback', batchId);
+    box.innerHTML = stableResultHtml('되돌리기 결과', done, skipped, logErr);
+    showToast(`되돌리기: 성공 ${done.filter(d => d.ok).length}건`);
+  } catch (e) { box.innerHTML = `<div style="border:1.5px solid #fca5a5;background:#fef2f2;border-radius:12px;padding:10px 14px;font-size:.82rem;color:#b91c1c;">${e.code === 'cancel' ? '되돌리기를 취소했어요.' : '되돌리지 못했어요 — ' + escHtml(e.message)}</div>`; }
+  finally { stableApply.busy = false; }
 }
 
 function stableExportMainCSV() {
