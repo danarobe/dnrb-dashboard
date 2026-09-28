@@ -7819,16 +7819,30 @@ function stableBridgeHelp() {
     ② Tampermonkey 대시보드 › 유틸리티 › 파일에서 가져오기로 <b>danarobe-sellmate-stock.user.js</b> 를 설치합니다.<br>
     ③ 같은 브라우저에서 셀메이트에 로그인한 뒤 이 페이지를 새로고침합니다.</div>`;
 }
+// 신규 편성 필요 품목 중 지금 필터에 맞는 것 — 늘리는 변경이므로 '줄일' 필터에선 제외, '차이 N개 이상'·검색은 똑같이 적용
+function stableNewForApply() {
+  const f = stableState.filter;
+  if (f === 'down') return [];
+  const minDiff = toNum($('stb-mindiff').value);
+  const q = ($('stb-search').value || '').trim().toLowerCase();
+  return (stableState.newItems || []).filter(it => it.rec >= 1 && it.stable !== it.rec && (!(minDiff > 0) || it.rec >= minDiff)
+    && (!q || String(it.product_name || '').toLowerCase().includes(q) || String(it.option_value || '').toLowerCase().includes(q)));
+}
 function stableApplyOpen() {
   if (!isAdmin()) { showToast('접근 권한이 없습니다'); return; }
   const cand = stableFiltered().filter(r => r.rec !== null && r.rec !== r.stable);
-  if (!cand.length) { showToast('반영할 변경 항목이 없습니다 (필터를 확인하세요)'); return; }
-  stableApply.rows = cand.map((r, i) => ({ i, ref: r, name: r.name, option: r.option, from: r.stable, to: r.rec, avg: r.avg }));
+  const fresh = stableNewForApply();   // 신규 편성 필요 품목도 함께 (2026-09-28 사용자 요청 — 셀메이트에 이미 등록된 상품들)
+  if (!cand.length && !fresh.length) { showToast('반영할 변경 항목이 없습니다 (필터를 확인하세요)'); return; }
+  stableApply.rows = [
+    ...cand.map(r => ({ ref: r, name: r.name, option: r.option, from: r.stable, to: r.rec, avg: r.avg, isNew: false })),
+    ...fresh.map(it => ({ ref: it, name: it.product_name, option: it.option_value || '', from: null, to: it.rec, avg: it.avg, isNew: true })),
+  ].map((r, i) => ({ ...r, i }));
   stableApply.sel = new Set(); stableApply.note = '';
   $('stable-apply-modal').style.display = 'flex';
   stableApplyRender();
 }
 function stableApplyToggle(i, on) { on ? stableApply.sel.add(i) : stableApply.sel.delete(i); stableApplyCount(); }
+function stableApplyPick(isNew) { stableApply.sel = new Set(stableApply.rows.filter(r => !!r.isNew === isNew).map(r => r.i)); document.querySelectorAll('#stable-apply-body input[data-i]').forEach(c => { c.checked = stableApply.sel.has(Number(c.dataset.i)); }); stableApplyCount(); }
 function stableApplyAll(on) { stableApply.sel = new Set(on ? stableApply.rows.map(r => r.i) : []); document.querySelectorAll('#stable-apply-body input[data-i]').forEach(c => { c.checked = on; }); stableApplyCount(); }
 function stableApplyCount() {
   const picked = stableApply.rows.filter(r => stableApply.sel.has(r.i));
@@ -7849,8 +7863,9 @@ function stableApplyRender(resultHtml) {
   const S = stableBridge();
   const rows = stableApply.rows.map(r => `<tr>
     <td><input type="checkbox" data-i="${r.i}" ${stableApply.sel.has(r.i) ? 'checked' : ''} onchange="stableApplyToggle(${r.i}, this.checked)" style="width:17px;height:17px;" /></td>
-    <td style="text-align:left;">${escHtml(r.name)}</td><td style="text-align:left;">${escHtml(r.option || '—')}</td>
-    <td>${r.from}</td><td style="color:#6b7280;">→</td><td style="font-weight:800;color:${r.to > r.from ? '#b91c1c' : '#1d4ed8'};">${r.to}</td><td style="color:#6b7280;">${r.to - r.from > 0 ? '+' : ''}${r.to - r.from}</td><td class="m-hide">${r.avg.toFixed(1)}</td></tr>`).join('');
+    <td style="text-align:left;">${r.isNew ? '<span style="background:#fef3c7;color:#92400e;border-radius:99px;padding:1px 7px;font-size:.66rem;font-weight:800;margin-right:4px;">신규</span>' : ''}${escHtml(r.name)}</td><td style="text-align:left;">${escHtml(r.option || '—')}</td>
+    <td>${r.from == null ? '<span style="color:#9ca3af;" title="셀메이트 안정재고 CSV에 없던 품목 — 반영할 때 셀메이트의 현재 값을 읽어 기록해요">—</span>' : r.from}</td><td style="color:#6b7280;">→</td><td style="font-weight:800;color:${r.to > (r.from ?? 0) ? '#b91c1c' : '#1d4ed8'};">${r.to}</td><td style="color:#6b7280;">${r.to - (r.from ?? 0) > 0 ? '+' : ''}${r.to - (r.from ?? 0)}</td><td class="m-hide">${r.avg.toFixed(1)}</td></tr>`).join('');
+  const nNew = stableApply.rows.filter(r => r.isNew).length;
   $('stable-apply-body').innerHTML = `
     <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px;">
       <h3 style="margin:0;font-size:1rem;"><i class="fa-solid fa-arrow-right-arrow-left" style="color:#4f46e5;"></i> 셀메이트에 안정재고 반영</h3>
@@ -7858,12 +7873,14 @@ function stableApplyRender(resultHtml) {
     <div style="font-size:.8rem;color:#4b5563;line-height:1.7;margin-bottom:10px;">
       · 체크한 옵션의 <b>안정재고만</b> 셀메이트에서 바꿉니다. 현재재고는 바꾸지 않아요.<br>
       · 셀메이트의 상품명·옵션명이 <b>정확히 같은 것만</b> 반영하고, 애매한 건 건너뜁니다. 바꾸기 전 값은 기록해 두어 되돌릴 수 있어요.<br>
-      · 처음에는 <b>한두 건만</b> 골라 반영한 뒤 셀메이트에서 값을 확인해 보세요. 확인이 끝나면 전체 선택으로 한 번에 반영할 수 있어요(상품 1개당 약 9초).</div>
+      · 처음에는 <b>한두 건만</b> 골라 반영한 뒤 셀메이트에서 값을 확인해 보세요. 확인이 끝나면 전체 선택으로 한 번에 반영할 수 있어요(상품 1개당 약 9초).
+      ${nNew ? `<br>· <span style="background:#fef3c7;color:#92400e;border-radius:99px;padding:1px 7px;font-size:.7rem;font-weight:800;">신규</span> = <b>신규 안정재고 편성 필요</b> 품목 ${nNew}건이에요(셀메이트 안정재고 CSV에 없던 품목). 셀메이트에서 카페24 상품명·옵션명과 같은 것을 찾아 반영하고, 못 찾으면 건너뜁니다.` : ''}</div>
     ${S ? `<div style="background:#ecfdf5;border:1.5px solid #a7f3d0;border-radius:10px;padding:7px 12px;font-size:.78rem;color:#065f46;font-weight:700;margin-bottom:10px;"><i class="fa-solid fa-plug-circle-check"></i> 셀메이트 연결 스크립트 v${escHtml(String(S.version || ''))} 연결됨</div>` : stableBridgeHelp()}
     ${stableApply.note ? `<div style="font-size:.76rem;color:#b45309;margin:8px 0;">${escHtml(stableApply.note)}</div>` : ''}
     <div id="stable-apply-result">${resultHtml || ''}</div>
     <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:10px 0;">
       <button class="toggle-btn" onclick="stableApplyAll(true)">전체 선택</button><button class="toggle-btn" onclick="stableApplyAll(false)">전체 해제</button>
+      ${nNew && nNew < stableApply.rows.length ? `<button class="toggle-btn" onclick="stableApplyPick(true)">신규만 선택</button><button class="toggle-btn" onclick="stableApplyPick(false)">기존만 선택</button>` : ''}
       <span id="stable-apply-count" style="font-size:.8rem;color:#374151;"></span>
       <button id="stable-apply-go" class="btn-analyze" style="margin-left:auto;" onclick="stableApplyRun()"><i class="fa-solid fa-paper-plane"></i> 선택 항목 셀메이트에 반영</button></div>
     <div id="stable-apply-why" style="font-size:.8rem;color:#b91c1c;font-weight:700;text-align:right;margin:-4px 0 8px;"></div>
@@ -7911,7 +7928,7 @@ async function stableApplyExec(S, plan, kind, refBatch, batchId, label, token) {
     p.changes.forEach(c => {
       const rr = (res.rows || []).find(x => x.opt_idx === c.opt.opt_idx);
       const ok = !!(rr && rr.ok && rr.target);
-      logs.push({ batch_id: batchId, kind, ref_batch: refBatch || null, p_no: p.info.p_no, opt_idx: c.opt.opt_idx, product_name: p.info.name, option_name: c.opt.name, before_val: rr ? rr.before : c.opt.safe, after_val: c.to, result_val: rr ? rr.after : null, ok, error: ok ? null : String(res.error || (rr ? `반영 후 값이 ${rr.after} (요청 ${c.to})` : '결과 없음')).slice(0, 300) });
+      logs.push({ batch_id: batchId, kind, ref_batch: refBatch || null, p_no: p.info.p_no, opt_idx: c.opt.opt_idx, product_name: p.info.name, option_name: c.opt.name, before_val: rr ? rr.before : c.opt.safe, after_val: c.to, result_val: rr ? rr.after : null, ok, is_new: !!(c.row && c.row.isNew), error: ok ? null : String(res.error || (rr ? `반영 후 값이 ${rr.after} (요청 ${c.to})` : '결과 없음')).slice(0, 300) });
       done.push({ p: p.info.name, o: c.opt.name, from: rr ? rr.before : c.opt.safe, to: c.to, ok, error: logs[logs.length - 1].error, row: c.row });
     });
     // 같은 상품의 다른 옵션이나 현재재고가 바뀌었으면 경고로 남긴다(바뀌면 안 됨)
@@ -7963,7 +7980,8 @@ async function stableApplyRun() {
     say(`찾기 완료 — 상품 ${plan.length}개를 반영합니다. 확인 창이 뜨면 확인을 눌러 주세요`);
     const { done, logErr, stopped } = await stableApplyPlan(S, plan, 'apply', null, say);
     done.filter(d => d.ok && d.row).forEach(d => { const ref = d.row.ref; ref.stable = d.to; ref.changed = false; if (typeof ref.status === 'string' && ref.rec === ref.stable) ref.status = '적정'; stableApply.sel.delete(d.row.i); });
-    stableApply.rows = stableApply.rows.filter(r => r.ref.rec !== r.ref.stable).map(r => ({ ...r, from: r.ref.stable }));
+    stableApply.rows = stableApply.rows.filter(r => r.ref.rec !== r.ref.stable).map(r => ({ ...r, from: r.isNew ? (r.ref.stable ?? null) : r.ref.stable }));
+    stableState.newItems = (stableState.newItems || []).filter(it => it.stable !== it.rec);   // 반영 끝난 신규 품목은 '신규 편성 필요' 표에서 뺀다
     const html = (stopped ? `<div style="border:1.5px solid #fca5a5;background:#fef2f2;border-radius:12px;padding:10px 14px;font-size:.84rem;color:#b91c1c;font-weight:700;margin-bottom:8px;">${escHtml(stopped)}</div>` : '') + stableResultHtml('셀메이트 반영 결과', done, skipped, logErr);
     try { renderStableResult(); } catch (e) { console.warn(e); }
     stableApplyRender(html);
@@ -7978,6 +7996,8 @@ async function stableApplyRun() {
 const stableHist = { rows: null, period: '30', kind: 'all', result: 'all', dir: 'all', q: '', date: '', dayLoad: '', limit: 300, loading: false };
 // 늘림·줄임 구분 (2026-09-28 사용자 요청 — 늘림만/줄임만 따로 보기): 이후 값 − 이전 값
 const stableHistDir = r => { const d = (r.after_val ?? 0) - (r.before_val ?? 0); return d > 0 ? 'up' : d < 0 ? 'down' : 'same'; };
+// '신규'(2026-09-28 사용자 요청) = 신규 안정재고 편성 필요 품목을 반영한 기록(is_new) — 늘림·줄임과 따로 센다
+const stableHistCls = r => r.is_new ? 'new' : stableHistDir(r);
 const stableHistDay = t => { const d = new Date(t), p = n => String(n).padStart(2, '0'); return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`; };   // 이 PC 시간(한국) 기준 날짜
 const stableHistDayLabel = day => { const d = new Date(day + 'T12:00:00'); return `${day.slice(5).replace('-', '/')} (${'일월화수목금토'[d.getDay()]})`; };
 function stableHistToggle() {
@@ -7997,7 +8017,7 @@ async function stableHistLoad() {
     else since = stableHist.period === 'all' ? '' : `&created_at=gte.${new Date(Date.now() - Number(stableHist.period) * 86400000).toISOString()}`;
     const rows = [];
     for (let off = 0; off < 20000; off += 1000) {   // PostgREST 한 번에 1,000행
-      const part = await dbProxy(`stable_apply_log?select=created_at,by_name,kind,batch_id,p_no,product_name,option_name,before_val,after_val,result_val,ok,error&order=created_at.desc,id.desc&limit=1000&offset=${off}${since}`);
+      const part = await dbProxy(`stable_apply_log?select=created_at,by_name,kind,batch_id,p_no,product_name,option_name,before_val,after_val,result_val,ok,error,is_new&order=created_at.desc,id.desc&limit=1000&offset=${off}${since}`);
       rows.push(...(part || [])); if (!part || part.length < 1000) break;
     }
     stableHist.rows = rows; stableHist.limit = 300;
@@ -8009,7 +8029,7 @@ function stableHistFiltered() {
   const q = stableHist.q.trim().toLowerCase();
   return (stableHist.rows || []).filter(r => (!stableHist.date || stableHistDay(r.created_at) === stableHist.date) && (stableHist.kind === 'all' || r.kind === stableHist.kind)
     && (stableHist.result === 'all' || (stableHist.result === 'ok') === !!r.ok)
-    && (stableHist.dir === 'all' || stableHistDir(r) === stableHist.dir)
+    && (stableHist.dir === 'all' || stableHistCls(r) === stableHist.dir)
     && (!q || String(r.product_name || '').toLowerCase().includes(q) || String(r.option_name || '').toLowerCase().includes(q) || String(r.by_name || '').toLowerCase().includes(q)));
 }
 function stableHistSet(key, val, reload) {
@@ -8029,9 +8049,9 @@ function stableHistRender() {
   const box = $('stable-history'); const all = stableHist.rows || [], rows = stableHistFiltered();
   const when = t => { const d = new Date(t), p = n => String(n).padStart(2, '0'); return `${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`; };
   const chip = (key, val, label, reload) => `<button class="${stableHist[key] === val ? 'active' : ''}" onclick="stableHistSet('${key}', '${val}', ${reload ? 'true' : 'false'})">${label}</button>`;
-  const okRows = rows.filter(r => r.ok), up = okRows.filter(r => r.after_val > r.before_val).length, down = okRows.filter(r => r.after_val < r.before_val).length;
+  const okRows = rows.filter(r => r.ok), up = okRows.filter(r => stableHistCls(r) === 'up').length, down = okRows.filter(r => stableHistCls(r) === 'down').length, nNew = okRows.filter(r => r.is_new).length;
   // 늘림/줄임 칩 건수 = 변경 조건만 뺀 나머지 필터(날짜·구분·결과·검색) 기준
-  const dirN = (() => { const keep = stableHist.dir; stableHist.dir = 'all'; const base = stableHistFiltered(); stableHist.dir = keep; return { up: base.filter(r => stableHistDir(r) === 'up').length, down: base.filter(r => stableHistDir(r) === 'down').length }; })();
+  const dirN = (() => { const keep = stableHist.dir; stableHist.dir = 'all'; const base = stableHistFiltered(); stableHist.dir = keep; return { up: base.filter(r => stableHistCls(r) === 'up').length, down: base.filter(r => stableHistCls(r) === 'down').length, new: base.filter(r => r.is_new).length }; })();
   // 날짜 칩: 불러온 내역에 있는 날짜들(최신순)과 그날 건수
   const dayCount = new Map(); all.forEach(r => { const d = stableHistDay(r.created_at); dayCount.set(d, (dayCount.get(d) || 0) + 1); });
   const dayChips = [...dayCount.entries()].slice(0, 31).map(([d, n]) => `<button class="${stableHist.date === d ? 'active' : ''}" data-day="${d}" onclick="stableHistPickDate(this.dataset.day)">${stableHistDayLabel(d)} <span style="opacity:.75;">${fmt(n)}</span></button>`).join('');
@@ -8044,7 +8064,7 @@ function stableHistRender() {
       head = `<tr><td colspan="11" style="text-align:left;background:#eef2ff;color:#312e81;font-weight:800;font-size:.8rem;padding:7px 10px;position:sticky;top:0;">${stableHistDayLabel(day)} · ${fmt(dr.length)}건 <span style="font-weight:600;color:#6b7280;">(상품 ${fmt(new Set(dr.map(x => x.p_no)).size)}개 · 성공 ${fmt(dr.filter(x => x.ok).length)}${dr.some(x => !x.ok) ? ' · 실패 ' + fmt(dr.filter(x => !x.ok).length) : ''})</span></td></tr>`; }
     return head + `<tr style="${r.ok ? '' : 'background:#fef2f2;'}">
       <td style="white-space:nowrap;">${escHtml(when(r.created_at))}</td><td>${escHtml(r.by_name || '')}</td>
-      <td><span style="background:${r.kind === 'rollback' ? '#fef3c7' : '#e0e7ff'};color:${r.kind === 'rollback' ? '#92400e' : '#4338ca'};border-radius:99px;padding:1px 9px;font-size:.7rem;font-weight:700;white-space:nowrap;">${r.kind === 'rollback' ? '되돌리기' : '반영'}</span></td>
+      <td><span style="background:${r.kind === 'rollback' ? '#fef3c7' : '#e0e7ff'};color:${r.kind === 'rollback' ? '#92400e' : '#4338ca'};border-radius:99px;padding:1px 9px;font-size:.7rem;font-weight:700;white-space:nowrap;">${r.kind === 'rollback' ? '되돌리기' : '반영'}</span>${r.is_new ? ' <span style="background:#fef3c7;color:#92400e;border-radius:99px;padding:1px 7px;font-size:.66rem;font-weight:800;white-space:nowrap;">신규</span>' : ''}</td>
       <td style="text-align:left;">${escHtml(r.product_name || '')}</td><td style="text-align:left;">${escHtml(r.option_name || '—')}</td>
       <td>${r.before_val ?? '—'}</td><td style="color:#9ca3af;">→</td><td style="font-weight:800;">${r.after_val ?? '—'}</td>
       <td style="color:${d > 0 ? '#b91c1c' : d < 0 ? '#1d4ed8' : '#6b7280'};font-weight:700;">${d > 0 ? '+' : ''}${d}</td>
@@ -8068,10 +8088,10 @@ function stableHistRender() {
       <span style="flex-basis:100%;height:0;"></span>
       <span style="font-weight:700;">구분</span><span class="qp">${chip('kind', 'all', '전체')}${chip('kind', 'apply', '반영')}${chip('kind', 'rollback', '되돌리기')}</span>
       <span style="font-weight:700;">결과</span><span class="qp">${chip('result', 'all', '전체')}${chip('result', 'ok', '성공')}${chip('result', 'fail', '실패')}</span>
-      <span style="font-weight:700;">변경</span><span class="qp">${chip('dir', 'all', '전체')}${chip('dir', 'up', `<span style="color:#b91c1c;">▲</span> 늘림 ${fmt(dirN.up)}`)}${chip('dir', 'down', `<span style="color:#1d4ed8;">▼</span> 줄임 ${fmt(dirN.down)}`)}</span>
+      <span style="font-weight:700;">변경</span><span class="qp">${chip('dir', 'all', '전체')}${chip('dir', 'up', `<span style="color:#b91c1c;">▲</span> 늘림 ${fmt(dirN.up)}`)}${chip('dir', 'down', `<span style="color:#1d4ed8;">▼</span> 줄임 ${fmt(dirN.down)}`)}${chip('dir', 'new', `<span style="color:#b45309;">✚</span> 신규 ${fmt(dirN.new)}`)}</span>
       <input id="stable-hist-q" value="${escHtml(stableHist.q)}" placeholder="상품명·옵션·처리자 검색" oninput="stableHist.q=this.value;clearTimeout(stableHist.t);stableHist.t=setTimeout(stableHistRender,250)" style="border:1.5px solid #d1d5db;border-radius:8px;padding:6px 10px;font-size:.8rem;min-width:190px;" /></div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;">
-      ${tile('반영 횟수', fmt(new Set(rows.map(r => r.batch_id)).size) + '회', '')}${tile('상품', fmt(new Set(rows.map(r => r.p_no)).size) + '개', '')}${tile('옵션', fmt(rows.length) + '건', `성공 ${fmt(okRows.length)} · 실패 ${fmt(rows.length - okRows.length)}`)}${tile('늘림 / 줄임', `${fmt(up)} / ${fmt(down)}`, '성공 건 기준')}</div>
+      ${tile('반영 횟수', fmt(new Set(rows.map(r => r.batch_id)).size) + '회', '')}${tile('상품', fmt(new Set(rows.map(r => r.p_no)).size) + '개', '')}${tile('옵션', fmt(rows.length) + '건', `성공 ${fmt(okRows.length)} · 실패 ${fmt(rows.length - okRows.length)}`)}${tile('늘림 / 줄임 / 신규', `${fmt(up)} / ${fmt(down)} / ${fmt(nNew)}`, '성공 건 기준')}</div>
     ${!all.length ? `<div class="empty-state"><p>${stableHist.dayLoad ? escHtml(stableHistDayLabel(stableHist.dayLoad)) + '에는 반영 내역이 없어요.' : '이 기간에 반영 내역이 없어요.'}</p></div>` : !rows.length ? '<div class="empty-state"><p>조건에 맞는 내역이 없어요.</p></div>' : `
     <div class="table-wrap" style="max-height:52vh;overflow:auto;"><table style="width:100%;font-size:.78rem;"><thead><tr><th>시각</th><th>처리자</th><th>구분</th><th style="text-align:left;">상품명</th><th style="text-align:left;">옵션</th><th>이전</th><th></th><th>이후</th><th>차이</th><th>결과</th><th class="m-hide" style="text-align:left;">실패 사유</th></tr></thead><tbody>${body}</tbody></table></div>
     ${rows.length > stableHist.limit ? `<div style="text-align:center;margin-top:8px;"><button class="toggle-btn" onclick="stableHist.limit+=500;stableHistRender()">더 보기 (${fmt(rows.length - stableHist.limit)}건 남음)</button></div>` : ''}`}`;
@@ -8086,11 +8106,11 @@ async function stableHistXlsx() {
     [18, 10, 9, 46, 24, 13, 13, 8, 14, 8, 40, 16, 24].forEach((w, i) => ws.column(i + 1).width(w));
     const p = n => String(n).padStart(2, '0');
     rows.forEach((r, i) => { const d = new Date(r.created_at);
-      [`${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`, r.by_name || '', r.kind === 'rollback' ? '되돌리기' : '반영', r.product_name || '', r.option_name || '', r.before_val, r.after_val,
+      [`${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`, r.by_name || '', r.kind === 'rollback' ? '되돌리기' : r.is_new ? '반영(신규)' : '반영', r.product_name || '', r.option_name || '', r.before_val, r.after_val,
         (r.after_val ?? 0) - (r.before_val ?? 0), r.result_val, r.ok ? '성공' : '실패', r.ok ? '' : (r.error || ''), r.p_no, r.batch_id].forEach((v, c) => { if (v !== '' && v != null) ws.cell(i + 2, c + 1).value(v); }); });
     ws.freezePanes(0, 1);
     const blob = await wb.outputAsync(); const a = document.createElement('a');
-    const dirTag = { up: '_늘림', down: '_줄임' }[stableHist.dir] || '';
+    const dirTag = { up: '_늘림', down: '_줄임', new: '_신규' }[stableHist.dir] || '';
     a.href = URL.createObjectURL(blob); a.download = stableHist.date ? `셀메이트_안정재고_반영내역_${stableHist.date.replace(/-/g, '')}분${dirTag}.xlsx` : `셀메이트_안정재고_반영내역_${new Date().toISOString().slice(0, 10).replace(/-/g, '')}${dirTag}.xlsx`;
     document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 3000);
     showToast(`${fmt(rows.length)}건 엑셀 저장`);
