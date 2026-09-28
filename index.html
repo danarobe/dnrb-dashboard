@@ -2156,6 +2156,7 @@
 
       <div id="users-bday" style="display:none;margin-bottom:16px;"></div>
       <div id="users-addash" style="display:none;margin-bottom:16px;"></div>
+      <div id="users-agents" style="display:none;margin-bottom:16px;"></div>
       <div id="users-list" style="font-size:.82rem;color:#6b7280;">불러오는 중…</div>
       <!-- 직원 근무 정보 모달 (2026-08-27) — 근무 관리(wm_employees) 연동 데이터 -->
       <div id="user-detail-modal" onclick="if(event.target===this)this.style.display='none'"
@@ -2442,6 +2443,50 @@ async function adDashOpen() {
   }
 }
 // 광고 대시보드 접근 허용 목록(ad_dashboard_users) — 관리자는 항상, 그 외는 등재된 계정만. 서버(auth sso_issue/verify)가 같은 목록으로 강제하므로 여기는 메뉴 표시용.
+/* AI 에이전트 접근 허용 (2026-09-28 사용자 요청) — 관리자는 항상, 그 외 직원은 agent_users 목록에 있을 때만 메뉴·보고서·알림.
+   서버가 같은 목록으로 강제(db 프록시 + 에이전트 함수 canUseAgents). 보고서에는 매출 금액이 들어 있으니 허용은 신중히. */
+const agentUserState = { me: false, rows: null, users: null };
+async function agentAccessLoad() {
+  if (!SESSION || isAdmin()) return;
+  try {
+    const rows = await dbProxy(`agent_users?user_id=eq.${encodeURIComponent(SESSION.id)}&select=user_id`);
+    agentUserState.me = !!(rows && rows.length);
+    $('menu-agents').style.display = agentUserState.me ? '' : 'none';
+  } catch { /* 조회 실패 시 숨김 유지 */ }
+}
+async function agentUsersPanel() {
+  const box = $('users-agents');
+  if (!box || !isAdmin()) return;
+  box.style.display = '';
+  try {
+    const [rows, names] = await Promise.all([
+      dbProxy('agent_users?select=user_id,notify'),
+      agentUserState.users ? Promise.resolve(agentUserState.users) : authApi({ action: 'list_names', token: SESSION.token }).then(d => d.users || []),
+    ]);
+    agentUserState.users = names; agentUserState.rows = new Map((rows || []).map(r => [r.user_id, r]));
+  } catch (e) { box.innerHTML = `<div style="font-size:.76rem;color:#b91c1c;">AI 에이전트 허용 목록을 불러오지 못했어요 — ${escHtml(e.message)}</div>`; return; }
+  const chips = agentUserState.users.map(u => {
+    const r = agentUserState.rows.get(u.id), on = !!r;
+    return `<span style="display:inline-flex;align-items:center;gap:0;">
+      <button data-uid="${escHtml(u.id)}" onclick="agentUserToggle(this.dataset.uid)" style="border:1.5px solid ${on ? 'transparent' : '#d1d5db'};background:${on ? '#4f46e5' : '#fff'};color:${on ? '#fff' : '#4b5563'};border-radius:${on ? '99px 0 0 99px' : '99px'};padding:4px 12px;font-size:.76rem;font-weight:600;cursor:pointer;">${escHtml(u.name)}</button>
+      ${on ? `<button data-uid="${escHtml(u.id)}" data-on="${r.notify ? '1' : '0'}" onclick="agentUserNotify(this.dataset.uid, this.dataset.on !== '1')" title="리포트 도착 알림" style="border:1.5px solid #c7d2fe;border-left:none;background:${r.notify ? '#eef2ff' : '#f3f4f6'};color:${r.notify ? '#4338ca' : '#6b7280'};border-radius:0 99px 99px 0;padding:4px 10px;font-size:.72rem;cursor:pointer;"><i class="fa-solid ${r.notify ? 'fa-bell' : 'fa-bell-slash'}"></i> ${r.notify ? '알림 받음' : '알림 끔'}</button>` : ''}</span>`;
+  }).join(' ');
+  box.innerHTML = `<div style="background:#f8f9ff;border:1.5px solid #e0e7ff;border-radius:12px;padding:12px 14px;">
+    <div style="font-size:.82rem;font-weight:800;color:#4338ca;margin-bottom:4px;"><i class="fa-solid fa-robot"></i> AI 에이전트 접근 허용</div>
+    <div style="font-size:.74rem;color:#6b7280;margin-bottom:8px;">관리자는 항상 볼 수 있어요. 이름을 누르면 그 직원에게 AI 에이전트 메뉴·보고서가 열리고, 종 버튼으로 리포트 알림을 켜고 끕니다. <b>보고서에는 매출 금액이 들어 있어요.</b></div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap;">${chips}</div></div>`;
+}
+async function agentUserToggle(uid) {
+  try {
+    if (agentUserState.rows.has(uid)) { await dbProxy(`agent_users?user_id=eq.${encodeURIComponent(uid)}`, { method: 'DELETE' }); showToast('AI 에이전트 접근을 해제했어요'); }
+    else { await dbProxy('agent_users?on_conflict=user_id', { method: 'POST', headers: { Prefer: 'resolution=merge-duplicates,return=minimal' }, body: JSON.stringify({ user_id: uid, notify: true, added_by: SESSION.name }) }); showToast('AI 에이전트 접근을 허용했어요 (알림 포함)'); }
+    agentUsersPanel();
+  } catch (e) { showToast('저장 실패: ' + e.message); }
+}
+async function agentUserNotify(uid, on) {
+  try { await dbProxy(`agent_users?user_id=eq.${encodeURIComponent(uid)}`, { method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: JSON.stringify({ notify: !!on }) }); showToast(on ? '리포트 알림을 켰어요' : '리포트 알림을 껐어요'); agentUsersPanel(); }
+  catch (e) { showToast('저장 실패: ' + e.message); }
+}
 const adDashState = { allowed: null, users: null, perms: {} };
 async function adDashAccessLoad() {
   if (!SESSION || isAdmin()) return;
@@ -2569,7 +2614,7 @@ function applyRole() {
   $('menu-madechk').style.display = (isAdmin() || isStaff()) && !isCS() ? '' : 'none'; // 자체제작 주문 점검 = 관리자 + MD (2026-09-03)
   $('menu-npm').style.display = isAdmin() || isStaff() || SESSION?.role === 'logistics' ? '' : 'none';    // 상품 관리(SSO 링크) = 관리자 + MD + 물류팀(2026-09-07, 자체제작 관리만)
   $('menu-profit').style.display = isAdmin() && !isCS() ? '' : 'none';
-  $('menu-agents').style.display = isAdmin() ? '' : 'none';   // AI 에이전트 앱(별도 저장소 dnrb-agents, SSO 링크) = 관리자 전용 — 매출 절대액 포함 (2026-09-10)
+  $('menu-agents').style.display = (isAdmin() || agentUserState.me) ? '' : 'none';   // AI 에이전트 앱(별도 저장소 dnrb-agents, SSO 링크) = 관리자 전용 — 매출 절대액 포함 (2026-09-10)
   $('menu-wm').style.display = isAdmin() && !isCS() ? '' : 'none';
   $('menu-my').style.display = SESSION ? '' : 'none';   // 마이페이지 = 로그인한 전 직원 (2026-08-27)   // 근무 관리 = 관리자 전용 (급여·계좌 노출)
   // Meta 광고 성과 패널 — 관리자 + MD (MD는 광고비·전환값·총매출 블러)
@@ -2593,6 +2638,7 @@ async function loadUsers() {
   if (!isAdmin()) return;
   __udEmps = null;   // 근무 정보 캐시 무효화 (메뉴 재진입 시 새로)
   adDashPanel();     // 광고 대시보드 접근 허용 칩 (2026-09-11)
+  agentUsersPanel(); // AI 에이전트 접근 허용 칩 (2026-09-28)
   try {
     const d = await authApi({ action: 'list_users', token: SESSION.token });
     $('users-list').innerHTML = `<div class="table-wrap"><table>
@@ -14226,6 +14272,7 @@ async function deleteCrArchive(id) {
 function bootApp() {
   applyRole();
   adDashAccessLoad();   // 광고 대시보드 허용 목록 확인 → 메뉴 표시 (관리자 외)
+  agentAccessLoad();    // AI 에이전트 허용 목록 확인 → 메뉴 표시 (관리자 외, 2026-09-28)
   notifLoad(true);   // @멘션 알림 배지
   if (isAdmin()) loadCrArchive();    // 취소·반품 기록은 관리자만
   if (!isCS()) loadPerfArchive();    // 판매 성과 기록(순매출·마진 집계 포함) — CS팀 제외

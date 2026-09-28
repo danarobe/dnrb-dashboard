@@ -32,6 +32,7 @@ const TABLE_ROLES: Record<string, string[]> = {
   rscan_settings: ["admin", "staff", "cs"],   // 반품 송장 스캔 — 경고 사유 설정 (읽기 전원, 쓰기 admin은 커스텀 규칙)
   rscan_done: ["admin", "staff", "cs"],       // 반품 스캔 '불량·오배송 처리' 체크 상태 (2026-09-22, 전원 읽기·쓰기)
   rscan_actions: ["admin"],                   // 수거 완료 처리 기록 (2026-09-28) — 관리자 읽기 전용(아래 규칙), 쓰기는 cafe24-analytics만
+  agent_users: ["admin", "staff", "cs"],      // AI 에이전트 접근 허용 목록 (2026-09-28) — 관리자 전체 읽기·쓰기, 그 외는 본인 행 읽기만(아래 규칙)
   stable_apply_log: ["admin"],                // 안정재고 → 셀메이트 반영 기록 (2026-09-28) — 관리자 읽기·추가만(수정·삭제 불가, 처리자는 서버가 기입)
   made_check_files: ["admin", "staff"],   // 자체제작 재고·입고 점검 — 셀메이트 CSV·이지픽 엑셀 파싱 결과 공유 저장 (2026-09-21)
   made_watch_products: ["admin", "staff"],  // 자체제작 외 함께 점검할 지정 상품 (2026-09-21)   // 자체제작 주문 점검 — 제작처(중국/국내)·리드타임 태그. 읽기·쓰기 admin+MD (2026-09-03 사용자 요청으로 MD에도 지정 권한)
@@ -75,7 +76,18 @@ Deno.serve(async (req) => {
     if (!me) return json({ error: "로그인이 필요합니다" }, 401);
     if (!METHODS.has(m)) return json({ error: "잘못된 요청" }, 400);
     if (!/^[a-z_]+$/.test(table) || !TABLE_ROLES[table]) return json({ error: "허용되지 않은 테이블" }, 403);
-    if (!TABLE_ROLES[table].includes(me.role)) return json({ error: "접근 권한이 없습니다" }, 403);
+    // AI 에이전트 표(보고서·할 일·상세 점검)는 관리자 + 허용 목록(agent_users)의 직원 (2026-09-28 사용자 요청)
+    const AGENT_TABLES = new Set(["agent_reports", "agent_actions", "detail_reviews"]);
+    let agentAllowed = false;
+    if (AGENT_TABLES.has(table) && me.role !== "admin") {
+      const ar = await fetch(`${SB_URL}/rest/v1/agent_users?user_id=eq.${encodeURIComponent(me.id)}&select=user_id`, { headers: { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}` } });
+      agentAllowed = ar.ok && ((await ar.json()) as unknown[]).length > 0;
+    }
+    if (!TABLE_ROLES[table].includes(me.role) && !agentAllowed) return json({ error: "접근 권한이 없습니다" }, 403);
+    if (table === "agent_users" && me.role !== "admin") {   // 직원은 자기 행만 읽기(메뉴 표시용)
+      const own = new URLSearchParams(p.split("?")[1] ?? "").get("user_id") === `eq.${me.id}`;
+      if (m !== "GET" || !own) return json({ error: "접근 권한이 없습니다" }, 403);
+    }
     // ── 보안 점검(2026-09-22) — 쿼리스트링 제한 ──
     const qsAll = new URLSearchParams(p.split("?")[1] ?? "");
     // ① 리소스 임베딩(select=*,app_users(*) 같은 FK 따라가기) 금지 — 화이트리스트 밖 테이블(app_users 비밀번호 해시 등)이 읽히는 통로

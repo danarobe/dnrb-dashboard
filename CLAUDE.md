@@ -24,7 +24,9 @@
 - 알림: 출장 여비·서류 요청·급여 명세서 관련 알림은 `notify` 함수 경유(앱 종 + 웹 푸시, `title` 파라미터) → §7-5.
 - 친구 광고 대시보드(ad-dashboard) 연동: 메뉴 '광고관리자' = SSO 링크(`auth sso_issue {aud}`·`verify`, 전용 토큰), 허용 목록 `ad_dashboard_users` + 세부 권한 `perms`(직원 관리 칩·모달), 내장 광고관리자는 '광고관리자(기존)'으로 `admin` 계정만 → §5 광고관리자.
 - **반품 송장 스캔(#rscan, 2026-09-22 신설)** → §7-0.
-- 마이그레이션 0007~0021(supabase/migrations) 전부 적용됨(0017 rscan_done·0018 cleared·0019 옛 anon 정책 drop 2026-09-22, 0020 rscan_actions·0021 recover_inventory/defect 열·0022 stable_apply_log 2026-09-28). 함수 최신 배포: auth·db·notify·wm-me·wm-admin·cafe24-analytics.
+- 마이그레이션 0007~0021(supabase/migrations) 전부 적용됨(0017 rscan_done·0018 cleared·0019 옛 anon 정책 drop 2026-09-22, 0020 rscan_actions·0021 recover_inventory/defect 열·0022 stable_apply_log·0023 agent_users 2026-09-28). 함수 최신 배포: auth·db·notify·wm-me·wm-admin·cafe24-analytics.
+
+- **AI 에이전트 접근 허용 목록(2026-09-28 사용자 요청 — 김도희(마케터)에게 접근·알림 허용)**: 표 `agent_users`(migrations/0023: user_id PK·notify·added_by, FK 없음). 관리자는 항상 허용, 그 외는 목록에 있을 때만. 워크스페이스: 메뉴 `menu-agents` = 관리자 또는 `agentAccessLoad()`(본인 행 조회), 직원 관리에 **'AI 에이전트 접근 허용' 칩 패널**(`agentUsersPanel/agentUserToggle/agentUserNotify` — 이름 칩으로 허용·해제, 종 버튼으로 알림 켬·끔). db 프록시: `agent_reports·agent_actions·detail_reviews`는 관리자 + 허용 직원, `agent_users`는 관리자 전체·직원은 본인 행 GET만. 에이전트 저장소: `_shared/agent.ts canUseAgents(me)`로 7개 함수 게이트 교체, `notifyAdmins` 수신자 = 관리자 + `agent_users.notify=true`, 화면 `js/api.js`의 `isAdmin()`이 `AGENT_OK`(loadAccess) 포함. ⚠ 보고서에 매출 절대액이 들어 있음 — 사용자가 알고 허용. 검증 15/16(나머지 1건은 시험 인자 오류, 권한은 통과).
 
 **진행 중 / 사용자 답 대기**
 0. **수거 완료 버튼 — 동작 확인 완료(2026-09-28)**: 권한 추가·재연동 후 첫 실사용 성공. 재고 복구는 자동 규칙(불량이면 안 함), 반품 불가 품목 표시 기준 확정. 남은 확인: 등급·기간 10% 할인도 반품 불가로 볼지, 불량 의심 건의 재고 복구 여부(§7-0). **셀메이트 안정재고 반영**: 기능·연결 스크립트 완성(§5 안정재고 편성), 사용자가 연결 스크립트 설치 후 1~2건 첫 시험 예정 — 결과 확인 필요(사용자 브라우저는 엣지).
