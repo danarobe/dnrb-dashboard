@@ -7424,6 +7424,7 @@ function renderStableResult() {
     $('stable-new-wrap').style.display = 'none';
   }
   $('stable-export').style.display = 'flex';
+  stableBridgeState();
 }
 
 /* ══ 안정재고 → 셀메이트 반영 (2026-09-28 사용자 요청) ══
@@ -7433,6 +7434,13 @@ function renderStableResult() {
    이름이 애매하게 맞는 건 반영하지 않고 '건너뜀'으로 보여 준다(괄호 표기 차이 폴백 금지 — 2026-09-09 사용자 결정과 같은 원칙). */
 const stableApply = { rows: [], sel: new Set(), busy: false, note: '' };
 const stableBridge = () => (window.SELLMATE_STOCK && typeof window.SELLMATE_STOCK.applyBatch === 'function') ? window.SELLMATE_STOCK : null;
+function stableBridgeState() {
+  const el = $('stable-bridge-state'); if (!el) return;
+  const S = stableBridge();
+  el.innerHTML = S ? `<span style="color:#065f46;font-weight:700;"><i class="fa-solid fa-plug-circle-check"></i> 셀메이트 연결 스크립트 v${escHtml(String(S.version || ''))} 연결됨</span>`
+    : '<span style="color:#b45309;font-weight:700;"><i class="fa-solid fa-plug-circle-xmark"></i> 셀메이트 연결 스크립트 미감지 — 설치 후 새로고침</span>';
+}
+window.addEventListener('sellmate-stock-ready', () => { stableBridgeState(); if ($('stable-apply-modal') && $('stable-apply-modal').style.display === 'flex' && !stableApply.busy && $('stable-apply-count')) stableApplyRender(); });
 function stableApplyClose() { if (stableApply.busy) { showToast('반영 중에는 닫을 수 없어요'); return; } $('stable-apply-modal').style.display = 'none'; }
 function stableBridgeHelp() {
   return `<div style="background:#fffbeb;border:1.5px solid #fde68a;border-radius:12px;padding:12px 14px;font-size:.82rem;color:#78350f;line-height:1.7;">
@@ -7456,7 +7464,16 @@ function stableApplyCount() {
   const picked = stableApply.rows.filter(r => stableApply.sel.has(r.i));
   const prods = new Set(picked.map(r => r.name)).size;
   const el = $('stable-apply-count'); if (el) el.innerHTML = `선택 <b>${picked.length}</b>건 · 상품 <b>${prods}</b>개${prods > 30 ? ' <span style="color:#b91c1c;font-weight:700;">— 한 번에 상품 30개까지</span>' : ''}`;
-  const b = $('stable-apply-go'); if (b) b.disabled = !picked.length || prods > 30 || !stableBridge();
+  // 버튼은 막지 않는다 — 비활성 버튼은 겉모습이 같아 '눌러도 반응 없음'으로 보였음(2026-09-28 사용자 신고). 누르면 이유를 알려 준다.
+  const why = stableApplyBlocked(picked, prods);
+  const b = $('stable-apply-go'); if (b) { b.disabled = false; b.style.opacity = why ? '.55' : '1'; }
+  const w = $('stable-apply-why'); if (w) w.innerHTML = why ? `<i class="fa-solid fa-circle-exclamation"></i> ${escHtml(why)}` : '';
+}
+function stableApplyBlocked(picked, prods) {
+  if (!stableBridge()) return '셀메이트 연결 스크립트가 이 브라우저에서 감지되지 않아요 — 위 안내대로 설치하고 이 페이지를 새로고침하세요';
+  if (!picked.length) return '반영할 옵션을 먼저 체크하세요';
+  if (prods > 30) return `상품이 ${prods}개예요 — 한 번에 30개까지만 반영할 수 있어요`;
+  return '';
 }
 function stableApplyRender(resultHtml) {
   const S = stableBridge();
@@ -7479,6 +7496,7 @@ function stableApplyRender(resultHtml) {
       <button class="toggle-btn" onclick="stableApplyAll(true)">전체 선택</button><button class="toggle-btn" onclick="stableApplyAll(false)">전체 해제</button>
       <span id="stable-apply-count" style="font-size:.8rem;color:#374151;"></span>
       <button id="stable-apply-go" class="btn-analyze" style="margin-left:auto;" onclick="stableApplyRun()"><i class="fa-solid fa-paper-plane"></i> 선택 항목 셀메이트에 반영</button></div>
+    <div id="stable-apply-why" style="font-size:.8rem;color:#b91c1c;font-weight:700;text-align:right;margin:-4px 0 8px;"></div>
     <div class="table-wrap" style="max-height:46vh;overflow:auto;"><table style="width:100%;font-size:.8rem;"><thead><tr><th></th><th style="text-align:left;">상품명</th><th style="text-align:left;">옵션</th><th>기존</th><th></th><th>추천</th><th>차이</th><th class="m-hide">1일 평균</th></tr></thead><tbody>${rows}</tbody></table></div>`;
   stableApplyCount();
 }
@@ -7526,13 +7544,17 @@ function stableResultHtml(title, done, skipped, logErr) {
     <details style="margin-top:4px;"><summary style="cursor:pointer;color:#065f46;">성공 ${ok.length}건 보기</summary>${ok.map(d => line(d, '#065f46')).join('')}</details></div>`;
 }
 async function stableApplyRun() {
-  const S = stableBridge(); if (!S) { showToast('셀메이트 연결 스크립트가 없습니다'); return; }
-  if (stableApply.busy) return;
+  const S = stableBridge();
+  if (stableApply.busy) { showToast('반영 중이에요 — 잠시만 기다려 주세요'); return; }
   const picked = stableApply.rows.filter(r => stableApply.sel.has(r.i));
   const groups = new Map(); picked.forEach(r => { if (!groups.has(r.name)) groups.set(r.name, []); groups.get(r.name).push(r); });
-  if (!picked.length || groups.size > 30) { showToast('선택을 확인하세요 (한 번에 상품 30개까지)'); return; }
+  const blocked = stableApplyBlocked(picked, groups.size);
+  if (blocked) {   // 이유를 결과 칸과 알림 양쪽에 보여 준다
+    $('stable-apply-result').innerHTML = `<div style="border:1.5px solid #fca5a5;background:#fef2f2;border-radius:12px;padding:10px 14px;font-size:.84rem;color:#b91c1c;font-weight:700;margin-bottom:10px;"><i class="fa-solid fa-circle-exclamation"></i> ${escHtml(blocked)}</div>`;
+    $('stable-apply-result').scrollIntoView({ behavior: 'smooth', block: 'center' }); showToast(blocked); return;
+  }
   stableApply.busy = true;
-  const box = $('stable-apply-result'), say = t => { box.innerHTML = `<div class="empty-state"><p><i class="fa-solid fa-spinner fa-spin"></i> ${escHtml(t)}</p></div>`; };
+  const box = $('stable-apply-result'), say = t => { box.innerHTML = `<div class="empty-state"><p><i class="fa-solid fa-spinner fa-spin"></i> ${escHtml(t)}</p></div>`; box.scrollIntoView({ behavior: 'smooth', block: 'center' }); };
   const skipped = [], plan = [];
   try {
     let n = 0;
