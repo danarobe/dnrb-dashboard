@@ -115,7 +115,52 @@ function rscanYesterday() {
   d.setUTCDate(d.getUTCDate() - 1); return d;
 }
 function rscanStartDate(days: number) { const d = rscanYesterday(); d.setUTCDate(d.getUTCDate() - (days - 1)); return d.toISOString().slice(0, 10); }
+/* ── 반품 불가 품목 표시 (2026-09-28 사용자 지정) ──
+   block(반품 불가): 상품명에 비키니·모노키니·swim·수영복 / ACC 카테고리(이름이 정확히 'ACC'인 모든 카테고리) 상품
+   check(확인 필요): 품목에 할인이 적용됨(additional_discount_price > 0 — 1+1·기간할인·등급할인 등) 또는 세일 카테고리(이름에 sale·세일·할인) 상품
+                     → 할인 상품은 "일부만" 반품 불가라 확인 표시로만 둔다.
+   카테고리 상품 목록은 30분 캐시(api_cache rscan:nrsets). */
+type NrSets = { acc: number[]; sale: Record<string, string[]> };
+async function rscanNrSets(token: string): Promise<NrSets> {
+  const hit = (await cacheGet("rscan:nrsets", 30 * 60 * 1000)) as NrSets | null;
+  if (hit && Array.isArray(hit.acc)) return hit;
+  const cats: Record<string, any>[] = [];
+  for (let offset = 0; offset <= 1000; offset += 100) {
+    const body = await apiGet(`${API_BASE}/admin/categories?limit=100&offset=${offset}&fields=category_no,category_name`, token);
+    const items = (body.categories ?? []) as Record<string, any>[];
+    cats.push(...items);
+    if (items.length < 100) break;
+  }
+  const plain = (n: unknown) => String(n ?? "").replace(/[^0-9A-Za-z가-힣+%~ ]/g, " ").replace(/\s+/g, " ").trim();
+  const productsOf = async (no: number) => (((await apiGet(`${API_BASE}/admin/categories/${Number(no)}/products?display_group=1&limit=1000`, token)).products ?? []) as Record<string, any>[]).map((p) => Number(p.product_no));
+  const sets: NrSets = { acc: [], sale: {} };
+  for (const c of cats) {
+    const name = plain(c.category_name);
+    const isAcc = name.toLowerCase() === "acc", isSale = /sale|세일|할인/i.test(name);
+    if (!isAcc && !isSale) continue;
+    const nos = await productsOf(Number(c.category_no));
+    if (isAcc) sets.acc.push(...nos);
+    else for (const no of nos) (sets.sale[String(no)] ??= []).push(name);
+  }
+  sets.acc = [...new Set(sets.acc)];
+  await cacheSet("rscan:nrsets", sets);
+  return sets;
+}
+function rscanItemFlags(it: Record<string, any>, sets: NrSets): { level: "block" | "check"; type: string; text: string }[] {
+  const flags: { level: "block" | "check"; type: string; text: string }[] = [];
+  const name = String(it.product_name ?? it.name ?? "");
+  if (/비키니|모노키니|swim|수영복/i.test(name)) flags.push({ level: "block", type: "수영복", text: "수영복 — 반품 불가" });
+  const no = Number(it.product_no);
+  if (no && sets.acc.includes(no)) flags.push({ level: "block", type: "ACC", text: "ACC 상품 — 반품 불가" });
+  const disc = Number(it.additional_discount_price ?? it.disc ?? 0) || 0;
+  const price = Number(it.product_price ?? it.price ?? 0) || 0;
+  if (disc > 0) flags.push({ level: "check", type: "할인", text: `할인 적용 ${Math.round(disc).toLocaleString("ko-KR")}원${price > 0 ? ` (${Math.round(disc / price * 100)}%)` : ""} — 반품 가능 여부 확인` });
+  const sc = no ? sets.sale[String(no)] : null;
+  if (sc && sc.length) flags.push({ level: "check", type: "세일", text: `세일 카테고리(${sc.join(", ")}) — 반품 가능 여부 확인` });
+  return flags;
+}
 async function rscanBuild(token: string, days: number) {
+  const nrSets = await rscanNrSets(token).catch(() => ({ acc: [], sale: {} } as NrSets));   // 카테고리 조회 실패해도 목록 생성은 계속
   const fmtD = (d: Date) => d.toISOString().slice(0, 10);
   const windows: [string, string][] = [];
   let end = rscanYesterday(), left = days;
@@ -148,7 +193,7 @@ async function rscanBuild(token: string, days: number) {
               status: its[0]?.status_text ?? its[0]?.order_status ?? "", status_extra: its[0]?.order_status_additional_info ?? "",
               buyer: o.billing_name ?? "", receiver: recv.name ?? "",
               address: [recv.address1, recv.address2].filter(Boolean).join(" ").trim(), phone: String(recv.cellphone ?? recv.phone ?? "").replace(/[^0-9]/g, ""),   // 이름·주소 찾기용 (2026-09-23)
-              items: its.map((it) => ({ name: it.product_name, option: it.option_value ?? "", qty: Number(it.quantity ?? 0), tracking_no: it.tracking_no ?? "", status: it.status_text ?? "", naver_id: it.naver_pay_order_id ?? null, product_no: it.product_no ?? null })),
+              items: its.map((it) => ({ name: it.product_name, option: it.option_value ?? "", qty: Number(it.quantity ?? 0), tracking_no: it.tracking_no ?? "", status: it.status_text ?? "", naver_id: it.naver_pay_order_id ?? null, product_no: it.product_no ?? null, nr: rscanItemFlags(it, nrSets) })),
               naver_ids: [...new Set(its.map((it) => it.naver_pay_order_id).filter(Boolean))],
             });
           }
@@ -427,7 +472,7 @@ Deno.serve(async (req) => {
           const claim = {
             key: `${e.kind}:${e.order_id}:${e.claim_code ?? ""}`, claim_code: e.claim_code ?? "", claim_date: e.claim_date ?? "", status, status_extra: extra,
             reason: e.reason ?? "", reason_type: e.reason_type ?? null, naver_reason: nv?.reason ?? null, invoice: e.invoice ?? "", company: e.company ?? null,
-            items: ((e.items ?? []) as Record<string, any>[]).map((it) => ({ name: it.name, option: it.option ?? "", qty: it.qty ?? 0, product_no: it.product_no ?? null })), alert, collected, exchanged,
+            items: ((e.items ?? []) as Record<string, any>[]).map((it) => ({ name: it.name, option: it.option ?? "", qty: it.qty ?? 0, product_no: it.product_no ?? null, nr: it.nr ?? [] })), alert, collected, exchanged,
           };
           const gk = `${e.kind}:${e.order_id}`;
           let g = groups.get(gk);
@@ -497,6 +542,10 @@ Deno.serve(async (req) => {
         const stateOf = (list: Record<string, any>[]) => ({ status: String(list[0]?.status_text ?? ""), status_extra: String(list[0]?.order_status_additional_info ?? "") });
         if (collectedOf(its)) return json({ ok: true, already: true, ...stateOf(its) });
         const codes = its.map((it) => ({ order_item_code: String(it.order_item_code) }));
+        // 반품 불가·확인 필요 품목이 섞여 있으면(최신 주문 기준) 확인(ack=1) 없이는 처리하지 않는다 — 화면이 목록을 보여 주고 다시 요청
+        const nrSets = await rscanNrSets(token).catch(() => ({ acc: [], sale: {} } as NrSets));
+        const flagged = its.map((it) => ({ name: String(it.product_name ?? ""), option: String(it.option_value ?? ""), flags: rscanItemFlags(it, nrSets) })).filter((x) => x.flags.length);
+        if (flagged.length && url.searchParams.get("ack") !== "1") return json({ error: "반품 불가 또는 확인이 필요한 품목이 있어요", need_ack: true, flagged }, 409);
         // ── 안전장치 (2026-09-28) ── ① 관리자 끄기 스위치 ② 사용 한도(사람별 1시간 150건 · 전체 하루 1,000건) — 성공·실패 모두 셈
         const cset = (await rscanSettings()) as Record<string, unknown>;
         if (cset.collect_enabled === false) return json({ error: "수거 완료 처리가 꺼져 있어요 (관리자가 '경고 기준'에서 다시 켤 수 있어요)" }, 403);
@@ -527,7 +576,7 @@ Deno.serve(async (req) => {
         // 처리 후 상태를 다시 읽어 응답·인덱스에 반영 (목록·처리 탭이 다음 갱신 전에도 맞게 보이도록)
         let after = { status: "", status_extra: "" };
         try { after = stateOf(pick(await readOrder())); } catch { /* 읽기 실패해도 처리는 성립 */ }
-        await logAct(true, `${after.status} ${after.status_extra}`.trim() || "처리됨", codes);
+        await logAct(true, (`${after.status} ${after.status_extra}`.trim() || "처리됨") + (flagged.length ? ` · 주의 품목 확인 후 처리: ${flagged.map((f) => f.flags.map((x) => x.type).join("/")).join(", ")}` : ""), codes);
         try {
           const [full] = (await sbRest("rscan_index?kind=eq.cafe24&select=payload")) ?? [];
           const pl = ((full?.payload ?? []) as Record<string, any>[]).map((e) => e.order_id === orderId && e.claim_code === claimCode && e.kind === kind ? { ...e, status: after.status || e.status, status_extra: after.status_extra } : e);

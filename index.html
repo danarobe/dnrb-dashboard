@@ -3067,7 +3067,7 @@ function rscanIssuesRender() {
     const multi = g.claims.length > 1;
     const claims = g.claims.map(c => `<div style="${multi ? 'padding:4px 0;border-top:1px dashed #e5e7eb;' : ''}">
         <div style="font-size:.7rem;color:#6b7280;display:flex;gap:6px;flex-wrap:wrap;align-items:center;">${multi ? badge(c.alert) : ''}<span>접수 ${escHtml(c.claim_code || '—')} · ${escHtml(c.claim_date || '')}</span>${stBadge(c)}${rscanCollectBtn({ order_id: g.order_id, claim_code: c.claim_code, kind: g.kind, naver: g.naver, status: c.status, status_extra: c.status_extra })}</div>
-        ${(c.items || []).map(it => `<div>${escHtml(it.name || '')}${it.option ? ` <span style="color:#6b7280;">${escHtml(it.option)}</span>` : ''}${it.qty > 1 ? ` <b>×${it.qty}</b>` : ''}</div>`).join('') || '<div>—</div>'}</div>`).join('').replace('border-top:1px dashed #e5e7eb;', '');
+        ${(c.items || []).map(it => `<div style="${rscanNrRowStyle(it)}border-radius:6px;padding:0 3px;">${escHtml(it.name || '')}${it.option ? ` <span style="color:#6b7280;">${escHtml(it.option)}</span>` : ''}${it.qty > 1 ? ` <b>×${it.qty}</b>` : ''}${rscanNrChips(it)}</div>`).join('') || '<div>—</div>'}</div>`).join('').replace('border-top:1px dashed #e5e7eb;', '');
     const reasons = g.claims.map(c => {
       const full = `${c.reason_type ? '[' + c.reason_type + '] ' : ''}${(c.reason || '').replace(/\s+/g, ' ').trim() || (c.reason_type ? '' : '—')}${c.naver_reason ? ` / 네이버: ${c.naver_reason}` : ''}`;
       return `<div class="rscan-reason" title="${escHtml(full)}" onclick="this.classList.toggle('open')" style="${multi ? 'padding:3px 0;' : ''}">${escHtml(c.reason_type ? '[' + c.reason_type + '] ' : '')}${escHtml((c.reason || '').replace(/\s+/g, ' ').trim() || (c.reason_type ? '' : '—'))}${c.naver_reason ? `<span class="naver"> / 네이버: ${escHtml(c.naver_reason)}</span>` : ''}</div>`;
@@ -3230,7 +3230,7 @@ async function rscanFind(openIfSingle) {
           <span style="margin-left:auto;display:flex;gap:4px;flex-wrap:wrap;">${rscanLinkBtns(h)}${rscanCollectBtn(h)}</span></div>
         <div style="font-size:.8rem;color:#374151;margin-top:5px;">구매자 <b>${escHtml(h.buyer || '—')}</b> · 수령인 <b>${escHtml(h.receiver || '—')}</b>${h.phone ? ' · ' + escHtml(h.phone) : ''}</div>
         <div style="font-size:.78rem;color:#4b5563;">${escHtml(h.address || '주소 없음')}</div>
-        <div style="font-size:.78rem;color:#374151;margin-top:3px;">${(h.items || []).map(it => `${escHtml(it.name || '')}${it.option ? ' <span style="color:#6b7280;">' + escHtml(it.option) + '</span>' : ''}${it.qty > 1 ? ' ×' + it.qty : ''}`).join(' / ')}</div>
+        <div style="font-size:.78rem;color:#374151;margin-top:3px;">${(h.items || []).map(it => `<span style="${rscanNrRowStyle(it)}border-radius:6px;padding:0 3px;">${escHtml(it.name || '')}${it.option ? ' <span style="color:#6b7280;">' + escHtml(it.option) + '</span>' : ''}${it.qty > 1 ? ' ×' + it.qty : ''}${rscanNrChips(it)}</span>`).join(' / ')}</div>${rscanNrSummary(h.items)}
         ${h.naver && (h.naver_ids || []).length ? `<div style="margin-top:4px;">${rscanNaverIdsHtml(h.naver_ids, true)}</div>` : ''}</div>`; }).join('');
     if (openIfSingle && r.hits.length === 1) {   // Enter(사용자 동작) 안에서만 창을 열 수 있다 — 자동 조회 결과는 버튼으로
       const h = r.hits[0];
@@ -3258,6 +3258,19 @@ function rscanNaverIdsHtml(ids, small) {
   const list = [...new Set((ids || []).map(x => String(x || '')).filter(Boolean))];
   if (!list.length) return '';
   return `<span style="display:inline-flex;gap:4px;flex-wrap:wrap;align-items:center;font-size:${small ? '.7rem' : '.78rem'};"><b style="color:#03c75a;">N</b><span style="color:#374151;">상품주문번호</span>${list.map(id => `<span style="font-family:monospace;font-weight:700;">${escHtml(id)}</span><button class="toggle-btn" style="font-size:.66rem;padding:1px 6px;" data-v="${escHtml(id)}" onclick="navigator.clipboard&&navigator.clipboard.writeText(this.dataset.v).then(()=>showToast('네이버페이 상품주문번호 복사'))">복사</button>`).join('')}</span>`;
+}
+/* 반품 불가·확인 필요 품목 표시 (2026-09-28 사용자 지정) — 서버가 품목마다 nr:[{level:'block'|'check', type, text}] 를 붙여 준다.
+   block = 반품 불가(수영복·ACC) 진한 빨강 / check = 확인 필요(할인·세일 카테고리) 주황 */
+const rscanNrLevel = it => { const f = (it && it.nr) || []; return f.some(x => x.level === 'block') ? 'block' : f.length ? 'check' : ''; };
+const rscanNrRowStyle = it => { const l = rscanNrLevel(it); return l === 'block' ? 'background:#fecaca;color:#7f1d1d;font-weight:800;' : l === 'check' ? 'background:#ffedd5;color:#7c2d12;font-weight:700;' : ''; };
+function rscanNrChips(it) {
+  return ((it && it.nr) || []).map(f => `<span title="${escHtml(f.text)}" style="display:inline-block;background:${f.level === 'block' ? '#b91c1c' : '#ea580c'};color:#fff;border-radius:99px;padding:1px 8px;font-size:.68rem;font-weight:800;white-space:nowrap;margin-left:4px;"><i class="fa-solid ${f.level === 'block' ? 'fa-ban' : 'fa-circle-question'}"></i> ${f.level === 'block' ? '반품 불가 · ' + escHtml(f.type) : escHtml(f.type) + ' · 확인'}</span>`).join('');
+}
+function rscanNrSummary(items) {   // 카드 상단 경고 띠
+  const list = (items || []).filter(it => (it.nr || []).length); if (!list.length) return '';
+  const block = list.some(it => rscanNrLevel(it) === 'block');
+  return `<div style="background:${block ? '#7f1d1d' : '#9a3412'};color:#fff;border-radius:10px;padding:8px 12px;margin-top:8px;font-size:.82rem;font-weight:800;line-height:1.6;"><i class="fa-solid ${block ? 'fa-ban' : 'fa-circle-question'}"></i> ${block ? '반품 불가 품목이 들어 있어요' : '반품 가능 여부를 확인할 품목이 있어요'} — 수거 완료를 누르기 전에 확인하세요
+    ${list.map(it => `<div style="font-weight:600;font-size:.76rem;">· ${escHtml(it.name || '')}${it.option ? ' / ' + escHtml(it.option) : ''} — ${(it.nr || []).map(f => escHtml(f.text)).join(' · ')}</div>`).join('')}</div>`;
 }
 /* 수거 완료 처리 기록 (관리자) — rscan_actions 최근 100건 */
 async function rscanActionsOpen() {
@@ -3290,8 +3303,15 @@ async function rscanCollect(btn) {
   if (!confirm(`주문 ${d.oid} 의 ${label} 접수(${d.claim})를 카페24에서 '수거 완료'로 처리할까요?\n\n카페24에 바로 반영되고, 되돌리려면 카페24 관리자에서 직접 바꿔야 해요.`)) return;
   const old = btn.innerHTML; btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> 처리 중';
   try {
-    const res = await fetch(fnUrl('cafe24-analytics', { action: 'rscan_collect', order_id: d.oid, claim_code: d.claim, kind: d.kind }), { method: 'POST', headers: sbHeaders(), body: '{}' });
-    const r = await res.json().catch(() => ({}));
+    const send = ack => fetch(fnUrl('cafe24-analytics', Object.assign({ action: 'rscan_collect', order_id: d.oid, claim_code: d.claim, kind: d.kind }, ack ? { ack: 1 } : {})), { method: 'POST', headers: sbHeaders(), body: '{}' });
+    let res = await send(false);
+    let r = await res.json().catch(() => ({}));
+    if (res.status === 409 && r.need_ack) {   // 반품 불가·확인 필요 품목 포함 — 목록을 보여 주고 한 번 더 확인
+      const block = (r.flagged || []).some(f => (f.flags || []).some(x => x.level === 'block'));
+      const lines = (r.flagged || []).map(f => `· ${f.name}${f.option ? ' / ' + f.option : ''}\n   → ${(f.flags || []).map(x => x.text).join(' · ')}`).join('\n');
+      if (!confirm(`${block ? '⚠ 반품 불가 품목이 들어 있어요!' : '확인이 필요한 품목이 있어요.'}\n\n${lines}\n\n이 접수의 품목이 한꺼번에 수거 완료로 바뀝니다.\n그래도 수거 완료로 처리할까요?`)) { btn.disabled = false; btn.innerHTML = old; return; }
+      res = await send(true); r = await res.json().catch(() => ({}));
+    }
     if (!res.ok || r.error) throw new Error(r.error || ('오류 ' + res.status));
     const txt = `${r.status || ''}${r.status_extra ? ' · ' + r.status_extra : ''}`.trim();
     btn.outerHTML = `<span style="font-size:.72rem;font-weight:800;color:#15803d;white-space:nowrap;"><i class="fa-solid fa-circle-check"></i> ${r.already ? '이미 수거 완료' : '수거 완료 처리됨'}${txt ? ' (' + escHtml(txt) + ')' : ''}</span>`;
@@ -3434,8 +3454,9 @@ function rscanRender(r) {
     <div style="font-size:.8rem;margin-top:6px;${h.alert && h.alert.level === 'alert' ? 'font-weight:700;' : 'color:#374151;'}">사유 <b>${escHtml(h.reason_type ? '[' + h.reason_type + '] ' : '')}${escHtml(h.reason || '—')}</b>${h.naver_reason ? ` · 네이버 사유 <b>${escHtml(h.naver_reason)}</b>` : ''} · 반품 송장 ${escHtml(h.invoice || '—')}${h.company ? ' (' + escHtml(h.company) + ')' : ''} · 클레임 ${escHtml(h.claim_code || '—')}</div>
     <div style="font-size:.8rem;margin-top:2px;${h.alert && h.alert.level === 'alert' ? '' : 'color:#374151;'}">구매자 ${escHtml(h.buyer || '—')} · 수령인 ${escHtml(h.receiver || '—')}</div>
     ${h.naver && (h.naver_ids || []).length ? `<div style="margin-top:4px;">${rscanNaverIdsHtml(h.naver_ids)}</div>` : ''}
+    ${rscanNrSummary(h.items)}
     <table style="width:100%;margin-top:8px;font-size:.8rem;"><thead><tr><th style="text-align:left;">상품</th><th style="text-align:left;">옵션</th><th>수량</th><th class="m-hide">품목 상태</th><th class="m-hide">발송 송장</th></tr></thead>
-      <tbody>${(h.items || []).map(it => `<tr><td style="text-align:left;font-weight:600;">${escHtml(it.name)}</td><td style="text-align:left;">${escHtml(it.option || '—')}</td><td>${it.qty}</td><td class="m-hide">${escHtml(it.status || '')}</td><td class="m-hide" style="font-family:monospace;font-size:.72rem;">${escHtml(it.tracking_no || '')}</td></tr>`).join('')}</tbody></table></div>`; }).join('');
+      <tbody>${(h.items || []).map(it => `<tr style="${rscanNrRowStyle(it)}"><td style="text-align:left;font-weight:600;">${escHtml(it.name)}${rscanNrChips(it)}</td><td style="text-align:left;">${escHtml(it.option || '—')}</td><td>${it.qty}</td><td class="m-hide">${escHtml(it.status || '')}</td><td class="m-hide" style="font-family:monospace;font-size:.72rem;">${escHtml(it.tracking_no || '')}</td></tr>`).join('')}</tbody></table></div>`; }).join('');
   box.innerHTML = `<style>@keyframes rscanBlink{0%,100%{box-shadow:0 0 0 0 rgba(${th.glow},0)}50%{box-shadow:0 0 0 10px rgba(${th.glow},.4)}}</style>` + banner + cards;
 }
 function rscanHistoryRender() {
