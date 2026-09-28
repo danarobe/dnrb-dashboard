@@ -1445,8 +1445,13 @@
   <div class="section-card page-sec" id="sec-stable">
     <div class="section-header" style="cursor:default;">
       <h2><span><i class="fa-solid fa-warehouse" style="color:#4f46e5;font-size:.9em;"></i></span> 안정재고 편성</h2>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;">
+        <button class="toggle-btn" onclick="stableHistToggle()"><i class="fa-solid fa-list-check"></i> 셀메이트 반영 내역</button>
+      </div>
     </div>
     <div class="section-body">
+      <!-- 셀메이트 반영 내역 (2026-09-28 사용자 요청) — 분석을 돌리지 않아도 언제든 볼 수 있게 메뉴 맨 위에 둔다. stable_apply_log 조회 전용 -->
+      <div id="stable-history" style="display:none;margin-bottom:18px;border:1.5px solid #e0e7ff;border-radius:14px;padding:14px 16px;background:#fbfbff;"></div>
       <div style="font-size:.82rem;color:#6b7280;margin-bottom:14px;">기간 내 결제수량으로 1일 평균 판매량을 계산해 <strong>추천 안정재고</strong>를 산출하고, 셀메이트의 기존 안정재고와 대조합니다. 카페24 판매 데이터는 <strong>API로 자동 조회</strong>되므로 셀메이트 파일만 올리면 돼요.</div>
 
       <!-- STEP 1: 셀메이트 안정재고 CSV -->
@@ -7599,9 +7604,94 @@ async function stableApplyRun() {
     try { renderStableResult(); } catch (e) { console.warn(e); }
     stableApplyRender(html);
     showToast(`셀메이트 반영: 성공 ${done.filter(d => d.ok).length}건${done.some(d => !d.ok) ? ' · 실패 ' + done.filter(d => !d.ok).length + '건' : ''}`);
+    if ($('stable-history') && $('stable-history').style.display !== 'none') stableHistLoad();
   } catch (e) {
     box.innerHTML = `<div style="border:1.5px solid #fca5a5;background:#fef2f2;border-radius:12px;padding:10px 14px;font-size:.82rem;color:#b91c1c;">${e.code === 'cancel' ? '반영을 취소했어요. 셀메이트는 바뀌지 않았습니다.' : '반영하지 못했어요 — ' + escHtml(e.message)}</div>`;
   } finally { stableApply.busy = false; }
+}
+/* ── 셀메이트 반영 내역 (2026-09-28 사용자 요청) — 옵션 단위 전체 내역: 기간·구분·결과·검색 필터, 요약, 엑셀 ── */
+const stableHist = { rows: null, period: '30', kind: 'all', result: 'all', q: '', limit: 300, loading: false };
+function stableHistToggle() {
+  if (!isAdmin()) { showToast('접근 권한이 없습니다'); return; }
+  const box = $('stable-history'); const open = box.style.display === 'none';
+  box.style.display = open ? 'block' : 'none';
+  if (open) stableHistLoad();
+}
+async function stableHistLoad() {
+  if (stableHist.loading) return; stableHist.loading = true;
+  const box = $('stable-history');
+  box.innerHTML = '<div class="empty-state"><p><i class="fa-solid fa-spinner fa-spin"></i> 반영 내역을 불러오는 중…</p></div>';
+  try {
+    const since = stableHist.period === 'all' ? '' : `&created_at=gte.${new Date(Date.now() - Number(stableHist.period) * 86400000).toISOString()}`;
+    const rows = [];
+    for (let off = 0; off < 20000; off += 1000) {   // PostgREST 한 번에 1,000행
+      const part = await dbProxy(`stable_apply_log?select=created_at,by_name,kind,batch_id,p_no,product_name,option_name,before_val,after_val,result_val,ok,error&order=created_at.desc,id.desc&limit=1000&offset=${off}${since}`);
+      rows.push(...(part || [])); if (!part || part.length < 1000) break;
+    }
+    stableHist.rows = rows; stableHist.limit = 300;
+    stableHistRender();
+  } catch (e) { box.innerHTML = `<div class="empty-state"><p style="color:#b91c1c;">반영 내역을 불러오지 못했어요 — ${escHtml(e.message)}</p></div>`; }
+  finally { stableHist.loading = false; }
+}
+function stableHistFiltered() {
+  const q = stableHist.q.trim().toLowerCase();
+  return (stableHist.rows || []).filter(r => (stableHist.kind === 'all' || r.kind === stableHist.kind)
+    && (stableHist.result === 'all' || (stableHist.result === 'ok') === !!r.ok)
+    && (!q || String(r.product_name || '').toLowerCase().includes(q) || String(r.option_name || '').toLowerCase().includes(q) || String(r.by_name || '').toLowerCase().includes(q)));
+}
+function stableHistSet(key, val, reload) { stableHist[key] = val; stableHist.limit = 300; reload ? stableHistLoad() : stableHistRender(); }
+function stableHistRender() {
+  const box = $('stable-history'); const all = stableHist.rows || [], rows = stableHistFiltered();
+  const when = t => { const d = new Date(t), p = n => String(n).padStart(2, '0'); return `${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`; };
+  const chip = (key, val, label, reload) => `<button class="${stableHist[key] === val ? 'active' : ''}" onclick="stableHistSet('${key}', '${val}', ${reload ? 'true' : 'false'})">${label}</button>`;
+  const okRows = rows.filter(r => r.ok), up = okRows.filter(r => r.after_val > r.before_val).length, down = okRows.filter(r => r.after_val < r.before_val).length;
+  const tile = (label, val, sub) => `<div style="background:#fff;border:1.5px solid #e0e7ff;border-radius:12px;padding:10px 14px;min-width:110px;"><div style="font-size:.72rem;color:#6b7280;font-weight:600;">${label}</div><div style="font-size:1.15rem;font-weight:800;color:#1e1b4b;">${val}</div>${sub ? `<div style="font-size:.7rem;color:#6b7280;">${sub}</div>` : ''}</div>`;
+  const focus = document.activeElement && document.activeElement.id === 'stable-hist-q';
+  const body = rows.slice(0, stableHist.limit).map(r => { const d = (r.after_val ?? 0) - (r.before_val ?? 0); return `<tr style="${r.ok ? '' : 'background:#fef2f2;'}">
+      <td style="white-space:nowrap;">${escHtml(when(r.created_at))}</td><td>${escHtml(r.by_name || '')}</td>
+      <td><span style="background:${r.kind === 'rollback' ? '#fef3c7' : '#e0e7ff'};color:${r.kind === 'rollback' ? '#92400e' : '#4338ca'};border-radius:99px;padding:1px 9px;font-size:.7rem;font-weight:700;white-space:nowrap;">${r.kind === 'rollback' ? '되돌리기' : '반영'}</span></td>
+      <td style="text-align:left;">${escHtml(r.product_name || '')}</td><td style="text-align:left;">${escHtml(r.option_name || '—')}</td>
+      <td>${r.before_val ?? '—'}</td><td style="color:#9ca3af;">→</td><td style="font-weight:800;">${r.after_val ?? '—'}</td>
+      <td style="color:${d > 0 ? '#b91c1c' : d < 0 ? '#1d4ed8' : '#6b7280'};font-weight:700;">${d > 0 ? '+' : ''}${d}</td>
+      <td style="font-weight:800;color:${r.ok ? '#15803d' : '#b91c1c'};white-space:nowrap;">${r.ok ? '성공' : '실패'}</td>
+      <td class="m-hide" style="text-align:left;font-size:.72rem;color:#b91c1c;max-width:220px;white-space:normal;">${r.ok ? '' : escHtml(r.error || '')}</td></tr>`; }).join('');
+  box.innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px;">
+      <div style="font-size:.95rem;font-weight:800;color:#312e81;"><i class="fa-solid fa-list-check"></i> 셀메이트 반영 내역</div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;">
+        <button class="toggle-btn" onclick="stableHistLoad()"><i class="fa-solid fa-rotate"></i> 새로고침</button>
+        <button class="toggle-btn" onclick="stableHistXlsx()"><i class="fa-solid fa-file-excel" style="color:#15803d;"></i> 엑셀 다운로드</button>
+        <button class="toggle-btn" onclick="stableApplyLogOpen()"><i class="fa-solid fa-rotate-left"></i> 묶음별 보기 · 되돌리기</button>
+        <button class="toggle-btn" onclick="stableHistToggle()">닫기 ✕</button></div></div>
+    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:10px;font-size:.76rem;color:#4b5563;">
+      <span style="font-weight:700;">기간</span><span class="qp">${chip('period', '7', '최근 7일', true)}${chip('period', '30', '최근 30일', true)}${chip('period', '90', '최근 3달', true)}${chip('period', 'all', '전체', true)}</span>
+      <span style="font-weight:700;">구분</span><span class="qp">${chip('kind', 'all', '전체')}${chip('kind', 'apply', '반영')}${chip('kind', 'rollback', '되돌리기')}</span>
+      <span style="font-weight:700;">결과</span><span class="qp">${chip('result', 'all', '전체')}${chip('result', 'ok', '성공')}${chip('result', 'fail', '실패')}</span>
+      <input id="stable-hist-q" value="${escHtml(stableHist.q)}" placeholder="상품명·옵션·처리자 검색" oninput="stableHist.q=this.value;clearTimeout(stableHist.t);stableHist.t=setTimeout(stableHistRender,250)" style="border:1.5px solid #d1d5db;border-radius:8px;padding:6px 10px;font-size:.8rem;min-width:190px;" /></div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;">
+      ${tile('반영 횟수', fmt(new Set(rows.map(r => r.batch_id)).size) + '회', '')}${tile('상품', fmt(new Set(rows.map(r => r.p_no)).size) + '개', '')}${tile('옵션', fmt(rows.length) + '건', `성공 ${fmt(okRows.length)} · 실패 ${fmt(rows.length - okRows.length)}`)}${tile('늘림 / 줄임', `${fmt(up)} / ${fmt(down)}`, '성공 건 기준')}</div>
+    ${!all.length ? '<div class="empty-state"><p>이 기간에 반영 내역이 없어요.</p></div>' : !rows.length ? '<div class="empty-state"><p>조건에 맞는 내역이 없어요.</p></div>' : `
+    <div class="table-wrap" style="max-height:52vh;overflow:auto;"><table style="width:100%;font-size:.78rem;"><thead><tr><th>시각</th><th>처리자</th><th>구분</th><th style="text-align:left;">상품명</th><th style="text-align:left;">옵션</th><th>이전</th><th></th><th>이후</th><th>차이</th><th>결과</th><th class="m-hide" style="text-align:left;">실패 사유</th></tr></thead><tbody>${body}</tbody></table></div>
+    ${rows.length > stableHist.limit ? `<div style="text-align:center;margin-top:8px;"><button class="toggle-btn" onclick="stableHist.limit+=500;stableHistRender()">더 보기 (${fmt(rows.length - stableHist.limit)}건 남음)</button></div>` : ''}`}`;
+  if (focus) { const q = $('stable-hist-q'); if (q) { q.focus(); q.setSelectionRange(q.value.length, q.value.length); } }
+}
+async function stableHistXlsx() {
+  const rows = stableHistFiltered(); if (!rows.length) { showToast('내려받을 내역이 없어요'); return; }
+  try {
+    await loadXlsxPopulate();
+    const wb = await XlsxPopulate.fromBlankAsync(); const ws = wb.sheet(0).name('셀메이트 반영 내역');
+    ['반영 시각', '처리자', '구분', '상품명', '옵션', '이전 안정재고', '이후 안정재고', '차이', '반영 후 확인값', '결과', '실패 사유', '셀메이트 상품번호', '묶음'].forEach((h, i) => ws.cell(1, i + 1).value(h).style({ bold: true, fill: 'EEF2FF' }));
+    [18, 10, 9, 46, 24, 13, 13, 8, 14, 8, 40, 16, 24].forEach((w, i) => ws.column(i + 1).width(w));
+    const p = n => String(n).padStart(2, '0');
+    rows.forEach((r, i) => { const d = new Date(r.created_at);
+      [`${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`, r.by_name || '', r.kind === 'rollback' ? '되돌리기' : '반영', r.product_name || '', r.option_name || '', r.before_val, r.after_val,
+        (r.after_val ?? 0) - (r.before_val ?? 0), r.result_val, r.ok ? '성공' : '실패', r.ok ? '' : (r.error || ''), r.p_no, r.batch_id].forEach((v, c) => { if (v !== '' && v != null) ws.cell(i + 2, c + 1).value(v); }); });
+    ws.freezePanes(0, 1);
+    const blob = await wb.outputAsync(); const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob); a.download = `셀메이트_안정재고_반영내역_${new Date().toISOString().slice(0, 10).replace(/-/g, '')}.xlsx`;
+    document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 3000);
+    showToast(`${fmt(rows.length)}건 엑셀 저장`);
+  } catch (e) { showToast('엑셀 저장 실패: ' + e.message); }
 }
 /* 반영 기록 · 되돌리기 */
 async function stableApplyLogOpen() {
