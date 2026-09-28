@@ -7610,7 +7610,10 @@ async function stableApplyRun() {
   } finally { stableApply.busy = false; }
 }
 /* ── 셀메이트 반영 내역 (2026-09-28 사용자 요청) — 옵션 단위 전체 내역: 기간·구분·결과·검색 필터, 요약, 엑셀 ── */
-const stableHist = { rows: null, period: '30', kind: 'all', result: 'all', q: '', limit: 300, loading: false };
+// date: '' = 날짜 구분 없이(날짜별 구분선 표시) / 'YYYY-MM-DD' = 그 날짜에 바꾼 것만 (2026-09-28 사용자 요청). dayLoad = 달력에서 고른 날짜를 서버에서 그날 하루만 불러온 상태
+const stableHist = { rows: null, period: '30', kind: 'all', result: 'all', q: '', date: '', dayLoad: '', limit: 300, loading: false };
+const stableHistDay = t => { const d = new Date(t), p = n => String(n).padStart(2, '0'); return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`; };   // 이 PC 시간(한국) 기준 날짜
+const stableHistDayLabel = day => { const d = new Date(day + 'T12:00:00'); return `${day.slice(5).replace('-', '/')} (${'일월화수목금토'[d.getDay()]})`; };
 function stableHistToggle() {
   if (!isAdmin()) { showToast('접근 권한이 없습니다'); return; }
   const box = $('stable-history'); const open = box.style.display === 'none';
@@ -7622,7 +7625,10 @@ async function stableHistLoad() {
   const box = $('stable-history');
   box.innerHTML = '<div class="empty-state"><p><i class="fa-solid fa-spinner fa-spin"></i> 반영 내역을 불러오는 중…</p></div>';
   try {
-    const since = stableHist.period === 'all' ? '' : `&created_at=gte.${new Date(Date.now() - Number(stableHist.period) * 86400000).toISOString()}`;
+    // 달력에서 날짜를 고르면 그날 하루(이 PC 시간 기준 0시~24시)만, 아니면 기간 칩 기준
+    let since;
+    if (stableHist.dayLoad) { const a = new Date(stableHist.dayLoad + 'T00:00:00'), b = new Date(a.getTime() + 86400000); since = `&created_at=gte.${a.toISOString()}&created_at=lt.${b.toISOString()}`; }
+    else since = stableHist.period === 'all' ? '' : `&created_at=gte.${new Date(Date.now() - Number(stableHist.period) * 86400000).toISOString()}`;
     const rows = [];
     for (let off = 0; off < 20000; off += 1000) {   // PostgREST 한 번에 1,000행
       const part = await dbProxy(`stable_apply_log?select=created_at,by_name,kind,batch_id,p_no,product_name,option_name,before_val,after_val,result_val,ok,error&order=created_at.desc,id.desc&limit=1000&offset=${off}${since}`);
@@ -7635,19 +7641,39 @@ async function stableHistLoad() {
 }
 function stableHistFiltered() {
   const q = stableHist.q.trim().toLowerCase();
-  return (stableHist.rows || []).filter(r => (stableHist.kind === 'all' || r.kind === stableHist.kind)
+  return (stableHist.rows || []).filter(r => (!stableHist.date || stableHistDay(r.created_at) === stableHist.date) && (stableHist.kind === 'all' || r.kind === stableHist.kind)
     && (stableHist.result === 'all' || (stableHist.result === 'ok') === !!r.ok)
     && (!q || String(r.product_name || '').toLowerCase().includes(q) || String(r.option_name || '').toLowerCase().includes(q) || String(r.by_name || '').toLowerCase().includes(q)));
 }
-function stableHistSet(key, val, reload) { stableHist[key] = val; stableHist.limit = 300; reload ? stableHistLoad() : stableHistRender(); }
+function stableHistSet(key, val, reload) {
+  stableHist[key] = val; stableHist.limit = 300;
+  if (key === 'period') { stableHist.date = ''; stableHist.dayLoad = ''; }   // 기간을 바꾸면 날짜 선택은 푼다
+  reload ? stableHistLoad() : stableHistRender();
+}
+// 날짜 선택: 이미 불러온 기간 안의 날짜면 화면에서만 거르고, 밖의 날짜(달력으로 고른 옛 날짜)면 그날 하루를 서버에서 불러온다
+function stableHistPickDate(day) {
+  stableHist.limit = 300;
+  if (!day) { const was = stableHist.dayLoad; stableHist.date = ''; stableHist.dayLoad = ''; was ? stableHistLoad() : stableHistRender(); return; }
+  const have = !stableHist.dayLoad && (stableHist.rows || []).some(r => stableHistDay(r.created_at) === day);
+  stableHist.date = day;
+  if (have) stableHistRender(); else { stableHist.dayLoad = day; stableHistLoad(); }
+}
 function stableHistRender() {
   const box = $('stable-history'); const all = stableHist.rows || [], rows = stableHistFiltered();
   const when = t => { const d = new Date(t), p = n => String(n).padStart(2, '0'); return `${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`; };
   const chip = (key, val, label, reload) => `<button class="${stableHist[key] === val ? 'active' : ''}" onclick="stableHistSet('${key}', '${val}', ${reload ? 'true' : 'false'})">${label}</button>`;
   const okRows = rows.filter(r => r.ok), up = okRows.filter(r => r.after_val > r.before_val).length, down = okRows.filter(r => r.after_val < r.before_val).length;
+  // 날짜 칩: 불러온 내역에 있는 날짜들(최신순)과 그날 건수
+  const dayCount = new Map(); all.forEach(r => { const d = stableHistDay(r.created_at); dayCount.set(d, (dayCount.get(d) || 0) + 1); });
+  const dayChips = [...dayCount.entries()].slice(0, 31).map(([d, n]) => `<button class="${stableHist.date === d ? 'active' : ''}" data-day="${d}" onclick="stableHistPickDate(this.dataset.day)">${stableHistDayLabel(d)} <span style="opacity:.75;">${fmt(n)}</span></button>`).join('');
   const tile = (label, val, sub) => `<div style="background:#fff;border:1.5px solid #e0e7ff;border-radius:12px;padding:10px 14px;min-width:110px;"><div style="font-size:.72rem;color:#6b7280;font-weight:600;">${label}</div><div style="font-size:1.15rem;font-weight:800;color:#1e1b4b;">${val}</div>${sub ? `<div style="font-size:.7rem;color:#6b7280;">${sub}</div>` : ''}</div>`;
   const focus = document.activeElement && document.activeElement.id === 'stable-hist-q';
-  const body = rows.slice(0, stableHist.limit).map(r => { const d = (r.after_val ?? 0) - (r.before_val ?? 0); return `<tr style="${r.ok ? '' : 'background:#fef2f2;'}">
+  let lastDay = '';
+  const body = rows.slice(0, stableHist.limit).map(r => { const d = (r.after_val ?? 0) - (r.before_val ?? 0);
+    const day = stableHistDay(r.created_at); let head = '';
+    if (day !== lastDay) { lastDay = day; const dr = rows.filter(x => stableHistDay(x.created_at) === day);   // 날짜가 바뀌는 곳에 구분 줄
+      head = `<tr><td colspan="11" style="text-align:left;background:#eef2ff;color:#312e81;font-weight:800;font-size:.8rem;padding:7px 10px;position:sticky;top:0;">${stableHistDayLabel(day)} · ${fmt(dr.length)}건 <span style="font-weight:600;color:#6b7280;">(상품 ${fmt(new Set(dr.map(x => x.p_no)).size)}개 · 성공 ${fmt(dr.filter(x => x.ok).length)}${dr.some(x => !x.ok) ? ' · 실패 ' + fmt(dr.filter(x => !x.ok).length) : ''})</span></td></tr>`; }
+    return head + `<tr style="${r.ok ? '' : 'background:#fef2f2;'}">
       <td style="white-space:nowrap;">${escHtml(when(r.created_at))}</td><td>${escHtml(r.by_name || '')}</td>
       <td><span style="background:${r.kind === 'rollback' ? '#fef3c7' : '#e0e7ff'};color:${r.kind === 'rollback' ? '#92400e' : '#4338ca'};border-radius:99px;padding:1px 9px;font-size:.7rem;font-weight:700;white-space:nowrap;">${r.kind === 'rollback' ? '되돌리기' : '반영'}</span></td>
       <td style="text-align:left;">${escHtml(r.product_name || '')}</td><td style="text-align:left;">${escHtml(r.option_name || '—')}</td>
@@ -7665,12 +7691,18 @@ function stableHistRender() {
         <button class="toggle-btn" onclick="stableHistToggle()">닫기 ✕</button></div></div>
     <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:10px;font-size:.76rem;color:#4b5563;">
       <span style="font-weight:700;">기간</span><span class="qp">${chip('period', '7', '최근 7일', true)}${chip('period', '30', '최근 30일', true)}${chip('period', '90', '최근 3달', true)}${chip('period', 'all', '전체', true)}</span>
+      <span style="flex-basis:100%;height:0;"></span>
+      <span style="font-weight:700;">날짜</span>
+      <input type="date" id="stable-hist-date" value="${escHtml(stableHist.date)}" max="${stableHistDay(new Date())}" onchange="stableHistPickDate(this.value)" style="border:1.5px solid #d1d5db;border-radius:8px;padding:5px 8px;font-size:.8rem;" />
+      <span class="qp"><button class="${stableHist.date ? '' : 'active'}" onclick="stableHistPickDate('')">날짜 전체</button>${dayChips}</span>
+      ${stableHist.dayLoad ? `<span style="color:#b45309;font-weight:700;">${escHtml(stableHistDayLabel(stableHist.dayLoad))} 하루만 불러온 상태예요 — '날짜 전체'를 누르면 기간 보기로 돌아가요</span>` : ''}
+      <span style="flex-basis:100%;height:0;"></span>
       <span style="font-weight:700;">구분</span><span class="qp">${chip('kind', 'all', '전체')}${chip('kind', 'apply', '반영')}${chip('kind', 'rollback', '되돌리기')}</span>
       <span style="font-weight:700;">결과</span><span class="qp">${chip('result', 'all', '전체')}${chip('result', 'ok', '성공')}${chip('result', 'fail', '실패')}</span>
       <input id="stable-hist-q" value="${escHtml(stableHist.q)}" placeholder="상품명·옵션·처리자 검색" oninput="stableHist.q=this.value;clearTimeout(stableHist.t);stableHist.t=setTimeout(stableHistRender,250)" style="border:1.5px solid #d1d5db;border-radius:8px;padding:6px 10px;font-size:.8rem;min-width:190px;" /></div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;">
       ${tile('반영 횟수', fmt(new Set(rows.map(r => r.batch_id)).size) + '회', '')}${tile('상품', fmt(new Set(rows.map(r => r.p_no)).size) + '개', '')}${tile('옵션', fmt(rows.length) + '건', `성공 ${fmt(okRows.length)} · 실패 ${fmt(rows.length - okRows.length)}`)}${tile('늘림 / 줄임', `${fmt(up)} / ${fmt(down)}`, '성공 건 기준')}</div>
-    ${!all.length ? '<div class="empty-state"><p>이 기간에 반영 내역이 없어요.</p></div>' : !rows.length ? '<div class="empty-state"><p>조건에 맞는 내역이 없어요.</p></div>' : `
+    ${!all.length ? `<div class="empty-state"><p>${stableHist.dayLoad ? escHtml(stableHistDayLabel(stableHist.dayLoad)) + '에는 반영 내역이 없어요.' : '이 기간에 반영 내역이 없어요.'}</p></div>` : !rows.length ? '<div class="empty-state"><p>조건에 맞는 내역이 없어요.</p></div>' : `
     <div class="table-wrap" style="max-height:52vh;overflow:auto;"><table style="width:100%;font-size:.78rem;"><thead><tr><th>시각</th><th>처리자</th><th>구분</th><th style="text-align:left;">상품명</th><th style="text-align:left;">옵션</th><th>이전</th><th></th><th>이후</th><th>차이</th><th>결과</th><th class="m-hide" style="text-align:left;">실패 사유</th></tr></thead><tbody>${body}</tbody></table></div>
     ${rows.length > stableHist.limit ? `<div style="text-align:center;margin-top:8px;"><button class="toggle-btn" onclick="stableHist.limit+=500;stableHistRender()">더 보기 (${fmt(rows.length - stableHist.limit)}건 남음)</button></div>` : ''}`}`;
   if (focus) { const q = $('stable-hist-q'); if (q) { q.focus(); q.setSelectionRange(q.value.length, q.value.length); } }
@@ -7688,7 +7720,7 @@ async function stableHistXlsx() {
         (r.after_val ?? 0) - (r.before_val ?? 0), r.result_val, r.ok ? '성공' : '실패', r.ok ? '' : (r.error || ''), r.p_no, r.batch_id].forEach((v, c) => { if (v !== '' && v != null) ws.cell(i + 2, c + 1).value(v); }); });
     ws.freezePanes(0, 1);
     const blob = await wb.outputAsync(); const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob); a.download = `셀메이트_안정재고_반영내역_${new Date().toISOString().slice(0, 10).replace(/-/g, '')}.xlsx`;
+    a.href = URL.createObjectURL(blob); a.download = stableHist.date ? `셀메이트_안정재고_반영내역_${stableHist.date.replace(/-/g, '')}분.xlsx` : `셀메이트_안정재고_반영내역_${new Date().toISOString().slice(0, 10).replace(/-/g, '')}.xlsx`;
     document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 3000);
     showToast(`${fmt(rows.length)}건 엑셀 저장`);
   } catch (e) { showToast('엑셀 저장 실패: ' + e.message); }
