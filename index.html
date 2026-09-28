@@ -7975,7 +7975,9 @@ async function stableApplyRun() {
 }
 /* ── 셀메이트 반영 내역 (2026-09-28 사용자 요청) — 옵션 단위 전체 내역: 기간·구분·결과·검색 필터, 요약, 엑셀 ── */
 // date: '' = 날짜 구분 없이(날짜별 구분선 표시) / 'YYYY-MM-DD' = 그 날짜에 바꾼 것만 (2026-09-28 사용자 요청). dayLoad = 달력에서 고른 날짜를 서버에서 그날 하루만 불러온 상태
-const stableHist = { rows: null, period: '30', kind: 'all', result: 'all', q: '', date: '', dayLoad: '', limit: 300, loading: false };
+const stableHist = { rows: null, period: '30', kind: 'all', result: 'all', dir: 'all', q: '', date: '', dayLoad: '', limit: 300, loading: false };
+// 늘림·줄임 구분 (2026-09-28 사용자 요청 — 늘림만/줄임만 따로 보기): 이후 값 − 이전 값
+const stableHistDir = r => { const d = (r.after_val ?? 0) - (r.before_val ?? 0); return d > 0 ? 'up' : d < 0 ? 'down' : 'same'; };
 const stableHistDay = t => { const d = new Date(t), p = n => String(n).padStart(2, '0'); return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`; };   // 이 PC 시간(한국) 기준 날짜
 const stableHistDayLabel = day => { const d = new Date(day + 'T12:00:00'); return `${day.slice(5).replace('-', '/')} (${'일월화수목금토'[d.getDay()]})`; };
 function stableHistToggle() {
@@ -8007,6 +8009,7 @@ function stableHistFiltered() {
   const q = stableHist.q.trim().toLowerCase();
   return (stableHist.rows || []).filter(r => (!stableHist.date || stableHistDay(r.created_at) === stableHist.date) && (stableHist.kind === 'all' || r.kind === stableHist.kind)
     && (stableHist.result === 'all' || (stableHist.result === 'ok') === !!r.ok)
+    && (stableHist.dir === 'all' || stableHistDir(r) === stableHist.dir)
     && (!q || String(r.product_name || '').toLowerCase().includes(q) || String(r.option_name || '').toLowerCase().includes(q) || String(r.by_name || '').toLowerCase().includes(q)));
 }
 function stableHistSet(key, val, reload) {
@@ -8027,6 +8030,8 @@ function stableHistRender() {
   const when = t => { const d = new Date(t), p = n => String(n).padStart(2, '0'); return `${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`; };
   const chip = (key, val, label, reload) => `<button class="${stableHist[key] === val ? 'active' : ''}" onclick="stableHistSet('${key}', '${val}', ${reload ? 'true' : 'false'})">${label}</button>`;
   const okRows = rows.filter(r => r.ok), up = okRows.filter(r => r.after_val > r.before_val).length, down = okRows.filter(r => r.after_val < r.before_val).length;
+  // 늘림/줄임 칩 건수 = 변경 조건만 뺀 나머지 필터(날짜·구분·결과·검색) 기준
+  const dirN = (() => { const keep = stableHist.dir; stableHist.dir = 'all'; const base = stableHistFiltered(); stableHist.dir = keep; return { up: base.filter(r => stableHistDir(r) === 'up').length, down: base.filter(r => stableHistDir(r) === 'down').length }; })();
   // 날짜 칩: 불러온 내역에 있는 날짜들(최신순)과 그날 건수
   const dayCount = new Map(); all.forEach(r => { const d = stableHistDay(r.created_at); dayCount.set(d, (dayCount.get(d) || 0) + 1); });
   const dayChips = [...dayCount.entries()].slice(0, 31).map(([d, n]) => `<button class="${stableHist.date === d ? 'active' : ''}" data-day="${d}" onclick="stableHistPickDate(this.dataset.day)">${stableHistDayLabel(d)} <span style="opacity:.75;">${fmt(n)}</span></button>`).join('');
@@ -8063,6 +8068,7 @@ function stableHistRender() {
       <span style="flex-basis:100%;height:0;"></span>
       <span style="font-weight:700;">구분</span><span class="qp">${chip('kind', 'all', '전체')}${chip('kind', 'apply', '반영')}${chip('kind', 'rollback', '되돌리기')}</span>
       <span style="font-weight:700;">결과</span><span class="qp">${chip('result', 'all', '전체')}${chip('result', 'ok', '성공')}${chip('result', 'fail', '실패')}</span>
+      <span style="font-weight:700;">변경</span><span class="qp">${chip('dir', 'all', '전체')}${chip('dir', 'up', `<span style="color:#b91c1c;">▲</span> 늘림 ${fmt(dirN.up)}`)}${chip('dir', 'down', `<span style="color:#1d4ed8;">▼</span> 줄임 ${fmt(dirN.down)}`)}</span>
       <input id="stable-hist-q" value="${escHtml(stableHist.q)}" placeholder="상품명·옵션·처리자 검색" oninput="stableHist.q=this.value;clearTimeout(stableHist.t);stableHist.t=setTimeout(stableHistRender,250)" style="border:1.5px solid #d1d5db;border-radius:8px;padding:6px 10px;font-size:.8rem;min-width:190px;" /></div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;">
       ${tile('반영 횟수', fmt(new Set(rows.map(r => r.batch_id)).size) + '회', '')}${tile('상품', fmt(new Set(rows.map(r => r.p_no)).size) + '개', '')}${tile('옵션', fmt(rows.length) + '건', `성공 ${fmt(okRows.length)} · 실패 ${fmt(rows.length - okRows.length)}`)}${tile('늘림 / 줄임', `${fmt(up)} / ${fmt(down)}`, '성공 건 기준')}</div>
@@ -8084,7 +8090,8 @@ async function stableHistXlsx() {
         (r.after_val ?? 0) - (r.before_val ?? 0), r.result_val, r.ok ? '성공' : '실패', r.ok ? '' : (r.error || ''), r.p_no, r.batch_id].forEach((v, c) => { if (v !== '' && v != null) ws.cell(i + 2, c + 1).value(v); }); });
     ws.freezePanes(0, 1);
     const blob = await wb.outputAsync(); const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob); a.download = stableHist.date ? `셀메이트_안정재고_반영내역_${stableHist.date.replace(/-/g, '')}분.xlsx` : `셀메이트_안정재고_반영내역_${new Date().toISOString().slice(0, 10).replace(/-/g, '')}.xlsx`;
+    const dirTag = { up: '_늘림', down: '_줄임' }[stableHist.dir] || '';
+    a.href = URL.createObjectURL(blob); a.download = stableHist.date ? `셀메이트_안정재고_반영내역_${stableHist.date.replace(/-/g, '')}분${dirTag}.xlsx` : `셀메이트_안정재고_반영내역_${new Date().toISOString().slice(0, 10).replace(/-/g, '')}${dirTag}.xlsx`;
     document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 3000);
     showToast(`${fmt(rows.length)}건 엑셀 저장`);
   } catch (e) { showToast('엑셀 저장 실패: ' + e.message); }
