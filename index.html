@@ -14484,6 +14484,19 @@ function bootApp() {
     if (SESSION) { $('login-overlay').style.display = 'none'; bootApp(); }
     else { $('login-overlay').style.display = 'flex'; }
   };
+  // 로그인 유지 3일(2026-09-28): 저장된 로그인도 서버에서 한 번 확인해 실제 만료 시각으로 갱신, 거부되면 로그인 화면으로.
+  // 옛 7일 토큰은 서버가 발급 후 3일에서 끊는다. 창을 켜 둔 채 만료되면 10분 안에 로그아웃.
+  if (SESSION && !PENDING_SSO) {
+    const tok = SESSION.token;
+    fetch(fnUrl('auth', {}), { method: 'POST', headers: { apikey: SB.SUPABASE_ANON_KEY, Authorization: 'Bearer ' + SB.SUPABASE_ANON_KEY, 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'me', token: tok }) })
+      .then(async res => {
+        if (!SESSION || SESSION.token !== tok) return;
+        if (res.status === 401) { logout(); return; }
+        const d = await res.json().catch(() => null);
+        if (res.ok && d && d.exp) { SESSION.exp = d.exp; localStorage.setItem(AUTH_KEY, JSON.stringify(SESSION)); }
+      }).catch(() => {});
+  }
+  setInterval(() => { if (SESSION && SESSION.exp < Date.now()) logout(); }, 10 * 60 * 1000);
   if (PENDING_SSO) { const t = PENDING_SSO; PENDING_SSO = null; adoptSso(t).then(start); }   // 상품관리 → 워크스페이스: 서버 확인 후 시작
   else start();
 })();

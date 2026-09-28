@@ -23,7 +23,8 @@
 - **수거 완료 버튼(카페24 쓰기) → §7-0**: `rscan_collect` → `cafe24MarkCollected`(쓰기는 이 함수 하나뿐, 본문 고정). 재고 복구 자동(불량이면 안 함), 반품 불가 품목 표시(수영복·ACC 주얼리/양말/모자·할인 — 1+1과 신상 7%는 가능), 처리자·재고 복구 표시, 기록 `rscan_actions`. **첫 실사용 성공 확인.** ⚠ 서버 배포 전 `tools/check_cafe24_writes.sh` 필수, 다른 카페24 쓰기는 사용자 승인부터.
 - **안정재고 편성 → 셀메이트 반영 → §5 안정재고 편성**: 셀메이트는 API·엑셀 일괄수정 없음 → 관리자 엣지의 Tampermonkey 연결 스크립트 `danarobe-sellmate-stock.user.js` v1.1.0(원본 `~/Downloads/셀메이트-안정재고-연결/`, **공개 저장소에 올리지 않음**). 미리보기·선택 반영·검증·기록(`stable_apply_log`)·되돌리기, 상품 수 제한 없음, **반영 내역 전용 화면**(날짜 선택·날짜별 구분 줄·엑셀). **첫 실사용 성공: 2026-09-28 상품 71개·옵션 182건.** 셀메이트 화면이 바뀌면 `~/Downloads/셀메이트-기록용-스크립트`(v1.1.0 '화면 구조 복사')로 구조를 다시 받는다.
 - **AI 에이전트 접근 허용 목록(2026-09-28 사용자 요청 — 김도희(마케터)에게 접근·알림 허용)**: 표 `agent_users`(migrations/0023: user_id PK·notify·added_by, FK 없음). 관리자는 항상 허용, 그 외는 목록에 있을 때만. 워크스페이스: 메뉴 `menu-agents` = 관리자 또는 `agentAccessLoad()`(본인 행 조회), 직원 관리에 **'AI 에이전트 접근 허용' 칩 패널**(`agentUsersPanel/agentUserToggle/agentUserNotify` — 이름 칩으로 허용·해제, 종 버튼으로 알림 켬·끔). db 프록시: `agent_reports·agent_actions·detail_reviews`는 관리자 + 허용 직원, `agent_users`는 관리자 전체·직원은 본인 행 GET만. 에이전트 저장소: `_shared/agent.ts canUseAgents(me)`로 7개 함수 게이트 교체, `notifyAdmins` 수신자 = 관리자 + `agent_users.notify=true`, 화면 `js/api.js`의 `isAdmin()`이 `AGENT_OK`(loadAccess) 포함. ⚠ 보고서에 매출 절대액이 들어 있음 — 사용자가 알고 허용. 검증 15/16(나머지 1건은 시험 인자 오류, 권한은 통과).
-**성능·보안 점검(2026-09-22 사용자 요청 — 기능 무변경 원칙, §7-6에 상세)**: 성능 = xlsx-populate 지연 로드·FA 웹폰트 preload·숨은 상품 분석 표 지연 렌더·이미지 lazy. 보안 = db 프록시(임베딩·조건 없는 수정삭제·작성자 테이블 upsert·Prefer·본문 크기·바로가기 https), 로그인 잠금(아이디 10회·IP 30회/15분), AUTH_SECRET 실패 닫힘·상수 시간 비교, category_products/ad_id/object_id 검증, notify 발신자 강제·시간당 60건, rscan_build 남용 방지, summary 주문금액 비관리자 0, 화면 이스케이프 30여 곳(escHtml에 `'` 추가·`jsArg`), #sso 해시 서버 확인(auth `me`), Meta 미리보기 iframe 재구성, SRI 6개·SheetJS 0.20.3, sw.js 주소 검증, 로그아웃 시 문서 암호 삭제. **남긴 것(보고만)**: CORS `*`(외부 앱들이 브라우저에서 호출 — 좁히려면 origin 목록 필요), 비밀번호 변경 시 기존 토큰 무효화 없음(7일), MD 화면의 광고비 블러(CSS)는 값이 DOM에 있음, 영수증 업로드 용량 한도 없음, CSP 없음(인라인 스크립트 구조).
+**성능·보안 점검(2026-09-22 사용자 요청 — 기능 무변경 원칙, §7-6에 상세)**: 성능 = xlsx-populate 지연 로드·FA 웹폰트 preload·숨은 상품 분석 표 지연 렌더·이미지 lazy. 보안 = db 프록시(임베딩·조건 없는 수정삭제·작성자 테이블 upsert·Prefer·본문 크기·바로가기 https), 로그인 잠금(아이디 10회·IP 30회/15분), AUTH_SECRET 실패 닫힘·상수 시간 비교, category_products/ad_id/object_id 검증, notify 발신자 강제·시간당 60건, rscan_build 남용 방지, summary 주문금액 비관리자 0, 화면 이스케이프 30여 곳(escHtml에 `'` 추가·`jsArg`), #sso 해시 서버 확인(auth `me`), Meta 미리보기 iframe 재구성, SRI 6개·SheetJS 0.20.3, sw.js 주소 검증, 로그아웃 시 문서 암호 삭제. **남긴 것(보고만)**: CORS `*`(외부 앱들이 브라우저에서 호출 — 좁히려면 origin 목록 필요), 비밀번호 변경 시 기존 토큰 무효화 없음(최대 3일 — 2026-09-28 7일→3일), MD 화면의 광고비 블러(CSS)는 값이 DOM에 있음, 영수증 업로드 용량 한도 없음, CSP 없음(인라인 스크립트 구조).
+- **로그인 유지 최대 3일(2026-09-28 사용자 요청, 옛 7일) → §2 auth**: 새 토큰 = exp 3일 + 발급 시각 `iat`. `_shared/util.ts authEffectiveExp`가 iat 없는 옛 토큰은 exp−7일을 발급 시각으로 보고 3일 한도 적용 → 이미 로그인된 기기도 발급 3일 뒤 끊김(aud 전용 토큰도 동일). 화면: 시작 시 저장된 로그인을 `auth me`로 확인(401이면 로그아웃, 아니면 exp 갱신) + 10분마다 만료 검사. 두 저장소 util 모두 수정 → **대시보드 12개·에이전트 7개 함수 전부 재배포**, QA 검증 통과.
 - 마이그레이션 0007~0023(supabase/migrations) 전부 적용됨. 함수 최신 배포: 대시보드 저장소 11개 전부(2026-09-22 util 변경) + cafe24-analytics·db·auth·cafe24-oauth는 2026-09-28 재배포, 에이전트 저장소 7개 함수 2026-09-28 재배포. 카페24 OAuth scope에 `mall.write_order` 추가·재연동 완료.
 
 **이전 세션(2026-09-09~22)에 만든 것**
@@ -42,7 +43,7 @@
 5. 휴가 관리에서 직원 1명 연차 초과 사용(잔여 음수) 지적함 — 사용자 확인 대기. 경력증명서 1건 발급(직위·담당 업무 문구는 임의 기입, 사용자 정정 시 재발급).
 6. 급여 명세서·출장 여비·서류 요청은 **마이페이지 계정이 연결된 직원만** 사용 가능(알바 7명 미연결 — 직원 관리에서 연결 필요).
 7. **카페24 주문 바로가기 버튼**: 직원 PC에서 '연결할 수 없는 페이지' 보고 → 주소에 `menu_no=78` 추가함. 그래도 안 되면 사용자에게 카페24 관리자 주문 상세의 실제 주소를 받아 `RSCAN_URL_DEFAULTS` 수정.
-8. **보안 점검에서 남긴 것**(사용자 판단 대기): 비밀번호 변경 시 기존 토큰 무효화 없음(7일), MD 화면 광고비 블러는 값이 DOM에 있음, CORS `*`, 영수증 업로드 총량 제한 없음 → §7-6.
+8. **보안 점검에서 남긴 것**(사용자 판단 대기): 비밀번호 변경 시 기존 토큰 무효화 없음(로그인 유지는 3일로 줄임 — 2026-09-28), MD 화면 광고비 블러는 값이 DOM에 있음, CORS `*`, 영수증 업로드 총량 제한 없음 → §7-6.
 9. **보류**: 카페24에서 바로 처리의 2단계(교환 재출고·반품 승인 등) — 사용자가 고민 중. 친구의 CS 주문조회 앱 링크 추가 — 사용자가 하지 않기로 함.
 
 **배운 함정(§1에도 반영)**
@@ -96,7 +97,7 @@ curl -s -X POST "https://api.supabase.com/v1/projects/eeffmbusaqaadeojjlnc/datab
 
 | 함수 | 역할 | 인증 |
 |---|---|---|
-| `auth` | 로그인·계정 관리(app_users, bcrypt). HMAC 토큰 7일(AUTH_SECRET) | — |
+| `auth` | 로그인·계정 관리(app_users, bcrypt). HMAC 토큰 **3일**(AUTH_SECRET, 2026-09-28 7일→3일, iat 포함 — 옛 토큰도 발급 3일 뒤 만료) | — |
 | `cafe24-oauth` | 카페24 OAuth(start/callback/status). **verify_jwt=false** (카페24 리다이렉트) | — |
 | `cafe24-claims` | 취소·반품 집계(카페24 주문 C40/R40 등) | 관리자 |
 | `cafe24-analytics` | 조회수·주문율·판매성과·진열지표·순반품률·결제품목 | 로그인 필수, 일부 관리자 |
@@ -106,9 +107,9 @@ curl -s -X POST "https://api.supabase.com/v1/projects/eeffmbusaqaadeojjlnc/datab
 | `meta-budget` | **예산 쓰기**(2026-08-26): status/pending/apply/schedule/cancel/**run**(자정 cron). 쓰기 토큰(META_WRITE_TOKEN)은 이 함수만 사용 — 읽기 함수와 분리 | admin+WRITE_USER_IDS+PIN |
 | `wm-me` | **마이페이지**(2026-08-27): me/leave_request/leave_cancel + **payslip_list / payslip_file(2026-09-10)**. 로그인 계정 → `wm_employees.app_user_id`로 본인 행만 조회·쓰기. me 응답엔 급여·계좌 없음, 급여 명세서 파일은 `wm_payslips.employee_id=본인` 조건으로만 목록·바이트 중계(타인 id → 404, 무토큰 401) | 로그인 전원 |
 | (외부) `sales-agent` | **매출 분석 에이전트 — 별도 저장소 `~/dnrb-agents` 소속**(2026-09-10 분리). 같은 Supabase 프로젝트에 배포되며 이 저장소의 cafe24-analytics/cafe24-claims/meta-ads를 `x-agent-secret`(AGENT_SECRET)으로 admin 호출한다. 이 저장소에는 SSO 링크(`agentsOpen`)와 secret 인정 코드만 있음 | 관리자 또는 x-cron-secret |
-| `auth` `issue_for` | **상품관리 → 대시보드 토큰 발급**(2026-09-07 계정 공통화): x-sync-secret(NPM_SYNC_SECRET) 서버 간 호출로 {id}의 로그인 토큰(7일) 반환, 없는 아이디 404. 클라 `loadSession()`이 `#sso=base64url(json)` 해시를 읽어 세션으로 저장 후 해시 제거. 반대로 상품관리 로그인은 로컬 실패 시 대시보드 `login`으로 검증(대시보드 비밀번호 = 상품관리 비밀번호). 웹디자이너1·심진영·임지은만 상품관리 전용 계정 | 서버 간(비밀키) |
+| `auth` `issue_for` | **상품관리 → 대시보드 토큰 발급**(2026-09-07 계정 공통화): x-sync-secret(NPM_SYNC_SECRET) 서버 간 호출로 {id}의 로그인 토큰(3일) 반환, 없는 아이디 404. 클라 `loadSession()`이 `#sso=base64url(json)` 해시를 읽어 세션으로 저장 후 해시 제거. 반대로 상품관리 로그인은 로컬 실패 시 대시보드 `login`으로 검증(대시보드 비밀번호 = 상품관리 비밀번호). 웹디자이너1·심진영·임지은만 상품관리 전용 계정 | 서버 간(비밀키) |
 | `auth` `npm_sso` | **상품관리 시스템 SSO 토큰**(2026-09-07): 로그인 토큰 확인 후 {id,name,role(DB 원본),exp 2분}을 NPM_SYNC_SECRET HMAC으로 서명해 반환 → 클라 `npmOpen()`이 `newproduct-manager/api/sso?t=`로 새 탭 열기. 상품 관리 메뉴 = 관리자·MD·**물류팀**(물류팀은 저쪽에서 자체제작 관리만). 실패 시 로그인 화면으로 폴백 | 로그인 전원(역할 매핑은 저쪽에서) |
-| `auth` `sso_issue` / `sso_redeem` | **에이전트 앱 SSO 코드 교환**(2026-09-10): issue = 로그인 상태에서 60초 일회용 코드 발급(api_cache), redeem = 코드 → 7일 토큰(일회용, 즉시 삭제). 토큰을 주소에 싣지 않기 위한 것 | issue 로그인, redeem 코드만 |
+| `auth` `sso_issue` / `sso_redeem` | **에이전트 앱 SSO 코드 교환**(2026-09-10): issue = 로그인 상태에서 60초 일회용 코드 발급(api_cache), redeem = 코드 → 3일 토큰(일회용, 즉시 삭제). 토큰을 주소에 싣지 않기 위한 것 | issue 로그인, redeem 코드만 |
 | `auth` `verify` + `sso_issue {aud:'ad-dashboard'}` | **친구 광고 대시보드 연동(2026-09-11)**: issue에 aud를 주면 redeem이 **파생 키(AUTH_SECRET+'|aud:ad-dashboard')로 서명한 전용 토큰**을 돌려준다 → 우리 함수(db·wm-me 등)의 verifyAuthToken은 서명 불일치로 거부 = 외부 서버가 토큰을 보관해도 워크스페이스 데이터 접근 불가. `verify {token}`은 **aud 전용 토큰만** 받아 DB 재조회 후 {id,name,role,exp,aud}(표준 토큰·위조·만료 401). 시크릿 공유 없음 | verify 공개(토큰 소지자), issue 로그인 |
 
 - 공용 유틸 `_shared/util.ts`: CORS_HEADERS(**x-auth-token 포함**), verifyAuthToken(서명·만료 검증 + **DB 실계정·현재 role 재확인**), getToken/saveToken(api_tokens, service_role), json/handleOptions.

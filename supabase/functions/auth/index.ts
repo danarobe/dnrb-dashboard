@@ -19,11 +19,11 @@
 // 필요 secret: AUTH_SECRET
 // ═══════════════════════════════════════════════
 import bcrypt from "npm:bcryptjs@2.4.3";
-import { handleOptions, json, signAuthToken, verifyAuthTokenString, cacheGet, cacheSet, safeEqual } from "../_shared/util.ts";
+import { handleOptions, json, signAuthToken, verifyAuthTokenString, cacheGet, cacheSet, safeEqual, AUTH_MAX_AGE, authEffectiveExp } from "../_shared/util.ts";
 
 const SB_URL = Deno.env.get("SUPABASE_URL")!;
 const SB_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-const TOKEN_TTL = 7 * 24 * 3600 * 1000; // 7일
+const TOKEN_TTL = AUTH_MAX_AGE; // 3일 (2026-09-28, 옛 7일) — 새 토큰엔 발급 시각 iat도 싣는다
 
 // ── 외부 앱 전용 토큰 (aud) — AUTH_SECRET에서 파생한 키로 서명. 표준 토큰과 서명 키가 달라 서로 호환되지 않는다.
 const AUD_ALLOWED = new Set(["ad-dashboard"]);
@@ -33,7 +33,7 @@ async function hmacAud(data: string, aud: string): Promise<string> {
   const sig = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(data));
   return btoa(String.fromCharCode(...new Uint8Array(sig)));
 }
-interface AudUser { id: string; name: string; role: string; exp: number; aud: string }
+interface AudUser { id: string; name: string; role: string; exp: number; aud: string; iat?: number }
 async function signAudToken(user: AudUser): Promise<string> {
   const payload = btoa(unescape(encodeURIComponent(JSON.stringify(user))));
   return `${payload}.${await hmacAud(payload, user.aud)}`;
@@ -46,7 +46,9 @@ async function verifyAudToken(token: string): Promise<AudUser | null> {
   try { u = JSON.parse(decodeURIComponent(escape(atob(payload)))) as AudUser; } catch { return null; }
   if (!u || !u.aud || !AUD_ALLOWED.has(u.aud)) return null;
   if (await hmacAud(payload, u.aud) !== sig) return null;
-  if (!u.exp || u.exp < Date.now()) return null;
+  if (!u.exp) return null;
+  u.exp = authEffectiveExp(u);
+  if (u.exp < Date.now()) return null;
   return u;
 }
 
@@ -115,7 +117,7 @@ Deno.serve(async (req) => {
       }
       const payload = {
         id: String(user.id), name: String(user.name),
-        role: String(user.role), exp: Date.now() + TOKEN_TTL,
+        role: String(user.role), exp: Date.now() + TOKEN_TTL, iat: Date.now(),
       };
       return json({ token: await signAuthToken(payload), ...payload });
     }
@@ -128,7 +130,7 @@ Deno.serve(async (req) => {
       if (!secret || !safeEqual(req.headers.get("x-sync-secret") ?? "", secret)) return json({ error: "접근 권한이 없습니다" }, 403);
       const user = await getUser(String(body.id ?? "").trim());
       if (!user) return json({ error: "대시보드에 없는 계정" }, 404);
-      const payload = { id: String(user.id), name: String(user.name), role: String(user.role), exp: Date.now() + TOKEN_TTL };
+      const payload = { id: String(user.id), name: String(user.name), role: String(user.role), exp: Date.now() + TOKEN_TTL, iat: Date.now() };
       return json({ token: await signAuthToken(payload), ...payload });
     }
 
@@ -150,10 +152,10 @@ Deno.serve(async (req) => {
       if (aud) {   // 외부 앱 전용 토큰 — 우리 함수에서는 못 쓰는 파생 키 서명 (2026-09-11)
         const perms = await audAllowed(aud, String(user.id), String(user.role));
         if (!perms) return json({ error: "이 앱에 대한 접근 권한이 없습니다" }, 403);
-        const payload: AudUser = { id: String(user.id), name: String(user.name), role: String(user.role), exp: Date.now() + TOKEN_TTL, aud };
+        const payload: AudUser = { id: String(user.id), name: String(user.name), role: String(user.role), exp: Date.now() + TOKEN_TTL, iat: Date.now(), aud };
         return json({ token: await signAudToken(payload), ...payload, perms });
       }
-      const payload = { id: String(user.id), name: String(user.name), role: String(user.role), exp: Date.now() + TOKEN_TTL };
+      const payload = { id: String(user.id), name: String(user.name), role: String(user.role), exp: Date.now() + TOKEN_TTL, iat: Date.now() };
       return json({ token: await signAuthToken(payload), ...payload });
     }
 

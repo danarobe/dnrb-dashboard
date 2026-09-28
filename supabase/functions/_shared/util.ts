@@ -8,7 +8,16 @@ export const CORS_HEADERS: Record<string, string> = {
 };
 
 // ── 대시보드 사용자 인증 토큰 (HMAC-SHA256 서명, AUTH_SECRET 필요) ──
-export interface AuthUser { id: string; name: string; role: string; exp: number }
+export interface AuthUser { id: string; name: string; role: string; exp: number; iat?: number }
+
+// 로그인 유지 최대 3일 (2026-09-28 사용자 요청, 옛 7일). 발급 시각(iat)부터 3일이 지나면 만료.
+// iat가 없는 옛 토큰은 7일짜리였으므로 exp-7일을 발급 시각으로 보고 같은 3일 한도를 적용한다 → 이미 로그인된 기기도 3일로 줄어듦.
+export const AUTH_MAX_AGE = 3 * 24 * 3600 * 1000;
+const LEGACY_TTL = 7 * 24 * 3600 * 1000;
+export function authEffectiveExp(u: { exp: number; iat?: number }): number {
+  const iat = typeof u.iat === "number" ? u.iat : u.exp - LEGACY_TTL;
+  return Math.min(u.exp, iat + AUTH_MAX_AGE);
+}
 
 // 상수 시간 문자열 비교 (보안 점검 2026-09-22 — 비밀키·서명 비교에 `===` 대신 사용)
 export function safeEqual(a: string, b: string): boolean {
@@ -41,7 +50,9 @@ export async function verifyAuthTokenString(token: string): Promise<AuthUser | n
   if (!safeEqual(await hmacB64(payload), sig)) return null;
   try {
     const u = JSON.parse(decodeURIComponent(escape(atob(payload)))) as AuthUser;
-    if (!u.exp || u.exp < Date.now()) return null;
+    if (!u.exp) return null;
+    u.exp = authEffectiveExp(u);
+    if (u.exp < Date.now()) return null;
     return u;
   } catch { return null; }
 }
