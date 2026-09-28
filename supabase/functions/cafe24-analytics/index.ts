@@ -191,13 +191,18 @@ async function apiGet(url: string, token: string): Promise<Record<string, unknow
   return body;
 }
 
-// 카페24 쓰기 요청 (2026-09-28 수거 완료 처리용) — apiGet과 같은 401 재발급·429 재시도. 실패 시 카페24 오류 문구를 그대로 던진다.
-async function apiSend(method: "PUT" | "POST", url: string, payload: unknown, token: string): Promise<Record<string, unknown>> {
-  const doFetch = (tk: string) => fetch(url, {
-    method,
-    headers: { Authorization: `Bearer ${tk}`, "Content-Type": "application/json", "X-Cafe24-Api-Version": API_VERSION },
-    body: JSON.stringify(payload),
-  });
+// ══ 카페24 쓰기는 이 함수 하나뿐 (2026-09-28 안전장치, 사용자 요청) ══
+// 앱 권한 mall.write_order는 주문 수정 전반을 허용하지만, 이 서버가 카페24에 보내는 쓰기는 "반품·교환 접수의 수거 완료 표시" 단 하나로 고정한다.
+//  · 범용 쓰기 헬퍼를 두지 않는다 — 주소와 본문을 호출자가 넘기지 못하고, 검증된 주문번호·접수번호·품주코드로 이 함수가 직접 조립한다.
+//  · 본문은 { shop_no:1, request:{ pickup_completed:"T", items:[{order_item_code}] } } 로 고정(상태 변경·철회·환불·재고 복구 필드 없음).
+//  · 다른 쓰기가 필요해지면 여기 허용 목록을 넓히지 말고 사용자 승인부터 받을 것. tools/check_cafe24_writes.sh 가 배포 전 검사한다.
+async function cafe24MarkCollected(kind: "return" | "exchange", orderId: string, claimCode: string, itemCodes: string[], token: string): Promise<Record<string, unknown>> {
+  if (kind !== "return" && kind !== "exchange") throw new Error("허용되지 않은 쓰기(kind)");
+  if (!/^\d{8}-\d{7}$/.test(orderId) || !/^[A-Z]\d{8}-\d{7}$/.test(claimCode)) throw new Error("허용되지 않은 쓰기(번호 형식)");
+  if (!Array.isArray(itemCodes) || !itemCodes.length || itemCodes.length > 50 || itemCodes.some((c) => typeof c !== "string" || !c.startsWith(orderId + "-") || !/^\d{8}-\d{7}-\d{2,3}$/.test(c))) throw new Error("허용되지 않은 쓰기(품주코드)");
+  const url = `${API_BASE}/admin/orders/${orderId}/${kind}/${claimCode}`;
+  const payload = JSON.stringify({ shop_no: 1, request: { pickup_completed: "T", items: itemCodes.map((c) => ({ order_item_code: c })) } });
+  const doFetch = (tk: string) => fetch(url, { method: "PUT", headers: { Authorization: `Bearer ${tk}`, "Content-Type": "application/json", "X-Cafe24-Api-Version": API_VERSION }, body: payload });
   let tok = token;
   let res = await doFetch(tok);
   if (res.status === 401) { tok = await getAccessToken(true); res = await doFetch(tok); }
@@ -208,7 +213,7 @@ async function apiSend(method: "PUT" | "POST", url: string, payload: unknown, to
     res = await doFetch(tok);
   }
   const body = await res.json().catch(() => ({}));
-  if (!res.ok) throw Object.assign(new Error(`${method} ${res.status}: ${JSON.stringify(body).slice(0, 400)}`), { status: res.status, body });
+  if (!res.ok) throw Object.assign(new Error(`PUT ${res.status}: ${JSON.stringify(body).slice(0, 400)}`), { status: res.status, body });
   return body;
 }
 
@@ -492,8 +497,25 @@ Deno.serve(async (req) => {
         const stateOf = (list: Record<string, any>[]) => ({ status: String(list[0]?.status_text ?? ""), status_extra: String(list[0]?.order_status_additional_info ?? "") });
         if (collectedOf(its)) return json({ ok: true, already: true, ...stateOf(its) });
         const codes = its.map((it) => ({ order_item_code: String(it.order_item_code) }));
+        // ── 안전장치 (2026-09-28) ── ① 관리자 끄기 스위치 ② 사용 한도(사람별 1시간 150건 · 전체 하루 1,000건) — 성공·실패 모두 셈
+        const cset = (await rscanSettings()) as Record<string, unknown>;
+        if (cset.collect_enabled === false) return json({ error: "수거 완료 처리가 꺼져 있어요 (관리자가 '경고 기준'에서 다시 켤 수 있어요)" }, 403);
+        const sinceIso = (ms: number) => new Date(Date.now() - ms).toISOString();
+        const mine = ((await sbRest(`rscan_actions?select=id,created_at&by_id=eq.${encodeURIComponent(authed.id)}&created_at=gte.${sinceIso(3600e3)}&limit=500`)) ?? []) as Record<string, any>[];
+        const allDay = ((await sbRest(`rscan_actions?select=id&created_at=gte.${sinceIso(24 * 3600e3)}&limit=1500`)) ?? []) as unknown[];
+        if (mine.length >= 150 || allDay.length >= 1000) {
+          await logAct(false, `한도 초과로 거절 (내 1시간 ${mine.length} · 전체 하루 ${allDay.length})`, codes);
+          return json({ error: "수거 완료 처리 한도를 넘었어요 — 잠시 뒤 다시 시도하거나 관리자에게 알려주세요" }, 429);
+        }
+        // ③ 이상 징후: 한 사람이 10분에 40건 이상이면 관리자 전원에게 알림(사람별 1시간에 한 번)
+        const recent10 = mine.filter((r) => new Date(r.created_at).getTime() > Date.now() - 600e3).length;
+        if (recent10 >= 40 && !(await cacheGet(`collectwarn:${authed.id}`, 3600e3))) {
+          await cacheSet(`collectwarn:${authed.id}`, { at: Date.now() });
+          const admins = ((await sbRest("app_users?role=eq.admin&select=id")) ?? []) as Record<string, any>[];
+          await sbRest("notifications", { method: "POST", headers: { Prefer: "return=minimal" }, body: JSON.stringify(admins.map((a) => ({ user_id: a.id, actor_name: "반품 스캔", message: `${authed.name} 님이 10분 동안 수거 완료를 ${recent10}건 처리했어요 — 평소보다 많아요. 확인해주세요.`, link_menu: "rscan" }))) }).catch(() => null);
+        }
         try {
-          await apiSend("PUT", `${API_BASE}/admin/orders/${orderId}/${kind}/${claimCode}`, { shop_no: 1, request: { pickup_completed: "T", items: codes } }, token);
+          await cafe24MarkCollected(kind as "return" | "exchange", orderId, claimCode, codes.map((c) => c.order_item_code), token);
         } catch (e) {
           const st = (e as { status?: number }).status ?? 0, raw = String((e as Error).message ?? e);
           const msg = st === 403 || /scope|permission|insufficient/i.test(raw)

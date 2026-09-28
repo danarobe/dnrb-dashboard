@@ -3259,8 +3259,23 @@ function rscanNaverIdsHtml(ids, small) {
   if (!list.length) return '';
   return `<span style="display:inline-flex;gap:4px;flex-wrap:wrap;align-items:center;font-size:${small ? '.7rem' : '.78rem'};"><b style="color:#03c75a;">N</b><span style="color:#374151;">상품주문번호</span>${list.map(id => `<span style="font-family:monospace;font-weight:700;">${escHtml(id)}</span><button class="toggle-btn" style="font-size:.66rem;padding:1px 6px;" data-v="${escHtml(id)}" onclick="navigator.clipboard&&navigator.clipboard.writeText(this.dataset.v).then(()=>showToast('네이버페이 상품주문번호 복사'))">복사</button>`).join('')}</span>`;
 }
+/* 수거 완료 처리 기록 (관리자) — rscan_actions 최근 100건 */
+async function rscanActionsOpen() {
+  const box = $('rscan-actions'); if (!box) return;
+  box.innerHTML = '<div style="font-size:.76rem;color:#6b7280;"><i class="fa-solid fa-spinner fa-spin"></i> 불러오는 중…</div>';
+  try {
+    const rows = await dbProxy('rscan_actions?select=created_at,by_name,kind,order_id,claim_code,ok,result&order=created_at.desc&limit=100');
+    if (!rows || !rows.length) { box.innerHTML = '<div style="font-size:.76rem;color:#6b7280;">아직 처리 기록이 없어요.</div>'; return; }
+    const when = t => { const d = new Date(t); const p = n => String(n).padStart(2, '0'); return `${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`; };
+    box.innerHTML = `<div class="table-wrap" style="max-height:320px;overflow:auto;"><table style="width:100%;font-size:.74rem;"><thead><tr><th>시각</th><th>처리자</th><th>구분</th><th style="text-align:left;">주문번호</th><th style="text-align:left;">접수번호</th><th>결과</th><th class="m-hide" style="text-align:left;">내용</th></tr></thead><tbody>${rows.map(r => `<tr>
+      <td style="white-space:nowrap;">${escHtml(when(r.created_at))}</td><td>${escHtml(r.by_name || '')}</td><td>${r.kind === 'exchange' ? '교환' : '반품'}</td>
+      <td style="text-align:left;">${escHtml(r.order_id)}</td><td style="text-align:left;">${escHtml(r.claim_code)}</td>
+      <td style="font-weight:800;color:${r.ok ? '#15803d' : '#b91c1c'};">${r.ok ? '성공' : '실패'}</td><td class="m-hide" style="text-align:left;color:#4b5563;max-width:280px;white-space:normal;">${escHtml(String(r.result || '').slice(0, 160))}</td></tr>`).join('')}</tbody></table></div>`;
+  } catch (e) { box.innerHTML = `<div style="font-size:.76rem;color:#b91c1c;">기록을 불러오지 못했어요 — ${escHtml(e.message)}</div>`; }
+}
 /* 수거 완료 처리 (2026-09-28 사용자 요청) — 카페24 반품·교환 접수를 수거 완료로. 네이버페이·이미 수거된 건·철회 건은 버튼 없음 */
 function rscanCanCollect(h) {
+  if (((rscanState.status || {}).settings || {}).collect_enabled === false) return false;   // 관리자가 끈 경우 버튼 숨김(서버도 거부)
   if (!h || h.naver || !h.claim_code) return false;
   const st = String(h.status || ''), ex = String(h.status_extra || '');
   if (/철회/.test(st + ex) || /수거완료/.test(ex)) return false;
@@ -3531,13 +3546,17 @@ function rscanSettingsToggle() {
     <div style="font-size:.8rem;font-weight:800;color:#4338ca;">경고 기준 <span style="font-weight:500;color:#6b7280;font-size:.72rem;">— 쉼표로 구분. 코드는 카페24 사유 코드(6개월 실데이터 기준 K·V=상품불량, J·W=배송오류/오배송, C=배송지 오류)</span></div>
     ${f('rs-dc', '불량 코드 (빨간 경고)', st.defect_codes, '예: K, V, D')}${f('rs-mc', '오배송 코드 (빨간 경고)', st.misdeliver_codes, '예: C, J, W')}
     ${f('rs-dw', '불량 문구 (노란 주의)', st.defect_words, '사유 원문에 포함되면')}${f('rs-mw', '오배송 문구 (노란 주의)', st.misdeliver_words, '')}${f('rs-nw', '네이버페이 사유 (빨간 경고)', st.naver_words, '네이버 사유 문구에 포함되면')}
+    <div style="font-size:.8rem;font-weight:800;color:#4338ca;margin-top:14px;">수거 완료 처리 <span style="font-weight:500;color:#6b7280;font-size:.72rem;">— 카페24에 값을 쓰는 유일한 기능. 서버는 '반품·교환 접수의 수거 완료 표시'만 보낼 수 있고, 사람별 1시간 150건·전체 하루 1,000건 한도가 있어요.</span></div>
+    <label style="display:flex;align-items:center;gap:8px;font-size:.8rem;color:#374151;font-weight:600;margin-top:6px;cursor:pointer;"><input type="checkbox" id="rs-collect" ${st.collect_enabled === false ? '' : 'checked'} style="width:18px;height:18px;" /> 수거 완료 버튼 사용 <span style="font-weight:500;color:#6b7280;font-size:.72rem;">(끄면 전 직원 화면에서 버튼이 사라지고 서버도 거부)</span></label>
+    <div style="margin-top:6px;"><button class="toggle-btn" style="font-size:.74rem;" onclick="rscanActionsOpen()"><i class="fa-solid fa-clock-rotate-left"></i> 수거 완료 처리 기록 보기</button></div>
+    <div id="rscan-actions" style="margin-top:8px;"></div>
     <div style="font-size:.8rem;font-weight:800;color:#4338ca;margin-top:14px;">바로가기 주소 형식 <span style="font-weight:500;color:#6b7280;font-size:.72rem;">— 결과 카드의 '카페24 주문'·'네이버페이센터' 버튼이 여는 주소. {order_id}=카페24 주문번호, {product_order_no}=네이버 상품주문번호, {kind}=return/exchange. 비우면 기본값</span></div>
     ${f1('rs-c24', '카페24 주문 상세', st.cafe24_url, RSCAN_URL_DEFAULTS.cafe24_url)}${f1('rs-nv', '네이버페이센터', st.naver_url, RSCAN_URL_DEFAULTS.naver_url)}
     <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:10px;"><button class="toggle-btn" onclick="rscanSettingsToggle()">닫기</button><button class="toggle-btn" style="background:#4f46e5;color:#fff;border-color:#4f46e5;" onclick="rscanSettingsSave()">저장</button></div></div>`;
 }
 async function rscanSettingsSave() {
   const list = id => $(id).value.split(',').map(x => x.trim()).filter(Boolean);
-  const settings = { defect_codes: list('rs-dc').map(x => x.toUpperCase()), misdeliver_codes: list('rs-mc').map(x => x.toUpperCase()), defect_words: list('rs-dw'), misdeliver_words: list('rs-mw'), naver_words: list('rs-nw'), cafe24_url: $('rs-c24').value.trim(), naver_url: $('rs-nv').value.trim() };
+  const settings = { defect_codes: list('rs-dc').map(x => x.toUpperCase()), misdeliver_codes: list('rs-mc').map(x => x.toUpperCase()), defect_words: list('rs-dw'), misdeliver_words: list('rs-mw'), naver_words: list('rs-nw'), cafe24_url: $('rs-c24').value.trim(), naver_url: $('rs-nv').value.trim(), collect_enabled: !!($('rs-collect') || { checked: true }).checked };
   for (const k of ['cafe24_url', 'naver_url']) if (settings[k] && !/^https:\/\//.test(settings[k])) { showToast('주소는 https:// 로 시작해야 해요'); return; }
   try {
     await dbProxy('rscan_settings?on_conflict=id', { method: 'POST', headers: { Prefer: 'resolution=merge-duplicates,return=minimal' }, body: JSON.stringify({ id: 1, settings, updated_by: SESSION.name, updated_at: new Date().toISOString() }) });

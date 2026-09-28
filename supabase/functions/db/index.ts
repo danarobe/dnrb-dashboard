@@ -31,6 +31,7 @@ const TABLE_ROLES: Record<string, string[]> = {
   rscan_naver: ["admin", "staff", "cs"],      // 반품 송장 스캔 — 네이버페이센터 엑셀에서 만든 수거 송장 표 (2026-09-22, 물류팀 포함)
   rscan_settings: ["admin", "staff", "cs"],   // 반품 송장 스캔 — 경고 사유 설정 (읽기 전원, 쓰기 admin은 커스텀 규칙)
   rscan_done: ["admin", "staff", "cs"],       // 반품 스캔 '불량·오배송 처리' 체크 상태 (2026-09-22, 전원 읽기·쓰기)
+  rscan_actions: ["admin"],                   // 수거 완료 처리 기록 (2026-09-28) — 관리자 읽기 전용(아래 규칙), 쓰기는 cafe24-analytics만
   made_check_files: ["admin", "staff"],   // 자체제작 재고·입고 점검 — 셀메이트 CSV·이지픽 엑셀 파싱 결과 공유 저장 (2026-09-21)
   made_watch_products: ["admin", "staff"],  // 자체제작 외 함께 점검할 지정 상품 (2026-09-21)   // 자체제작 주문 점검 — 제작처(중국/국내)·리드타임 태그. 읽기·쓰기 admin+MD (2026-09-03 사용자 요청으로 MD에도 지정 권한)
   purchase_requests: ["admin", "staff", "cs"],   // 직원 구매요청 (2026-08-31) — 등록 전원, 상태·입금·확인은 아래 커스텀 규칙
@@ -94,6 +95,7 @@ Deno.serve(async (req) => {
       for (const k of ["cafe24_url", "naver_url"]) { const v = st?.[k]; if (v && !/^https:\/\//i.test(String(v))) return json({ error: "바로가기 주소는 https:// 로 시작해야 해요" }, 400); }
     }
 
+    if (table === "rscan_actions" && m !== "GET") return json({ error: "처리 기록은 수정할 수 없습니다" }, 403);   // 감사 기록 — 읽기 전용
     // ── 직원 구매요청 커스텀 규칙 (2026-08-31 사용자 지정) ──
     // 등록(POST)은 전원(본인 명의 강제) · 상태/입금/확인 변경은 admin 또는 구매 담당자(purchase_managers)만 ·
     // 일반 직원의 PATCH는 본인 행 + 내용 필드만 · DELETE는 본인 행만(admin은 전체) · 담당자 목록 쓰기는 admin만.
