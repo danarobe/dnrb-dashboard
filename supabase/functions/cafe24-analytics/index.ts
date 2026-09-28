@@ -522,7 +522,35 @@ Deno.serve(async (req) => {
       if (action === "unship_list") {
         let base = await fromCache() as Record<string, unknown> | null;
         if (!base) { base = await unshipCollect(token); await cacheSet(cacheKey, base); }
-        return json({ ...base, marks: await readMarks() });
+        // 입고일 자동 기입 (2026-09-28 사용자 요청): 카페24 발송 예정일(shipping_expected_date)이 있는 상품은 그 날짜로 입고일을 채운다.
+        //   상품에 날짜가 여러 개면 가장 늦은 날짜. 사람이 한 번이라도 입고일을 적거나 지웠으면(마지막 이력이 수동) 자동으로 덮지 않는다.
+        //   자동 기입도 이력에 {auto:true, by:'카페24 발송 예정일'}로 남아서, 카페24에서 예정일이 늦춰지면 '추가 지연'으로 잡힌다.
+        const marks = await readMarks();
+        const byKey = new Map(marks.map((m) => [String(m.key), m]));
+        const expMax = new Map<string, { date: string; name: string; supplier: string; supplier_product: string }>();
+        for (const it of ((base as Record<string, any>).items ?? []) as Record<string, any>[]) {
+          const d = String(it.expected ?? "").slice(0, 10);
+          if (it.product_no == null || !/^\d{4}-\d{2}-\d{2}$/.test(d)) continue;
+          const k = String(it.product_no), cur = expMax.get(k);
+          if (!cur || d > cur.date) expMax.set(k, { date: d, name: it.product_name ?? "", supplier: it.supplier ?? "", supplier_product: it.supplier_product ?? "" });
+        }
+        const now = new Date().toISOString(), ups: Record<string, unknown>[] = [];
+        for (const [k, e] of expMax) {
+          const m = byKey.get(k);
+          const hist = ((m?.arrival_history ?? []) as Record<string, any>[]);
+          const last = hist[hist.length - 1];
+          if (hist.length && !last?.auto) continue;   // 수동 입력·삭제가 마지막이면 사람 값 우선
+          const prev = m?.arrival_date ? String(m.arrival_date).slice(0, 10) : null;
+          if (prev === e.date) continue;
+          const row = {
+            key: k, product_no: Number(k), product_name: m?.product_name ?? e.name, supplier: m?.supplier ?? e.supplier, supplier_product: m?.supplier_product ?? e.supplier_product,
+            arrival_date: e.date, arrival_history: [...hist, { date: e.date, prev, at: now, by: "카페24 발송 예정일", auto: true }].slice(-30),
+            special: m?.special ?? false, special_note: m?.special_note ?? null, special_by: m?.special_by ?? null, special_at: m?.special_at ?? null, updated_at: now,
+          };
+          ups.push(row); byKey.set(k, row);
+        }
+        if (ups.length) await sbRest("unship_products?on_conflict=key", { method: "POST", headers: { Prefer: "resolution=merge-duplicates,return=minimal" }, body: JSON.stringify(ups) }).catch(() => null);
+        return json({ ...base, marks: [...byKey.values()], auto_filled: ups.length });
       }
       // ── 입고일·특수 관리 저장 (2026-09-28 사용자 요청): POST {key, product_no, product_name, supplier, supplier_product, arrival_date?, special?, special_note?}
       //    arrival_date가 바뀌면 이력에 {date, prev, at, by} 추가(최근 30건). 늦춰진 변경이 있으면 화면이 '추가 지연'으로 표시.

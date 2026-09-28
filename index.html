@@ -1294,7 +1294,7 @@
         <div style="font-size:.8rem;color:#6b7280;margin-bottom:10px;line-height:1.7;">
           · <b>결제일부터 오늘까지</b> 발송이 안 된 상품(카페24 상품준비중·배송준비중·배송대기·배송보류)을 <b>거래처별</b>로 모았어요. 지연 기준(5·7·10일)은 바꿀 수 있어요.<br>
           · <b style="color:#b91c1c;">장기 지연</b> = 결제 후 10일 이상 발송이 안 된 옵션이에요.<br>
-          · 거래처에 들은 <b>입고일</b>을 상품마다 적어 두세요(팀 전체가 같이 봐요). 입고일이 뒤로 바뀌면 <b style="color:#c2410c;">추가 지연</b>, 입고일이 지났는데 아직 미발송이면 <b style="color:#b91c1c;">입고일 지남</b>으로 표시돼요. 따로 챙길 상품은 <b><i class="fa-solid fa-star" style="color:#d97706;"></i> 특수 관리</b>로 지정하세요 — 지연 기준과 관계없이 '특수 관리' 보기에 모여요.<br>
+          · 거래처에 들은 <b>입고일</b>을 상품마다 적어 두세요(팀 전체가 같이 봐요). 카페24에 <b>발송 예정일</b>이 등록된 상품은 그 날짜로 <b style="color:#2563eb;">자동 기입</b>돼요(직접 고치면 그 뒤로는 직접 적은 날짜를 유지). 입고일이 뒤로 바뀌면 <b style="color:#c2410c;">추가 지연</b>, 입고일이 지났는데 아직 미발송이면 <b style="color:#b91c1c;">입고일 지남</b>으로 표시돼요. 따로 챙길 상품은 <b><i class="fa-solid fa-star" style="color:#d97706;"></i> 특수 관리</b>로 지정하세요 — 지연 기준과 관계없이 '특수 관리' 보기에 모여요.<br>
           · 거래처마다 <b>문의 문자</b>가 자동으로 만들어져요 — 상품명은 카페24 <b>공급사 상품명</b>(가격 제외), 옵션은 지연 중인 색상·사이즈만 넣어요. 문자에서 빼고 싶은 상품은 체크를 풀고, 문구는 직접 고친 뒤 <b>문자 복사</b>를 눌러 붙여넣으세요.
         </div>
         <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px;">
@@ -3095,7 +3095,8 @@ const UNSHIP_DAY_OPTS = [5, 7, 10, 14, 20];   // 지연 기준 (2026-09-28 사�
 const unshipState = { data: null, loading: false, tab: 'ask', view: 'all', q: '', excluded: new Set(), msgs: {}, marks: new Map(), prodIndex: new Map(), saving: false,
   days: (() => { try { const v = Number(localStorage.getItem(UNSHIP_DAYS_KEY)); return UNSHIP_DAY_OPTS.includes(v) ? v : 5; } catch { return 5; } })() };
 // 입고일 이력 → 늦춰진 횟수(추가 지연). 이력 항목 {date, prev, at, by}
-const unshipLaterCount = m => ((m && m.arrival_history) || []).filter(h => h && h.prev && h.date && h.date > h.prev).length;
+const unshipLaterCount = m => new Set(((m && m.arrival_history) || []).filter(h => h && h.prev && h.date && h.date > h.prev).map(h => h.prev + '>' + h.date)).size;
+const unshipIsAuto = m => { const h = (m && m.arrival_history) || []; return !!(h.length && h[h.length - 1].auto && m.arrival_date); };
 const unshipOverdue = (m, today) => !!(m && m.arrival_date && String(m.arrival_date).slice(0, 10) < today);
 function unshipInit() {
   uiTabs('unship-tabs', UNSHIP_TABS, unshipState.tab, 'unshipSetTab');
@@ -3301,14 +3302,16 @@ function unshipMarkCell(p, today) {
     later ? `<span style="background:#ffedd5;color:#c2410c;border-radius:99px;padding:1px 8px;font-size:.68rem;font-weight:800;white-space:nowrap;">추가 지연${later > 1 ? ' ' + later + '회' : ''}</span>` : '',
     overdue ? `<span style="background:#fee2e2;color:#991b1b;border-radius:99px;padding:1px 8px;font-size:.68rem;font-weight:800;white-space:nowrap;">입고일 지남</span>` : (dday != null ? `<span style="color:#15803d;font-size:.68rem;font-weight:700;">${dday === 0 ? '오늘 입고 예정' : `D-${dday}`}</span>` : ''),
   ].join(' ');
-  const hist = (m.arrival_history || []).slice(-4).reverse().map(h => `<div>${escHtml(String(h.at || '').slice(5, 10).replace('-', '/'))} ${escHtml(h.by || '')}: ${h.prev ? escHtml(h.prev.slice(5)) + ' → ' : ''}${h.date ? escHtml(h.date.slice(5)) : '삭제'}${h.prev && h.date && h.date > h.prev ? ' <b style="color:#c2410c;">(늦춰짐)</b>' : ''}</div>`).join('');
+  const auto = unshipIsAuto(m);
+  const hist = (m.arrival_history || []).slice(-4).reverse().map(h => `<div>${escHtml(String(h.at || '').slice(5, 10).replace('-', '/'))} ${escHtml(h.auto ? '자동(발송 예정일)' : h.by || '')}: ${h.prev ? escHtml(h.prev.slice(5)) + ' → ' : ''}${h.date ? escHtml(h.date.slice(5)) : '삭제'}${h.prev && h.date && h.date > h.prev ? ' <b style="color:#c2410c;">(늦춰짐)</b>' : ''}</div>`).join('');
   const sp = m.special
     ? `<button class="toggle-btn" style="font-size:.68rem;padding:2px 7px;white-space:nowrap;background:#fef3c7;border-color:#f59e0b;color:#92400e;font-weight:800;" data-no="${no}" onclick="unshipSpecialToggle(this)" title="누르면 특수 관리를 해제해요"><i class="fa-solid fa-star" style="color:#d97706;"></i> 특수 관리</button>
        <span style="font-size:.66rem;color:#6b7280;">${escHtml(m.special_by || '')} ${escHtml(String(m.special_at || '').slice(5, 10).replace('-', '/'))}</span>
        <div style="font-size:.7rem;color:#374151;margin-top:2px;cursor:pointer;" data-no="${no}" onclick="unshipSpecialNote(this)" title="메모 고치기">${m.special_note ? escHtml(m.special_note) : '<span style="color:#9ca3af;">메모 추가</span>'} <i class="fa-solid fa-pen" style="font-size:.6rem;color:#9ca3af;"></i></div>`
     : `<button class="toggle-btn" style="font-size:.68rem;padding:2px 7px;white-space:nowrap;" data-no="${no}" onclick="unshipSpecialToggle(this)"><i class="fa-regular fa-star"></i> 특수 관리</button>`;
   return `<div style="display:flex;gap:5px;align-items:center;flex-wrap:wrap;"><span style="font-weight:700;color:#374151;">입고일</span>
-      <input type="date" value="${escHtml(arr)}" data-no="${no}" onchange="unshipArrivalSave(this)" style="padding:2px 4px;border:1px solid ${arr ? '#86efac' : '#d1d5db'};border-radius:6px;font-size:.74rem;" /> ${tags}</div>
+      <input type="date" value="${escHtml(arr)}" data-no="${no}" onchange="unshipArrivalSave(this)" title="${auto ? '카페24 발송 예정일로 자동 기입됨 — 직접 고치면 이후엔 직접 적은 날짜를 유지해요' : ''}" style="padding:2px 4px;border:1px solid ${auto ? '#93c5fd' : arr ? '#86efac' : '#d1d5db'};border-radius:6px;font-size:.74rem;" /> ${tags}</div>
+    ${auto ? '<div style="font-size:.66rem;color:#2563eb;margin-top:2px;"><i class="fa-solid fa-wand-magic-sparkles"></i> 카페24 발송 예정일로 자동 기입</div>' : ''}
     ${hist ? `<div style="font-size:.66rem;color:#6b7280;margin-top:3px;line-height:1.45;" title="입고일 변경 이력(최근 4건)">${hist}</div>` : ''}
     <div style="margin-top:5px;">${sp}</div>`;
 }
