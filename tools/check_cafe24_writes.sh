@@ -22,5 +22,5 @@ done < <(grep -rn -E "method: *[\"'\`]?(PUT|POST|DELETE|PATCH)" supabase/functio
 # ② 범용 쓰기 헬퍼가 다시 생기지 않았는지
 if grep -rn -E "function (apiSend|apiPut|apiPost|apiDelete)\b" supabase/functions --include=*.ts; then echo "위반: 범용 카페24 쓰기 헬퍼가 있습니다"; bad=1; fi
 # ③ 수거 완료 본문이 고정값 그대로인지
-grep -q 'request: { pickup_completed: "T", items: itemCodes.map' supabase/functions/cafe24-analytics/index.ts || { echo "위반: cafe24MarkCollected 본문이 바뀌었습니다"; bad=1; }
+grep -q 'request: { pickup_completed: "T", recover_inventory: recover, items: itemCodes.map' supabase/functions/cafe24-analytics/index.ts || { echo "위반: cafe24MarkCollected 본문이 바뀌었습니다"; bad=1; }
 [ "$bad" = 0 ] && echo "OK — 카페24 쓰기는 수거 완료 하나뿐" || exit 1

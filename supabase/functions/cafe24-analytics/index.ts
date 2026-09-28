@@ -258,14 +258,17 @@ async function apiGet(url: string, token: string): Promise<Record<string, unknow
 // ══ 카페24 쓰기는 이 함수 하나뿐 (2026-09-28 안전장치, 사용자 요청) ══
 // 앱 권한 mall.write_order는 주문 수정 전반을 허용하지만, 이 서버가 카페24에 보내는 쓰기는 "반품·교환 접수의 수거 완료 표시" 단 하나로 고정한다.
 //  · 범용 쓰기 헬퍼를 두지 않는다 — 주소와 본문을 호출자가 넘기지 못하고, 검증된 주문번호·접수번호·품주코드로 이 함수가 직접 조립한다.
-//  · 본문은 { shop_no:1, request:{ pickup_completed:"T", items:[{order_item_code}] } } 로 고정(상태 변경·철회·환불·재고 복구 필드 없음).
+//  · 본문은 { shop_no:1, request:{ pickup_completed:"T", recover_inventory:"T"|"F", items:[{order_item_code}] } } 로 고정(상태 변경·철회·환불 필드 없음).
+//    recover_inventory는 카페24가 수거 완료 전환에 필수로 요구(2026-09-28 실사용 422 "recover_inventory is necessary for change to a collected status") —
+//    값은 관리자 설정 collect_recover_inventory(기본 "F" = 복구 안 함, 재고는 셀메이트가 관리)만 따른다.
 //  · 다른 쓰기가 필요해지면 여기 허용 목록을 넓히지 말고 사용자 승인부터 받을 것. tools/check_cafe24_writes.sh 가 배포 전 검사한다.
-async function cafe24MarkCollected(kind: "return" | "exchange", orderId: string, claimCode: string, itemCodes: string[], token: string): Promise<Record<string, unknown>> {
+async function cafe24MarkCollected(kind: "return" | "exchange", orderId: string, claimCode: string, itemCodes: string[], recover: "T" | "F", token: string): Promise<Record<string, unknown>> {
   if (kind !== "return" && kind !== "exchange") throw new Error("허용되지 않은 쓰기(kind)");
+  if (recover !== "T" && recover !== "F") throw new Error("허용되지 않은 쓰기(재고 복구 값)");
   if (!/^\d{8}-\d{7}$/.test(orderId) || !/^[A-Z]\d{8}-\d{7}$/.test(claimCode)) throw new Error("허용되지 않은 쓰기(번호 형식)");
   if (!Array.isArray(itemCodes) || !itemCodes.length || itemCodes.length > 50 || itemCodes.some((c) => typeof c !== "string" || !c.startsWith(orderId + "-") || !/^\d{8}-\d{7}-\d{2,3}$/.test(c))) throw new Error("허용되지 않은 쓰기(품주코드)");
   const url = `${API_BASE}/admin/orders/${orderId}/${kind}/${claimCode}`;
-  const payload = JSON.stringify({ shop_no: 1, request: { pickup_completed: "T", items: itemCodes.map((c) => ({ order_item_code: c })) } });
+  const payload = JSON.stringify({ shop_no: 1, request: { pickup_completed: "T", recover_inventory: recover, items: itemCodes.map((c) => ({ order_item_code: c })) } });
   const doFetch = (tk: string) => fetch(url, { method: "PUT", headers: { Authorization: `Bearer ${tk}`, "Content-Type": "application/json", "X-Cafe24-Api-Version": API_VERSION }, body: payload });
   let tok = token;
   let res = await doFetch(tok);
@@ -568,6 +571,7 @@ Deno.serve(async (req) => {
         // ── 안전장치 (2026-09-28) ── ① 관리자 끄기 스위치 ② 사용 한도(사람별 1시간 150건 · 전체 하루 1,000건) — 성공·실패 모두 셈
         const cset = (await rscanSettings()) as Record<string, unknown>;
         if (cset.collect_enabled === false) return json({ error: "수거 완료 처리가 꺼져 있어요 (관리자가 '경고 기준'에서 다시 켤 수 있어요)" }, 403);
+        const recover: "T" | "F" = cset.collect_recover_inventory === "T" ? "T" : "F";   // 카페24 재고 복구 — 기본 안 함
         const sinceIso = (ms: number) => new Date(Date.now() - ms).toISOString();
         const mine = ((await sbRest(`rscan_actions?select=id,created_at&by_id=eq.${encodeURIComponent(authed.id)}&created_at=gte.${sinceIso(3600e3)}&limit=500`)) ?? []) as Record<string, any>[];
         const allDay = ((await sbRest(`rscan_actions?select=id&created_at=gte.${sinceIso(24 * 3600e3)}&limit=1500`)) ?? []) as unknown[];
@@ -583,7 +587,7 @@ Deno.serve(async (req) => {
           await sbRest("notifications", { method: "POST", headers: { Prefer: "return=minimal" }, body: JSON.stringify(admins.map((a) => ({ user_id: a.id, actor_name: "반품 스캔", message: `${authed.name} 님이 10분 동안 수거 완료를 ${recent10}건 처리했어요 — 평소보다 많아요. 확인해주세요.`, link_menu: "rscan" }))) }).catch(() => null);
         }
         try {
-          await cafe24MarkCollected(kind as "return" | "exchange", orderId, claimCode, codes.map((c) => c.order_item_code), token);
+          await cafe24MarkCollected(kind as "return" | "exchange", orderId, claimCode, codes.map((c) => c.order_item_code), recover, token);
         } catch (e) {
           const st = (e as { status?: number }).status ?? 0, raw = String((e as Error).message ?? e);
           const msg = st === 403 || /scope|permission|insufficient/i.test(raw)
@@ -595,13 +599,13 @@ Deno.serve(async (req) => {
         // 처리 후 상태를 다시 읽어 응답·인덱스에 반영 (목록·처리 탭이 다음 갱신 전에도 맞게 보이도록)
         let after = { status: "", status_extra: "" };
         try { after = stateOf(pick(await readOrder())); } catch { /* 읽기 실패해도 처리는 성립 */ }
-        await logAct(true, (`${after.status} ${after.status_extra}`.trim() || "처리됨") + (flagged.length ? ` · 주의 품목 확인 후 처리: ${flagged.map((f) => f.flags.map((x) => x.type).join("/")).join(", ")}` : ""), codes);
+        await logAct(true, (`${after.status} ${after.status_extra}`.trim() || "처리됨") + ` · 재고 복구 ${recover === "T" ? "함" : "안 함"}` + (flagged.length ? ` · 주의 품목 확인 후 처리: ${flagged.map((f) => f.flags.map((x) => x.type).join("/")).join(", ")}` : ""), codes);
         try {
           const [full] = (await sbRest("rscan_index?kind=eq.cafe24&select=payload")) ?? [];
           const pl = ((full?.payload ?? []) as Record<string, any>[]).map((e) => e.order_id === orderId && e.claim_code === claimCode && e.kind === kind ? { ...e, status: after.status || e.status, status_extra: after.status_extra } : e);
           if (pl.length) await sbRest("rscan_index?kind=eq.cafe24", { method: "PATCH", headers: { Prefer: "return=minimal" }, body: JSON.stringify({ payload: pl }) });
         } catch { /* 인덱스 반영 실패는 다음 자동 갱신(15분)에 맡긴다 */ }
-        return json({ ok: true, ...after, by: authed.name });
+        return json({ ok: true, ...after, by: authed.name, recover_inventory: recover });
       }
       // ── 이름·수령인·배송지 주소·전화로 찾기 (2026-09-23 사용자 요청): 송장이 카페24에 없는 고객 직접 발송 반품용. 수거 전 반품·교환만, 철회 제외
       if (action === "rscan_find") {
