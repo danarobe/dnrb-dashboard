@@ -187,6 +187,51 @@ function rscanItemFlags(it: Record<string, any>, sets: NrSets): { level: "block"
   }
   return flags;
 }
+// 카페24 주문 1건 → 인덱스 항목(접수별). rscanBuild와 특별관리 주문 직접 조회(rscanFetchOrders)가 같이 쓴다.
+function rscanEntriesOf(o: Record<string, any>, kind: "return" | "exchange", nrSets: NrSets, seen: Set<string>): Record<string, unknown>[] {
+  const out: Record<string, unknown>[] = [];
+  const claims = (o[kind] ?? []) as Record<string, any>[];
+  const items = (o.items ?? []) as Record<string, any>[];
+  const recv = ((o.receivers ?? []) as Record<string, any>[])[0] ?? {};
+  const naver = o.order_place_id === "NCHECKOUT";
+  for (const c of (claims.length ? claims : [{}])) {
+    const key = `${kind}:${o.order_id}:${c.claim_code ?? ""}`;
+    if (seen.has(key)) continue; seen.add(key);
+    // 고객이 반품·교환 접수한 품목만(2026-09-22 사용자 지적 — 전에는 claim_code 없는 정상 품목까지 섞여 주문 상품이 다 보였음):
+    // ① 이 클레임 코드가 붙은 품목 → ② 없으면 반품(R)·교환(E) 상태인 품목 → ③ 그래도 없으면 전체(안전망)
+    let its = c.claim_code ? items.filter((it) => it.claim_code === c.claim_code) : [];
+    if (!its.length) its = items.filter((it) => /^[RE]\d/.test(String(it.order_status ?? "")));
+    if (!its.length) its = items;
+    out.push({
+      kind, invoice: rscanDigits(c.return_invoice_no), company: c.return_shipping_company_name ?? null,
+      order_id: o.order_id, order_date: String(o.order_date ?? "").slice(0, 10), place: o.order_place_name ?? "", naver,
+      claim_code: c.claim_code ?? null, reason_type: c.claim_reason_type ?? null, reason: String(c.claim_reason ?? "").trim(),
+      claim_date: String(its[0]?.return_request_date ?? its[0]?.exchange_request_date ?? c.claim_due_date ?? "").slice(0, 10),
+      status: its[0]?.status_text ?? its[0]?.order_status ?? "", status_extra: its[0]?.order_status_additional_info ?? "",
+      buyer: o.billing_name ?? "", receiver: recv.name ?? "",
+      address: [recv.address1, recv.address2].filter(Boolean).join(" ").trim(), phone: String(recv.cellphone ?? recv.phone ?? "").replace(/[^0-9]/g, ""),   // 이름·주소 찾기용 (2026-09-23)
+      items: its.map((it) => ({ name: it.product_name, option: it.option_value ?? "", qty: Number(it.quantity ?? 0), tracking_no: it.tracking_no ?? "", status: it.status_text ?? "", naver_id: it.naver_pay_order_id ?? null, product_no: it.product_no ?? null, nr: rscanItemFlags(it, nrSets) })),
+      naver_ids: [...new Set(its.map((it) => it.naver_pay_order_id).filter(Boolean))],
+    });
+  }
+  return out;
+}
+// 특별관리 주문(목록 기간 밖)을 카페24에서 주문번호로 직접 조회 (2026-09-28). order_id 여러 개는 날짜 조건 없이 한 번에 조회됨(실측) — 50개씩.
+async function rscanFetchOrders(targets: { kind: "return" | "exchange"; order_id: string }[], token: string): Promise<Record<string, unknown>[]> {
+  if (!targets.length) return [];
+  const nrSets = await rscanNrSets(token).catch(() => ({ acc: [], sale: {} } as NrSets));
+  const ids = [...new Set(targets.map((t) => t.order_id).filter((id) => /^\d{8}-\d{7}$/.test(id)))];
+  const want = new Set(targets.map((t) => `${t.kind}:${t.order_id}`));
+  const out: Record<string, unknown>[] = [];
+  const seen = new Set<string>();
+  for (let i = 0; i < ids.length; i += 50) {
+    const body = await apiGet(`${API_BASE}/admin/orders?order_id=${ids.slice(i, i + 50).join(",")}&embed=items,return,exchange,receivers&limit=100`, token);
+    for (const o of (body.orders ?? []) as Record<string, any>[]) {
+      for (const kind of ["return", "exchange"] as const) if (want.has(`${kind}:${o.order_id}`)) out.push(...rscanEntriesOf(o, kind, nrSets, seen));
+    }
+  }
+  return out;
+}
 async function rscanBuild(token: string, days: number) {
   const nrSets = await rscanNrSets(token).catch(() => ({ acc: [], sale: {} } as NrSets));   // 카테고리 조회 실패해도 목록 생성은 계속
   const fmtD = (d: Date) => d.toISOString().slice(0, 10);
@@ -200,32 +245,7 @@ async function rscanBuild(token: string, days: number) {
       for (let offset = 0; offset < 6000; offset += 200) {
         const body = await apiGet(`${API_BASE}/admin/orders?start_date=${a}&end_date=${b}&order_status=${status}&embed=${embed}&limit=200&offset=${offset}&date_type=order_date`, token);
         const orders = (body.orders ?? []) as Record<string, any>[];
-        for (const o of orders) {
-          const claims = (o[kind] ?? []) as Record<string, any>[];
-          const items = (o.items ?? []) as Record<string, any>[];
-          const recv = ((o.receivers ?? []) as Record<string, any>[])[0] ?? {};
-          const naver = o.order_place_id === "NCHECKOUT";
-          for (const c of (claims.length ? claims : [{}])) {
-            const key = `${kind}:${o.order_id}:${c.claim_code ?? ""}`;
-            if (seen.has(key)) continue; seen.add(key);
-            // 고객이 반품·교환 접수한 품목만(2026-09-22 사용자 지적 — 전에는 claim_code 없는 정상 품목까지 섞여 주문 상품이 다 보였음):
-            // ① 이 클레임 코드가 붙은 품목 → ② 없으면 반품(R)·교환(E) 상태인 품목 → ③ 그래도 없으면 전체(안전망)
-            let its = c.claim_code ? items.filter((it) => it.claim_code === c.claim_code) : [];
-            if (!its.length) its = items.filter((it) => /^[RE]\d/.test(String(it.order_status ?? "")));
-            if (!its.length) its = items;
-            out.push({
-              kind, invoice: rscanDigits(c.return_invoice_no), company: c.return_shipping_company_name ?? null,
-              order_id: o.order_id, order_date: String(o.order_date ?? "").slice(0, 10), place: o.order_place_name ?? "", naver,
-              claim_code: c.claim_code ?? null, reason_type: c.claim_reason_type ?? null, reason: String(c.claim_reason ?? "").trim(),
-              claim_date: String(its[0]?.return_request_date ?? its[0]?.exchange_request_date ?? c.claim_due_date ?? "").slice(0, 10),
-              status: its[0]?.status_text ?? its[0]?.order_status ?? "", status_extra: its[0]?.order_status_additional_info ?? "",
-              buyer: o.billing_name ?? "", receiver: recv.name ?? "",
-              address: [recv.address1, recv.address2].filter(Boolean).join(" ").trim(), phone: String(recv.cellphone ?? recv.phone ?? "").replace(/[^0-9]/g, ""),   // 이름·주소 찾기용 (2026-09-23)
-              items: its.map((it) => ({ name: it.product_name, option: it.option_value ?? "", qty: Number(it.quantity ?? 0), tracking_no: it.tracking_no ?? "", status: it.status_text ?? "", naver_id: it.naver_pay_order_id ?? null, product_no: it.product_no ?? null, nr: rscanItemFlags(it, nrSets) })),
-              naver_ids: [...new Set(its.map((it) => it.naver_pay_order_id).filter(Boolean))],
-            });
-          }
-        }
+        for (const o of orders) out.push(...rscanEntriesOf(o, kind, nrSets, seen));
         if (orders.length < 200) break;
       }
     }
@@ -451,7 +471,7 @@ Deno.serve(async (req) => {
     const token = await getAccessToken();
 
     // ── 반품 송장 스캔 (2026-09-22): 관리자·MD·CS/물류팀 ──
-    if (action === "rscan_build" || action === "rscan_lookup" || action === "rscan_status" || action === "rscan_issues" || action === "rscan_find" || action === "rscan_collect") {
+    if (action === "rscan_build" || action === "rscan_lookup" || action === "rscan_status" || action === "rscan_issues" || action === "rscan_find" || action === "rscan_collect" || action === "rscan_special") {
       if (!["admin", "staff", "cs"].includes(authed.role)) return json({ error: "접근 권한이 없습니다" }, 403);
       const days = Math.min(180, Math.max(7, Number(url.searchParams.get("days") ?? 14) || 14));   // 7·14·30·90 중 선택(기본 14), 어제까지
       const [row] = (await sbRest("rscan_index?kind=eq.cafe24&select=built_at,days,row_count" + (action === "rscan_lookup" || action === "rscan_issues" || action === "rscan_find" ? ",payload" : ""))) ?? [];
@@ -475,11 +495,21 @@ Deno.serve(async (req) => {
       }
       // ── 불량·오배송 처리 목록 (2026-09-22 소메뉴): 최근 1달(어제까지 30일, 주문일 기준) 반품·교환 중 경고 판정(alert/warn) 건 + 처리 상태(rscan_done)
       if (action === "rscan_issues") {
-        const DAYS = 60;   // 최근 2달(어제까지) — 2026-09-22 사용자 정정(처음 1달)
+        const DAYS = 90;   // 최근 90일(어제까지) — 2026-09-28 사용자 요청(처음 1달 → 2달 → 90일). 15분 자동 갱신 인덱스도 90일이라 그대로 재사용
         let payload: Record<string, any>[] = (row?.payload ?? []) as Record<string, any>[];
         const fresh = !!row && ageMin !== null && ageMin <= 20 && Number(row.days ?? 0) >= DAYS;
         if (!fresh) payload = await rscanBuild(token, DAYS) as Record<string, any>[];
         const startDate = rscanStartDate(DAYS);
+        // 특별관리(2026-09-28 사용자 요청): 오래 수거 안 되는 주문을 표시해 두면 90일이 지나도 계속 보인다.
+        //   기간 안 주문은 인덱스에서, 기간 밖 주문은 카페24에서 주문번호로 직접 읽어(최신 상태) 목록에 붙인다(outside — 불량 다발 집계에서는 제외).
+        const specialRows = ((await sbRest("rscan_special?select=key,kind,order_id,note,marked_by_name,marked_at")) ?? []) as Record<string, any>[];
+        const specialMap = new Map<string, Record<string, any>>(specialRows.map((r) => [String(r.key), r]));
+        const inWindow = new Set<string>();
+        for (const e of payload) if (!e.order_date || String(e.order_date) >= startDate) inWindow.add(`${e.kind}:${e.order_id}`);
+        const outsideTargets = specialRows.filter((r) => !inWindow.has(String(r.key))).map((r) => ({ kind: r.kind, order_id: String(r.order_id) }));
+        let outsideEntries: Record<string, any>[] = [];
+        let special_error: string | null = null;
+        try { outsideEntries = (await rscanFetchOrders(outsideTargets, token)).map((e) => ({ ...e, outside: true })); } catch (e) { special_error = "특별관리 주문 일부를 카페24에서 읽지 못했어요 — " + String(e).slice(0, 150); }
         const st = await rscanSettings();
         // 네이버페이센터 표(상품주문번호 → 사유) — 네이버페이 주문은 카페24 사유가 비어 있을 수 있어 여기 사유로 판정 보강
         const nvMap = new Map<string, Record<string, any>>();
@@ -490,14 +520,16 @@ Deno.serve(async (req) => {
         // 철회된 접수(status_extra '교환철회' 등)는 제외. 수거 완료 판단 = 반품완료 또는 반품처리중+'환불전'(실데이터: 반품처리중은 '수거전'/'환불전' 둘뿐, 반품접수는 '수거접수완료')
         const collectedMap = await rscanCollectedMap();
         const groups = new Map<string, Record<string, any>>();
-        for (const e of payload) {
-          if (e.order_date && String(e.order_date) < startDate) continue;
+        for (const e of [...payload, ...outsideEntries]) {
+          if (!e.outside && e.order_date && String(e.order_date) < startDate) continue;
           const extra = String(e.status_extra ?? ""), status = String(e.status ?? "");
           if (/철회/.test(extra) || /철회/.test(status)) continue;
           let nv: Record<string, any> | null = null;
           for (const id of (e.naver_ids ?? []) as unknown[]) { const hit = nvMap.get(String(id)); if (hit) { nv = hit; break; } }
           const reason = e.naver ? `${e.reason ?? ""} ${nv?.reason ?? ""}`.trim() : String(e.reason ?? "");
-          const alert = rscanJudge({ ...e, reason }, st);
+          const sp = specialMap.get(`${e.kind}:${e.order_id}`);
+          // 특별관리 주문은 경고 기준을 나중에 바꿔도 목록에서 빠지지 않게(노란 주의로 표시)
+          const alert = rscanJudge({ ...e, reason }, st) ?? (sp ? { level: "warn", type: "불량", by: "특별관리", hit: "" } : null);
           if (!alert) continue;
           const collected = e.kind === "return" && (status === "반품완료" || /환불전/.test(extra));
           const exchanged = e.kind === "exchange" && status === "교환완료";
@@ -510,7 +542,8 @@ Deno.serve(async (req) => {
           const gk = `${e.kind}:${e.order_id}`;
           let g = groups.get(gk);
           if (!g) {
-            g = { key: gk, kind: e.kind, order_id: e.order_id, order_date: e.order_date, buyer: e.buyer ?? "", receiver: e.receiver ?? "", place: e.place ?? "", naver: !!e.naver, naver_ids: [] as string[], claims: [] as Record<string, any>[], claim_date: "", alert };
+            g = { key: gk, kind: e.kind, order_id: e.order_id, order_date: e.order_date, buyer: e.buyer ?? "", receiver: e.receiver ?? "", place: e.place ?? "", naver: !!e.naver, naver_ids: [] as string[], claims: [] as Record<string, any>[], claim_date: "", alert,
+              special: sp ? { by: sp.marked_by_name ?? "", at: sp.marked_at, note: sp.note ?? "" } : null, outside: !!e.outside };
             groups.set(gk, g);
           }
           g.claims.push(claim);
@@ -527,12 +560,15 @@ Deno.serve(async (req) => {
         issues.sort((a, b) => String(b.claim_date || b.order_date).localeCompare(String(a.claim_date || a.order_date)) || String(b.order_id).localeCompare(String(a.order_id)));
         const since = new Date(); since.setUTCDate(since.getUTCDate() - 120);
         const doneRows = ((await sbRest(`rscan_done?select=key,done,done_by,done_at,cleared&done_at=gte.${since.toISOString().slice(0, 10)}`)) ?? []) as Record<string, any>[];
+        // 특별관리 주문은 처리 체크가 120일보다 오래됐어도 읽는다
+        const spKeys = specialRows.map((r) => String(r.key)).filter((k) => /^(return|exchange):\d{8}-\d{7}$/.test(k));
+        if (spKeys.length) doneRows.push(...(((await sbRest(`rscan_done?select=key,done,done_by,done_at,cleared&key=in.(${spKeys.map((k) => `"${k}"`).join(",")})`)) ?? []) as Record<string, any>[]));
         const doneMap: Record<string, unknown> = {};
         const cleared = new Set<string>();   // '처리완료 정리'로 목록에서 지운 키 (2026-09-22)
         for (const d of doneRows) { if (d.done) doneMap[String(d.key)] = { by: d.done_by, at: d.done_at }; if (d.cleared) cleared.add(String(d.key)); }
         // 불량 다발 상품(2026-09-22 사용자 요청 6번): 정리된 건도 포함해 상품별 접수 건수 — 접수 안에 같은 상품이 여러 줄이면 접수 1건으로, 수량은 합산
         const prodMap = new Map<string, Record<string, any>>();
-        for (const g of issues) for (const c of g.claims as Record<string, any>[]) {
+        for (const g of issues) for (const c of (g.outside ? [] : g.claims) as Record<string, any>[]) {   // 기간 밖 특별관리 주문은 90일 집계에서 제외
           const seen = new Set<string>();
           for (const it of c.items as Record<string, any>[]) {
             const pk = String(it.product_no ?? it.name ?? ""); if (!pk) continue;
@@ -549,11 +585,30 @@ Deno.serve(async (req) => {
           }
         }
         const products = [...prodMap.values()].map((p) => ({ ...p, orders: p.orders.size })).sort((a, b) => b.claims - a.claims || b.qty - a.qty);
-        const visible = issues.filter((g) => !cleared.has(g.key) && !g.claims.some((c: Record<string, any>) => cleared.has(c.key)));
+        const visible = issues.filter((g) => g.special || (!cleared.has(g.key) && !g.claims.some((c: Record<string, any>) => cleared.has(c.key))));   // 특별관리는 '처리완료 정리'로도 안 사라짐
         // 그룹 처리 상태: 그룹 키 또는 (예전 방식) 접수 키 중 하나라도 처리완료면 처리완료
         const done: Record<string, unknown> = {};
         for (const g of visible) { const hit = doneMap[g.key] ?? g.claims.map((c: Record<string, any>) => doneMap[c.key]).find(Boolean); if (hit) done[g.key] = hit; }
-        return json({ days: DAYS, start_date: startDate, built_at: fresh ? row!.built_at : new Date().toISOString(), row_count: payload.length, issues: visible, cleared_count: issues.length - visible.length, done, products });
+        return json({ days: DAYS, start_date: startDate, built_at: fresh ? row!.built_at : new Date().toISOString(), row_count: payload.length, issues: visible, cleared_count: issues.length - visible.length, done, products, special_count: specialRows.length, special_error });
+      }
+      // ── 특별관리 표시·해제 (2026-09-28 사용자 요청): POST {kind, order_id, on, note}. 표시한 사람은 로그인 계정으로 서버가 기입.
+      if (action === "rscan_special") {
+        if (req.method !== "POST") return json({ error: "POST로 호출해주세요" }, 405);
+        const b = await req.json().catch(() => ({})) as Record<string, unknown>;
+        const kind = String(b.kind ?? ""), orderId = String(b.order_id ?? "");
+        if (!["return", "exchange"].includes(kind) || !/^\d{8}-\d{7}$/.test(orderId)) return json({ error: "주문번호가 올바르지 않습니다" }, 400);
+        const key = `${kind}:${orderId}`;
+        if (b.on === false) {
+          await sbRest(`rscan_special?key=eq.${encodeURIComponent(key)}`, { method: "DELETE", headers: { Prefer: "return=minimal" } });
+          return json({ ok: true, key, special: null });
+        }
+        const note = String(b.note ?? "").trim().slice(0, 200);
+        const cur = ((await sbRest(`rscan_special?key=eq.${encodeURIComponent(key)}&select=marked_by,marked_by_name,marked_at`)) ?? [])[0] as Record<string, any> | undefined;
+        if (!cur && ((await sbRest("rscan_special?select=key")) ?? []).length >= 300) return json({ error: "특별관리는 300건까지예요 — 해결된 주문을 먼저 해제해주세요" }, 400);
+        // 메모만 고칠 땐 처음 표시한 사람·시각을 유지
+        const rowNew = { key, kind, order_id: orderId, note: note || null, marked_by: cur?.marked_by ?? authed.id, marked_by_name: cur?.marked_by_name ?? authed.name, marked_at: cur?.marked_at ?? new Date().toISOString() };
+        await sbRest("rscan_special?on_conflict=key", { method: "POST", headers: { Prefer: "resolution=merge-duplicates,return=minimal" }, body: JSON.stringify(rowNew) });
+        return json({ ok: true, key, special: { by: rowNew.marked_by_name, at: rowNew.marked_at, note: rowNew.note ?? "" } });
       }
       // ── 수거 완료 처리 (2026-09-28 사용자 요청) — 카페24 반품·교환 접수를 '수거 완료'로 바꾼다. POST 전용, 실행마다 rscan_actions에 기록.
       //    PUT orders/{order_id}/return|exchange/{claim_code} { request: { pickup_completed: "T", items } } (scope mall.write_order).

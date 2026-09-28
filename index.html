@@ -1249,9 +1249,10 @@
       </div><!-- /rscan-pane-scan -->
       <div id="rscan-pane-issues" class="rscan-pane" style="display:none;">
         <div style="font-size:.8rem;color:#6b7280;margin-bottom:10px;line-height:1.7;">
-          · <b>최근 2달</b>(주문일 기준, 어제까지) 반품·교환 중 사유가 <b>불량·오배송</b>으로 판정된 건입니다. 빨간 배지는 사유 코드·네이버 사유로 확실한 건, 노란 배지는 사유 문구로 의심되는 건이에요.<br>
+          · <b>최근 90일</b>(주문일 기준, 어제까지) 반품·교환 중 사유가 <b>불량·오배송</b>으로 판정된 건입니다. 빨간 배지는 사유 코드·네이버 사유로 확실한 건, 노란 배지는 사유 문구로 의심되는 건이에요.<br>
           · 같은 주문의 접수가 여러 개면 한 줄 안에 접수별로 나열돼요(반품과 교환은 줄이 따로). 처리가 끝나면 체크하세요 — <b>처리완료</b>로 바뀌고 팀 전체가 같은 상태를 봅니다(누가 언제 처리했는지 표시). 다시 체크를 풀면 처리전으로 돌아가요.<br>
-          · <b>반품</b>은 카페24에서 수거가 끝나면(반품처리중·환불전 또는 반품완료) <b>자동으로 처리완료</b>가 돼요. <b>교환</b>은 주문 상태가 교환완료여도 참고 표시만 하고, 처리완료는 직접 체크해야 해요.
+          · <b>반품</b>은 카페24에서 수거가 끝나면(반품처리중·환불전 또는 반품완료) <b>자동으로 처리완료</b>가 돼요. <b>교환</b>은 주문 상태가 교환완료여도 참고 표시만 하고, 처리완료는 직접 체크해야 해요.<br>
+          · 오래 수거되지 않는 주문은 <b><i class="fa-solid fa-star" style="color:#d97706;"></i> 특별관리</b>로 표시해 두세요 — <b>90일이 지나도 목록에 계속 남고</b>(카페24 최신 상태로 다시 읽어요) '처리완료 정리'로도 지워지지 않아요. 해결되면 별을 눌러 해제하세요.
         </div>
         <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px;">
           <span id="rscan-issue-kinds" class="qp"></span>
@@ -1266,7 +1267,7 @@
       </div>
       <div id="rscan-pane-products" class="rscan-pane" style="display:none;">
         <div style="font-size:.8rem;color:#6b7280;margin-bottom:10px;line-height:1.7;">
-          · 최근 2달 불량·오배송 접수를 <b>상품별</b>로 모은 순위예요(처리완료·정리된 건도 포함). 접수가 잦은 상품은 품질·검수 문제를 먼저 살펴보세요.<br>
+          · 최근 90일 불량·오배송 접수를 <b>상품별</b>로 모은 순위예요(처리완료·정리된 건도 포함). 접수가 잦은 상품은 품질·검수 문제를 먼저 살펴보세요.<br>
           · 관리자·MD는 <b>관리 상품 지정</b>으로 반품 관리 메뉴의 관리 상품에 바로 올릴 수 있어요.
         </div>
         <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px;">
@@ -3076,17 +3077,17 @@ function rscanSetTab(k) {
   }
   else { const inp = $('rscan-q'); if (inp) setTimeout(() => inp.focus(), 50); }
 }
-/* 불량·오배송 처리 목록 — 서버 rscan_issues(최근 30일 경고 건 + rscan_done 상태) */
+/* 불량·오배송 처리 목록 — 서버 rscan_issues(최근 90일 경고 건 + rscan_done 상태 + 특별관리 rscan_special, 2026-09-28) */
 async function rscanIssuesLoad(force) {
   if (rscanState.issuesLoading) return;
   rscanState.issuesLoading = true;
   const st0 = rscanState.status;
-  const needBuild = !st0 || !st0.row_count || st0.age_min == null || st0.age_min > 20 || Number(st0.days || 0) < 60;
-  $('rscan-issues').innerHTML = `<div class="empty-state"><p><i class="fa-solid fa-spinner fa-spin"></i> 불량·오배송 건을 모으는 중…${needBuild ? ' (최근 2달 카페24 목록을 만드는 중 — 약 30초)' : ''}</p></div>`;
+  const needBuild = !st0 || !st0.row_count || st0.age_min == null || st0.age_min > 20 || Number(st0.days || 0) < 90;
+  $('rscan-issues').innerHTML = `<div class="empty-state"><p><i class="fa-solid fa-spinner fa-spin"></i> 불량·오배송 건을 모으는 중…${needBuild ? ' (최근 90일 카페24 목록을 만드는 중 — 약 45초)' : ''}</p></div>`;
   if ($('rscan-products')) $('rscan-products').innerHTML = $('rscan-issues').innerHTML;
   try {
     rscanState.issues = await anGet({ action: 'rscan_issues' });
-    if (rscanState.status) { rscanState.status.days = Math.max(Number(rscanState.status.days || 0), 60); rscanState.status.row_count = rscanState.issues.row_count; rscanState.status.built_at = rscanState.issues.built_at; rscanState.status.age_min = Math.round((Date.now() - new Date(rscanState.issues.built_at).getTime()) / 60000); rscanStatusRender(); }
+    if (rscanState.status) { rscanState.status.days = Math.max(Number(rscanState.status.days || 0), 90); rscanState.status.row_count = rscanState.issues.row_count; rscanState.status.built_at = rscanState.issues.built_at; rscanState.status.age_min = Math.round((Date.now() - new Date(rscanState.issues.built_at).getTime()) / 60000); rscanStatusRender(); }
     rscanIssuesRender(); rscanProductsRender(); rscanTabsRender();
   } catch (e) { $('rscan-issues').innerHTML = `<div class="empty-state"><p style="color:#b91c1c;">불러오지 못했어요 — ${escHtml(e.message)}</p></div>`; if ($('rscan-products')) $('rscan-products').innerHTML = $('rscan-issues').innerHTML; }
   finally { rscanState.issuesLoading = false; }
@@ -3096,18 +3097,20 @@ function rscanIssuesSetKind(k) { rscanState.issueKind = k; rscanIssuesRender(); 
 const rscanIssueDone = g => !!(g.auto_done || rscanState.issues.done[g.key]);   // 반품 수거 완료(자동) 또는 수동 체크
 function rscanIssueList() {   // 현재 구분·상태 필터에 보이는 주문 목록
   const r = rscanState.issues; if (!r) return [];
-  return r.issues.filter(g => (rscanState.issueKind === 'all' || g.kind === rscanState.issueKind) && (rscanState.issueFilter === 'all' || (rscanState.issueFilter === 'done') === rscanIssueDone(g)));
+  const f = rscanState.issueFilter;
+  return r.issues.filter(g => (rscanState.issueKind === 'all' || g.kind === rscanState.issueKind) && (f === 'all' || (f === 'special' ? !!g.special : (f === 'done') === rscanIssueDone(g))));
 }
 function rscanIssuesRender() {
   const r = rscanState.issues; if (!r) return;
   const byKind = r.issues.filter(g => rscanState.issueKind === 'all' || g.kind === rscanState.issueKind);
   const kc = { all: r.issues.length, return: r.issues.filter(g => g.kind === 'return').length, exchange: r.issues.filter(g => g.kind === 'exchange').length };
   $('rscan-issue-kinds').innerHTML = [['all', '전체'], ['return', '반품'], ['exchange', '교환']].map(([k, l]) => `<button class="${rscanState.issueKind === k ? 'active' : ''}" onclick="rscanIssuesSetKind('${k}')">${l} ${kc[k]}</button>`).join('');
-  const counts = { todo: byKind.filter(g => !rscanIssueDone(g)).length, done: byKind.filter(rscanIssueDone).length, all: byKind.length };
-  $('rscan-issue-filters').innerHTML = [['todo', '처리전'], ['done', '처리완료'], ['all', '전체']].map(([k, l]) => `<button class="${rscanState.issueFilter === k ? 'active' : ''}" onclick="rscanIssuesSetFilter('${k}')">${l} ${counts[k]}</button>`).join('');
-  $('rscan-issues-meta').textContent = `최근 ${r.days}일(${r.start_date} ~ 어제) 반품·교환 ${fmt(r.row_count)}건 중 불량·오배송 주문 ${r.issues.length}건${r.cleared_count ? ` (정리된 ${r.cleared_count}건 제외)` : ''}`;
+  const counts = { todo: byKind.filter(g => !rscanIssueDone(g)).length, done: byKind.filter(rscanIssueDone).length, special: byKind.filter(g => g.special).length, all: byKind.length };
+  $('rscan-issue-filters').innerHTML = [['todo', '처리전'], ['done', '처리완료'], ['special', '<i class="fa-solid fa-star" style="color:#d97706;"></i> 특별관리'], ['all', '전체']].map(([k, l]) => `<button class="${rscanState.issueFilter === k ? 'active' : ''}" onclick="rscanIssuesSetFilter('${k}')">${l} ${counts[k]}</button>`).join('');
+  const outN = r.issues.filter(g => g.outside).length;
+  $('rscan-issues-meta').textContent = `최근 ${r.days}일(${r.start_date} ~ 어제) 반품·교환 ${fmt(r.row_count)}건 중 불량·오배송 주문 ${r.issues.length - outN}건${outN ? ` + 90일 지난 특별관리 ${outN}건` : ''}${r.cleared_count ? ` (정리된 ${r.cleared_count}건 제외)` : ''}${r.special_error ? ' · ⚠ ' + r.special_error : ''}`;
   const list = rscanIssueList();
-  if (!list.length) { $('rscan-issues').innerHTML = `<div class="empty-state"><p>${rscanState.issueFilter === 'todo' ? '처리전 건이 없어요 — 모두 처리됐어요' : '해당하는 건이 없어요'}</p></div>`; return; }
+  if (!list.length) { $('rscan-issues').innerHTML = `<div class="empty-state"><p>${rscanState.issueFilter === 'todo' ? '처리전 건이 없어요 — 모두 처리됐어요' : rscanState.issueFilter === 'special' ? '특별관리 주문이 없어요 — 오래 수거되지 않는 주문의 별(☆)을 눌러 표시하세요' : '해당하는 건이 없어요'}</p></div>`; return; }
   const when = t => t ? String(t).replace('T', ' ').slice(5, 16) : '';
   const badge = a => a ? `<span style="background:${a.level === 'alert' ? '#fee2e2' : '#fef3c7'};color:${a.level === 'alert' ? '#b91c1c' : '#92400e'};border-radius:99px;padding:1px 8px;font-size:.7rem;font-weight:800;white-space:nowrap;">${escHtml(a.type || '')}${a.level === 'warn' ? ' 의심' : ''}</span>` : '';
   const stBadge = c => {   // 접수별 주문 상태(수거 단계·교환완료 참고)
@@ -3122,6 +3125,7 @@ function rscanIssuesRender() {
     else doneCell = `<label style="display:inline-flex;align-items:center;gap:6px;cursor:pointer;font-size:.76rem;font-weight:700;color:${d ? '#15803d' : '#b45309'};"><input type="checkbox" ${d ? 'checked' : ''} data-key="${escHtml(g.key)}" data-oid="${escHtml(g.order_id)}" onchange="rscanIssueToggle(this)" style="width:18px;height:18px;" /> ${d ? '처리완료' : '처리전'}</label>${d ? `<div style="font-size:.68rem;color:#6b7280;margin-top:2px;">${escHtml(d.by || '')} ${when(d.at)}</div>` : ''}`;
     if (g.kind === 'exchange' && g.exchanged_some) doneCell += `<div style="font-size:.68rem;color:#15803d;margin-top:3px;white-space:nowrap;"><i class="fa-solid fa-circle-info"></i> 카페24 ${g.exchanged ? '교환완료' : '일부 교환완료'} (참고)</div>`;
     else if (g.kind === 'return' && !g.auto_done) doneCell += `<div style="font-size:.68rem;color:#6b7280;margin-top:3px;white-space:nowrap;">${g.collected_some ? '일부 수거 완료' : '수거 전'}</div>`;
+    doneCell += rscanSpecialHtml(g);
     const name = g.buyer && g.receiver && g.buyer !== g.receiver ? `${escHtml(g.buyer)} <span style="color:#6b7280;font-size:.72rem;">(수령 ${escHtml(g.receiver)})</span>` : escHtml(g.buyer || g.receiver || '—');
     const multi = g.claims.length > 1;
     const claims = g.claims.map(c => `<div style="${multi ? 'padding:4px 0;border-top:1px dashed #e5e7eb;' : ''}">
@@ -3131,7 +3135,7 @@ function rscanIssuesRender() {
       const full = `${c.reason_type ? '[' + c.reason_type + '] ' : ''}${(c.reason || '').replace(/\s+/g, ' ').trim() || (c.reason_type ? '' : '—')}${c.naver_reason ? ` / 네이버: ${c.naver_reason}` : ''}`;
       return `<div class="rscan-reason" title="${escHtml(full)}" onclick="this.classList.toggle('open')" style="${multi ? 'padding:3px 0;' : ''}">${escHtml(c.reason_type ? '[' + c.reason_type + '] ' : '')}${escHtml((c.reason || '').replace(/\s+/g, ' ').trim() || (c.reason_type ? '' : '—'))}${c.naver_reason ? `<span class="naver"> / 네이버: ${escHtml(c.naver_reason)}</span>` : ''}</div>`;
     }).join('');
-    return `<tr style="${done ? 'opacity:.55;' : ''}">
+    return `<tr style="${done && !g.special ? 'opacity:.55;' : ''}${g.special ? 'background:#fffbeb;' : ''}">
       <td style="white-space:nowrap;vertical-align:top;">${doneCell}</td>
       <td style="white-space:nowrap;vertical-align:top;font-size:.7rem;color:#4b5563;">${escHtml((g.claim_date || g.order_date || '').slice(2))}</td>
       <td style="white-space:nowrap;vertical-align:top;"><span style="background:${g.kind === 'exchange' ? '#e0e7ff' : '#fef3c7'};color:${g.kind === 'exchange' ? '#4338ca' : '#92400e'};border-radius:99px;padding:2px 9px;font-size:.72rem;font-weight:700;">${g.kind === 'exchange' ? '교환' : '반품'}</span> ${badge(g.alert)}${multi ? `<div style="font-size:.68rem;color:#6b7280;margin-top:3px;">접수 ${g.claims.length}건</div>` : ''}</td>
@@ -3152,9 +3156,9 @@ async function rscanIssuesXlsx() {
     await loadXlsxPopulate();
     const wb = await XlsxPopulate.fromBlankAsync();
     const ws = wb.sheet(0).name('불량오배송');
-    const headers = ['처리 상태', '처리자', '처리 시각', '구분', '판정', '주문번호', '주문일', '구매자', '수령인', '주문처', '접수번호', '접수일', '접수 판정', '주문 상태', '접수 상품', '옵션', '수량', '사유 코드', '사유', '네이버 사유', '반품 송장', '택배사'];
+    const headers = ['처리 상태', '처리자', '처리 시각', '구분', '판정', '주문번호', '주문일', '구매자', '수령인', '주문처', '접수번호', '접수일', '접수 판정', '주문 상태', '접수 상품', '옵션', '수량', '사유 코드', '사유', '네이버 사유', '반품 송장', '택배사', '특별관리', '특별관리 메모'];
     headers.forEach((h, i) => ws.cell(1, i + 1).value(h).style({ bold: true, fill: 'EEF2FF' }));
-    [12, 9, 16, 6, 8, 20, 11, 10, 10, 12, 20, 11, 8, 18, 40, 22, 6, 8, 30, 20, 16, 12].forEach((w, i) => ws.column(i + 1).width(w));
+    [12, 9, 16, 6, 8, 20, 11, 10, 10, 12, 20, 11, 8, 18, 40, 22, 6, 8, 30, 20, 16, 12, 16, 30].forEach((w, i) => ws.column(i + 1).width(w));
     const when = t => t ? String(t).replace('T', ' ').slice(0, 16) : '';
     const jt = a => a ? `${a.type || ''}${a.level === 'warn' ? ' 의심' : ''}` : '';
     let ri = 2;
@@ -3170,6 +3174,7 @@ async function rscanIssuesXlsx() {
           row.push(...(k === 0 ? [c.claim_code || '', c.claim_date || '', jt(c.alert), `${c.status || ''}${c.status_extra ? ' · ' + c.status_extra : ''}`] : ['', '', '', '']));
           row.push(it.name || '', it.option || '', it.qty === '' ? '' : Number(it.qty || 0));
           row.push(...(k === 0 ? [c.reason_type || '', c.reason || '', c.naver_reason || '', c.invoice || '', c.company || ''] : ['', '', '', '', '']));
+          row.push(...(firstOfGroup && g.special ? [`${g.special.by || ''} ${when(g.special.at)}`.trim() || '특별관리', g.special.note || ''] : ['', '']));
           row.forEach((v, ci) => { if (v !== '' && v != null) ws.cell(ri, ci + 1).value(v); });
           ri++; firstOfGroup = false;
         });
@@ -3220,7 +3225,7 @@ async function rscanWatchAdd(btn) {
   if (!confirm(`'${name}' 을(를) 반품 관리의 관리 상품으로 지정할까요?`)) return;
   try {
     await dbProxy('return_watch', { method: 'POST', headers: { Prefer: 'return=minimal,resolution=merge-duplicates' },
-      body: JSON.stringify({ product_no: no, product_name: name, reason: `불량·오배송 접수 ${n}건 (반품 스캔 최근 ${(rscanState.issues || {}).days || 60}일)`, created_by: SESSION ? SESSION.name : '' }) });
+      body: JSON.stringify({ product_no: no, product_name: name, reason: `불량·오배송 접수 ${n}건 (반품 스캔 최근 ${(rscanState.issues || {}).days || 90}일)`, created_by: SESSION ? SESSION.name : '' }) });
     if (!rscanState.watch) rscanState.watch = new Map();
     rscanState.watch.set(no, { product_no: no, discontinued: false });
     if (typeof rwState !== 'undefined') rwState.watch = null;   // 반품 관리 메뉴가 다음에 열릴 때 다시 불러오게
@@ -3230,16 +3235,61 @@ async function rscanWatchAdd(btn) {
 /* 처리완료 정리(2026-09-22 사용자 요청) — 처리완료(자동 수거 완료 포함) 건을 rscan_done에 cleared=true로 적어 목록에서 제외. 구분·상태 필터와 무관하게 전부 */
 async function rscanIssuesClear() {
   const r = rscanState.issues; if (!r) { showToast('먼저 목록을 불러와주세요'); return; }
-  const targets = r.issues.filter(rscanIssueDone);
-  if (!targets.length) { showToast('정리할 처리완료 건이 없어요'); return; }
-  if (!confirm(`처리완료 ${targets.length}건을 이 목록에서 지울까요?\n\n카페24 데이터와 처리 기록은 그대로이고, 불량·오배송 처리 목록에서만 사라져요.`)) return;
+  const targets = r.issues.filter(g => rscanIssueDone(g) && !g.special);   // 특별관리는 정리 대상 아님 (2026-09-28) — 해제해야 정리됨
+  const spDone = r.issues.filter(g => rscanIssueDone(g) && g.special).length;
+  if (!targets.length) { showToast(spDone ? `정리할 건이 없어요 — 특별관리 ${spDone}건은 별을 해제해야 정리돼요` : '정리할 처리완료 건이 없어요'); return; }
+  if (!confirm(`처리완료 ${targets.length}건을 이 목록에서 지울까요?\n\n카페24 데이터와 처리 기록은 그대로이고, 불량·오배송 처리 목록에서만 사라져요.${spDone ? `\n(특별관리 ${spDone}건은 남겨 둬요)` : ''}`)) return;
   const now = new Date().toISOString();
   const rows = targets.map(g => { const d = r.done[g.key] || {}; return { key: g.key, order_id: g.order_id, done: true, done_by: d.by || (g.auto_done ? '자동(수거 완료)' : SESSION.name), done_at: d.at || now, cleared: true, cleared_at: now }; });
   try {
     for (let i = 0; i < rows.length; i += 200) await dbProxy('rscan_done?on_conflict=key', { method: 'POST', headers: { Prefer: 'resolution=merge-duplicates,return=minimal' }, body: JSON.stringify(rows.slice(i, i + 200)) });
-    r.issues = r.issues.filter(g => !rscanIssueDone(g)); r.cleared_count = (r.cleared_count || 0) + targets.length;
+    r.issues = r.issues.filter(g => !rscanIssueDone(g) || g.special); r.cleared_count = (r.cleared_count || 0) + targets.length;
     rscanIssuesRender(); rscanTabsRender(); showToast(`처리완료 ${targets.length}건을 목록에서 정리했어요`);
   } catch (e) { showToast('정리 실패: ' + e.message); rscanIssuesLoad(true); }
+}
+/* 특별관리 (2026-09-28 사용자 요청) — 오래 수거 안 되는 주문을 표시해 90일이 지나도 목록에 남긴다. 저장은 서버 rscan_special(처리자 서버 기입) */
+function rscanSpecialHtml(g) {
+  const a = `data-key="${escHtml(g.key)}" data-kind="${escHtml(g.kind)}" data-oid="${escHtml(g.order_id)}"`;
+  if (!g.special) return `<div style="margin-top:4px;"><button class="toggle-btn" style="font-size:.68rem;padding:2px 7px;" ${a} onclick="rscanSpecialToggle(this)" title="오래 수거되지 않는 주문 — 90일이 지나도 목록에 남겨요"><i class="fa-regular fa-star"></i> 특별관리</button></div>`;
+  const sp = g.special;
+  const base = g.claim_date || g.order_date;
+  const age = base ? Math.floor((Date.now() - new Date(base + 'T00:00:00+09:00').getTime()) / 86400000) : null;
+  return `<div style="margin-top:4px;white-space:normal;max-width:170px;">
+    <button class="toggle-btn" style="font-size:.68rem;padding:2px 7px;background:#fef3c7;border-color:#f59e0b;color:#92400e;font-weight:800;" ${a} onclick="rscanSpecialToggle(this)" title="누르면 특별관리를 해제해요"><i class="fa-solid fa-star" style="color:#d97706;"></i> 특별관리</button>
+    ${age != null ? `<span style="font-size:.66rem;font-weight:800;color:${age >= 30 ? '#b91c1c' : '#92400e'};margin-left:3px;">접수 ${age}일째</span>` : ''}
+    ${g.outside ? '<div style="font-size:.64rem;color:#6b7280;margin-top:2px;">90일 지남 · 카페24 최신 상태</div>' : ''}
+    <div style="font-size:.66rem;color:#6b7280;margin-top:2px;">${escHtml(sp.by || '')} ${escHtml(String(sp.at || '').slice(5, 10))}</div>
+    <div style="font-size:.7rem;color:#374151;margin-top:2px;cursor:pointer;" ${a} onclick="rscanSpecialNote(this)" title="메모 고치기">${sp.note ? escHtml(sp.note) : '<span style="color:#9ca3af;">메모 추가</span>'} <i class="fa-solid fa-pen" style="font-size:.6rem;color:#9ca3af;"></i></div></div>`;
+}
+async function rscanSpecialSave(d, on, note) {
+  const res = await fetch(fnUrl('cafe24-analytics', { action: 'rscan_special' }), { method: 'POST', headers: sbHeaders(), body: JSON.stringify({ kind: d.kind, order_id: d.oid, on, note }) });
+  const j = await res.json().catch(() => ({}));
+  if (!res.ok || j.error) throw new Error(j.error || ('오류 ' + res.status));
+  const g = (rscanState.issues?.issues || []).find(x => x.key === d.key);
+  if (g) g.special = j.special;
+  if (g && !on && g.outside) rscanState.issues.issues = rscanState.issues.issues.filter(x => x !== g);   // 90일 지난 주문은 해제하면 목록에서 빠짐
+  rscanIssuesRender();
+}
+async function rscanSpecialToggle(btn) {
+  const d = btn.dataset, g = (rscanState.issues?.issues || []).find(x => x.key === d.key);
+  if (!g) return;
+  try {
+    if (g.special) {
+      if (!confirm(`주문 ${d.oid} 의 특별관리를 해제할까요?${g.outside ? '\n\n90일이 지난 주문이라 해제하면 목록에서 사라져요.' : ''}`)) return;
+      await rscanSpecialSave(d, false); showToast('특별관리를 해제했어요');
+    } else {
+      const note = prompt(`주문 ${d.oid} 을(를) 특별관리로 표시해요.\n메모(선택 — 예: 고객 연락 안 됨, 9/30 재요청)`, '');
+      if (note === null) return;
+      await rscanSpecialSave(d, true, note); showToast('특별관리로 표시했어요 — 90일이 지나도 목록에 남아요');
+    }
+  } catch (e) { showToast('저장 실패: ' + e.message); }
+}
+async function rscanSpecialNote(el) {
+  const d = el.dataset, g = (rscanState.issues?.issues || []).find(x => x.key === d.key);
+  if (!g || !g.special) return;
+  const note = prompt('특별관리 메모', g.special.note || '');
+  if (note === null) return;
+  try { await rscanSpecialSave(d, true, note); showToast('메모를 저장했어요'); } catch (e) { showToast('저장 실패: ' + e.message); }
 }
 async function rscanIssueToggle(cb) {
   const r = rscanState.issues; if (!r) return;
