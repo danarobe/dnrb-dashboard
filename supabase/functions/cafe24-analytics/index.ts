@@ -116,7 +116,7 @@ function rscanYesterday() {
 }
 function rscanStartDate(days: number) { const d = rscanYesterday(); d.setUTCDate(d.getUTCDate() - (days - 1)); return d.toISOString().slice(0, 10); }
 /* ── 반품 불가 품목 표시 (2026-09-28 사용자 지정) ──
-   block(반품 불가): 상품명에 비키니·모노키니·swim·수영복 / ACC 카테고리(이름이 정확히 'ACC'인 모든 카테고리) 상품
+   block(반품 불가): 상품명에 비키니·모노키니·swim·수영복 / ACC 카테고리(이름이 정확히 'ACC'인 모든 카테고리) 상품 중 주얼리·양말·모자(상품명 키워드)
    check(확인 필요): 품목에 할인이 적용됨(additional_discount_price > 0 — 1+1·기간할인·등급할인 등) 또는 세일 카테고리(이름에 sale·세일·할인) 상품
                      → 할인 상품은 "일부만" 반품 불가라 확인 표시로만 둔다.
    카테고리 상품 목록은 30분 캐시(api_cache rscan:nrsets). */
@@ -151,7 +151,14 @@ function rscanItemFlags(it: Record<string, any>, sets: NrSets): { level: "block"
   const name = String(it.product_name ?? it.name ?? "");
   if (/비키니|모노키니|swim|수영복/i.test(name)) flags.push({ level: "block", type: "수영복", text: "수영복 — 반품 불가" });
   const no = Number(it.product_no);
-  if (no && sets.acc.includes(no)) flags.push({ level: "block", type: "ACC", text: "ACC 상품 — 반품 불가" });
+  // ACC 카테고리 중 주얼리·양말·모자만 반품 불가 (2026-09-28 사용자 정정 — 신발·벨트·가방·머플러·헤어핀 등은 반품 가능).
+  // '링'은 '스트링'·'셔링' 같은 단어에 걸리지 않게 앞뒤가 띄어쓰기/괄호일 때만.
+  if (no && sets.acc.includes(no)) {
+    const kind = /목걸이|네크리스|반지|오픈링|(?:^|[\s(])링(?=$|[\s)(])|귀걸이|귀찌|이어링|팔찌|발찌|주얼리|쥬얼리/.test(name) ? "주얼리"
+      : /양말|삭스|socks?/i.test(name) ? "양말"
+      : /모자|볼캡|버킷햇|벙거지|비니|(?:^|\s)캡(?=$|[\s(])|(?:^|\s)햇(?=$|[\s(])/.test(name) ? "모자" : "";
+    if (kind) flags.push({ level: "block", type: kind, text: `${kind}(ACC) — 반품 불가` });
+  }
   const disc = Number(it.additional_discount_price ?? it.disc ?? 0) || 0;
   const price = Number(it.product_price ?? it.price ?? 0) || 0;
   if (disc > 0) flags.push({ level: "check", type: "할인", text: `할인 적용 ${Math.round(disc).toLocaleString("ko-KR")}원${price > 0 ? ` (${Math.round(disc / price * 100)}%)` : ""} — 반품 가능 여부 확인` });
