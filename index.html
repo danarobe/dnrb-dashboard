@@ -3250,12 +3250,12 @@ async function rscanIssuesClear() {
 /* 특별관리 (2026-09-28 사용자 요청) — 오래 수거 안 되는 주문을 표시해 90일이 지나도 목록에 남긴다. 저장은 서버 rscan_special(처리자 서버 기입) */
 function rscanSpecialHtml(g) {
   const a = `data-key="${escHtml(g.key)}" data-kind="${escHtml(g.kind)}" data-oid="${escHtml(g.order_id)}"`;
-  if (!g.special) return `<div style="margin-top:4px;"><button class="toggle-btn" style="font-size:.68rem;padding:2px 7px;" ${a} onclick="rscanSpecialToggle(this)" title="오래 수거되지 않는 주문 — 90일이 지나도 목록에 남겨요"><i class="fa-regular fa-star"></i> 특별관리</button></div>`;
+  if (!g.special) return `<div style="margin-top:4px;"><button class="toggle-btn" style="font-size:.68rem;padding:2px 7px;white-space:nowrap;" ${a} onclick="rscanSpecialToggle(this)" title="오래 수거되지 않는 주문 — 90일이 지나도 목록에 남겨요"><i class="fa-regular fa-star"></i> 특별관리</button></div>`;
   const sp = g.special;
   const base = g.claim_date || g.order_date;
   const age = base ? Math.floor((Date.now() - new Date(base + 'T00:00:00+09:00').getTime()) / 86400000) : null;
   return `<div style="margin-top:4px;white-space:normal;max-width:170px;">
-    <button class="toggle-btn" style="font-size:.68rem;padding:2px 7px;background:#fef3c7;border-color:#f59e0b;color:#92400e;font-weight:800;" ${a} onclick="rscanSpecialToggle(this)" title="누르면 특별관리를 해제해요"><i class="fa-solid fa-star" style="color:#d97706;"></i> 특별관리</button>
+    <button class="toggle-btn" style="font-size:.68rem;padding:2px 7px;white-space:nowrap;background:#fef3c7;border-color:#f59e0b;color:#92400e;font-weight:800;" ${a} onclick="rscanSpecialToggle(this)" title="누르면 특별관리를 해제해요"><i class="fa-solid fa-star" style="color:#d97706;"></i> 특별관리</button>
     ${age != null ? `<span style="font-size:.66rem;font-weight:800;color:${age >= 30 ? '#b91c1c' : '#92400e'};margin-left:3px;">접수 ${age}일째</span>` : ''}
     ${g.outside ? '<div style="font-size:.64rem;color:#6b7280;margin-top:2px;">90일 지남 · 카페24 최신 상태</div>' : ''}
     <div style="font-size:.66rem;color:#6b7280;margin-top:2px;">${escHtml(sp.by || '')} ${escHtml(String(sp.at || '').slice(5, 10))}</div>
