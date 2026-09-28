@@ -232,6 +232,50 @@ async function rscanFetchOrders(targets: { kind: "return" | "exchange"; order_id
   }
   return out;
 }
+// ── 미발송 관리 (2026-09-28 사용자 요청 — 물류팀): 결제 후 아직 발송 안 된 품목 수집 ──
+// 품목 상태 N10 상품준비중·N20 배송준비중·N21 배송대기·N22 배송보류 = 미발송(실측: 이 몰은 거의 N20).
+// 지연 일수 = 오늘(한국 날짜) − 결제일(한국 날짜). 주문일 기준 최근 90일 ~ 3일 전 주문을 30일 창·200건씩 조회
+// (결제일은 주문일 이후라 3일 전까지만 봐도 지연 3일↑는 빠짐없음 — 화면 기준은 최소 5일).
+// 거래처 문의용으로 카페24 품목의 공급사(supplier_name)·공급사 상품명(supplier_product_name, 끝에 공급가가 붙어 있음 — 화면이 제거)을 그대로 넘긴다.
+const UNSHIP_STATUSES = new Set(["N10", "N20", "N21", "N22"]);
+async function unshipCollect(token: string) {
+  const fmtD = (d: Date) => d.toISOString().slice(0, 10);
+  const today = rscanYesterday(); today.setUTCDate(today.getUTCDate() + 1);   // 한국 날짜 오늘(UTC 자정 표기)
+  const todayStr = fmtD(today);
+  const windows: [string, string][] = [];
+  let end = new Date(today); end.setUTCDate(end.getUTCDate() - 3);
+  let left = 90;
+  while (left > 0) { const span = Math.min(30, left); const start = new Date(end); start.setUTCDate(start.getUTCDate() - (span - 1)); windows.push([fmtD(start), fmtD(end)]); end = new Date(start); end.setUTCDate(end.getUTCDate() - 1); left -= span; }
+  const rows: Record<string, unknown>[] = [];
+  const seen = new Set<string>();
+  for (const [a, b] of windows) {
+    for (let offset = 0; offset < 10000; offset += 200) {
+      const body = await apiGet(`${API_BASE}/admin/orders?start_date=${a}&end_date=${b}&order_status=N10,N20,N21,N22&embed=items&limit=200&offset=${offset}&date_type=order_date`, token);
+      const orders = (body.orders ?? []) as Record<string, any>[];
+      for (const o of orders) {
+        const paid = String(o.payment_date ?? "").slice(0, 10);
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(paid)) continue;
+        const delay = Math.round((new Date(todayStr + "T00:00:00Z").getTime() - new Date(paid + "T00:00:00Z").getTime()) / 86400000);
+        if (delay < 3) continue;
+        for (const it of (o.items ?? []) as Record<string, any>[]) {
+          if (!UNSHIP_STATUSES.has(String(it.order_status ?? ""))) continue;
+          const code = String(it.order_item_code ?? `${o.order_id}-${it.item_no}`);
+          if (seen.has(code)) continue; seen.add(code);
+          rows.push({
+            order_id: o.order_id, item_code: code, order_date: String(o.order_date ?? "").slice(0, 10), paid, delay,
+            place: o.order_place_name ?? "", naver: o.order_place_id === "NCHECKOUT",
+            product_no: it.product_no ?? null, product_name: String(it.product_name ?? ""), option: String(it.option_value ?? ""), qty: Number(it.quantity ?? 0),
+            supplier_id: String(it.supplier_id ?? ""), supplier: String(it.supplier_name ?? ""), supplier_product: String(it.supplier_product_name ?? ""),
+            status: String(it.status_text ?? it.order_status ?? ""), expected: it.shipping_expected_date ?? null,
+          });
+        }
+      }
+      if (orders.length < 200) break;
+    }
+  }
+  rows.sort((x, y) => Number(y.delay) - Number(x.delay));
+  return { today: todayStr, built_at: new Date().toISOString(), range: { start: windows[windows.length - 1][0], end: windows[0][1] }, items: rows };
+}
 async function rscanBuild(token: string, days: number) {
   const nrSets = await rscanNrSets(token).catch(() => ({ acc: [], sale: {} } as NrSets));   // 카테고리 조회 실패해도 목록 생성은 계속
   const fmtD = (d: Date) => d.toISOString().slice(0, 10);
@@ -469,6 +513,13 @@ Deno.serve(async (req) => {
     const respond = async (body: unknown) => { await cacheSet(cacheKey, body); return json(body); };
 
     const token = await getAccessToken();
+
+    // ── 미발송 관리 (2026-09-28 사용자 요청): 관리자·MD·CS/물류팀. 10분 캐시(권한 검사 뒤), 새로고침은 nocache=1
+    if (action === "unship_list") {
+      if (!["admin", "staff", "cs"].includes(authed.role)) return json({ error: "접근 권한이 없습니다" }, 403);
+      const cached = await fromCache(); if (cached) return json(cached);
+      return await respond(await unshipCollect(token));
+    }
 
     // ── 반품 송장 스캔 (2026-09-22): 관리자·MD·CS/물류팀 ──
     if (action === "rscan_build" || action === "rscan_lookup" || action === "rscan_status" || action === "rscan_issues" || action === "rscan_find" || action === "rscan_collect" || action === "rscan_special") {

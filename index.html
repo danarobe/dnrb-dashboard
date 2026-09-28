@@ -611,6 +611,7 @@
   <button class="menu-item" data-menu="perf" onclick="showMenu('perf')"><i class="fa-solid fa-chart-column" style="width:18px;text-align:center;color:#818cf8;"></i>판매 성과</button>
   <button class="menu-item" data-menu="rwatch" id="menu-rwatch" onclick="showMenu('rwatch')"><i class="fa-solid fa-arrows-rotate" style="width:18px;text-align:center;color:#818cf8;"></i>반품 관리</button>
   <button class="menu-item" data-menu="rscan" id="menu-rscan" onclick="showMenu('rscan')"><i class="fa-solid fa-barcode" style="width:18px;text-align:center;color:#818cf8;"></i>반품 스캔</button>
+  <button class="menu-item" data-menu="unship" id="menu-unship" onclick="showMenu('unship')"><i class="fa-solid fa-hourglass-half" style="width:18px;text-align:center;color:#818cf8;"></i>미발송 관리</button>
   <div class="menu-group">운영</div>
   <button class="menu-item" data-menu="disp" id="menu-disp" onclick="showMenu('disp')"><i class="fa-solid fa-table-cells-large" style="width:18px;text-align:center;color:#818cf8;"></i>카테고리별 진열</button>
   <button class="menu-item" data-menu="stable" id="menu-stable" onclick="showMenu('stable')"><i class="fa-solid fa-warehouse" style="width:18px;text-align:center;color:#818cf8;"></i>안정재고 편성</button>
@@ -1275,6 +1276,35 @@
           <span id="rscan-products-meta" style="font-size:.74rem;color:#6b7280;"></span>
         </div>
         <div id="rscan-products"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══ 미발송 관리 (#unship, 2026-09-28 사용자 요청 — 물류팀) — 결제 후 발송이 늦어지는 상품을 거래처별로 모아 입고 문의 문자를 자동 생성 ══ -->
+  <div class="section-card page-sec" id="sec-unship">
+    <div class="section-header" style="cursor:default;">
+      <h2><span><i class="fa-solid fa-hourglass-half" style="color:#4f46e5;font-size:.9em;"></i></span> 미발송 관리</h2>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;">
+        <button class="toggle-btn" onclick="unshipLoad(true)" title="카페24에서 미발송 주문을 다시 모읍니다 (평소엔 10분 동안 같은 결과를 보여줘요)"><i class="fa-solid fa-rotate"></i> 새로고침</button>
+      </div>
+    </div>
+    <div class="section-body">
+      <div id="unship-tabs" style="display:flex;gap:2px;border-bottom:2px solid #e5e7eb;margin-bottom:14px;flex-wrap:wrap;"></div>
+      <div id="unship-pane-ask" class="unship-pane">
+        <div style="font-size:.8rem;color:#6b7280;margin-bottom:10px;line-height:1.7;">
+          · <b>결제일부터 오늘까지</b> 발송이 안 된 상품(카페24 상품준비중·배송준비중·배송대기·배송보류)을 <b>거래처별</b>로 모았어요. 지연 기준(5·7·10일)은 바꿀 수 있어요.<br>
+          · <b style="color:#b91c1c;">장기 지연</b> = 결제 후 10일 이상 발송이 안 된 옵션이에요.<br>
+          · 거래처마다 <b>문의 문자</b>가 자동으로 만들어져요 — 상품명은 카페24 <b>공급사 상품명</b>(가격 제외), 옵션은 지연 중인 색상·사이즈만 넣어요. 문자에서 빼고 싶은 상품은 체크를 풀고, 문구는 직접 고친 뒤 <b>문자 복사</b>를 눌러 붙여넣으세요.
+        </div>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px;">
+          <span style="font-size:.78rem;font-weight:700;color:#374151;">지연 기준</span>
+          <span id="unship-days" class="qp"></span>
+          <span style="width:1px;height:18px;background:#e5e7eb;"></span>
+          <span id="unship-views" class="qp"></span>
+          <input id="unship-q" type="search" placeholder="거래처·상품명 찾기" oninput="unshipSetQ(this.value)" style="padding:6px 10px;border:1px solid #d1d5db;border-radius:8px;font-size:.8rem;min-width:170px;" />
+        </div>
+        <div id="unship-summary" style="margin-bottom:12px;"></div>
+        <div id="unship-list"></div>
       </div>
     </div>
   </div>
@@ -2604,7 +2634,7 @@ function applyRole() {
   document.body.classList.toggle('role-cs', isCS());
   // CS팀은 판매 성과 메뉴만 노출
   document.querySelectorAll('.menu-item').forEach(b => {
-    b.style.display = isCS() && !['perf', 'my', 'purch', 'rscan'].includes(b.dataset.menu) ? 'none' : '';   // CS팀·물류팀 = 판매 성과 + 마이페이지 + 구매요청 + 반품 스캔(2026-09-22)
+    b.style.display = isCS() && !['perf', 'my', 'purch', 'rscan', 'unship'].includes(b.dataset.menu) ? 'none' : '';   // CS팀·물류팀 = 판매 성과 + 마이페이지 + 구매요청 + 반품 스캔(2026-09-22) + 미발송 관리(2026-09-28)
   });
   // 관리자 전용 메뉴는 버튼 자체를 숨김
   $('menu-users').style.display = isAdmin() ? '' : 'none';
@@ -3051,6 +3081,187 @@ async function anGet(params) {
   const data = await res.json();
   if (data.error) throw new Error(data.error);
   return data;
+}
+
+/* ══ 미발송 관리 (#unship, 2026-09-28 사용자 요청 — 물류팀) ══
+   서버 cafe24-analytics unship_list(결제 후 3일↑ 미발송 품목, 10분 캐시 — 새로고침은 nocache). 지연 = 오늘 − 결제일(한국 날짜).
+   소메뉴 ① 거래처 문의: 지연 기준 5(기본)·7·10일, 장기 지연 = 10일↑ 라벨, 거래처별 상품·옵션 묶음 + 문의 문자 자동 생성.
+   문자 속 상품명 = 카페24 '공급사 상품명'에서 끝의 공급가(예: ' 15,000')를 뗀 것, 옵션 = 지연 중인 우리 옵션값(컬러·사이즈). */
+const UNSHIP_DAYS_KEY = 'dnrb_unship_days';
+const UNSHIP_LONG = 10;   // 장기 지연 기준(일) — 사용자 지정 2026-09-28
+const UNSHIP_TABS = [['ask', '거래처 문의', null, 'fa-solid fa-comment-sms']];
+const unshipState = { data: null, loading: false, tab: 'ask', view: 'all', q: '', excluded: new Set(), msgs: {},
+  days: (() => { try { const v = Number(localStorage.getItem(UNSHIP_DAYS_KEY)); return [5, 7, 10].includes(v) ? v : 5; } catch { return 5; } })() };
+function unshipInit() {
+  uiTabs('unship-tabs', UNSHIP_TABS, unshipState.tab, 'unshipSetTab');
+  unshipControlsRender();
+  if (!unshipState.data && !unshipState.loading) unshipLoad(); else unshipRender();
+}
+function unshipSetTab(k) { unshipState.tab = k; uiTabs('unship-tabs', UNSHIP_TABS, k, 'unshipSetTab'); }
+async function unshipLoad(force) {
+  if (unshipState.loading) return;
+  unshipState.loading = true;
+  $('unship-list').innerHTML = '<div class="empty-state"><p><i class="fa-solid fa-spinner fa-spin"></i> 카페24에서 미발송 주문을 모으는 중… (처음엔 10초 안팎)</p></div>';
+  try {
+    unshipState.data = await anGet(Object.assign({ action: 'unship_list' }, force ? { nocache: 1 } : {}));
+    unshipState.msgs = {};
+    unshipRender();
+  } catch (e) { $('unship-list').innerHTML = `<div class="empty-state"><p style="color:#b91c1c;">불러오지 못했어요 — ${escHtml(e.message)}</p></div>`; }
+  finally { unshipState.loading = false; }
+}
+function unshipControlsRender() {
+  $('unship-days').innerHTML = [5, 7, 10].map(d => `<button class="${unshipState.days === d ? 'active' : ''}" onclick="unshipSetDays(${d})">${d}일 이상</button>`).join('');
+  $('unship-views').innerHTML = [['all', '전체'], ['long', `<i class="fa-solid fa-triangle-exclamation" style="color:#dc2626;"></i> 장기 지연만(${UNSHIP_LONG}일↑)`]].map(([k, l]) => `<button class="${unshipState.view === k ? 'active' : ''}" onclick="unshipSetView('${k}')">${l}</button>`).join('');
+}
+function unshipSetDays(d) { unshipState.days = d; try { localStorage.setItem(UNSHIP_DAYS_KEY, String(d)); } catch {} unshipState.msgs = {}; unshipControlsRender(); unshipRender(); }
+function unshipSetView(v) { unshipState.view = v; unshipState.msgs = {}; unshipControlsRender(); unshipRender(); }
+let unshipQTimer = null;
+function unshipSetQ(v) { clearTimeout(unshipQTimer); unshipQTimer = setTimeout(() => { unshipState.q = String(v || '').trim().toLowerCase(); unshipRender(); }, 250); }
+// 공급사 상품명 끝의 공급가 제거: '배색나그랑원피스(네이비,멜란지) 15,000' → '배색나그랑원피스(네이비,멜란지)'
+function unshipCleanName(v) {
+  const t = String(v || '').trim();
+  const a = t.replace(/\s*\d{1,3}(,\d{3})+\s*원?\s*$/, '');
+  return (a !== t ? a : t.replace(/\s*\d{4,}\s*원?\s*$/, '')).trim();
+}
+// 옵션값 '컬러=네이비, 사이즈=2사이즈(77-88)' → { color, size, other[] }
+function unshipParseOpt(v) {
+  const r = { color: '', size: '', other: [] };
+  const re = /([^=,]+)=([^=]*?)(?=,\s*[^=,]+=|$)/g; let m;
+  while ((m = re.exec(String(v || '')))) {
+    const k = m[1].trim(), val = m[2].trim(); if (!val) continue;
+    if (/컬러|색상|color/i.test(k)) r.color = val; else if (/사이즈|size/i.test(k)) r.size = val; else r.other.push(val);
+  }
+  if (!r.color && !r.size && !r.other.length && String(v || '').trim()) r.other.push(String(v).trim());
+  return r;
+}
+// 받침 여부로 조사(이/가) 고르기 — 숫자·영문 끝도 읽는 소리 기준
+function unshipJosa(word) {
+  const w = String(word || '').replace(/[\s)\]"'.~]+$/, ''); const ch = w.slice(-1); if (!ch) return '이';
+  const c = ch.charCodeAt(0);
+  if (c >= 0xAC00 && c <= 0xD7A3) return (c - 0xAC00) % 28 ? '이' : '가';
+  if (/[0-9]/.test(ch)) return '013678'.includes(ch) ? '이' : '가';
+  return /[lmnrLMNR]/.test(ch) ? '이' : '가';
+}
+// 사이즈 정렬: 숫자(225, 230…) → 숫자 순, XS·S·M·L·XL·2XL → 크기 순, 그 외 가나다
+function unshipSizeCmp(a, b) {
+  const rank = v => { const m = String(v).trim().toUpperCase().match(/^(XXS|XS|S|M|L|XL|XXL|2XL|3XL|F|FREE)\b/); return m ? ['XXS', 'XS', 'S', 'M', 'L', 'XL', 'XXL', '2XL', '3XL', 'F', 'FREE'].indexOf(m[1]) : -1; };
+  const ra = rank(a), rb = rank(b);
+  if (ra >= 0 && rb >= 0 && ra !== rb) return ra - rb;
+  return String(a).localeCompare(String(b), 'ko', { numeric: true });
+}
+// 한 상품의 지연 옵션들 → '네이비, 멜란지 색상' / '다크브라운 235, 245 사이즈 / 블랙 255 사이즈' / '네이비 2사이즈(77-88)'
+function unshipOptPhrase(opts) {
+  const ps = opts.map(o => unshipParseOpt(o.option)).filter(p => p.color || p.size || p.other.length);
+  if (!ps.length) return '';
+  const byColor = new Map();
+  for (const p of ps) {
+    const k = p.color || ''; if (!byColor.has(k)) byColor.set(k, []);
+    const rest = [p.size, ...p.other].filter(Boolean).join(' ');
+    if (rest && !byColor.get(k).includes(rest)) byColor.get(k).push(rest);
+  }
+  if ([...byColor.values()].every(l => !l.length)) return [...byColor.keys()].filter(Boolean).join(', ') + ' 색상';
+  return [...byColor.entries()].map(([c, l]) => {
+    if (!l.length) return `${c} 색상`;
+    l.sort(unshipSizeCmp);
+    const onlySize = ps.some(p => p.size) && !l.some(x => /사이즈|size/i.test(x)) && ps.every(p => !p.other.length);
+    return `${c ? c + ' ' : ''}${l.join(', ')}${onlySize ? ' 사이즈' : ''}`;
+  }).join(' / ');
+}
+// 필터된 품목 → 거래처 > 상품 > 옵션 묶음
+function unshipGroups() {
+  const d = unshipState.data; if (!d) return [];
+  const min = unshipState.view === 'long' ? Math.max(UNSHIP_LONG, unshipState.days) : unshipState.days;
+  const q = unshipState.q;
+  const sups = new Map();
+  for (const it of d.items || []) {
+    if (it.delay < min) continue;
+    if (q && ![it.supplier, it.supplier_product, it.product_name, it.option].some(x => String(x || '').toLowerCase().includes(q))) continue;
+    const sk = it.supplier_id || it.supplier || '(거래처 없음)';
+    let s = sups.get(sk); if (!s) { s = { key: sk, name: it.supplier || '(거래처 정보 없음)', products: new Map(), maxDelay: 0, qty: 0, orders: new Set() }; sups.set(sk, s); }
+    const pk = String(it.product_no ?? it.supplier_product ?? it.product_name);
+    let p = s.products.get(pk);
+    if (!p) { p = { key: `${sk}|${pk}`, name: unshipCleanName(it.supplier_product) || it.product_name, fromSupplier: !!it.supplier_product, ours: it.product_name, product_no: it.product_no, opts: new Map(), maxDelay: 0, qty: 0, orders: new Set() }; s.products.set(pk, p); }
+    let o = p.opts.get(it.option);
+    if (!o) { o = { option: it.option, qty: 0, orders: new Set(), maxDelay: 0, paid: it.paid, expected: new Set() }; p.opts.set(it.option, o); }
+    o.qty += it.qty; o.orders.add(it.order_id); o.maxDelay = Math.max(o.maxDelay, it.delay); if (it.paid < o.paid) o.paid = it.paid; if (it.expected) o.expected.add(String(it.expected).slice(0, 10));
+    p.qty += it.qty; p.orders.add(it.order_id); p.maxDelay = Math.max(p.maxDelay, it.delay);
+    s.qty += it.qty; s.orders.add(it.order_id); s.maxDelay = Math.max(s.maxDelay, it.delay);
+  }
+  const list = [...sups.values()].map(s => {
+    const products = [...s.products.values()].map(p => ({ ...p, opts: [...p.opts.values()].sort((a, b) => b.maxDelay - a.maxDelay || String(a.option).localeCompare(String(b.option), 'ko')) }))
+      .sort((a, b) => b.maxDelay - a.maxDelay || b.qty - a.qty);
+    return { ...s, products, longOpts: products.reduce((n, p) => n + p.opts.filter(o => o.maxDelay >= UNSHIP_LONG).length, 0), optCount: products.reduce((n, p) => n + p.opts.length, 0) };
+  });
+  return list.sort((a, b) => b.maxDelay - a.maxDelay || b.qty - a.qty);
+}
+function unshipMessage(s) {
+  const ps = s.products.filter(p => !unshipState.excluded.has(p.key));
+  if (!ps.length) return '';
+  const head = '안녕하세요 사장님, 저희 다나로브인데요~';
+  const tail = '혹시 언제 쯤 입고될 수 있나요? 최대한 빠르게 좀 부탁드리겠습니다';
+  if (ps.length === 1) {
+    const ph = unshipOptPhrase(ps[0].opts);
+    return `${head} "${ps[0].name}" 이 상품${ph ? ` ${ph}${unshipJosa(ph)}` : ''} 입고 지연이 좀 길어지는 것 같아서요~ ${tail}`;
+  }
+  const lines = ps.map((p, i) => { const ph = unshipOptPhrase(p.opts); return `${i + 1}. "${p.name}"${ph ? ' ' + ph : ''}`; });
+  return `${head}\n아래 상품들 입고 지연이 좀 길어지는 것 같아서요~\n\n${lines.join('\n')}\n\n${tail}`;
+}
+function unshipRender() {
+  const d = unshipState.data; if (!d || !$('unship-list')) return;
+  const groups = unshipGroups();
+  unshipState.groups = groups;
+  const nProd = groups.reduce((n, s) => n + s.products.length, 0), nOpt = groups.reduce((n, s) => n + s.optCount, 0), nLong = groups.reduce((n, s) => n + s.longOpts, 0), nQty = groups.reduce((n, s) => n + s.qty, 0);
+  const tile = (label, v, col) => `<div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:10px;padding:8px 14px;min-width:92px;"><div style="font-size:.7rem;color:#6b7280;">${label}</div><div style="font-size:1.15rem;font-weight:800;color:${col || '#111827'};">${v}</div></div>`;
+  const when = String(d.built_at || '').replace('T', ' ');
+  const bt = d.built_at ? new Date(d.built_at).toLocaleString('ko-KR', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '';
+  $('unship-summary').innerHTML = `<div style="display:flex;gap:8px;flex-wrap:wrap;">${tile('거래처', fmt(groups.length) + '곳')}${tile('상품', fmt(nProd) + '개')}${tile('지연 옵션', fmt(nOpt) + '개')}${tile('수량', fmt(nQty) + '개')}${tile('장기 지연 옵션', fmt(nLong) + '개', nLong ? '#b91c1c' : '')}</div>
+    <div style="font-size:.72rem;color:#6b7280;margin-top:6px;">결제일 기준 ${unshipState.view === 'long' ? `${Math.max(UNSHIP_LONG, unshipState.days)}일` : `${unshipState.days}일`} 이상 미발송 · 오늘 ${escHtml(d.today || '')} · 카페24 조회 ${escHtml(bt)}${when ? '' : ''}</div>`;
+  if (!groups.length) { $('unship-list').innerHTML = `<div class="empty-state"><p>${unshipState.q ? '찾는 거래처·상품이 없어요' : '기준에 해당하는 미발송 상품이 없어요'}</p></div>`; return; }
+  const longTag = '<span style="background:#fee2e2;color:#b91c1c;border-radius:99px;padding:1px 8px;font-size:.68rem;font-weight:800;white-space:nowrap;">장기 지연</span>';
+  $('unship-list').innerHTML = groups.map((s, si) => {
+    const rows = s.products.map(p => {
+      const on = !unshipState.excluded.has(p.key);
+      const opts = p.opts.map(o => `<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;padding:2px 0;">
+          <span style="font-weight:700;">${escHtml(o.option || '(옵션 없음)')}</span>
+          <span style="color:#374151;">${o.qty}개</span>
+          <span style="color:${o.maxDelay >= UNSHIP_LONG ? '#b91c1c' : '#b45309'};font-weight:800;">${o.maxDelay}일</span>${o.maxDelay >= UNSHIP_LONG ? longTag : ''}
+          <span style="color:#9ca3af;font-size:.68rem;">주문 ${o.orders.size}건 · 결제 ${escHtml(String(o.paid).slice(5))}${o.expected.size ? ' · 발송 예정 ' + [...o.expected].sort().map(x => x.slice(5)).join(', ') : ''}</span></div>`).join('');
+      return `<tr style="${on ? '' : 'opacity:.45;'}">
+        <td style="vertical-align:top;width:34px;"><input type="checkbox" ${on ? 'checked' : ''} data-key="${escHtml(p.key)}" data-si="${si}" onchange="unshipToggleProduct(this)" title="문의 문자에 넣기" style="width:17px;height:17px;" /></td>
+        <td style="text-align:left;vertical-align:top;min-width:180px;"><b>${escHtml(p.name)}</b>${p.fromSupplier ? '' : ' <span style="color:#b45309;font-size:.68rem;">(공급사 상품명 없음 — 우리 상품명)</span>'}<div style="font-size:.7rem;color:#9ca3af;margin-top:2px;">${escHtml(p.ours)}${p.product_no != null ? ' · #' + p.product_no : ''}</div></td>
+        <td style="text-align:left;vertical-align:top;font-size:.76rem;">${opts}</td></tr>`;
+    }).join('');
+    const msg = unshipState.msgs[s.key] ?? unshipMessage(s);
+    return `<div style="border:1px solid ${s.longOpts ? '#fecaca' : '#e5e7eb'};border-radius:12px;padding:12px 14px;margin-bottom:12px;background:#fff;">
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px;">
+        <b style="font-size:.95rem;"><i class="fa-solid fa-store" style="color:#818cf8;"></i> ${escHtml(s.name)}</b>
+        ${s.longOpts ? `<span style="background:#fee2e2;color:#b91c1c;border-radius:99px;padding:2px 9px;font-size:.7rem;font-weight:800;">장기 지연 ${s.longOpts}</span>` : ''}
+        <span style="font-size:.74rem;color:#6b7280;">상품 ${s.products.length}개 · 옵션 ${s.optCount}개 · 수량 ${s.qty}개 · 주문 ${s.orders.size}건 · 최장 <b style="color:${s.maxDelay >= UNSHIP_LONG ? '#b91c1c' : '#b45309'};">${s.maxDelay}일</b></span>
+      </div>
+      <div class="table-wrap"><table style="width:100%;font-size:.8rem;"><thead><tr><th title="문의 문자에 넣기">문의</th><th style="text-align:left;">공급사 상품명 <span style="font-weight:400;color:#9ca3af;">(문자에 들어가는 이름)</span></th><th style="text-align:left;">지연 옵션 · 수량 · 지연</th></tr></thead><tbody>${rows}</tbody></table></div>
+      <div style="margin-top:10px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:10px;">
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:6px;"><b style="font-size:.78rem;"><i class="fa-solid fa-comment-sms" style="color:#4f46e5;"></i> 문의 문자</b>
+          <button class="toggle-btn" style="font-size:.74rem;padding:4px 12px;background:#4f46e5;color:#fff;border-color:#4f46e5;" data-si="${si}" onclick="unshipCopy(this)" ${msg ? '' : 'disabled'}><i class="fa-regular fa-copy"></i> 문자 복사</button>
+          ${unshipState.msgs[s.key] != null ? `<button class="toggle-btn" style="font-size:.7rem;padding:3px 9px;" data-si="${si}" onclick="unshipResetMsg(this)" title="고친 문구를 버리고 자동 문구로">자동 문구로</button>` : ''}
+        </div>
+        <textarea id="unship-msg-${si}" data-si="${si}" oninput="unshipMsgInput(this)" rows="${Math.min(12, Math.max(3, msg.split('\n').length + 1))}" style="width:100%;box-sizing:border-box;border:1px solid #d1d5db;border-radius:8px;padding:8px;font-size:.82rem;line-height:1.55;font-family:inherit;resize:vertical;" placeholder="문자에 넣을 상품을 하나 이상 체크하세요">${escHtml(msg)}</textarea>
+      </div></div>`;
+  }).join('');
+}
+function unshipToggleProduct(cb) {
+  const k = cb.dataset.key, s = (unshipState.groups || [])[Number(cb.dataset.si)];
+  if (cb.checked) unshipState.excluded.delete(k); else unshipState.excluded.add(k);
+  if (s) delete unshipState.msgs[s.key];   // 상품 선택이 바뀌면 문구를 다시 만든다
+  unshipRender();
+}
+function unshipMsgInput(el) { const s = (unshipState.groups || [])[Number(el.dataset.si)]; if (s) unshipState.msgs[s.key] = el.value; }
+function unshipResetMsg(btn) { const s = (unshipState.groups || [])[Number(btn.dataset.si)]; if (s) { delete unshipState.msgs[s.key]; unshipRender(); } }
+async function unshipCopy(btn) {
+  const ta = $('unship-msg-' + btn.dataset.si); const text = ta ? ta.value.trim() : '';
+  if (!text) { showToast('복사할 문구가 없어요'); return; }
+  try { await navigator.clipboard.writeText(text); }
+  catch { ta.select(); document.execCommand('copy'); }
+  showToast('문자 문구를 복사했어요 — 문자 앱에 붙여넣으세요');
 }
 
 /* ══ 반품 송장 스캔 (#rscan, 2026-09-22) ══
@@ -11944,7 +12155,7 @@ async function myChangePw() {
   } catch (e) { showToast('변경 실패 — ' + e.message); }
 }
 
-const MENU_KEYS = ['home', 'cr', 'an', 'perf', 'rwatch', 'rscan', 'disp', 'stable', 'adv', 'admgr', 'profit', 'wm', 'meet', 'board', 'proj', 'users', 'my', 'purch', 'madechk'];
+const MENU_KEYS = ['home', 'cr', 'an', 'perf', 'rwatch', 'rscan', 'unship', 'disp', 'stable', 'adv', 'admgr', 'profit', 'wm', 'meet', 'board', 'proj', 'users', 'my', 'purch', 'madechk'];
 
 /* 모바일 메뉴 서랍 (2026-08-27) — 열기/닫기. 데스크톱에선 ☰ 버튼이 숨겨져 호출되지 않는다. */
 /* ── 홈 접기 (2026-08-27 UI 정리) ──
@@ -12014,7 +12225,7 @@ function showMenu(key) {
   if (window.innerWidth <= 900) menuDrawer(false);   // 메뉴를 고르면 서랍은 닫는다
 
   if (!MENU_KEYS.includes(key)) key = 'home';
-  if (isCS() && !['my', 'purch', 'rscan'].includes(key)) key = 'perf';   // CS팀·물류팀은 판매 성과 + 마이페이지 + 구매요청 + 반품 스캔(2026-09-22 — 메뉴는 보였는데 여기서 되돌려 보내던 버그 수정)
+  if (isCS() && !['my', 'purch', 'rscan', 'unship'].includes(key)) key = 'perf';   // 미발송 관리(2026-09-28) 추가 — 위 applyRole 목록과 함께 고칠 것.   // CS팀·물류팀은 판매 성과 + 마이페이지 + 구매요청 + 반품 스캔(2026-09-22 — 메뉴는 보였는데 여기서 되돌려 보내던 버그 수정)
   // 권한 없는 메뉴는 홈으로 되돌린다 — 여기서 return하면 URL에 #disp 등을 달고 들어온
   // 권한 없는 사용자에게 아무 섹션도 표시되지 않아 화면이 비어버림
   const denied = (key === 'cr' && isStaff())
@@ -12056,6 +12267,7 @@ function showMenu(key) {
   if (key === 'profit' && isAdmin()) loadProfitArchive();
   if (key === 'rwatch') rwInit();
   if (key === 'rscan') rscanInit();
+  if (key === 'unship') unshipInit();
   if (key === 'an' && anState.renderPending) renderAnalytics();   // 시작 시 미뤄 둔 상품 분석 표
   if (key === 'perf') perfTrendInit();
 }
