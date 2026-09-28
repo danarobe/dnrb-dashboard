@@ -3066,7 +3066,7 @@ function rscanIssuesRender() {
     const name = g.buyer && g.receiver && g.buyer !== g.receiver ? `${escHtml(g.buyer)} <span style="color:#6b7280;font-size:.72rem;">(수령 ${escHtml(g.receiver)})</span>` : escHtml(g.buyer || g.receiver || '—');
     const multi = g.claims.length > 1;
     const claims = g.claims.map(c => `<div style="${multi ? 'padding:4px 0;border-top:1px dashed #e5e7eb;' : ''}">
-        <div style="font-size:.7rem;color:#6b7280;display:flex;gap:6px;flex-wrap:wrap;align-items:center;">${multi ? badge(c.alert) : ''}<span>접수 ${escHtml(c.claim_code || '—')} · ${escHtml(c.claim_date || '')}</span>${stBadge(c)}${rscanCollectBtn({ order_id: g.order_id, claim_code: c.claim_code, kind: g.kind, naver: g.naver, status: c.status, status_extra: c.status_extra })}</div>
+        <div style="font-size:.7rem;color:#6b7280;display:flex;gap:6px;flex-wrap:wrap;align-items:center;">${multi ? badge(c.alert) : ''}<span>접수 ${escHtml(c.claim_code || '—')} · ${escHtml(c.claim_date || '')}</span>${stBadge(c)}${rscanCollectBtn({ order_id: g.order_id, claim_code: c.claim_code, kind: g.kind, naver: g.naver, status: c.status, status_extra: c.status_extra, alert: c.alert })}</div>
         ${(c.items || []).map(it => `<div style="${rscanNrRowStyle(it)}border-radius:6px;padding:0 3px;">${escHtml(it.name || '')}${it.option ? ` <span style="color:#6b7280;">${escHtml(it.option)}</span>` : ''}${it.qty > 1 ? ` <b>×${it.qty}</b>` : ''}${rscanNrChips(it)}</div>`).join('') || '<div>—</div>'}</div>`).join('').replace('border-top:1px dashed #e5e7eb;', '');
     const reasons = g.claims.map(c => {
       const full = `${c.reason_type ? '[' + c.reason_type + '] ' : ''}${(c.reason || '').replace(/\s+/g, ' ').trim() || (c.reason_type ? '' : '—')}${c.naver_reason ? ` / 네이버: ${c.naver_reason}` : ''}`;
@@ -3296,11 +3296,11 @@ function rscanCanCollect(h) {
 }
 function rscanCollectBtn(h) {
   if (!rscanCanCollect(h)) return '';
-  return `<button class="toggle-btn" style="font-size:.7rem;padding:2px 9px;background:#4f46e5;color:#fff;border-color:#4f46e5;" data-oid="${escHtml(h.order_id)}" data-claim="${escHtml(h.claim_code)}" data-kind="${escHtml(h.kind)}" onclick="rscanCollect(this)" title="카페24에서 이 접수를 수거 완료로 바꿉니다"><i class="fa-solid fa-box-open"></i> 수거 완료</button>`;
+  return `<button class="toggle-btn" style="font-size:.7rem;padding:2px 9px;background:#4f46e5;color:#fff;border-color:#4f46e5;" data-oid="${escHtml(h.order_id)}" data-claim="${escHtml(h.claim_code)}" data-kind="${escHtml(h.kind)}" data-defect="${h.alert && h.alert.type === '불량' ? '1' : '0'}" onclick="rscanCollect(this)" title="카페24에서 이 접수를 수거 완료로 바꿉니다"><i class="fa-solid fa-box-open"></i> 수거 완료</button>`;
 }
 async function rscanCollect(btn) {
   const d = btn.dataset, label = d.kind === 'exchange' ? '교환' : '반품';
-  if (!confirm(`주문 ${d.oid} 의 ${label} 접수(${d.claim})를 카페24에서 '수거 완료'로 처리할까요?\n\n카페24에 바로 반영되고, 되돌리려면 카페24 관리자에서 직접 바꿔야 해요.\n(카페24 재고 복구: ${((rscanState.status || {}).settings || {}).collect_recover_inventory === 'T' ? '함' : '안 함'})`)) return;
+  if (!confirm(`주문 ${d.oid} 의 ${label} 접수(${d.claim})를 카페24에서 '수거 완료'로 처리할까요?\n\n카페24에 바로 반영되고, 되돌리려면 카페24 관리자에서 직접 바꿔야 해요.\n(카페24 재고 복구: ${(m => m === 'T' ? '함' : m === 'F' ? '안 함' : d.defect === '1' ? '안 함 — 불량 접수' : '함 — 불량 아님')(((rscanState.status || {}).settings || {}).collect_recover_inventory)})`)) return;
   const old = btn.innerHTML; btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> 처리 중';
   try {
     const send = ack => fetch(fnUrl('cafe24-analytics', Object.assign({ action: 'rscan_collect', order_id: d.oid, claim_code: d.claim, kind: d.kind }, ack ? { ack: 1 } : {})), { method: 'POST', headers: sbHeaders(), body: '{}' });
@@ -3314,7 +3314,7 @@ async function rscanCollect(btn) {
     }
     if (!res.ok || r.error) throw new Error(r.error || ('오류 ' + res.status));
     const txt = `${r.status || ''}${r.status_extra ? ' · ' + r.status_extra : ''}`.trim();
-    btn.outerHTML = `<span style="font-size:.72rem;font-weight:800;color:#15803d;white-space:nowrap;"><i class="fa-solid fa-circle-check"></i> ${r.already ? '이미 수거 완료' : '수거 완료 처리됨'}${txt ? ' (' + escHtml(txt) + ')' : ''}</span>`;
+    btn.outerHTML = `<span style="font-size:.72rem;font-weight:800;color:#15803d;white-space:nowrap;"><i class="fa-solid fa-circle-check"></i> ${r.already ? '이미 수거 완료' : '수거 완료 처리됨'}${txt ? ' (' + escHtml(txt) + ')' : ''}${r.recover_inventory ? ` · 재고 복구 ${r.recover_inventory === 'T' ? '함' : '안 함'}` : ''}</span>`;
     showToast(r.already ? '이미 수거 완료된 접수예요' : `${label} 수거 완료로 처리했어요`);
     // 목록 데이터도 맞춰 둔다 (다시 그릴 때 버튼이 되살아나지 않게)
     const fix = e => { if (e && e.order_id === d.oid && e.claim_code === d.claim && e.kind === d.kind) { e.status = r.status || e.status; e.status_extra = r.status_extra || (d.kind === 'return' ? '환불전' : '수거완료'); if (d.kind === 'return') e.collected = true; } };
@@ -3570,8 +3570,8 @@ function rscanSettingsToggle() {
     <div style="font-size:.8rem;font-weight:800;color:#4338ca;margin-top:14px;">수거 완료 처리 <span style="font-weight:500;color:#6b7280;font-size:.72rem;">— 카페24에 값을 쓰는 유일한 기능. 서버는 '반품·교환 접수의 수거 완료 표시'만 보낼 수 있고, 사람별 1시간 150건·전체 하루 1,000건 한도가 있어요.</span></div>
     <label style="display:flex;align-items:center;gap:8px;font-size:.8rem;color:#374151;font-weight:600;margin-top:6px;cursor:pointer;"><input type="checkbox" id="rs-collect" ${st.collect_enabled === false ? '' : 'checked'} style="width:18px;height:18px;" /> 수거 완료 버튼 사용 <span style="font-weight:500;color:#6b7280;font-size:.72rem;">(끄면 전 직원 화면에서 버튼이 사라지고 서버도 거부)</span></label>
     <label style="display:flex;align-items:center;gap:8px;font-size:.8rem;color:#374151;font-weight:600;margin-top:6px;flex-wrap:wrap;">수거 완료 시 카페24 재고
-      <select id="rs-recover" style="border:1.5px solid #d1d5db;border-radius:8px;padding:4px 8px;font-size:.8rem;"><option value="F" ${st.collect_recover_inventory === 'T' ? '' : 'selected'}>복구 안 함 (기본)</option><option value="T" ${st.collect_recover_inventory === 'T' ? 'selected' : ''}>복구함</option></select>
-      <span style="font-weight:500;color:#6b7280;font-size:.72rem;">카페24가 수거 완료 처리에 꼭 요구하는 값이에요. 재고를 셀메이트에서 관리하면 '복구 안 함'.</span></label>
+      <select id="rs-recover" style="border:1.5px solid #d1d5db;border-radius:8px;padding:4px 8px;font-size:.8rem;"><option value="auto" ${!['T', 'F'].includes(st.collect_recover_inventory) ? 'selected' : ''}>자동 — 불량이면 복구 안 함, 그 외 복구 (기본)</option><option value="F" ${st.collect_recover_inventory === 'F' ? 'selected' : ''}>항상 복구 안 함</option><option value="T" ${st.collect_recover_inventory === 'T' ? 'selected' : ''}>항상 복구함</option></select>
+      <span style="font-weight:500;color:#6b7280;font-size:.72rem;">카페24가 수거 완료 처리에 꼭 요구하는 값이에요. 불량 여부는 위 경고 기준(불량 코드·문구)으로 판단해요.</span></label>
     <div style="margin-top:6px;"><button class="toggle-btn" style="font-size:.74rem;" onclick="rscanActionsOpen()"><i class="fa-solid fa-clock-rotate-left"></i> 수거 완료 처리 기록 보기</button></div>
     <div id="rscan-actions" style="margin-top:8px;"></div>
     <div style="font-size:.8rem;font-weight:800;color:#4338ca;margin-top:14px;">바로가기 주소 형식 <span style="font-weight:500;color:#6b7280;font-size:.72rem;">— 결과 카드의 '카페24 주문'·'네이버페이센터' 버튼이 여는 주소. {order_id}=카페24 주문번호, {product_order_no}=네이버 상품주문번호, {kind}=return/exchange. 비우면 기본값</span></div>
@@ -3580,7 +3580,7 @@ function rscanSettingsToggle() {
 }
 async function rscanSettingsSave() {
   const list = id => $(id).value.split(',').map(x => x.trim()).filter(Boolean);
-  const settings = { defect_codes: list('rs-dc').map(x => x.toUpperCase()), misdeliver_codes: list('rs-mc').map(x => x.toUpperCase()), defect_words: list('rs-dw'), misdeliver_words: list('rs-mw'), naver_words: list('rs-nw'), cafe24_url: $('rs-c24').value.trim(), naver_url: $('rs-nv').value.trim(), collect_enabled: !!($('rs-collect') || { checked: true }).checked, collect_recover_inventory: (($('rs-recover') || {}).value === 'T') ? 'T' : 'F' };
+  const settings = { defect_codes: list('rs-dc').map(x => x.toUpperCase()), misdeliver_codes: list('rs-mc').map(x => x.toUpperCase()), defect_words: list('rs-dw'), misdeliver_words: list('rs-mw'), naver_words: list('rs-nw'), cafe24_url: $('rs-c24').value.trim(), naver_url: $('rs-nv').value.trim(), collect_enabled: !!($('rs-collect') || { checked: true }).checked, collect_recover_inventory: ['T', 'F'].includes(($('rs-recover') || {}).value) ? $('rs-recover').value : 'auto' };
   for (const k of ['cafe24_url', 'naver_url']) if (settings[k] && !/^https:\/\//.test(settings[k])) { showToast('주소는 https:// 로 시작해야 해요'); return; }
   try {
     await dbProxy('rscan_settings?on_conflict=id', { method: 'POST', headers: { Prefer: 'resolution=merge-duplicates,return=minimal' }, body: JSON.stringify({ id: 1, settings, updated_by: SESSION.name, updated_at: new Date().toISOString() }) });

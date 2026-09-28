@@ -260,7 +260,7 @@ async function apiGet(url: string, token: string): Promise<Record<string, unknow
 //  · 범용 쓰기 헬퍼를 두지 않는다 — 주소와 본문을 호출자가 넘기지 못하고, 검증된 주문번호·접수번호·품주코드로 이 함수가 직접 조립한다.
 //  · 본문은 { shop_no:1, request:{ pickup_completed:"T", recover_inventory:"T"|"F", items:[{order_item_code}] } } 로 고정(상태 변경·철회·환불 필드 없음).
 //    recover_inventory는 카페24가 수거 완료 전환에 필수로 요구(2026-09-28 실사용 422 "recover_inventory is necessary for change to a collected status") —
-//    값은 관리자 설정 collect_recover_inventory(기본 "F" = 복구 안 함, 재고는 셀메이트가 관리)만 따른다.
+//    값은 서버가 정한다: 관리자 설정 collect_recover_inventory 기본 'auto'(불량 접수 F, 그 외 T), 'T'/'F'면 고정. 호출자(화면)는 지정할 수 없다.
 //  · 다른 쓰기가 필요해지면 여기 허용 목록을 넓히지 말고 사용자 승인부터 받을 것. tools/check_cafe24_writes.sh 가 배포 전 검사한다.
 async function cafe24MarkCollected(kind: "return" | "exchange", orderId: string, claimCode: string, itemCodes: string[], recover: "T" | "F", token: string): Promise<Record<string, unknown>> {
   if (kind !== "return" && kind !== "exchange") throw new Error("허용되지 않은 쓰기(kind)");
@@ -571,7 +571,14 @@ Deno.serve(async (req) => {
         // ── 안전장치 (2026-09-28) ── ① 관리자 끄기 스위치 ② 사용 한도(사람별 1시간 150건 · 전체 하루 1,000건) — 성공·실패 모두 셈
         const cset = (await rscanSettings()) as Record<string, unknown>;
         if (cset.collect_enabled === false) return json({ error: "수거 완료 처리가 꺼져 있어요 (관리자가 '경고 기준'에서 다시 켤 수 있어요)" }, 403);
-        const recover: "T" | "F" = cset.collect_recover_inventory === "T" ? "T" : "F";   // 카페24 재고 복구 — 기본 안 함
+        // 카페24 재고 복구 (2026-09-28 사용자 지정): 기본 'auto' = 불량 접수면 복구 안 함(F), 그 외(변심·사이즈·오배송 등)는 복구(T).
+        //   불량 판정은 스캔 경고와 같은 rscanJudge(사유 코드 K·V·D 등 + 사유 문구 '불량 의심' 포함) — 최신 주문의 접수 사유로 서버가 판단.
+        //   관리자 설정 collect_recover_inventory 가 'T'/'F' 면 그 값으로 고정.
+        const claimObj = (((order[kind] ?? []) as Record<string, any>[]).find((c) => c.claim_code === claimCode)) ?? {};
+        const judged = rscanJudge({ naver: false, reason_type: claimObj.claim_reason_type ?? its[0]?.claim_reason_type ?? null, reason: String(claimObj.claim_reason ?? its[0]?.claim_reason ?? "") }, cset as typeof RSCAN_DEFAULTS);
+        const isDefect = !!judged && judged.type === "불량";
+        const mode = String(cset.collect_recover_inventory ?? "auto");
+        const recover: "T" | "F" = mode === "T" ? "T" : mode === "F" ? "F" : (isDefect ? "F" : "T");
         const sinceIso = (ms: number) => new Date(Date.now() - ms).toISOString();
         const mine = ((await sbRest(`rscan_actions?select=id,created_at&by_id=eq.${encodeURIComponent(authed.id)}&created_at=gte.${sinceIso(3600e3)}&limit=500`)) ?? []) as Record<string, any>[];
         const allDay = ((await sbRest(`rscan_actions?select=id&created_at=gte.${sinceIso(24 * 3600e3)}&limit=1500`)) ?? []) as unknown[];
@@ -599,13 +606,13 @@ Deno.serve(async (req) => {
         // 처리 후 상태를 다시 읽어 응답·인덱스에 반영 (목록·처리 탭이 다음 갱신 전에도 맞게 보이도록)
         let after = { status: "", status_extra: "" };
         try { after = stateOf(pick(await readOrder())); } catch { /* 읽기 실패해도 처리는 성립 */ }
-        await logAct(true, (`${after.status} ${after.status_extra}`.trim() || "처리됨") + ` · 재고 복구 ${recover === "T" ? "함" : "안 함"}` + (flagged.length ? ` · 주의 품목 확인 후 처리: ${flagged.map((f) => f.flags.map((x) => x.type).join("/")).join(", ")}` : ""), codes);
+        await logAct(true, (`${after.status} ${after.status_extra}`.trim() || "처리됨") + ` · 재고 복구 ${recover === "T" ? "함" : "안 함"}${mode === "T" || mode === "F" ? "(고정)" : isDefect ? "(불량)" : "(불량 아님)"}` + (flagged.length ? ` · 주의 품목 확인 후 처리: ${flagged.map((f) => f.flags.map((x) => x.type).join("/")).join(", ")}` : ""), codes);
         try {
           const [full] = (await sbRest("rscan_index?kind=eq.cafe24&select=payload")) ?? [];
           const pl = ((full?.payload ?? []) as Record<string, any>[]).map((e) => e.order_id === orderId && e.claim_code === claimCode && e.kind === kind ? { ...e, status: after.status || e.status, status_extra: after.status_extra } : e);
           if (pl.length) await sbRest("rscan_index?kind=eq.cafe24", { method: "PATCH", headers: { Prefer: "return=minimal" }, body: JSON.stringify({ payload: pl }) });
         } catch { /* 인덱스 반영 실패는 다음 자동 갱신(15분)에 맡긴다 */ }
-        return json({ ok: true, ...after, by: authed.name, recover_inventory: recover });
+        return json({ ok: true, ...after, by: authed.name, recover_inventory: recover, defect: isDefect });
       }
       // ── 이름·수령인·배송지 주소·전화로 찾기 (2026-09-23 사용자 요청): 송장이 카페24에 없는 고객 직접 발송 반품용. 수거 전 반품·교환만, 철회 제외
       if (action === "rscan_find") {
