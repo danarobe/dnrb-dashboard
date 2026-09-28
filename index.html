@@ -3066,7 +3066,7 @@ function rscanIssuesRender() {
     const name = g.buyer && g.receiver && g.buyer !== g.receiver ? `${escHtml(g.buyer)} <span style="color:#6b7280;font-size:.72rem;">(수령 ${escHtml(g.receiver)})</span>` : escHtml(g.buyer || g.receiver || '—');
     const multi = g.claims.length > 1;
     const claims = g.claims.map(c => `<div style="${multi ? 'padding:4px 0;border-top:1px dashed #e5e7eb;' : ''}">
-        <div style="font-size:.7rem;color:#6b7280;display:flex;gap:6px;flex-wrap:wrap;align-items:center;">${multi ? badge(c.alert) : ''}<span>접수 ${escHtml(c.claim_code || '—')} · ${escHtml(c.claim_date || '')}</span>${stBadge(c)}${rscanCollectBtn({ order_id: g.order_id, claim_code: c.claim_code, kind: g.kind, naver: g.naver, status: c.status, status_extra: c.status_extra, alert: c.alert })}</div>
+        <div style="font-size:.7rem;color:#6b7280;display:flex;gap:6px;flex-wrap:wrap;align-items:center;">${multi ? badge(c.alert) : ''}<span>접수 ${escHtml(c.claim_code || '—')} · ${escHtml(c.claim_date || '')}</span>${stBadge(c)}${rscanCollectBtn({ order_id: g.order_id, claim_code: c.claim_code, kind: g.kind, naver: g.naver, status: c.status, status_extra: c.status_extra, alert: c.alert })}${rscanCollectedByHtml(c.collected_by)}</div>
         ${(c.items || []).map(it => `<div style="${rscanNrRowStyle(it)}border-radius:6px;padding:0 3px;">${escHtml(it.name || '')}${it.option ? ` <span style="color:#6b7280;">${escHtml(it.option)}</span>` : ''}${it.qty > 1 ? ` <b>×${it.qty}</b>` : ''}${rscanNrChips(it)}</div>`).join('') || '<div>—</div>'}</div>`).join('').replace('border-top:1px dashed #e5e7eb;', '');
     const reasons = g.claims.map(c => {
       const full = `${c.reason_type ? '[' + c.reason_type + '] ' : ''}${(c.reason || '').replace(/\s+/g, ' ').trim() || (c.reason_type ? '' : '—')}${c.naver_reason ? ` / 네이버: ${c.naver_reason}` : ''}`;
@@ -3272,19 +3272,44 @@ function rscanNrSummary(items) {   // 카드 상단 경고 띠
   return `<div style="background:${block ? '#7f1d1d' : '#9a3412'};color:#fff;border-radius:10px;padding:8px 12px;margin-top:8px;font-size:.82rem;font-weight:800;line-height:1.6;"><i class="fa-solid ${block ? 'fa-ban' : 'fa-circle-question'}"></i> ${block ? '반품 불가 품목이 들어 있어요' : '반품 가능 여부를 확인할 품목이 있어요'} — 수거 완료를 누르기 전에 확인하세요
     ${list.map(it => `<div style="font-weight:600;font-size:.76rem;">· ${escHtml(it.name || '')}${it.option ? ' / ' + escHtml(it.option) : ''} — ${(it.nr || []).map(f => escHtml(f.text)).join(' · ')}</div>`).join('')}</div>`;
 }
+/* 수거 완료 처리자 표시 (2026-09-28 사용자 요청) — 워크스페이스에서 누른 건만: 누가·언제·재고 복구 여부 */
+function rscanCollectedByHtml(cb) {
+  if (!cb) return '';
+  const d = new Date(cb.at), p = n => String(n).padStart(2, '0');
+  const when = isNaN(d) ? '' : `${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+  const rec = cb.recover === 'T' ? '재고 복구함' : cb.recover === 'F' ? '재고 복구 안 함' : '';
+  return `<span style="display:inline-flex;gap:5px;align-items:center;background:#ecfdf5;border:1px solid #a7f3d0;color:#065f46;border-radius:99px;padding:1px 9px;font-size:.7rem;font-weight:700;white-space:nowrap;" title="워크스페이스에서 수거 완료 처리한 기록"><i class="fa-solid fa-box-open"></i> 수거 완료 · ${escHtml(cb.by || '')} · ${when}${rec ? ' · ' + rec : ''}${cb.defect ? ' (불량)' : ''}</span>`;
+}
 /* 수거 완료 처리 기록 (관리자) — rscan_actions 최근 100건 */
 async function rscanActionsOpen() {
   const box = $('rscan-actions'); if (!box) return;
   box.innerHTML = '<div style="font-size:.76rem;color:#6b7280;"><i class="fa-solid fa-spinner fa-spin"></i> 불러오는 중…</div>';
   try {
-    const rows = await dbProxy('rscan_actions?select=created_at,by_name,kind,order_id,claim_code,ok,result&order=created_at.desc&limit=100');
+    const rows = await dbProxy('rscan_actions?select=created_at,by_name,kind,order_id,claim_code,ok,result,recover_inventory,defect&order=created_at.desc&limit=500');
+    rscanState.actionRows = rows || [];
     if (!rows || !rows.length) { box.innerHTML = '<div style="font-size:.76rem;color:#6b7280;">아직 처리 기록이 없어요.</div>'; return; }
     const when = t => { const d = new Date(t); const p = n => String(n).padStart(2, '0'); return `${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`; };
-    box.innerHTML = `<div class="table-wrap" style="max-height:320px;overflow:auto;"><table style="width:100%;font-size:.74rem;"><thead><tr><th>시각</th><th>처리자</th><th>구분</th><th style="text-align:left;">주문번호</th><th style="text-align:left;">접수번호</th><th>결과</th><th class="m-hide" style="text-align:left;">내용</th></tr></thead><tbody>${rows.map(r => `<tr>
+    box.innerHTML = `<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:6px;"><span style="font-size:.74rem;color:#6b7280;">최근 ${rows.length}건</span><button class="toggle-btn" style="font-size:.72rem;" onclick="rscanActionsXlsx()"><i class="fa-solid fa-file-excel" style="color:#15803d;"></i> 엑셀로 받기</button></div><div class="table-wrap" style="max-height:320px;overflow:auto;"><table style="width:100%;font-size:.74rem;"><thead><tr><th>시각</th><th>처리자</th><th>구분</th><th style="text-align:left;">주문번호</th><th style="text-align:left;">접수번호</th><th>결과</th><th>재고 복구</th><th class="m-hide" style="text-align:left;">내용</th></tr></thead><tbody>${rows.map(r => `<tr>
       <td style="white-space:nowrap;">${escHtml(when(r.created_at))}</td><td>${escHtml(r.by_name || '')}</td><td>${r.kind === 'exchange' ? '교환' : '반품'}</td>
       <td style="text-align:left;">${escHtml(r.order_id)}</td><td style="text-align:left;">${escHtml(r.claim_code)}</td>
-      <td style="font-weight:800;color:${r.ok ? '#15803d' : '#b91c1c'};">${r.ok ? '성공' : '실패'}</td><td class="m-hide" style="text-align:left;color:#4b5563;max-width:280px;white-space:normal;">${escHtml(String(r.result || '').slice(0, 160))}</td></tr>`).join('')}</tbody></table></div>`;
+      <td style="font-weight:800;color:${r.ok ? '#15803d' : '#b91c1c'};">${r.ok ? '성공' : '실패'}</td><td style="white-space:nowrap;">${r.recover_inventory === 'T' ? '복구함' : r.recover_inventory === 'F' ? '<b style="color:#b45309;">복구 안 함</b>' + (r.defect ? ' (불량)' : '') : '—'}</td><td class="m-hide" style="text-align:left;color:#4b5563;max-width:280px;white-space:normal;">${escHtml(String(r.result || '').slice(0, 160))}</td></tr>`).join('')}</tbody></table></div>`;
   } catch (e) { box.innerHTML = `<div style="font-size:.76rem;color:#b91c1c;">기록을 불러오지 못했어요 — ${escHtml(e.message)}</div>`; }
+}
+async function rscanActionsXlsx() {
+  const rows = rscanState.actionRows || []; if (!rows.length) { showToast('받을 기록이 없어요'); return; }
+  try {
+    await loadXlsxPopulate();
+    const wb = await XlsxPopulate.fromBlankAsync(); const ws = wb.sheet(0).name('수거완료 기록');
+    ['처리 시각', '처리자', '구분', '주문번호', '접수번호', '결과', '재고 복구', '불량 접수', '내용'].forEach((h, i) => ws.cell(1, i + 1).value(h).style({ bold: true, fill: 'EEF2FF' }));
+    [18, 10, 6, 20, 20, 7, 12, 9, 60].forEach((w, i) => ws.column(i + 1).width(w));
+    const p = n => String(n).padStart(2, '0');
+    rows.forEach((r, i) => { const d = new Date(r.created_at);
+      [`${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`, r.by_name || '', r.kind === 'exchange' ? '교환' : '반품', r.order_id, r.claim_code, r.ok ? '성공' : '실패',
+        r.recover_inventory === 'T' ? '복구함' : r.recover_inventory === 'F' ? '복구 안 함' : '', r.defect == null ? '' : r.defect ? '불량' : '불량 아님', String(r.result || '').slice(0, 300)].forEach((v, c) => { if (v !== '') ws.cell(i + 2, c + 1).value(v); }); });
+    const blob = await wb.outputAsync(); const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob); a.download = `수거완료_처리기록_${new Date().toISOString().slice(0, 10).replace(/-/g, '')}.xlsx`;
+    document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 3000);
+  } catch (e) { showToast('엑셀 저장 실패: ' + e.message); }
 }
 /* 수거 완료 처리 (2026-09-28 사용자 요청) — 카페24 반품·교환 접수를 수거 완료로. 네이버페이·이미 수거된 건·철회 건은 버튼 없음 */
 function rscanCanCollect(h) {
@@ -3314,10 +3339,11 @@ async function rscanCollect(btn) {
     }
     if (!res.ok || r.error) throw new Error(r.error || ('오류 ' + res.status));
     const txt = `${r.status || ''}${r.status_extra ? ' · ' + r.status_extra : ''}`.trim();
-    btn.outerHTML = `<span style="font-size:.72rem;font-weight:800;color:#15803d;white-space:nowrap;"><i class="fa-solid fa-circle-check"></i> ${r.already ? '이미 수거 완료' : '수거 완료 처리됨'}${txt ? ' (' + escHtml(txt) + ')' : ''}${r.recover_inventory ? ` · 재고 복구 ${r.recover_inventory === 'T' ? '함' : '안 함'}` : ''}</span>`;
+    const cbNew = r.already ? null : { by: r.by || SESSION.name, at: r.at || new Date().toISOString(), recover: r.recover_inventory || null, defect: !!r.defect };
+    btn.outerHTML = r.already ? `<span style="font-size:.72rem;font-weight:800;color:#15803d;white-space:nowrap;"><i class="fa-solid fa-circle-check"></i> 이미 수거 완료${txt ? ' (' + escHtml(txt) + ')' : ''}</span>` : rscanCollectedByHtml(cbNew);
     showToast(r.already ? '이미 수거 완료된 접수예요' : `${label} 수거 완료로 처리했어요`);
     // 목록 데이터도 맞춰 둔다 (다시 그릴 때 버튼이 되살아나지 않게)
-    const fix = e => { if (e && e.order_id === d.oid && e.claim_code === d.claim && e.kind === d.kind) { e.status = r.status || e.status; e.status_extra = r.status_extra || (d.kind === 'return' ? '환불전' : '수거완료'); if (d.kind === 'return') e.collected = true; } };
+    const fix = e => { if (e && e.order_id === d.oid && e.claim_code === d.claim && e.kind === d.kind) { if (cbNew) e.collected_by = cbNew; e.status = r.status || e.status; e.status_extra = r.status_extra || (d.kind === 'return' ? '환불전' : '수거완료'); if (d.kind === 'return') e.collected = true; } };
     (rscanState.findHits || []).forEach(fix);
     if (rscanState.issues) { rscanState.issues.issues.forEach(g => { (g.claims || []).forEach(c => fix(Object.assign(c, { order_id: g.order_id, kind: g.kind }))); if (g.kind === 'return') { g.auto_done = g.claims.every(c => c.collected); g.collected_some = g.claims.some(c => c.collected); } }); rscanTabsRender(); }
   } catch (e) { btn.disabled = false; btn.innerHTML = old; showToast('수거 완료 처리 실패: ' + e.message); }
@@ -3454,6 +3480,7 @@ function rscanRender(r) {
     <div style="font-size:.8rem;margin-top:6px;${h.alert && h.alert.level === 'alert' ? 'font-weight:700;' : 'color:#374151;'}">사유 <b>${escHtml(h.reason_type ? '[' + h.reason_type + '] ' : '')}${escHtml(h.reason || '—')}</b>${h.naver_reason ? ` · 네이버 사유 <b>${escHtml(h.naver_reason)}</b>` : ''} · 반품 송장 ${escHtml(h.invoice || '—')}${h.company ? ' (' + escHtml(h.company) + ')' : ''} · 클레임 ${escHtml(h.claim_code || '—')}</div>
     <div style="font-size:.8rem;margin-top:2px;${h.alert && h.alert.level === 'alert' ? '' : 'color:#374151;'}">구매자 ${escHtml(h.buyer || '—')} · 수령인 ${escHtml(h.receiver || '—')}</div>
     ${h.naver && (h.naver_ids || []).length ? `<div style="margin-top:4px;">${rscanNaverIdsHtml(h.naver_ids)}</div>` : ''}
+    ${h.collected_by ? `<div style="margin-top:5px;">${rscanCollectedByHtml(h.collected_by)}</div>` : ''}
     ${rscanNrSummary(h.items)}
     <table style="width:100%;margin-top:8px;font-size:.8rem;"><thead><tr><th style="text-align:left;">상품</th><th style="text-align:left;">옵션</th><th>수량</th><th class="m-hide">품목 상태</th><th class="m-hide">발송 송장</th></tr></thead>
       <tbody>${(h.items || []).map(it => `<tr style="${rscanNrRowStyle(it)}"><td style="text-align:left;font-weight:600;">${escHtml(it.name)}${rscanNrChips(it)}</td><td style="text-align:left;">${escHtml(it.option || '—')}</td><td>${it.qty}</td><td class="m-hide">${escHtml(it.status || '')}</td><td class="m-hide" style="font-family:monospace;font-size:.72rem;">${escHtml(it.tracking_no || '')}</td></tr>`).join('')}</tbody></table></div>`; }).join('');

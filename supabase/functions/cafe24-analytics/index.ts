@@ -115,6 +115,15 @@ function rscanYesterday() {
   d.setUTCDate(d.getUTCDate() - 1); return d;
 }
 function rscanStartDate(days: number) { const d = rscanYesterday(); d.setUTCDate(d.getUTCDate() - (days - 1)); return d.toISOString().slice(0, 10); }
+// 워크스페이스에서 수거 완료 처리한 접수 → { by, at, recover } (2026-09-28 사용자 요청: 누가 눌렀는지·재고 복구 여부를 나중에도 확인)
+async function rscanCollectedMap(): Promise<Record<string, { by: string; at: string; recover: string | null; defect: boolean | null }>> {
+  const since = new Date(Date.now() - 120 * 24 * 3600e3).toISOString();
+  const rows = ((await sbRest(`rscan_actions?select=claim_code,kind,by_name,created_at,recover_inventory,defect&ok=eq.true&action=eq.collect&created_at=gte.${since}&order=created_at.asc&limit=5000`).catch(() => [])) ?? []) as Record<string, any>[];
+  const map: Record<string, { by: string; at: string; recover: string | null; defect: boolean | null }> = {};
+  for (const r of rows) map[`${r.kind}:${r.claim_code}`] = { by: String(r.by_name ?? ""), at: String(r.created_at), recover: r.recover_inventory ?? null, defect: r.defect ?? null };
+  return map;
+}
+
 /* ── 반품 불가 품목 표시 (2026-09-28 사용자 지정) ──
    block(반품 불가): 상품명에 비키니·모노키니·swim·수영복 / ACC 카테고리(이름이 정확히 'ACC'인 모든 카테고리) 상품 중 주얼리·양말·모자(상품명 키워드)
                      + 할인 적용 품목(additional_discount_price > 0) 중 1+1·신상 7%가 아닌 것
@@ -479,6 +488,7 @@ Deno.serve(async (req) => {
         }
         // 주문 단위로 묶기(2026-09-22 사용자 요청 — 같은 주문의 접수가 여러 개면 한 줄 안에 나열). 키 = kind:order_id (반품/교환은 따로 줄)
         // 철회된 접수(status_extra '교환철회' 등)는 제외. 수거 완료 판단 = 반품완료 또는 반품처리중+'환불전'(실데이터: 반품처리중은 '수거전'/'환불전' 둘뿐, 반품접수는 '수거접수완료')
+        const collectedMap = await rscanCollectedMap();
         const groups = new Map<string, Record<string, any>>();
         for (const e of payload) {
           if (e.order_date && String(e.order_date) < startDate) continue;
@@ -492,6 +502,7 @@ Deno.serve(async (req) => {
           const collected = e.kind === "return" && (status === "반품완료" || /환불전/.test(extra));
           const exchanged = e.kind === "exchange" && status === "교환완료";
           const claim = {
+            collected_by: collectedMap[`${e.kind}:${e.claim_code}`] ?? null,
             key: `${e.kind}:${e.order_id}:${e.claim_code ?? ""}`, claim_code: e.claim_code ?? "", claim_date: e.claim_date ?? "", status, status_extra: extra,
             reason: e.reason ?? "", reason_type: e.reason_type ?? null, naver_reason: nv?.reason ?? null, invoice: e.invoice ?? "", company: e.company ?? null,
             items: ((e.items ?? []) as Record<string, any>[]).map((it) => ({ name: it.name, option: it.option ?? "", qty: it.qty ?? 0, product_no: it.product_no ?? null, nr: it.nr ?? [] })), alert, collected, exchanged,
@@ -552,7 +563,7 @@ Deno.serve(async (req) => {
         const orderId = String(url.searchParams.get("order_id") ?? ""), claimCode = String(url.searchParams.get("claim_code") ?? "");
         const kind = String(url.searchParams.get("kind") ?? "");
         if (!/^\d{8}-\d{7}$/.test(orderId) || !/^[A-Z]\d{8}-\d{7}$/.test(claimCode) || !["return", "exchange"].includes(kind)) return json({ error: "주문번호·접수번호가 올바르지 않습니다" }, 400);
-        const logAct = (ok: boolean, result: string, items: unknown) => sbRest("rscan_actions", { method: "POST", headers: { Prefer: "return=minimal" }, body: JSON.stringify({ action: "collect", kind, order_id: orderId, claim_code: claimCode, items, ok, result: String(result).slice(0, 500), by_id: authed.id, by_name: authed.name }) }).catch(() => null);
+        const logAct = (ok: boolean, result: string, items: unknown, extra: Record<string, unknown> = {}) => sbRest("rscan_actions", { method: "POST", headers: { Prefer: "return=minimal" }, body: JSON.stringify({ action: "collect", kind, order_id: orderId, claim_code: claimCode, items, ok, result: String(result).slice(0, 500), by_id: authed.id, by_name: authed.name, ...extra }) }).catch(() => null);
         const readOrder = async () => ((await apiGet(`${API_BASE}/admin/orders/${orderId}?embed=items,${kind}`, token)).order ?? {}) as Record<string, any>;
         const pick = (o: Record<string, any>) => ((o.items ?? []) as Record<string, any>[]).filter((it) => it.claim_code === claimCode);
         const collectedOf = (its: Record<string, any>[]) => its.length > 0 && its.every((it) => !!(kind === "return" ? it.return_collected_date : it.exchange_collected_date ?? it.return_collected_date) || /환불전|수거완료/.test(String(it.order_status_additional_info ?? "")) || ["반품완료", "교환완료"].includes(String(it.status_text ?? "")));
@@ -606,13 +617,13 @@ Deno.serve(async (req) => {
         // 처리 후 상태를 다시 읽어 응답·인덱스에 반영 (목록·처리 탭이 다음 갱신 전에도 맞게 보이도록)
         let after = { status: "", status_extra: "" };
         try { after = stateOf(pick(await readOrder())); } catch { /* 읽기 실패해도 처리는 성립 */ }
-        await logAct(true, (`${after.status} ${after.status_extra}`.trim() || "처리됨") + ` · 재고 복구 ${recover === "T" ? "함" : "안 함"}${mode === "T" || mode === "F" ? "(고정)" : isDefect ? "(불량)" : "(불량 아님)"}` + (flagged.length ? ` · 주의 품목 확인 후 처리: ${flagged.map((f) => f.flags.map((x) => x.type).join("/")).join(", ")}` : ""), codes);
+        await logAct(true, (`${after.status} ${after.status_extra}`.trim() || "처리됨") + ` · 재고 복구 ${recover === "T" ? "함" : "안 함"}${mode === "T" || mode === "F" ? "(고정)" : isDefect ? "(불량)" : "(불량 아님)"}` + (flagged.length ? ` · 주의 품목 확인 후 처리: ${flagged.map((f) => f.flags.map((x) => x.type).join("/")).join(", ")}` : ""), codes, { recover_inventory: recover, defect: isDefect });
         try {
           const [full] = (await sbRest("rscan_index?kind=eq.cafe24&select=payload")) ?? [];
           const pl = ((full?.payload ?? []) as Record<string, any>[]).map((e) => e.order_id === orderId && e.claim_code === claimCode && e.kind === kind ? { ...e, status: after.status || e.status, status_extra: after.status_extra } : e);
           if (pl.length) await sbRest("rscan_index?kind=eq.cafe24", { method: "PATCH", headers: { Prefer: "return=minimal" }, body: JSON.stringify({ payload: pl }) });
         } catch { /* 인덱스 반영 실패는 다음 자동 갱신(15분)에 맡긴다 */ }
-        return json({ ok: true, ...after, by: authed.name, recover_inventory: recover, defect: isDefect });
+        return json({ ok: true, ...after, by: authed.name, at: new Date().toISOString(), recover_inventory: recover, defect: isDefect });
       }
       // ── 이름·수령인·배송지 주소·전화로 찾기 (2026-09-23 사용자 요청): 송장이 카페24에 없는 고객 직접 발송 반품용. 수거 전 반품·교환만, 철회 제외
       if (action === "rscan_find") {
@@ -632,7 +643,7 @@ Deno.serve(async (req) => {
           const pending = e.kind === "return" ? !(status === "반품완료" || /환불전/.test(extra)) : status !== "교환완료";
           if (!pending) return false;
           return norm(e.buyer).includes(q) || norm(e.receiver).includes(q) || norm(e.address).includes(q) || (qd.length >= 4 && String(e.phone ?? "").includes(qd));
-        }).slice(0, 30).map((e) => ({ ...e, phone: e.phone ? String(e.phone).replace(/^(\d{3})(\d{3,4})(\d{4})$/, "$1-****-$3") : "", alert: rscanJudge(e, st) }));
+        }).slice(0, 30).map((e) => ({ ...e, collected_by: null, phone: e.phone ? String(e.phone).replace(/^(\d{3})(\d{3,4})(\d{4})$/, "$1-****-$3") : "", alert: rscanJudge(e, st) }));
         return json({ q: url.searchParams.get("q"), hits, index: { built_at: fresh ? row!.built_at : new Date().toISOString(), row_count: payload.length, days, start_date: startDate } });
       }
       // lookup
@@ -659,7 +670,8 @@ Deno.serve(async (req) => {
           hits = hits.map((e) => ({ ...e, invoice: naverRow!.invoice, company: naverRow!.company ?? e.company, reason: e.reason || naverRow!.reason || "", naver_reason: naverRow!.reason ?? null, naver_kind: naverRow!.kind ?? null }));
         }
       }
-      const result = hits.map((e) => ({ ...e, alert: rscanJudge({ ...e, reason: e.naver ? `${e.reason} ${e.naver_reason ?? ""}` : e.reason }, st) }));
+      const cmap = hits.length ? await rscanCollectedMap() : {};
+      const result = hits.map((e) => ({ ...e, collected_by: cmap[`${e.kind}:${e.claim_code}`] ?? null, alert: rscanJudge({ ...e, reason: e.naver ? `${e.reason} ${e.naver_reason ?? ""}` : e.reason }, st) }));
       return json({ q, hits: result, naver_row: naverRow && !hits.length ? naverRow : null, index: { built_at: fresh ? row!.built_at : new Date().toISOString(), row_count: payload.length, days, start_date: startDate } });
     }
 
