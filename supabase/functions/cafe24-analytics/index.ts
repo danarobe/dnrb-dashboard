@@ -191,6 +191,27 @@ async function apiGet(url: string, token: string): Promise<Record<string, unknow
   return body;
 }
 
+// 카페24 쓰기 요청 (2026-09-28 수거 완료 처리용) — apiGet과 같은 401 재발급·429 재시도. 실패 시 카페24 오류 문구를 그대로 던진다.
+async function apiSend(method: "PUT" | "POST", url: string, payload: unknown, token: string): Promise<Record<string, unknown>> {
+  const doFetch = (tk: string) => fetch(url, {
+    method,
+    headers: { Authorization: `Bearer ${tk}`, "Content-Type": "application/json", "X-Cafe24-Api-Version": API_VERSION },
+    body: JSON.stringify(payload),
+  });
+  let tok = token;
+  let res = await doFetch(tok);
+  if (res.status === 401) { tok = await getAccessToken(true); res = await doFetch(tok); }
+  for (let i = 0; res.status === 429 && i < RATE_LIMIT_RETRIES; i++) {
+    const ra = Number(res.headers.get("Retry-After"));
+    await res.body?.cancel();
+    await sleep(isFinite(ra) && ra > 0 ? ra * 1000 : Math.min(1000 * 2 ** i, 8000));
+    res = await doFetch(tok);
+  }
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw Object.assign(new Error(`${method} ${res.status}: ${JSON.stringify(body).slice(0, 400)}`), { status: res.status, body });
+  return body;
+}
+
 // 애널리틱스 API 페이지네이션 수집 (limit 최대 1000)
 async function collectData(
   path: string, listKey: string, params: URLSearchParams, token: string,
@@ -349,7 +370,7 @@ Deno.serve(async (req) => {
     const token = await getAccessToken();
 
     // ── 반품 송장 스캔 (2026-09-22): 관리자·MD·CS/물류팀 ──
-    if (action === "rscan_build" || action === "rscan_lookup" || action === "rscan_status" || action === "rscan_issues" || action === "rscan_find") {
+    if (action === "rscan_build" || action === "rscan_lookup" || action === "rscan_status" || action === "rscan_issues" || action === "rscan_find" || action === "rscan_collect") {
       if (!["admin", "staff", "cs"].includes(authed.role)) return json({ error: "접근 권한이 없습니다" }, 403);
       const days = Math.min(180, Math.max(7, Number(url.searchParams.get("days") ?? 14) || 14));   // 7·14·30·90 중 선택(기본 14), 어제까지
       const [row] = (await sbRest("rscan_index?kind=eq.cafe24&select=built_at,days,row_count" + (action === "rscan_lookup" || action === "rscan_issues" || action === "rscan_find" ? ",payload" : ""))) ?? [];
@@ -450,6 +471,47 @@ Deno.serve(async (req) => {
         const done: Record<string, unknown> = {};
         for (const g of visible) { const hit = doneMap[g.key] ?? g.claims.map((c: Record<string, any>) => doneMap[c.key]).find(Boolean); if (hit) done[g.key] = hit; }
         return json({ days: DAYS, start_date: startDate, built_at: fresh ? row!.built_at : new Date().toISOString(), row_count: payload.length, issues: visible, cleared_count: issues.length - visible.length, done, products });
+      }
+      // ── 수거 완료 처리 (2026-09-28 사용자 요청) — 카페24 반품·교환 접수를 '수거 완료'로 바꾼다. POST 전용, 실행마다 rscan_actions에 기록.
+      //    PUT orders/{order_id}/return|exchange/{claim_code} { request: { pickup_completed: "T", items } } (scope mall.write_order).
+      //    재고 복구(recover_inventory)·상태(status)는 보내지 않는다 = 카페24 기본 동작 그대로. 네이버페이 주문은 카페24에서 못 바꾸므로 거절.
+      if (action === "rscan_collect") {
+        if (req.method !== "POST") return json({ error: "POST로 호출해주세요" }, 405);
+        const orderId = String(url.searchParams.get("order_id") ?? ""), claimCode = String(url.searchParams.get("claim_code") ?? "");
+        const kind = String(url.searchParams.get("kind") ?? "");
+        if (!/^\d{8}-\d{7}$/.test(orderId) || !/^[A-Z]\d{8}-\d{7}$/.test(claimCode) || !["return", "exchange"].includes(kind)) return json({ error: "주문번호·접수번호가 올바르지 않습니다" }, 400);
+        const logAct = (ok: boolean, result: string, items: unknown) => sbRest("rscan_actions", { method: "POST", headers: { Prefer: "return=minimal" }, body: JSON.stringify({ action: "collect", kind, order_id: orderId, claim_code: claimCode, items, ok, result: String(result).slice(0, 500), by_id: authed.id, by_name: authed.name }) }).catch(() => null);
+        const readOrder = async () => ((await apiGet(`${API_BASE}/admin/orders/${orderId}?embed=items,${kind}`, token)).order ?? {}) as Record<string, any>;
+        const pick = (o: Record<string, any>) => ((o.items ?? []) as Record<string, any>[]).filter((it) => it.claim_code === claimCode);
+        const collectedOf = (its: Record<string, any>[]) => its.length > 0 && its.every((it) => !!(kind === "return" ? it.return_collected_date : it.exchange_collected_date ?? it.return_collected_date) || /환불전|수거완료/.test(String(it.order_status_additional_info ?? "")) || ["반품완료", "교환완료"].includes(String(it.status_text ?? "")));
+        let order: Record<string, any>;
+        try { order = await readOrder(); } catch (e) { return json({ error: "카페24에서 주문을 읽지 못했어요 — " + String(e).slice(0, 200) }, 502); }
+        if (order.order_place_id === "NCHECKOUT") return json({ error: "네이버페이 주문은 네이버페이센터에서 처리해야 해요" }, 400);
+        const its = pick(order);
+        if (!its.length) return json({ error: "이 주문에서 해당 접수 품목을 찾지 못했어요" }, 404);
+        const stateOf = (list: Record<string, any>[]) => ({ status: String(list[0]?.status_text ?? ""), status_extra: String(list[0]?.order_status_additional_info ?? "") });
+        if (collectedOf(its)) return json({ ok: true, already: true, ...stateOf(its) });
+        const codes = its.map((it) => ({ order_item_code: String(it.order_item_code) }));
+        try {
+          await apiSend("PUT", `${API_BASE}/admin/orders/${orderId}/${kind}/${claimCode}`, { shop_no: 1, request: { pickup_completed: "T", items: codes } }, token);
+        } catch (e) {
+          const st = (e as { status?: number }).status ?? 0, raw = String((e as Error).message ?? e);
+          const msg = st === 403 || /scope|permission|insufficient/i.test(raw)
+            ? "카페24 앱에 '주문 쓰기' 권한이 없어요 — 개발자센터에서 권한을 켠 뒤 '카페24 연동'으로 다시 연동해주세요"
+            : "카페24가 처리하지 못했어요 — " + raw.slice(0, 300);
+          await logAct(false, raw, codes);
+          return json({ error: msg, need_scope: st === 403 || /scope/i.test(raw) }, st === 403 ? 403 : 502);
+        }
+        // 처리 후 상태를 다시 읽어 응답·인덱스에 반영 (목록·처리 탭이 다음 갱신 전에도 맞게 보이도록)
+        let after = { status: "", status_extra: "" };
+        try { after = stateOf(pick(await readOrder())); } catch { /* 읽기 실패해도 처리는 성립 */ }
+        await logAct(true, `${after.status} ${after.status_extra}`.trim() || "처리됨", codes);
+        try {
+          const [full] = (await sbRest("rscan_index?kind=eq.cafe24&select=payload")) ?? [];
+          const pl = ((full?.payload ?? []) as Record<string, any>[]).map((e) => e.order_id === orderId && e.claim_code === claimCode && e.kind === kind ? { ...e, status: after.status || e.status, status_extra: after.status_extra } : e);
+          if (pl.length) await sbRest("rscan_index?kind=eq.cafe24", { method: "PATCH", headers: { Prefer: "return=minimal" }, body: JSON.stringify({ payload: pl }) });
+        } catch { /* 인덱스 반영 실패는 다음 자동 갱신(15분)에 맡긴다 */ }
+        return json({ ok: true, ...after, by: authed.name });
       }
       // ── 이름·수령인·배송지 주소·전화로 찾기 (2026-09-23 사용자 요청): 송장이 카페24에 없는 고객 직접 발송 반품용. 수거 전 반품·교환만, 철회 제외
       if (action === "rscan_find") {

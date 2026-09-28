@@ -15,7 +15,9 @@ const CLIENT_SECRET = Deno.env.get("CAFE24_CLIENT_SECRET")!;
 // mall.read_promotion(2026-09-12): 상품 전략 에이전트의 혜택(1+1·기간할인) 조회용 — 개발자센터 앱 권한에도 켜져 있어야 인증이 통과함
 // mall.read_community (2026-09-18): 광고 소재 담당이 상품 후기 게시판(board 4, 알파리뷰가 동기화)을 읽는다.
 //   ⚠ 개발자센터에서 UzeJXo 앱에 '게시판 읽기' 권한을 먼저 추가한 뒤 재연동해야 한다(권한 없는 상태로 재연동하면 invalid_scope).
-const SCOPE = "mall.read_order,mall.read_analytics,mall.read_category,mall.read_product,mall.read_promotion,mall.read_community";
+// mall.write_order (2026-09-28): 반품 스캔의 '수거 완료' 처리(PUT orders/{id}/return|exchange/{claim_code} pickup_completed=T).
+//   개발자센터 앱 권한에 '주문 쓰기'를 켠 뒤 '카페24 연동'으로 재연동해야 토큰에 반영된다. 권한을 켜기 전에 재연동하면 invalid_scope.
+const SCOPE = "mall.read_order,mall.write_order,mall.read_analytics,mall.read_category,mall.read_product,mall.read_promotion,mall.read_community";
 
 const API_BASE = `https://${MALL_ID}.cafe24api.com/api/v2`;
 
