@@ -248,7 +248,7 @@ async function unshipCollect(token: string) {
   while (left > 0) { const span = Math.min(30, left); const start = new Date(end); start.setUTCDate(start.getUTCDate() - (span - 1)); windows.push([fmtD(start), fmtD(end)]); end = new Date(start); end.setUTCDate(end.getUTCDate() - 1); left -= span; }
   const rows: Record<string, unknown>[] = [];
   const seen = new Set<string>();
-  let excluded = 0;   // 교환 재발송 품목 수 (목록에서 뺌)
+  let exchanges = 0;   // 교환 재발송 품목 수 (교환 접수일 기준으로 셈)
   for (const [a, b] of windows) {
     for (let offset = 0; offset < 10000; offset += 200) {
       const body = await apiGet(`${API_BASE}/admin/orders?start_date=${a}&end_date=${b}&order_status=N10,N20,N21,N22&embed=items&limit=200&offset=${offset}&date_type=order_date`, token);
@@ -256,19 +256,31 @@ async function unshipCollect(token: string) {
       for (const o of orders) {
         const paid = String(o.payment_date ?? "").slice(0, 10);
         if (!/^\d{4}-\d{2}-\d{2}$/.test(paid)) continue;
-        const delay = Math.round((new Date(todayStr + "T00:00:00Z").getTime() - new Date(paid + "T00:00:00Z").getTime()) / 86400000);
-        if (delay < 3) continue;
+        const daysSince = (d: string) => Math.round((new Date(todayStr + "T00:00:00Z").getTime() - new Date(d + "T00:00:00Z").getTime()) / 86400000);
+        // 교환 접수별 수거 상태: 같은 접수번호의 원래 품목(E* 교환처리중)의 부가 상태(수거전 등)
+        const pickupOf = new Map<string, string>();
+        // 원래 품목이 E30 교환처리중+'수거전'이면 '수거전', 그 외(E30 수거 후·E40 교환완료 — 실측 '교환완료'로 떠서 교환이 끝난 것처럼 보였음)는 '수거 완료'
+        for (const x of (o.items ?? []) as Record<string, any>[]) if (x.claim_code && /^E/.test(String(x.order_status ?? ""))) pickupOf.set(String(x.claim_code), /수거전/.test(String(x.order_status_additional_info ?? "")) ? "수거전" : "수거 완료");
         for (const it of (o.items ?? []) as Record<string, any>[]) {
           if (!UNSHIP_STATUSES.has(String(it.order_status ?? ""))) continue;
-          // 교환 재발송 품목 제외 (2026-09-29 사용자 신고): 교환 접수 시 카페24가 새 품목 줄(상태 N10 상품준비중)을 만드는데,
-          // 교환 접수번호(claim_code)가 붙어 있고 고객 반품 수거(수거전)를 기다리는 중이라 거래처 입고 지연이 아니다.
-          // 원 결제일로 지연을 세면 16~17일 '장기 지연'으로 잘못 떴음(베베블라우스 20260912-0002171-04, 아일렛새틴롱스커트 20260913-0003285-05).
-          // ⚠ 판별은 claim_code만: original_item_no는 교환이 아닌 일반 미발송 품목에도 붙어 있음(실측 5건, 예 20260926-0001149) — 넣으면 진짜 지연이 빠진다.
-          if (it.claim_code) { excluded++; continue; }
+          // 교환 재발송 품목 (2026-09-29 사용자 요청): 교환 접수 시 카페24가 새 품목 줄(N10 상품준비중 → 수거 후 N20)을 만들고 claim_code를 붙인다.
+          // 원 결제일로 세면 16~17일 '장기 지연'으로 잘못 떴음(베베블라우스 20260912-0002171-04) → **교환 접수일부터** 센다.
+          // 접수일 = 접수번호 앞 8자리(B20260918-0040987 → 2026-09-18, 실측 claim_due_date와 같음). 교환 상품도 거래처 입고가 늦으면 지연이 맞다(사용자).
+          // ⚠ 교환 판별은 claim_code만: original_item_no는 교환이 아닌 일반 미발송 품목에도 붙어 있음(실측 5건, 예 20260926-0001149).
+          let base = paid, exchange: Record<string, string> | null = null;
+          if (it.claim_code) {
+            const m = String(it.claim_code).match(/^[A-Z](\d{4})(\d{2})(\d{2})-/);
+            if (!m) continue;
+            base = `${m[1]}-${m[2]}-${m[3]}`;
+            exchange = { code: String(it.claim_code), date: base, pickup: pickupOf.get(String(it.claim_code)) ?? "" };
+          }
+          const delay = daysSince(base);
+          if (delay < 3) continue;
           const code = String(it.order_item_code ?? `${o.order_id}-${it.item_no}`);
           if (seen.has(code)) continue; seen.add(code);
+          if (exchange) exchanges++;
           rows.push({
-            order_id: o.order_id, item_code: code, order_date: String(o.order_date ?? "").slice(0, 10), paid, delay,
+            order_id: o.order_id, item_code: code, order_date: String(o.order_date ?? "").slice(0, 10), paid, base, delay, exchange,
             place: o.order_place_name ?? "", naver: o.order_place_id === "NCHECKOUT",
             product_no: it.product_no ?? null, product_name: String(it.product_name ?? ""), option: String(it.option_value ?? ""), qty: Number(it.quantity ?? 0),
             supplier_id: String(it.supplier_id ?? ""), supplier: String(it.supplier_name ?? ""), supplier_product: String(it.supplier_product_name ?? ""),
@@ -280,7 +292,7 @@ async function unshipCollect(token: string) {
     }
   }
   rows.sort((x, y) => Number(y.delay) - Number(x.delay));
-  return { today: todayStr, built_at: new Date().toISOString(), range: { start: windows[windows.length - 1][0], end: windows[0][1] }, items: rows, excluded_exchange: excluded };
+  return { today: todayStr, built_at: new Date().toISOString(), range: { start: windows[windows.length - 1][0], end: windows[0][1] }, items: rows, exchange_items: exchanges };
 }
 async function rscanBuild(token: string, days: number) {
   const nrSets = await rscanNrSets(token).catch(() => ({ acc: [], sale: {} } as NrSets));   // 카테고리 조회 실패해도 목록 생성은 계속

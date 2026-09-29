@@ -1292,7 +1292,7 @@
       <div id="unship-tabs" style="display:flex;gap:2px;border-bottom:2px solid #e5e7eb;margin-bottom:14px;flex-wrap:wrap;"></div>
       <div id="unship-pane-ask" class="unship-pane">
         <div style="font-size:.8rem;color:#6b7280;margin-bottom:10px;line-height:1.7;">
-          · <b>결제일부터 오늘까지</b> 발송이 안 된 상품(카페24 상품준비중·배송준비중·배송대기·배송보류)을 <b>거래처별</b>로 모았어요. 지연 기준(5·7·10일)은 바꿀 수 있어요.<br>
+          · <b>결제일부터 오늘까지</b> 발송이 안 된 상품(카페24 상품준비중·배송준비중·배송대기·배송보류)을 <b>거래처별</b>로 모았어요. <b style="color:#4338ca;">교환</b>으로 다시 보낼 상품은 <b>교환 접수일부터</b> 지연을 세요. 지연 기준(5·7·10일)은 바꿀 수 있어요.<br>
           · <b style="color:#b91c1c;">장기 지연</b> = 결제 후 10일 이상 발송이 안 된 옵션이에요.<br>
           · 거래처에 들은 <b>입고일</b>을 상품마다 적어 두세요(팀 전체가 같이 봐요). 카페24에 <b>발송 예정일</b>이 등록된 상품은 그 날짜로 <b style="color:#2563eb;">자동 기입</b>돼요(직접 고치면 그 뒤로는 직접 적은 날짜를 유지). 입고일이 뒤로 바뀌면 <b style="color:#c2410c;">추가 지연</b>, 입고일이 지났는데 아직 미발송이면 <b style="color:#b91c1c;">입고일 지남</b>으로 표시돼요. 따로 챙길 상품은 <b><i class="fa-solid fa-star" style="color:#d97706;"></i> 특수 관리</b>로 지정하세요 — 지연 기준과 관계없이 '특수 관리' 보기에 모여요.<br>
           · 거래처마다 <b>문의 문자</b>가 자동으로 만들어져요 — 상품명은 카페24 <b>공급사 상품명</b>(가격 제외), 옵션은 지연 중인 색상·사이즈만 넣어요. 문자에서 빼고 싶은 상품은 체크를 풀고, 문구는 직접 고친 뒤 <b>문자 복사</b>를 눌러 붙여넣으세요.
@@ -3205,8 +3205,11 @@ function unshipGroups() {
       if (it.product_no != null) unshipState.prodIndex.set(String(it.product_no), { product_name: it.product_name, supplier: it.supplier, supplier_product: p.name });
     }
     let o = p.opts.get(it.option);
-    if (!o) { o = { option: it.option, qty: 0, orders: new Set(), maxDelay: 0, paid: it.paid, expected: new Set() }; p.opts.set(it.option, o); }
-    o.qty += it.qty; o.orders.add(it.order_id); o.maxDelay = Math.max(o.maxDelay, it.delay); if (it.paid < o.paid) o.paid = it.paid; if (it.expected) o.expected.add(String(it.expected).slice(0, 10));
+    if (!o) { o = { option: it.option, qty: 0, orders: new Set(), maxDelay: 0, paid: '', expected: new Set(), exch: 0, exchDate: '', pickups: new Set() }; p.opts.set(it.option, o); }
+    o.qty += it.qty; o.orders.add(it.order_id); o.maxDelay = Math.max(o.maxDelay, it.delay); if (it.expected) o.expected.add(String(it.expected).slice(0, 10));
+    // 교환 재발송 품목(2026-09-29): 지연은 서버가 교환 접수일부터 셈 — 화면엔 '교환' 표시 + 접수일 + 수거 상태
+    if (it.exchange) { o.exch++; if (!o.exchDate || it.exchange.date < o.exchDate) o.exchDate = it.exchange.date; if (it.exchange.pickup) o.pickups.add(it.exchange.pickup); }
+    else if (!o.paid || it.paid < o.paid) o.paid = it.paid;
     p.qty += it.qty; p.orders.add(it.order_id); p.maxDelay = Math.max(p.maxDelay, it.delay);
     s.qty += it.qty; s.orders.add(it.order_id); s.maxDelay = Math.max(s.maxDelay, it.delay);
   }
@@ -3264,7 +3267,8 @@ function unshipRender() {
           <span style="font-weight:700;">${escHtml(o.option || '(옵션 없음)')}</span>
           <span style="color:#374151;">${o.qty}개</span>
           <span style="color:${o.maxDelay >= UNSHIP_LONG ? '#b91c1c' : '#b45309'};font-weight:800;">${o.maxDelay}일</span>${o.maxDelay >= UNSHIP_LONG ? longTag : ''}
-          <span style="color:#9ca3af;font-size:.68rem;">주문 ${o.orders.size}건 · 결제 ${escHtml(String(o.paid).slice(5))}${o.expected.size ? ' · 발송 예정 ' + [...o.expected].sort().map(x => x.slice(5)).join(', ') : ''}</span></div>`).join('');
+          ${o.exch ? `<span style="background:#e0e7ff;color:#4338ca;border-radius:99px;padding:1px 7px;font-size:.66rem;font-weight:800;white-space:nowrap;" title="교환으로 다시 보내야 하는 상품 — 지연은 교환 접수일부터 셉니다">교환${o.exch > 1 ? ' ' + o.exch : ''}</span>` : ''}
+          <span style="color:#9ca3af;font-size:.68rem;">주문 ${o.orders.size}건${o.paid ? ' · 결제 ' + escHtml(String(o.paid).slice(5)) : ''}${o.exch ? ` · 교환 접수 ${escHtml(o.exchDate.slice(5))}${o.pickups.size ? ' · ' + escHtml([...o.pickups].join('/')) : ''}` : ''}${o.expected.size ? ' · 발송 예정 ' + [...o.expected].sort().map(x => x.slice(5)).join(', ') : ''}</span></div>`).join('');
       return `<tr style="${on ? '' : 'opacity:.45;'}${p.mark && p.mark.special ? 'background:#fffbeb;' : ''}">
         <td style="vertical-align:top;width:34px;"><input type="checkbox" ${on ? 'checked' : ''} data-key="${escHtml(p.key)}" data-si="${si}" onchange="unshipToggleProduct(this)" title="문의 문자에 넣기" style="width:17px;height:17px;" /></td>
         <td style="text-align:left;vertical-align:top;min-width:180px;"><b>${escHtml(p.name)}</b>${p.fromSupplier ? '' : ' <span style="color:#b45309;font-size:.68rem;">(공급사 상품명 없음 — 우리 상품명)</span>'}<div style="font-size:.7rem;color:#9ca3af;margin-top:2px;">${escHtml(p.ours)}${p.product_no != null ? ' · #' + p.product_no : ''}</div></td>
