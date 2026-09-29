@@ -385,6 +385,46 @@ async function cafe24MarkCollected(kind: "return" | "exchange", orderId: string,
   return body;
 }
 
+// ══ 카페24 쓰기 ② — 품목(옵션) 판매 설정 맞추기 (2026-09-29 사용자 요청·승인: 품절 재고 점검에서 셀메이트와 함께 반영) ══
+// 품절인데 재고가 있는 옵션이 카페24에서도 정상 판매되고, 재고가 다 팔리면 자동 품절되도록 품목 설정을 고정값으로 맞춘다.
+//  · 주소 = PUT products/{product_no}/variants/{variant_code} (scope mall.write_product) — 한국어 쇼핑몰(shop_no 1)만.
+//  · 본문 고정 { shop_no:1, request:{ display:"T", selling:"T", use_inventory:"T", display_soldout:"T", quantity } } — 진열함·판매함·재고관리 사용·품절표시·재고수량.
+//    quantity만 호출자가 정하되 1~9999 정수(셀메이트 재고). 가격·옵션명·다른 쇼핑몰 채널 설정은 보내지 않는다.
+//  · 다른 쓰기는 여기에 넣지 말고 사용자 승인부터. tools/check_cafe24_writes.sh 가 배포 전 두 함수의 본문을 검사한다.
+async function cafe24FixVariant(productNo: number, variantCode: string, quantity: number, token: string): Promise<Record<string, unknown>> {
+  if (!Number.isInteger(productNo) || productNo < 1 || productNo > 99999999) throw new Error("허용되지 않은 쓰기(상품번호)");
+  if (!/^[A-Z0-9]{8}[A-Z0-9]{4}$/.test(variantCode)) throw new Error("허용되지 않은 쓰기(품목코드)");
+  if (!Number.isInteger(quantity) || quantity < 1 || quantity > 9999) throw new Error("허용되지 않은 쓰기(재고수량 1~9999)");
+  const url = `${API_BASE}/admin/products/${productNo}/variants/${variantCode}`;
+  const payload = JSON.stringify({ shop_no: 1, request: { display: "T", selling: "T", use_inventory: "T", display_soldout: "T", quantity: quantity } });
+  const doFetch = (tk: string) => fetch(url, { method: "PUT", headers: { Authorization: `Bearer ${tk}`, "Content-Type": "application/json", "X-Cafe24-Api-Version": API_VERSION }, body: payload });
+  let tok = token;
+  let res = await doFetch(tok);
+  if (res.status === 401) { tok = await getAccessToken(true); res = await doFetch(tok); }
+  for (let i = 0; res.status === 429 && i < RATE_LIMIT_RETRIES; i++) {
+    const ra = Number(res.headers.get("Retry-After"));
+    await res.body?.cancel();
+    await sleep(isFinite(ra) && ra > 0 ? ra * 1000 : Math.min(1000 * 2 ** i, 8000));
+    res = await doFetch(tok);
+  }
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw Object.assign(new Error(`PUT ${res.status}: ${JSON.stringify(body).slice(0, 400)}`), { status: res.status, body });
+  return body;
+}
+// 옵션값 → 비교용 값 토큰 (화면의 stkOptTokens와 같은 규칙: 쉼표·/·| 로 나누고 '='·':' 뒤 값, 글자·숫자만 소문자, 정렬)
+function c24OptTokens(s: string): string {
+  return String(s ?? "").split(/[,/|]/).map((part) => { const cut = Math.max(part.lastIndexOf("="), part.lastIndexOf(":")); return (cut >= 0 ? part.slice(cut + 1) : part).replace(/[^0-9a-zA-Z가-힣]/g, "").toLowerCase(); }).filter(Boolean).sort().join("|");
+}
+function c24VariantIssues(v: Record<string, any>, stock: number | null): string[] {
+  const out: string[] = [];
+  if (v.use_inventory !== "T") out.push("재고관리 사용안함");
+  if (v.display_soldout !== "T") out.push("품절표시 안함");
+  if (v.display !== "T") out.push("진열안함");
+  if (v.selling !== "T") out.push("판매안함");
+  if (stock != null && Number(v.quantity) !== stock) out.push(`재고수량 ${v.quantity ?? "-"} (셀메이트 ${stock})`);
+  return out;
+}
+
 // 애널리틱스 API 페이지네이션 수집 (limit 최대 1000)
 async function collectData(
   path: string, listKey: string, params: URLSearchParams, token: string,
@@ -541,6 +581,72 @@ Deno.serve(async (req) => {
     const respond = async (body: unknown) => { await cacheSet(cacheKey, body); return json(body); };
 
     const token = await getAccessToken();
+
+    // ── 품절 재고 점검 — 카페24 품목 설정 확인·맞추기 (2026-09-29 사용자 요청): 관리자만, POST 전용
+    if (action === "c24var_check" || action === "c24var_fix") {
+      if (authed.role !== "admin") return json({ error: "접근 권한이 없습니다" }, 403);
+      if (req.method !== "POST") return json({ error: "POST로 호출해주세요" }, 405);
+      const b = await req.json().catch(() => ({})) as Record<string, any>;
+      const readVariants = async (no: number) => ((await apiGet(`${API_BASE}/admin/products/${no}/variants?shop_no=1`, token)).variants ?? []) as Record<string, any>[];
+      if (action === "c24var_check") {
+        // items: [{code(카페24 상품번호), options:[{opt_idx, option, stock}]}] — 옵션값 토큰으로 품목을 찾고 5가지 설정을 점검
+        const items = (Array.isArray(b.items) ? b.items : []).slice(0, 60) as Record<string, any>[];
+        const results: Record<string, unknown>[] = [];
+        for (let k = 0; k < items.length; k += 4) {
+          await Promise.all(items.slice(k, k + 4).map(async (it) => {
+            const code = Number(it.code);
+            if (!Number.isInteger(code) || code < 1) { results.push({ code: it.code ?? null, error: "카페24 상품번호(상품코드)가 없어요" }); return; }
+            try {
+              const [prod] = ((await apiGet(`${API_BASE}/admin/products?product_no=${code}&fields=product_no,product_name,display,selling`, token)).products ?? []) as Record<string, any>[];
+              if (!prod) { results.push({ code, error: "카페24에 이 상품번호가 없어요" }); return; }
+              const vars = await readVariants(code);
+              const byTok = new Map<string, Record<string, any>[]>();
+              for (const v of vars) { const t = c24OptTokens(((v.options ?? []) as Record<string, any>[]).map((o) => o.value).join(",")); byTok.set(t, [...(byTok.get(t) ?? []), v]); }
+              const opts = ((it.options ?? []) as Record<string, any>[]).slice(0, 100).map((o) => {
+                const stock = Number.isInteger(Number(o.stock)) ? Number(o.stock) : null;
+                let hit = byTok.get(c24OptTokens(o.option)) ?? [];
+                if (!hit.length && vars.length === 1 && !((vars[0].options ?? []).length)) hit = vars;   // 옵션 없는 상품
+                if (hit.length !== 1) return { opt_idx: o.opt_idx, error: hit.length ? "카페24 품목이 여러 개 맞아요" : "카페24에서 같은 옵션을 못 찾았어요" };
+                const v = hit[0];
+                const issues = c24VariantIssues(v, stock);
+                return { opt_idx: o.opt_idx, variant_code: v.variant_code, cur: { display: v.display, selling: v.selling, use_inventory: v.use_inventory, display_soldout: v.display_soldout, quantity: v.quantity }, issues, ok: !issues.length };
+              });
+              results.push({ code, product_name: prod.product_name, product_warn: [prod.display !== "T" ? "상품 진열안함" : "", prod.selling !== "T" ? "상품 판매안함" : ""].filter(Boolean), options: opts });
+            } catch (e) { results.push({ code, error: "카페24 조회 실패 — " + String(e).slice(0, 150) }); }
+          }));
+        }
+        return json({ results });
+      }
+      // c24var_fix: {p_no, code, variant_code, quantity, opt_idx, option, product_name} — 한 품목씩. 전·후를 다시 읽고 soldout_fix_log(target 'cafe24')에 기록
+      const code = Number(b.code), vcode = String(b.variant_code ?? ""), qty = Number(b.quantity);
+      if (!Number.isInteger(code) || code < 1 || !/^[A-Z0-9]{8}[A-Z0-9]{4}$/.test(vcode) || !Number.isInteger(qty) || qty < 1 || qty > 9999) return json({ error: "상품번호·품목코드·재고수량이 올바르지 않습니다" }, 400);
+      const logRow = (ok: boolean, before: Record<string, any> | null, after: Record<string, any> | null, msg: string) => sbRest("soldout_fix_log", { method: "POST", headers: { Prefer: "return=minimal" }, body: JSON.stringify({ batch_id: String(b.batch_id ?? "c24").slice(0, 60), target: "cafe24", p_no: Number(b.p_no) || 0, opt_idx: Number(b.opt_idx) || 0, code, product_name: String(b.product_name ?? "").slice(0, 200), option_name: String(b.option ?? "").slice(0, 100), stock_before: before ? Number(before.quantity) : null, stock_after: after ? Number(after.quantity) : null, ok, skipped: false, error: msg ? msg.slice(0, 300) : null, by_id: authed.id, by_name: authed.name }) }).catch(() => null);
+      // 사용 한도: 사람별 1시간 400품목
+      const since = new Date(Date.now() - 3600e3).toISOString();
+      const mine = ((await sbRest(`soldout_fix_log?select=id&target=eq.cafe24&by_id=eq.${encodeURIComponent(authed.id)}&created_at=gte.${since}&limit=500`)) ?? []) as unknown[];
+      if (mine.length >= 400) return json({ error: "카페24 설정 변경 한도(1시간 400개)를 넘었어요 — 잠시 뒤 다시 시도하세요" }, 429);
+      const findV = async () => (await readVariants(code)).find((v) => v.variant_code === vcode) ?? null;
+      let before: Record<string, any> | null;
+      try { before = await findV(); } catch (e) { return json({ error: "카페24 조회 실패 — " + String(e).slice(0, 150) }, 502); }
+      if (!before) return json({ error: "이 상품에 해당 품목이 없어요" }, 404);
+      if (b.option != null && c24OptTokens(((before.options ?? []) as Record<string, any>[]).map((o) => o.value).join(",")) !== c24OptTokens(String(b.option)) && (before.options ?? []).length) {
+        return json({ error: "품목 옵션이 셀메이트 옵션과 달라요 — 확인 필요" }, 409);
+      }
+      const need = c24VariantIssues(before, qty);
+      if (!need.length) return json({ ok: true, already: true, before, after: before });
+      try { await cafe24FixVariant(code, vcode, qty, token); }
+      catch (e) {
+        const st = (e as { status?: number }).status ?? 0, raw = String((e as Error).message ?? e);
+        await logRow(false, before, null, raw);
+        const scope = st === 403 || /scope|permission|insufficient/i.test(raw);
+        return json({ error: scope ? "카페24 앱에 '상품 쓰기' 권한이 없어요 — 개발자센터에서 권한을 켠 뒤 '카페24 연동'으로 다시 연동해주세요" : "카페24가 처리하지 못했어요 — " + raw.slice(0, 250), need_scope: scope }, scope ? 403 : 502);
+      }
+      let after: Record<string, any> | null = null;
+      try { after = await findV(); } catch { /* 아래에서 실패 처리 */ }
+      const left = after ? c24VariantIssues(after, qty) : ["다시 읽기 실패"];
+      await logRow(!left.length, before, after, (left.length ? "남은 문제: " + left.join(", ") + " / " : "") + "바꾼 것: " + need.join(", "));
+      return json({ ok: !left.length, before, after, fixed: need, left });
+    }
 
     // ── 미발송 관리 (2026-09-28 사용자 요청): 관리자·MD·CS/물류팀. 10분 캐시(권한 검사 뒤), 새로고침은 nocache=1
     if (action === "unship_list" || action === "unship_mark") {
