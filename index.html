@@ -3219,9 +3219,12 @@ soldoutState.c24 = new Map(); soldoutState.c24warn = new Map(); soldoutState.c24
 // 카페24 상품 수정 화면 주소 — {no} = 카페24 상품번호(셀메이트 상품코드). 틀리면 이 한 줄만 고친다.
 const C24_PRODUCT_URL = 'https://wnqka5000.cafe24.com/disp/admin/shop1/product/productmodify?product_no={no}';
 // 카페24 점검 — 상품코드(=카페24 상품번호)별로 셀메이트 옵션·재고를 보내 품목 설정을 받아 온다(20상품씩)
+// ⚠ 2026-09-29 사용자 신고: 카페24에서 판매안함으로 바꾼 뒤에도 '수정 필요 없음'이 그대로 — 점검 결과를 메모리에 둔 채
+//   메뉴 재진입·탭 복귀 때 다시 점검하지 않았고, 점검 중에 온 새 요청은 버렸음 → 들어올 때마다·탭으로 돌아올 때마다 재점검, 진행 중이면 끝난 뒤 한 번 더.
 async function soldoutC24Check() {
-  const d = soldoutState.data; if (!d || !(d.products || []).length || soldoutState.c24loading) return;
-  soldoutState.c24loading = true; soldoutState.c24 = new Map(); soldoutState.c24warn = new Map(); soldoutRender();
+  const d = soldoutState.data; if (!d || !(d.products || []).length) return;
+  if (soldoutState.c24loading) { soldoutState.c24again = true; return; }
+  soldoutState.c24loading = true; soldoutState.c24again = false; soldoutState.c24 = new Map(); soldoutState.c24warn = new Map(); soldoutRender();
   try {
     const ps = d.products;
     for (let i = 0; i < ps.length; i += 20) {
@@ -3239,20 +3242,29 @@ async function soldoutC24Check() {
       }
       soldoutRender();
     }
+    soldoutState.c24at = Date.now();
   } catch (e) { showToast('카페24 설정 점검 실패: ' + e.message); }
-  finally { soldoutState.c24loading = false; soldoutRender(); }
+  finally { soldoutState.c24loading = false; soldoutRender(); if (soldoutState.c24again) soldoutC24Check(); }
 }
+// 카페24에서 고치고 이 탭으로 돌아오면 다시 점검 (품절 재고 점검 화면을 보고 있을 때만, 20초 안에 두 번은 안 함)
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState !== 'visible' || location.hash !== '#soldout' || !soldoutState.data) return;
+  if (soldoutState.c24at && Date.now() - soldoutState.c24at < 20000) return;
+  soldoutC24Check();
+});
 // 이 상품에 카페24에서 고칠 게 있는지(옵션 설정 문제 또는 상품 진열·판매 경고) — 상품코드가 있어야 바로가기 가능
 function soldoutC24NeedFix(p) { return !!p.code && ((soldoutState.c24warn.get(p.p_no) || []).length > 0 || p.options.some(o => { const c = soldoutState.c24.get(o.opt_idx); return c && !c.error && !c.ok; })); }
 function soldoutC24Cell(o) {
   const c = soldoutState.c24.get(o.opt_idx);
   if (!c) return `<span style="color:#9ca3af;font-size:.72rem;">${soldoutState.c24loading ? '확인 중…' : '—'}</span>`;
   if (c.error) return `<span style="color:#6b7280;font-size:.72rem;">${escHtml(c.error)}</span>`;
-  if (c.ok) return '<span style="color:#15803d;font-size:.74rem;font-weight:800;"><i class="fa-solid fa-circle-check"></i> 수정 필요 없음</span>';
-  return '<span style="background:#fee2e2;color:#b91c1c;border-radius:99px;padding:1px 8px;font-size:.7rem;font-weight:800;white-space:nowrap;display:inline-block;margin:1px;">수정 필요</span>' + (c.issues || []).map(x => `<span style="background:#ffedd5;color:#c2410c;border-radius:99px;padding:1px 7px;font-size:.68rem;font-weight:800;white-space:nowrap;display:inline-block;margin:1px;">${escHtml(x)}</span>`).join('');
+  const v = c.cur || {}, yn = x => x === 'T' ? '예' : x === 'F' ? '아니오' : '-';
+  const tip = escHtml(`카페24 지금 값 (한국어 쇼핑몰)\n진열: ${v.display === 'T' ? '진열함' : '진열안함'} · 판매: ${v.selling === 'T' ? '판매함' : '판매안함'}\n재고관리 사용: ${yn(v.use_inventory)} · 품절표시: ${yn(v.display_soldout)} · 재고수량: ${v.quantity ?? '-'}`);
+  if (c.ok) return `<span style="color:#15803d;font-size:.74rem;font-weight:800;cursor:help;" title="${tip}"><i class="fa-solid fa-circle-check"></i> 수정 필요 없음</span>`;
+  return `<span style="background:#fee2e2;color:#b91c1c;border-radius:99px;padding:1px 8px;font-size:.7rem;font-weight:800;white-space:nowrap;display:inline-block;margin:1px;cursor:help;" title="${tip}">수정 필요</span>` + (c.issues || []).map(x => `<span style="background:#ffedd5;color:#c2410c;border-radius:99px;padding:1px 7px;font-size:.68rem;font-weight:800;white-space:nowrap;display:inline-block;margin:1px;">${escHtml(x)}</span>`).join('');
 }
 
-function soldoutInit() { soldoutSetTab(soldoutState.tab || 'find'); soldoutBridgeRender(); if (soldoutState.data) { soldoutRender(); if (!soldoutState.sales) soldoutSalesLoad(); if (!soldoutState.c24.size && !soldoutState.c24loading) soldoutC24Check(); } }
+function soldoutInit() { soldoutSetTab(soldoutState.tab || 'find'); soldoutBridgeRender(); if (soldoutState.data) { soldoutRender(); if (!soldoutState.sales) soldoutSalesLoad(); soldoutC24Check(); } }
 function soldoutSetTab(k) {
   soldoutState.tab = k; uiTabs('soldout-tabs', SOLDOUT_TABS, k, 'soldoutSetTab');
   document.querySelectorAll('.soldout-pane').forEach(el => { el.style.display = 'none'; });
@@ -3313,7 +3325,7 @@ function soldoutRender() {
   const when = new Date(d.at).toLocaleString('ko-KR', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
   const c24need = all.reduce((n, p) => n + p.options.filter(o => { const c = soldoutState.c24.get(o.opt_idx); return c && !c.error && !c.ok; }).length, 0);
   $('soldout-summary').innerHTML = `<div style="display:flex;gap:8px;flex-wrap:wrap;">${tile('상품', fmt(all.length) + '개')}${tile('카페24 수정 필요', soldoutState.c24loading ? '확인 중' : fmt(c24need) + '개', c24need ? '#b91c1c' : '')}${tile('품절인데 재고 있는 옵션', fmt(nOpt) + '개', nOpt ? '#dc2626' : '')}${tile('재고 합계', fmt(nStock) + '개')}${tile('최근 14일 판매 있는 옵션', nSold == null ? '…' : fmt(nSold) + '개', nSold ? '#059669' : '')}</div>
-    <div style="font-size:.72rem;color:#6b7280;margin-top:6px;">셀메이트 조회 ${escHtml(when)} · 재고 1개 이상 상품 ${fmt(d.stats.products)}개(옵션 ${fmt(d.stats.options)}개, ${fmt(d.stats.pages)}쪽) 확인 · 그중 (품절) ${fmt(d.stats.soldout)}개 · (소진시품절) ${fmt(d.stats.exhaust)}개는 제외</div>`;
+    <div style="font-size:.72rem;color:#6b7280;margin-top:6px;">셀메이트 조회 ${escHtml(when)}${soldoutState.c24at ? ` · 카페24 점검 ${escHtml(new Date(soldoutState.c24at).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', second: '2-digit' }))}` : ''} · 재고 1개 이상 상품 ${fmt(d.stats.products)}개(옵션 ${fmt(d.stats.options)}개, ${fmt(d.stats.pages)}쪽) 확인 · 그중 (품절) ${fmt(d.stats.soldout)}개 · (소진시품절) ${fmt(d.stats.exhaust)}개는 제외</div>`;
   $('soldout-controls').style.display = all.length ? 'flex' : 'none';
   $('soldout-sort').innerHTML = [['stock', '재고 많은 순'], ['sold', '최근 판매 많은 순'], ['name', '상품명']].map(([k, l]) => `<button class="${soldoutState.sort === k ? 'active' : ''}" onclick="soldoutState.sort='${k}';soldoutRender()">${l}</button>`).join('');
   if (!all.length) { $('soldout-list').innerHTML = '<div class="empty-state"><p>품절인데 재고가 있는 옵션이 없어요 👍</p></div>'; soldoutCount(); return; }
