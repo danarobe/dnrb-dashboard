@@ -249,6 +249,7 @@ async function unshipCollect(token: string) {
   const rows: Record<string, unknown>[] = [];
   const seen = new Set<string>();
   let exchanges = 0;   // 교환 재발송 품목 수 (교환 접수일 기준으로 셈)
+  const npayClaims: Record<string, unknown>[] = [];   // 네이버페이 클레임 상태 미발송 품목(목록 제외, 확인 필요)
   for (const [a, b] of windows) {
     for (let offset = 0; offset < 10000; offset += 200) {
       const body = await apiGet(`${API_BASE}/admin/orders?start_date=${a}&end_date=${b}&order_status=N10,N20,N21,N22&embed=items&limit=200&offset=${offset}&date_type=order_date`, token);
@@ -267,6 +268,14 @@ async function unshipCollect(token: string) {
           // 원 결제일로 세면 16~17일 '장기 지연'으로 잘못 떴음(베베블라우스 20260912-0002171-04) → **교환 접수일부터** 센다.
           // 접수일 = 접수번호 앞 8자리(B20260918-0040987 → 2026-09-18, 실측 claim_due_date와 같음). 교환 상품도 거래처 입고가 늦으면 지연이 맞다(사용자).
           // ⚠ 교환 판별은 claim_code만: original_item_no는 교환이 아닌 일반 미발송 품목에도 붙어 있음(실측 5건, 예 20260926-0001149).
+          // 네이버페이 클레임 상태 품목 따로 (2026-09-29 사용자 신고 — 윙키블라우스 20260914-0002813-03이 15일 장기 지연으로 떴는데 카페24에서 안 보임):
+          // 네이버페이에서 취소 요청·거부(CANCEL_REJECT) 등 클레임이 걸린 품목은 카페24 상태(배송준비중)가 네이버페이 실제 상태와 다를 수 있다
+          // (실측 90일 전체 2건, 둘 다 CANCEL_REJECT). 지연 목록에서 빼고 'npay_claims'로 따로 보내 화면이 '네이버페이센터 확인 필요'로 보여 준다.
+          if (it.naver_pay_claim_status) {
+            npayClaims.push({ order_id: o.order_id, item_code: String(it.order_item_code ?? ""), paid, product_name: String(it.product_name ?? ""), option: String(it.option_value ?? ""),
+              supplier: String(it.supplier_name ?? ""), naver_id: it.naver_pay_order_id ?? null, claim_status: String(it.naver_pay_claim_status) });
+            continue;
+          }
           let base = paid, exchange: Record<string, string> | null = null;
           if (it.claim_code) {
             const m = String(it.claim_code).match(/^[A-Z](\d{4})(\d{2})(\d{2})-/);
@@ -292,7 +301,7 @@ async function unshipCollect(token: string) {
     }
   }
   rows.sort((x, y) => Number(y.delay) - Number(x.delay));
-  return { today: todayStr, built_at: new Date().toISOString(), range: { start: windows[windows.length - 1][0], end: windows[0][1] }, items: rows, exchange_items: exchanges };
+  return { today: todayStr, built_at: new Date().toISOString(), range: { start: windows[windows.length - 1][0], end: windows[0][1] }, items: rows, exchange_items: exchanges, npay_claims: npayClaims };
 }
 async function rscanBuild(token: string, days: number) {
   const nrSets = await rscanNrSets(token).catch(() => ({ acc: [], sale: {} } as NrSets));   // 카테고리 조회 실패해도 목록 생성은 계속
