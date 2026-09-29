@@ -385,6 +385,15 @@ async function cafe24MarkCollected(kind: "return" | "exchange", orderId: string,
   return body;
 }
 
+// ── 품절 재고 점검 권한 (2026-09-29 사용자 요청): 관리자 + 물류팀. 서버 역할은 logistics→cs로 합쳐져 있어(CS팀과 구분 불가) 원래 역할을 다시 읽는다.
+//    서버 간 비밀키(에이전트·자동 갱신·상품관리 연동)로는 허용하지 않는다.
+async function soldoutRoleOk(authed: { id: string; role: string }): Promise<boolean> {
+  if (["sales-agent", "cron", "npm-sync"].includes(authed.id)) return false;
+  if (authed.role === "admin") return true;
+  if (authed.role !== "cs") return false;
+  const [row] = ((await sbRest(`app_users?id=eq.${encodeURIComponent(authed.id)}&select=role`)) ?? []) as Record<string, any>[];
+  return String(row?.role ?? "") === "logistics";
+}
 // ── 품절 재고 점검 — 카페24 품목 설정 점검(읽기 전용, 2026-09-29) ──
 // 처음엔 품목 설정을 고치는 쓰기(cafe24FixVariant, scope mall.write_product)까지 만들었으나 사용자 결정으로 제거:
 // '상품 쓰기' 권한은 상품 삭제까지 포함하는 넓은 권한이라 열지 않기로 함 → 점검·표시 + 카페24 상품 수정 화면 바로가기만.
@@ -561,7 +570,7 @@ Deno.serve(async (req) => {
 
     // ── 품절 재고 점검 — 카페24 품목 설정 점검 (2026-09-29 사용자 요청, 읽기 전용): 관리자만, POST(목록을 본문으로 받음)
     if (action === "c24var_check") {
-      if (authed.role !== "admin") return json({ error: "접근 권한이 없습니다" }, 403);
+      if (!(await soldoutRoleOk(authed))) return json({ error: "접근 권한이 없습니다" }, 403);
       if (req.method !== "POST") return json({ error: "POST로 호출해주세요" }, 405);
       const b = await req.json().catch(() => ({})) as Record<string, any>;
       const readVariants = async (no: number) => ((await apiGet(`${API_BASE}/admin/products/${no}/variants?shop_no=1`, token)).variants ?? []) as Record<string, any>[];
@@ -1556,7 +1565,8 @@ Deno.serve(async (req) => {
     // 권한: 관리자 전용 (2026-08-26 admgr용으로 admin+staff로 잠깐 열었다가, 같은 날
     // 광고관리자 메뉴가 관리자 전용이 되면서 원래대로 축소 — staff 소비처 없음)
     if (action === "paiditems") {
-      if (authed.role !== "admin") return json({ error: "접근 권한이 없습니다" }, 403);
+      // 관리자 + 물류팀(품절 재고 점검의 '최근 14일 판매' — 수량만, 금액 없음. 2026-09-29 사용자 요청으로 물류팀에 품절 재고 점검 공개)
+      if (authed.role !== "admin" && !(await soldoutRoleOk(authed))) return json({ error: "접근 권한이 없습니다" }, 403);
       const s = url.searchParams.get("start_date");
       const e = url.searchParams.get("end_date");
       if (!s || !e) return json({ error: "start_date, end_date 필수 (YYYY-MM-DD)" }, 400);
