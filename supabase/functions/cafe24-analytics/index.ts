@@ -268,12 +268,13 @@ async function unshipCollect(token: string) {
           // 원 결제일로 세면 16~17일 '장기 지연'으로 잘못 떴음(베베블라우스 20260912-0002171-04) → **교환 접수일부터** 센다.
           // 접수일 = 접수번호 앞 8자리(B20260918-0040987 → 2026-09-18, 실측 claim_due_date와 같음). 교환 상품도 거래처 입고가 늦으면 지연이 맞다(사용자).
           // ⚠ 교환 판별은 claim_code만: original_item_no는 교환이 아닌 일반 미발송 품목에도 붙어 있음(실측 5건, 예 20260926-0001149).
-          // 네이버페이 클레임 상태 품목 따로 (2026-09-29 사용자 신고 — 윙키블라우스 20260914-0002813-03이 15일 장기 지연으로 떴는데 카페24에서 안 보임):
-          // 네이버페이에서 취소 요청·거부(CANCEL_REJECT) 등 클레임이 걸린 품목은 카페24 상태(배송준비중)가 네이버페이 실제 상태와 다를 수 있다
-          // (실측 90일 전체 2건, 둘 다 CANCEL_REJECT). 지연 목록에서 빼고 'npay_claims'로 따로 보내 화면이 '네이버페이센터 확인 필요'로 보여 준다.
-          if (it.naver_pay_claim_status) {
+          // 네이버페이 클레임 상태 (2026-09-29 사용자 결정): 취소·반품·교환 **거부/철회(*_REJECT)**는 결국 보내야 하는 품목 → 지연 목록에 그대로 포함하고
+          // 표시만(npay_claim). 요청 진행 중(CANCEL_REQUEST 등)은 취소될 수 있어 목록에서 빼고 'npay_claims'로 따로(화면 '네이버페이센터에서 확인 필요').
+          // 실측 90일 전체 2건 모두 CANCEL_REJECT(윙키블라우스 20260914-0002813-03 등).
+          const npayClaim = it.naver_pay_claim_status ? String(it.naver_pay_claim_status) : null;
+          if (npayClaim && !/REJECT$/.test(npayClaim)) {
             npayClaims.push({ order_id: o.order_id, item_code: String(it.order_item_code ?? ""), paid, product_name: String(it.product_name ?? ""), option: String(it.option_value ?? ""),
-              supplier: String(it.supplier_name ?? ""), naver_id: it.naver_pay_order_id ?? null, claim_status: String(it.naver_pay_claim_status) });
+              supplier: String(it.supplier_name ?? ""), naver_id: it.naver_pay_order_id ?? null, claim_status: npayClaim });
             continue;
           }
           let base = paid, exchange: Record<string, string> | null = null;
@@ -293,7 +294,7 @@ async function unshipCollect(token: string) {
             place: o.order_place_name ?? "", naver: o.order_place_id === "NCHECKOUT",
             product_no: it.product_no ?? null, product_name: String(it.product_name ?? ""), option: String(it.option_value ?? ""), qty: Number(it.quantity ?? 0),
             supplier_id: String(it.supplier_id ?? ""), supplier: String(it.supplier_name ?? ""), supplier_product: String(it.supplier_product_name ?? ""),
-            status: String(it.status_text ?? it.order_status ?? ""), expected: it.shipping_expected_date ?? null,
+            status: String(it.status_text ?? it.order_status ?? ""), expected: it.shipping_expected_date ?? null, npay_claim: npayClaim,
           });
         }
       }
