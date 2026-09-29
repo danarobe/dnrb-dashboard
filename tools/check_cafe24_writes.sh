@@ -1,6 +1,6 @@
 #!/bin/bash
-# 배포 전 검사 (2026-09-28 안전장치): 카페24로 값을 보내는(쓰기) 코드는 cafe24-analytics 의 고정 함수 두 개뿐이어야 한다.
-#   ① cafe24MarkCollected — 반품·교환 수거 완료 (2026-09-28)  ② cafe24FixVariant — 품목 판매 설정 맞추기 (2026-09-29 사용자 승인)
+# 배포 전 검사 (2026-09-28 안전장치): 카페24로 값을 보내는(쓰기) 코드는 cafe24-analytics 의 cafe24MarkCollected 하나여야 한다.
+#   (2026-09-29 품목 설정 쓰기 cafe24FixVariant를 만들었다가 사용자 결정으로 제거 — '상품 쓰기' 권한은 열지 않는다)
 # 사용: bash tools/check_cafe24_writes.sh   → 통과하면 OK, 위반이 있으면 목록과 함께 실패(1)
 cd "$(dirname "$0")/.." || exit 1
 bad=0
@@ -12,7 +12,7 @@ while IFS= read -r hit; do
     supabase/functions/cafe24-oauth/index.ts) continue ;;   # OAuth 토큰 교환(주문 데이터 아님)
     supabase/functions/cafe24-analytics/index.ts)
       ok=0
-      for fn in cafe24MarkCollected cafe24FixVariant; do
+      for fn in cafe24MarkCollected; do
         s=$(grep -n "^async function $fn" "$file" | cut -d: -f1); e=$(awk -v s="$s" 'NR>s && /^}/ {print NR; exit}' "$file")
         [ -n "$s" ] && [ "$line" -ge "$s" ] && [ "$line" -le "$e" ] && ok=1
       done
@@ -28,8 +28,7 @@ done < <(grep -rn -E "method: *[\"'\`]?(PUT|POST|DELETE|PATCH)" supabase/functio
 if grep -rn -E "function (apiSend|apiPut|apiPost|apiDelete)\b" supabase/functions --include=*.ts; then echo "위반: 범용 카페24 쓰기 헬퍼가 있습니다"; bad=1; fi
 # ③ 수거 완료 본문이 고정값 그대로인지
 grep -q 'request: { pickup_completed: "T", recover_inventory: recover, items: itemCodes.map' supabase/functions/cafe24-analytics/index.ts || { echo "위반: cafe24MarkCollected 본문이 바뀌었습니다"; bad=1; }
-# ④ 품목 설정 본문이 고정값 그대로인지 (진열·판매·재고관리·품절표시·수량만, 한국어 쇼핑몰)
-grep -q 'JSON.stringify({ shop_no: 1, request: { display: "T", selling: "T", use_inventory: "T", display_soldout: "T", quantity: quantity } })' supabase/functions/cafe24-analytics/index.ts || { echo "위반: cafe24FixVariant 본문이 바뀌었습니다"; bad=1; }
-# ⑤ 쓰기 함수는 두 개까지만
-n=$(grep -c "^async function cafe24[A-Z][A-Za-z]*(" supabase/functions/cafe24-analytics/index.ts); [ "$n" -le 2 ] || { echo "위반: cafe24 쓰기 함수가 $n개입니다(허용 2개)"; bad=1; }
-[ "$bad" = 0 ] && echo "OK — 카페24 쓰기는 수거 완료·품목 판매 설정 두 가지뿐" || exit 1
+# ④ 쓰기 함수는 하나뿐 + 상품 쓰기 권한(scope) 요청 금지
+n=$(grep -c "^async function cafe24[A-Z][A-Za-z]*(" supabase/functions/cafe24-analytics/index.ts); [ "$n" -le 1 ] || { echo "위반: cafe24 쓰기 함수가 $n개입니다(허용 1개)"; bad=1; }
+grep -q "mall.write_product" supabase/functions/cafe24-oauth/index.ts && { grep -n "mall.write_product" supabase/functions/cafe24-oauth/index.ts | grep -v "^[0-9]*:\s*//" | grep -q . && { echo "위반: 상품 쓰기(mall.write_product) 권한을 요청합니다"; bad=1; }; }
+[ "$bad" = 0 ] && echo "OK — 카페24 쓰기는 수거 완료 하나뿐 · 상품 쓰기 권한 없음" || exit 1
