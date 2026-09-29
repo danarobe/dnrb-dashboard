@@ -248,6 +248,7 @@ async function unshipCollect(token: string) {
   while (left > 0) { const span = Math.min(30, left); const start = new Date(end); start.setUTCDate(start.getUTCDate() - (span - 1)); windows.push([fmtD(start), fmtD(end)]); end = new Date(start); end.setUTCDate(end.getUTCDate() - 1); left -= span; }
   const rows: Record<string, unknown>[] = [];
   const seen = new Set<string>();
+  let excluded = 0;   // 교환 재발송 품목 수 (목록에서 뺌)
   for (const [a, b] of windows) {
     for (let offset = 0; offset < 10000; offset += 200) {
       const body = await apiGet(`${API_BASE}/admin/orders?start_date=${a}&end_date=${b}&order_status=N10,N20,N21,N22&embed=items&limit=200&offset=${offset}&date_type=order_date`, token);
@@ -259,6 +260,11 @@ async function unshipCollect(token: string) {
         if (delay < 3) continue;
         for (const it of (o.items ?? []) as Record<string, any>[]) {
           if (!UNSHIP_STATUSES.has(String(it.order_status ?? ""))) continue;
+          // 교환 재발송 품목 제외 (2026-09-29 사용자 신고): 교환 접수 시 카페24가 새 품목 줄(상태 N10 상품준비중)을 만드는데,
+          // 교환 접수번호(claim_code)가 붙어 있고 고객 반품 수거(수거전)를 기다리는 중이라 거래처 입고 지연이 아니다.
+          // 원 결제일로 지연을 세면 16~17일 '장기 지연'으로 잘못 떴음(베베블라우스 20260912-0002171-04, 아일렛새틴롱스커트 20260913-0003285-05).
+          // ⚠ 판별은 claim_code만: original_item_no는 교환이 아닌 일반 미발송 품목에도 붙어 있음(실측 5건, 예 20260926-0001149) — 넣으면 진짜 지연이 빠진다.
+          if (it.claim_code) { excluded++; continue; }
           const code = String(it.order_item_code ?? `${o.order_id}-${it.item_no}`);
           if (seen.has(code)) continue; seen.add(code);
           rows.push({
@@ -274,7 +280,7 @@ async function unshipCollect(token: string) {
     }
   }
   rows.sort((x, y) => Number(y.delay) - Number(x.delay));
-  return { today: todayStr, built_at: new Date().toISOString(), range: { start: windows[windows.length - 1][0], end: windows[0][1] }, items: rows };
+  return { today: todayStr, built_at: new Date().toISOString(), range: { start: windows[windows.length - 1][0], end: windows[0][1] }, items: rows, excluded_exchange: excluded };
 }
 async function rscanBuild(token: string, days: number) {
   const nrSets = await rscanNrSets(token).catch(() => ({ acc: [], sale: {} } as NrSets));   // 카테고리 조회 실패해도 목록 생성은 계속
