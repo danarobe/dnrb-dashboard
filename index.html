@@ -459,6 +459,22 @@
       letter-spacing: .08em; padding: 12px 4px 2px 8px; user-select: none;
     }
     .side-menu .menu-group:first-child { padding-top: 0; }
+    /* 큰 메뉴 묶음 (2026-09-29) — 머리글을 누르면 소메뉴가 접히고 펼쳐진다 */
+    .menu-sec { display: flex; flex-direction: column; gap: 4px; }
+    .menu-sec-head {
+      display: flex; align-items: center; gap: 10px; width: 100%;
+      background: transparent; border: 1px solid transparent; border-radius: 12px;
+      padding: 10px 12px 10px 16px; font-size: .86rem; font-weight: 800; color: #374151;
+      cursor: pointer; text-align: left; font-family: inherit; transition: all .15s;
+    }
+    .menu-sec-head i:first-child { color: #818cf8; }
+    .menu-sec-head:hover { background: rgba(255,255,255,.65); color: #4f46e5; }
+    .menu-sec-caret { margin-left: auto; font-size: .62rem; color: #9ca3af; transition: transform .15s; }
+    .menu-sec.collapsed .menu-sec-caret { transform: rotate(-90deg); }
+    .menu-sec.collapsed .menu-sec-body { display: none; }
+    .menu-sec.has-active .menu-sec-head { color: #4f46e5; }
+    .menu-sec-body { display: flex; flex-direction: column; gap: 4px; margin: 0 0 4px 22px; padding-left: 8px; border-left: 2px solid #e0e7ff; }
+    .menu-sec-body .menu-item { padding: 9px 12px; font-size: .83rem; }
     .menu-item {
       background: #fff;
       border: 1px solid #e7e8ee;
@@ -604,35 +620,66 @@
 <!-- ══ 좌측 메뉴 ══ -->
 <div id="menu-backdrop" onclick="menuDrawer(false)"></div>
 <nav class="side-menu">
-  <div class="menu-group">분석</div>
+  <!-- 메뉴 구성 (2026-09-29 사용자 지정): 큰 메뉴 = 접고 펼치는 묶음(menu-sec), 소메뉴 = 기존 버튼 그대로(id·data-menu·권한 규칙 불변).
+       묶음 안 버튼이 모두 숨겨지면 묶음도 숨김, 지금 화면의 묶음은 자동으로 펼침 — menuSecSync(). -->
   <button class="menu-item" data-menu="home" onclick="showMenu('home')"><i class="fa-solid fa-house" style="width:18px;text-align:center;color:#818cf8;"></i>대시보드</button>
-  <button class="menu-item" data-menu="cr"   id="menu-cr" onclick="showMenu('cr')"><i class="fa-solid fa-rotate-left" style="width:18px;text-align:center;color:#818cf8;"></i>취소 &amp; 반품</button>
-  <button class="menu-item" data-menu="an"   onclick="showMenu('an')"><i class="fa-solid fa-magnifying-glass-chart" style="width:18px;text-align:center;color:#818cf8;"></i>상품 분석</button>
-  <button class="menu-item" data-menu="perf" onclick="showMenu('perf')"><i class="fa-solid fa-chart-column" style="width:18px;text-align:center;color:#818cf8;"></i>판매 성과</button>
-  <button class="menu-item" data-menu="rwatch" id="menu-rwatch" onclick="showMenu('rwatch')"><i class="fa-solid fa-arrows-rotate" style="width:18px;text-align:center;color:#818cf8;"></i>반품 관리</button>
-  <button class="menu-item" data-menu="rscan" id="menu-rscan" onclick="showMenu('rscan')"><i class="fa-solid fa-barcode" style="width:18px;text-align:center;color:#818cf8;"></i>반품 스캔</button>
-  <button class="menu-item" data-menu="unship" id="menu-unship" onclick="showMenu('unship')"><i class="fa-solid fa-hourglass-half" style="width:18px;text-align:center;color:#818cf8;"></i>미발송 관리</button>
-  <div class="menu-group">운영</div>
-  <button class="menu-item" data-menu="disp" id="menu-disp" onclick="showMenu('disp')"><i class="fa-solid fa-table-cells-large" style="width:18px;text-align:center;color:#818cf8;"></i>카테고리별 진열</button>
-  <button class="menu-item" data-menu="stable" id="menu-stable" onclick="showMenu('stable')"><i class="fa-solid fa-warehouse" style="width:18px;text-align:center;color:#818cf8;"></i>안정재고 편성</button>
-  <button class="menu-item" data-menu="madechk" id="menu-madechk" style="display:none;" onclick="showMenu('madechk')"><i class="fa-solid fa-industry" style="width:18px;text-align:center;color:#818cf8;"></i>자체제작 주문 점검</button>
-  <button class="menu-item" id="menu-npm" title="상품 관리 시스템 — 같은 계정으로 자동 로그인, 새 탭으로 열립니다" onclick="npmOpen()"><i class="fa-solid fa-box-open" style="width:18px;text-align:center;color:#818cf8;"></i>상품 관리<i class="fa-solid fa-arrow-up-right-from-square" style="font-size:.62rem;color:#9ca3af;margin-left:auto;"></i></button>
-  <div class="menu-group">경영</div>
-  <button class="menu-item" data-menu="adv"  id="menu-adv" onclick="showMenu('adv')"><i class="fa-solid fa-bullhorn" style="width:18px;text-align:center;color:#818cf8;"></i>광고 효율</button>
-  <!-- 광고관리자 = 친구가 만든 별도 광고 대시보드(ad-dashboard, GitHub Pages)로 이동 (2026-09-11 사용자 결정). 기존 내장 광고관리자(#admgr)는 메뉴만 숨김 — 코드·데이터 유지 -->
-  <button class="menu-item" id="menu-addash" style="display:none;" title="광고 대시보드 — 같은 계정으로 자동 로그인, 새 탭으로 열립니다" onclick="adDashOpen()"><i class="fa-solid fa-sitemap" style="width:18px;text-align:center;color:#818cf8;"></i>광고관리자<i class="fa-solid fa-arrow-up-right-from-square" style="font-size:.62rem;color:#9ca3af;margin-left:auto;"></i></button>
-  <button class="menu-item" data-menu="admgr" id="menu-admgr" style="display:none;" onclick="showMenu('admgr')"><i class="fa-solid fa-sitemap" style="width:18px;text-align:center;color:#818cf8;"></i>광고관리자(기존)</button>
-  <button class="menu-item" data-menu="profit" id="menu-profit" onclick="showMenu('profit')"><i class="fa-solid fa-coins" style="width:18px;text-align:center;color:#818cf8;"></i>순익 시나리오</button>
-  <button class="menu-item" id="menu-agents" style="display:none;" title="AI 에이전트 — 같은 계정으로 자동 로그인, 새 탭으로 열립니다" onclick="agentsOpen()"><i class="fa-solid fa-robot" style="width:18px;text-align:center;color:#818cf8;"></i>AI 에이전트<i class="fa-solid fa-arrow-up-right-from-square" style="font-size:.62rem;color:#9ca3af;margin-left:auto;"></i></button>
-  <button class="menu-item" data-menu="wm" id="menu-wm" style="display:none;" onclick="showMenu('wm')"><i class="fa-solid fa-user-clock" style="width:18px;text-align:center;color:#818cf8;"></i>근무 관리</button>
-  <div class="menu-group">내 정보</div>
+  <div class="menu-sec" data-sec="sales">
+    <button type="button" class="menu-sec-head" onclick="menuSecToggle('sales')"><i class="fa-solid fa-chart-line" style="width:18px;text-align:center;"></i><span>매출·상품</span><i class="fa-solid fa-chevron-down menu-sec-caret"></i></button>
+    <div class="menu-sec-body">
+      <button class="menu-item" data-menu="perf" onclick="showMenu('perf')"><i class="fa-solid fa-chart-column" style="width:18px;text-align:center;color:#818cf8;"></i>종합 판매 데이터</button>
+      <button class="menu-item" data-menu="an"   onclick="showMenu('an')"><i class="fa-solid fa-magnifying-glass-chart" style="width:18px;text-align:center;color:#818cf8;"></i>상품 분석</button>
+      <button class="menu-item" data-menu="disp" id="menu-disp" onclick="showMenu('disp')"><i class="fa-solid fa-table-cells-large" style="width:18px;text-align:center;color:#818cf8;"></i>카테고리별 진열</button>
+      <button class="menu-item" id="menu-npm" title="상품 관리 시스템 — 같은 계정으로 자동 로그인, 새 탭으로 열립니다" onclick="npmOpen()"><i class="fa-solid fa-box-open" style="width:18px;text-align:center;color:#818cf8;"></i>상품 관리<i class="fa-solid fa-arrow-up-right-from-square" style="font-size:.62rem;color:#9ca3af;margin-left:auto;"></i></button>
+    </div>
+  </div>
+  <div class="menu-sec" data-sec="returns">
+    <button type="button" class="menu-sec-head" onclick="menuSecToggle('returns')"><i class="fa-solid fa-rotate-left" style="width:18px;text-align:center;"></i><span>반품 분석</span><i class="fa-solid fa-chevron-down menu-sec-caret"></i></button>
+    <div class="menu-sec-body">
+      <button class="menu-item" data-menu="cr"   id="menu-cr" onclick="showMenu('cr')"><i class="fa-solid fa-rotate-left" style="width:18px;text-align:center;color:#818cf8;"></i>취소 &amp; 반품률 분석</button>
+      <button class="menu-item" data-menu="rwatch" id="menu-rwatch" onclick="showMenu('rwatch')"><i class="fa-solid fa-arrows-rotate" style="width:18px;text-align:center;color:#818cf8;"></i>순반품률 파악</button>
+    </div>
+  </div>
+  <div class="menu-sec" data-sec="order">
+    <button type="button" class="menu-sec-head" onclick="menuSecToggle('order')"><i class="fa-solid fa-box" style="width:18px;text-align:center;"></i><span>주문</span><i class="fa-solid fa-chevron-down menu-sec-caret"></i></button>
+    <div class="menu-sec-body">
+      <button class="menu-item" data-menu="stable" id="menu-stable" onclick="showMenu('stable')"><i class="fa-solid fa-warehouse" style="width:18px;text-align:center;color:#818cf8;"></i>안정재고 편성</button>
+      <button class="menu-item" data-menu="madechk" id="menu-madechk" style="display:none;" onclick="showMenu('madechk')"><i class="fa-solid fa-industry" style="width:18px;text-align:center;color:#818cf8;"></i>자체제작 주문 점검</button>
+    </div>
+  </div>
+  <div class="menu-sec" data-sec="logi">
+    <button type="button" class="menu-sec-head" onclick="menuSecToggle('logi')"><i class="fa-solid fa-truck" style="width:18px;text-align:center;"></i><span>물류·CS</span><i class="fa-solid fa-chevron-down menu-sec-caret"></i></button>
+    <div class="menu-sec-body">
+      <button class="menu-item" data-menu="rscan" id="menu-rscan" onclick="showMenu('rscan')"><i class="fa-solid fa-barcode" style="width:18px;text-align:center;color:#818cf8;"></i>반품 스캔</button>
+      <button class="menu-item" data-menu="unship" id="menu-unship" onclick="showMenu('unship')"><i class="fa-solid fa-hourglass-half" style="width:18px;text-align:center;color:#818cf8;"></i>미발송 관리</button>
+    </div>
+  </div>
+  <div class="menu-sec" data-sec="ads">
+    <button type="button" class="menu-sec-head" onclick="menuSecToggle('ads')"><i class="fa-solid fa-bullhorn" style="width:18px;text-align:center;"></i><span>광고</span><i class="fa-solid fa-chevron-down menu-sec-caret"></i></button>
+    <div class="menu-sec-body">
+      <button class="menu-item" data-menu="adv"  id="menu-adv" onclick="showMenu('adv')"><i class="fa-solid fa-bullhorn" style="width:18px;text-align:center;color:#818cf8;"></i>광고 효율</button>
+      <button class="menu-item" id="menu-addash" style="display:none;" title="광고 대시보드 — 같은 계정으로 자동 로그인, 새 탭으로 열립니다" onclick="adDashOpen()"><i class="fa-solid fa-sitemap" style="width:18px;text-align:center;color:#818cf8;"></i>광고관리자<i class="fa-solid fa-arrow-up-right-from-square" style="font-size:.62rem;color:#9ca3af;margin-left:auto;"></i></button>
+      <button class="menu-item" data-menu="meet" onclick="showMenu('meet')"><i class="fa-solid fa-clipboard-list" style="width:18px;text-align:center;color:#818cf8;"></i>광고 회의록</button>
+      <button class="menu-item" data-menu="admgr" id="menu-admgr" style="display:none;" onclick="showMenu('admgr')"><i class="fa-solid fa-sitemap" style="width:18px;text-align:center;color:#818cf8;"></i>광고관리자(기존)</button>
+    </div>
+  </div>
+  <div class="menu-sec" data-sec="mgmt">
+    <button type="button" class="menu-sec-head" onclick="menuSecToggle('mgmt')"><i class="fa-solid fa-briefcase" style="width:18px;text-align:center;"></i><span>경영</span><i class="fa-solid fa-chevron-down menu-sec-caret"></i></button>
+    <div class="menu-sec-body">
+      <button class="menu-item" data-menu="profit" id="menu-profit" onclick="showMenu('profit')"><i class="fa-solid fa-coins" style="width:18px;text-align:center;color:#818cf8;"></i>순익 시나리오</button>
+      <button class="menu-item" data-menu="board" id="menu-board" style="display:none;" onclick="showMenu('board')"><i class="fa-solid fa-people-group" style="width:18px;text-align:center;color:#818cf8;"></i>대표 회의보드</button>
+      <button class="menu-item" data-menu="proj" id="menu-proj" style="display:none;" onclick="showMenu('proj')"><i class="fa-solid fa-list-check" style="width:18px;text-align:center;color:#818cf8;"></i>프로젝트 관리</button>
+    </div>
+  </div>
+  <div class="menu-sec" data-sec="hr">
+    <button type="button" class="menu-sec-head" onclick="menuSecToggle('hr')"><i class="fa-solid fa-user-group" style="width:18px;text-align:center;"></i><span>HR</span><i class="fa-solid fa-chevron-down menu-sec-caret"></i></button>
+    <div class="menu-sec-body">
+      <button class="menu-item" data-menu="wm" id="menu-wm" style="display:none;" onclick="showMenu('wm')"><i class="fa-solid fa-user-clock" style="width:18px;text-align:center;color:#818cf8;"></i>근무 관리</button>
+      <button class="menu-item" data-menu="users" id="menu-users" style="display:none;" onclick="showMenu('users')"><i class="fa-solid fa-users" style="width:18px;text-align:center;color:#818cf8;"></i>직원 관리</button>
+      <button class="menu-item" data-menu="purch" id="menu-purch" onclick="showMenu('purch')"><i class="fa-solid fa-cart-shopping" style="width:18px;text-align:center;color:#818cf8;"></i>직원 구매요청</button>
+    </div>
+  </div>
   <button class="menu-item" data-menu="my" id="menu-my" onclick="showMenu('my')"><i class="fa-solid fa-id-card" style="width:18px;text-align:center;color:#4f46e5;"></i>마이페이지</button>
-  <div class="menu-group">협업</div>
-  <button class="menu-item" data-menu="purch" id="menu-purch" onclick="showMenu('purch')"><i class="fa-solid fa-cart-shopping" style="width:18px;text-align:center;color:#818cf8;"></i>직원 구매요청</button>
-  <button class="menu-item" data-menu="meet" onclick="showMenu('meet')"><i class="fa-solid fa-clipboard-list" style="width:18px;text-align:center;color:#818cf8;"></i>광고 회의록</button>
-  <button class="menu-item" data-menu="board" id="menu-board" style="display:none;" onclick="showMenu('board')"><i class="fa-solid fa-people-group" style="width:18px;text-align:center;color:#818cf8;"></i>대표 회의보드</button>
-  <button class="menu-item" data-menu="proj" id="menu-proj" style="display:none;" onclick="showMenu('proj')"><i class="fa-solid fa-list-check" style="width:18px;text-align:center;color:#818cf8;"></i>프로젝트 관리</button>
-  <button class="menu-item" data-menu="users" id="menu-users" style="display:none;" onclick="showMenu('users')"><i class="fa-solid fa-users" style="width:18px;text-align:center;color:#818cf8;"></i>직원 관리</button>
+  <button class="menu-item" id="menu-agents" style="display:none;" title="AI 에이전트 — 같은 계정으로 자동 로그인, 새 탭으로 열립니다" onclick="agentsOpen()"><i class="fa-solid fa-robot" style="width:18px;text-align:center;color:#818cf8;"></i>AI 에이전트<i class="fa-solid fa-arrow-up-right-from-square" style="font-size:.62rem;color:#9ca3af;margin-left:auto;"></i></button>
 </nav>
 
 <div class="container">
@@ -769,7 +816,7 @@
   ════════════════════════════════════════ -->
   <div class="section-card page-sec" id="sec-cr">
     <div class="section-header" onclick="toggleSection('cr')">
-      <h2><span><i class="fa-solid fa-rotate-left" style="color:#4f46e5;font-size:.9em;"></i></span> 취소 &amp; 반품 비율 분석</h2>
+      <h2><span><i class="fa-solid fa-rotate-left" style="color:#4f46e5;font-size:.9em;"></i></span> 취소 &amp; 반품률 분석</h2>
       <button class="toggle-btn" id="toggle-cr"><i class="fa-solid fa-chevron-up"></i> 접기</button>
     </div>
     <div class="section-body" id="body-cr">
@@ -1042,7 +1089,7 @@
   ════════════════════════════════════════ -->
   <div class="section-card page-sec" id="sec-perf">
     <div class="section-header" onclick="toggleSection('perf')">
-      <h2><span><i class="fa-solid fa-chart-column" style="color:#4f46e5;font-size:.9em;"></i></span> 판매 성과 분석</h2>
+      <h2><span><i class="fa-solid fa-chart-column" style="color:#4f46e5;font-size:.9em;"></i></span> 종합 판매 데이터</h2>
       <button class="toggle-btn" id="toggle-perf"><i class="fa-solid fa-chevron-up"></i> 접기</button>
     </div>
     <div class="section-body" id="body-perf">
@@ -1128,7 +1175,7 @@
       <!-- 판매 성과 저장 패널 -->
       <div id="perf-save-panel" style="display:none; margin-top:24px; background:#f0fdf4; border:1.5px solid #bbf7d0; border-radius:14px; padding:20px 24px;">
         <div style="font-size:.88rem; font-weight:700; color:#059669; margin-bottom:14px;">
-          <i class="fa-solid fa-floppy-disk"></i> 판매 성과 결과 저장
+          <i class="fa-solid fa-floppy-disk"></i> 종합 판매 데이터 결과 저장
         </div>
         <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
           <div style="display:flex; flex-direction:column; gap:4px; flex:1; min-width:140px;">
@@ -1154,7 +1201,7 @@
       <div style="margin-top:32px;" id="perf-archive-section">
         <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:14px; flex-wrap:wrap; gap:8px;">
           <div style="font-size:1rem; font-weight:700; color:#1e1b4b;">
-            <i class="fa-solid fa-chart-line"></i> 판매 성과 기간별 비교
+            <i class="fa-solid fa-chart-line"></i> 종합 판매 데이터 기간별 비교
           </div>
           <div style="display:flex; gap:8px;">
             <button onclick="loadPerfArchive()" style="background:#f3f4f6; border:1.5px solid #d1d5db; border-radius:8px; padding:6px 14px; font-size:.82rem; cursor:pointer; font-weight:600;">
@@ -1269,7 +1316,7 @@
       <div id="rscan-pane-products" class="rscan-pane" style="display:none;">
         <div style="font-size:.8rem;color:#6b7280;margin-bottom:10px;line-height:1.7;">
           · 최근 90일 불량·오배송 접수를 <b>상품별</b>로 모은 순위예요(처리완료·정리된 건도 포함). 접수가 잦은 상품은 품질·검수 문제를 먼저 살펴보세요.<br>
-          · 관리자·MD는 <b>관리 상품 지정</b>으로 반품 관리 메뉴의 관리 상품에 바로 올릴 수 있어요.
+          · 관리자·MD는 <b>관리 상품 지정</b>으로 순반품률 파악 메뉴의 관리 상품에 바로 올릴 수 있어요.
         </div>
         <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px;">
           <button class="toggle-btn" onclick="rscanIssuesLoad(true)"><i class="fa-solid fa-rotate"></i> 새로고침</button>
@@ -1312,11 +1359,11 @@
 
   <div class="section-card page-sec" id="sec-rwatch">
     <div class="section-header" style="cursor:default;">
-      <h2><span><i class="fa-solid fa-arrows-rotate" style="color:#4f46e5;font-size:.9em;"></i></span> 반품 관리</h2>
+      <h2><span><i class="fa-solid fa-arrows-rotate" style="color:#4f46e5;font-size:.9em;"></i></span> 순반품률 파악</h2>
     </div>
     <div class="section-body">
       <div style="font-size:.82rem;color:#6b7280;margin-bottom:14px;">
-        잘 팔리는데 반품이 많은 상품을 찾아 '관리 상품'으로 추적합니다. 순반품률은 반품 신청·접수 포함(판매 성과와 같은 기준).
+        잘 팔리는데 반품이 많은 상품을 찾아 '관리 상품'으로 추적합니다. 순반품률은 반품 신청·접수 포함(종합 판매 데이터와 같은 기준).
       </div>
 
       <div class="control-bar">
@@ -1585,7 +1632,7 @@
         <button class="btn-analyze" id="btn-pf-fetch" onclick="fetchProfitData()">
           <i class="fa-solid fa-cloud-arrow-down"></i> 데이터 자동 수집
         </button>
-        <span style="font-size:.75rem;color:#6b7280;">매출(카페24 결제)·취소반품(카페24)·마진율(판매 성과)·광고비(Meta) — 수집 후 직접 수정 가능</span>
+        <span style="font-size:.75rem;color:#6b7280;">매출(카페24 결제)·취소반품(카페24)·마진율(종합 판매 데이터)·광고비(Meta) — 수집 후 직접 수정 가능</span>
       </div>
 
       <!-- STEP 2: 수집값 (수정 가능) -->
@@ -2630,6 +2677,37 @@ function logout() {
   location.reload();
 }
 
+/* ── 큰 메뉴 묶음 (2026-09-29 사용자 지정) ── 펼침 상태는 이 브라우저에 기억, 지금 화면이 속한 묶음은 항상 펼침 */
+const MENU_OPEN_KEY = 'dnrb_menu_open';
+function menuOpenSet() { try { return new Set(JSON.parse(localStorage.getItem(MENU_OPEN_KEY) || '[]')); } catch { return new Set(); } }
+function menuSecToggle(key) {
+  const sec = document.querySelector(`.menu-sec[data-sec="${key}"]`); if (!sec) return;
+  const open = sec.classList.toggle('collapsed') === false;
+  const set = menuOpenSet(); open ? set.add(key) : set.delete(key);
+  try { localStorage.setItem(MENU_OPEN_KEY, JSON.stringify([...set])); } catch {}
+}
+function menuSecSync() {
+  const set = menuOpenSet();
+  // 보이는 소메뉴가 8개 이하(물류팀·CS 등)면 접을 이유가 없어 전부 펼친다
+  const few = [...document.querySelectorAll('.menu-sec-body > .menu-item')].filter(b => b.style.display !== 'none').length <= 8;
+  document.querySelectorAll('.menu-sec').forEach(sec => {
+    const items = [...sec.querySelectorAll('.menu-sec-body > .menu-item')];
+    const visible = items.filter(b => b.style.display !== 'none');
+    sec.style.display = visible.length ? '' : 'none';
+    const active = items.some(b => b.classList.contains('active'));
+    sec.classList.toggle('has-active', active);
+    sec.classList.toggle('collapsed', !(few || active || set.has(sec.dataset.sec)));
+  });
+}
+// 메뉴 버튼 표시가 나중에 바뀌어도(광고관리자·AI 에이전트 허용 확인 등 비동기) 묶음을 다시 맞춘다
+(() => {
+  const nav = document.querySelector('.side-menu'); if (!nav || !window.MutationObserver) return;
+  let pending = false;
+  new MutationObserver(recs => {
+    if (pending || !recs.some(r => r.target.classList && r.target.classList.contains('menu-item'))) return;
+    pending = true; requestAnimationFrame(() => { pending = false; menuSecSync(); });
+  }).observe(nav, { subtree: true, attributes: true, attributeFilter: ['style'] });
+})();
 function applyRole() {
   document.body.classList.toggle('role-staff', isStaff());
   document.body.classList.toggle('role-cs', isCS());
@@ -2656,16 +2734,7 @@ function applyRole() {
   $('menu-my').style.display = SESSION ? '' : 'none';   // 마이페이지 = 로그인한 전 직원 (2026-08-27)   // 근무 관리 = 관리자 전용 (급여·계좌 노출)
   // Meta 광고 성과 패널 — 관리자 + MD (MD는 광고비·전환값·총매출 블러)
   const mp = $('meta-panel'); if (mp) mp.style.display = (isAdmin() || isStaff()) && !isCS() ? 'block' : 'none';
-  // 그룹 소제목: 그 그룹의 버튼이 하나도 안 보이면 소제목도 숨김 (CS는 판매 성과만 보이므로 대부분 숨음)
-  const navEls = [...document.querySelectorAll('.side-menu > *')];
-  navEls.forEach((el, i) => {
-    if (!el.classList.contains('menu-group')) return;
-    let anyVisible = false;
-    for (let j = i + 1; j < navEls.length && !navEls[j].classList.contains('menu-group'); j++) {
-      if (navEls[j].style.display !== 'none') { anyVisible = true; break; }
-    }
-    el.style.display = anyVisible ? '' : 'none';
-  });
+  menuSecSync();   // 큰 메뉴 묶음: 보이는 소메뉴가 없으면 묶음도 숨김 (2026-09-29)
   $('user-info').textContent = SESSION ? `${SESSION.name} (${ROLE_LABEL[SESSION.role] || 'MD'})` : '';
   $('btn-logout').style.display = SESSION ? '' : 'none';
 }
@@ -3004,7 +3073,7 @@ async function checkCafe24Status() {
     } else {
       if (badge) { badge.textContent = '카페24: 미연동'; badge.className = 'status-badge badge-yellow'; }
       paintHome('warn', '카페24가 연동되지 않았습니다',
-        isAdmin() ? '연동해야 매출·취소반품·판매 성과 데이터를 불러올 수 있습니다'
+        isAdmin() ? '연동해야 매출·취소반품·종합 판매 데이터를 불러올 수 있습니다'
                   : '관리자에게 카페24 연동을 요청해주세요', '카페24 연동하기');
     }
   } catch {
@@ -3553,14 +3622,14 @@ function rscanProductsRender() {
 }
 async function rscanWatchAdd(btn) {
   const no = Number(btn.dataset.no), name = btn.dataset.name, n = btn.dataset.n;
-  if (!confirm(`'${name}' 을(를) 반품 관리의 관리 상품으로 지정할까요?`)) return;
+  if (!confirm(`'${name}' 을(를) 순반품률 파악의 관리 상품으로 지정할까요?`)) return;
   try {
     await dbProxy('return_watch', { method: 'POST', headers: { Prefer: 'return=minimal,resolution=merge-duplicates' },
       body: JSON.stringify({ product_no: no, product_name: name, reason: `불량·오배송 접수 ${n}건 (반품 스캔 최근 ${(rscanState.issues || {}).days || 90}일)`, created_by: SESSION ? SESSION.name : '' }) });
     if (!rscanState.watch) rscanState.watch = new Map();
     rscanState.watch.set(no, { product_no: no, discontinued: false });
     if (typeof rwState !== 'undefined') rwState.watch = null;   // 반품 관리 메뉴가 다음에 열릴 때 다시 불러오게
-    rscanProductsRender(); showToast('관리 상품으로 지정했어요 — 반품 관리 메뉴에서 볼 수 있어요');
+    rscanProductsRender(); showToast('관리 상품으로 지정했어요 — 순반품률 파악 메뉴에서 볼 수 있어요');
   } catch (e) { showToast('지정 실패: ' + e.message); }
 }
 /* 처리완료 정리(2026-09-22 사용자 요청) — 처리완료(자동 수거 완료 포함) 건을 rscan_done에 cleared=true로 적어 목록에서 제외. 구분·상태 필터와 무관하게 전부 */
@@ -5074,7 +5143,7 @@ function rwShowDetail(no) {
       <i class="fa-solid fa-spinner fa-spin"></i> 반품 사유를 불러오는 중입니다 (처음 한 번만 몇 초 걸립니다)</div></div>
     <div style="font-size:.7rem;color:#6b7280;margin-top:9px;line-height:1.6;border-top:1px solid #f3f4f6;padding-top:8px;">
       ※ 배송완료 ${d.min_qty}개 미만은 <b>보류</b>로 표시합니다 (표본이 적어 요행일 수 있음) ·
-      이 수치는 <b>반품 신청·접수까지 포함</b>합니다 (판매 성과 메뉴와 같은 기준)</div>`;
+      이 수치는 <b>반품 신청·접수까지 포함</b>합니다 (종합 판매 데이터 메뉴와 같은 기준)</div>`;
   rwLoadReasons(no);
 }
 
@@ -12387,6 +12456,7 @@ function showMenu(key) {
   const crCohort = $('sec-cr-cohort'); if (crCohort) crCohort.style.display = key === 'cr' ? 'block' : 'none';
   if (key === 'cr') crCohortInit();
   document.querySelectorAll('.menu-item').forEach(b => b.classList.toggle('active', b.dataset.menu === key));
+  menuSecSync();   // 지금 화면이 속한 묶음 펼침
   history.replaceState(null, '', '#' + key);
   notifLoad();   // 메뉴 이동 때 알림 갱신 (60초 스로틀 — 상시 폴링 없음)
   if (key === 'home') { homeFoldsApply(); checkCafe24Status(); updateHomeSourceStatus(); updateHomeReasons(); updateHomeClaimsTile(); updateHomeTrafficTile(); renderHomeShortcuts(); homeTrendInit(); }
@@ -12425,7 +12495,7 @@ const homeState = { loaded: false, loading: false };
 function renderHomeShortcuts() {
   const el = $('home-shortcuts'); if (!el) return;
   const tiles = [
-    { key: 'rwatch', icon: 'fa-arrows-rotate', name: '반품 관리', desc: '반품률 높은 상품 점검', show: isAdmin() || isStaff() },
+    { key: 'rwatch', icon: 'fa-arrows-rotate', name: '순반품률 파악', desc: '반품률 높은 상품 점검', show: isAdmin() || isStaff() },
     { key: 'disp',   icon: 'fa-table-cells-large', name: '카테고리별 진열', desc: '주간 진열 순서 계산', show: isAdmin() },
     { key: 'adv',    icon: 'fa-bullhorn', name: '광고 효율', desc: 'Meta 광고 성과·소재', show: isAdmin() || isStaff() },
     { key: 'profit', icon: 'fa-coins', name: '순익 시나리오', desc: '기간 순이익 계산', show: isAdmin() },
