@@ -1335,13 +1335,14 @@
       <h2><span><i class="fa-solid fa-box-open" style="color:#4f46e5;font-size:.9em;"></i></span> 품절 재고 점검</h2>
       <div style="display:flex;gap:8px;flex-wrap:wrap;">
         <button class="btn-analyze" id="btn-soldout-scan" onclick="soldoutScan()"><i class="fa-solid fa-cloud-arrow-down"></i> 셀메이트에서 불러오기</button>
-        <button class="toggle-btn" onclick="soldoutLogToggle()"><i class="fa-solid fa-clock-rotate-left"></i> 변경 기록</button>
       </div>
     </div>
     <div class="section-body">
+      <div id="soldout-tabs" style="display:flex;gap:2px;border-bottom:2px solid #e5e7eb;margin-bottom:14px;flex-wrap:wrap;"></div>
+      <div id="soldout-pane-find" class="soldout-pane">
       <div style="font-size:.8rem;color:#6b7280;margin-bottom:10px;line-height:1.7;">
         · 셀메이트 재고 목록에서 옵션 상태가 <b style="color:#dc2626;">(품절)</b>인데 <b>재고가 1개 이상</b>인 옵션을 모았어요. 상품 전체가 품절이든 옵션 하나만 품절이든 모두 잡아요. <b style="color:#2563eb;">(소진시품절)</b>은 품절 처리한 게 아니라서 빼요.<br>
-        · 바꿀 옵션을 체크하고 <b>판매중으로 변경</b>을 누르면 셀메이트의 품절분류가 <b>미품절(판매중)</b>로 바뀌어요. 재고·가격 등 다른 값은 바꾸지 않고, 바꾼 뒤 다시 읽어 확인해요.<br>
+        · 바꿀 옵션을 체크하고 <b style="color:#059669;">판매중으로 변경</b>(품절분류 미품절) 또는 <b style="color:#2563eb;">소진시품절로 변경</b>(재고가 다 팔리면 자동 품절)을 누르세요. 재고·가격 등 다른 값은 바꾸지 않고, 바꾼 뒤 다시 읽어 확인해요. 바꾼 목록은 <b>변경 내역</b> 탭에서 볼 수 있어요.<br>
         · 이 PC 엣지에 <b>셀메이트 연결 스크립트 1.2.0</b>이 있고 셀메이트에 로그인돼 있어야 해요. 처음에는 한두 건만 바꿔 셀메이트에서 확인해 보세요.
       </div>
       <div id="soldout-bridge" style="margin-bottom:10px;"></div>
@@ -1352,11 +1353,23 @@
         <input id="soldout-q" type="search" placeholder="상품명·옵션·공급처 찾기" oninput="soldoutState.q=this.value.trim().toLowerCase();clearTimeout(soldoutState.t);soldoutState.t=setTimeout(soldoutRender,250)" style="padding:6px 10px;border:1px solid #d1d5db;border-radius:8px;font-size:.8rem;min-width:180px;" />
         <button class="toggle-btn" onclick="soldoutPickAll(true)">전체 선택</button><button class="toggle-btn" onclick="soldoutPickAll(false)">전체 해제</button>
         <span id="soldout-count" style="font-size:.8rem;color:#374151;"></span>
-        <button id="soldout-go" class="btn-analyze" style="margin-left:auto;background:#059669;" onclick="soldoutSell()"><i class="fa-solid fa-circle-check"></i> 선택 옵션 판매중으로 변경</button>
+        <span style="margin-left:auto;display:inline-flex;gap:8px;flex-wrap:wrap;">
+          <button id="soldout-go" class="btn-analyze" style="background:#059669;" onclick="soldoutSell(0)"><i class="fa-solid fa-circle-check"></i> 판매중으로 변경</button>
+          <button id="soldout-go3" class="btn-analyze" style="background:#2563eb;" onclick="soldoutSell(3)" title="재고가 다 팔리면 셀메이트가 자동으로 품절 처리"><i class="fa-solid fa-hourglass-end"></i> 소진시품절로 변경</button></span>
       </div>
       <div id="soldout-result"></div>
       <div id="soldout-list"></div>
-      <div id="soldout-log" style="display:none;margin-top:14px;"></div>
+      </div>
+      <div id="soldout-pane-log" class="soldout-pane" style="display:none;">
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px;font-size:.78rem;">
+          <span style="font-weight:700;color:#374151;">바꾼 상태</span><span id="soldout-log-target" class="qp"></span>
+          <span style="font-weight:700;color:#374151;">기간</span><span id="soldout-log-period" class="qp"></span>
+          <span style="font-weight:700;color:#374151;">결과</span><span id="soldout-log-result" class="qp"></span>
+          <input id="soldout-log-q" type="search" placeholder="상품·옵션·처리자 찾기" oninput="soldoutLog.q=this.value.trim().toLowerCase();clearTimeout(soldoutLog.t);soldoutLog.t=setTimeout(soldoutLogRender,250)" style="padding:6px 10px;border:1px solid #d1d5db;border-radius:8px;font-size:.8rem;min-width:170px;" />
+          <button class="toggle-btn" onclick="soldoutLogLoad()"><i class="fa-solid fa-rotate"></i> 새로고침</button>
+        </div>
+        <div id="soldout-log"></div>
+      </div>
     </div>
   </div>
 
@@ -3196,7 +3209,16 @@ async function anGet(params) {
    최근 14일 판매 = 카페24 paiditems(상품코드 = 카페24 상품번호, 옵션은 값 토큰 일치). 마지막 결과는 이 브라우저(localStorage)에 보관. */
 const SOLDOUT_KEY = 'dnrb_soldout_last';
 const soldoutState = { data: (() => { try { return JSON.parse(localStorage.getItem(SOLDOUT_KEY) || 'null'); } catch { return null; } })(), sales: null, sel: new Set(), sort: 'stock', q: '', busy: false, t: null };
-function soldoutInit() { soldoutBridgeRender(); if (soldoutState.data) { soldoutRender(); if (!soldoutState.sales) soldoutSalesLoad(); } }
+const SOLDOUT_TABS = [['find', '품절 재고 찾기', null, 'fa-solid fa-magnifying-glass'], ['log', '변경 내역', null, 'fa-solid fa-clock-rotate-left']];
+const SOLDOUT_TARGET = { 0: { key: 'selling', label: '판매중', color: '#059669', bg: '#dcfce7' }, 3: { key: 'exhaust', label: '소진시품절', color: '#2563eb', bg: '#dbeafe' } };
+const soldoutLog = { rows: null, target: 'all', period: '30', result: 'ok', q: '', t: null };
+function soldoutInit() { soldoutSetTab(soldoutState.tab || 'find'); soldoutBridgeRender(); if (soldoutState.data) { soldoutRender(); if (!soldoutState.sales) soldoutSalesLoad(); } }
+function soldoutSetTab(k) {
+  soldoutState.tab = k; uiTabs('soldout-tabs', SOLDOUT_TABS, k, 'soldoutSetTab');
+  document.querySelectorAll('.soldout-pane').forEach(el => { el.style.display = 'none'; });
+  $('soldout-pane-' + k).style.display = 'block';
+  if (k === 'log') soldoutLogLoad();
+}
 function soldoutBridgeRender() {
   const S = stableBridge(), el = $('soldout-bridge'); if (!el) return;
   el.innerHTML = !S ? stableBridgeHelp()
@@ -3270,14 +3292,17 @@ function soldoutCount() {
   const el = $('soldout-count'); if (!el) return;
   const n = soldoutState.sel.size, prods = new Set((soldoutState.data?.products || []).filter(p => p.options.some(o => soldoutState.sel.has(o.opt_idx))).map(p => p.p_no)).size;
   el.innerHTML = `선택 <b>${n}</b>개 옵션 · 상품 <b>${prods}</b>개`;
-  const b = $('soldout-go'); if (b) b.style.opacity = n ? '1' : '.55';
+  ['soldout-go', 'soldout-go3'].forEach(id => { const b = $(id); if (b) b.style.opacity = n ? '1' : '.55'; });
 }
 function soldoutPick(cb) { const id = Number(cb.dataset.o); cb.checked ? soldoutState.sel.add(id) : soldoutState.sel.delete(id); soldoutRender(); }
 function soldoutPickProduct(cb) { const p = (soldoutState.data?.products || []).find(x => x.p_no === Number(cb.dataset.p)); if (!p) return; p.options.forEach(o => cb.checked ? soldoutState.sel.add(o.opt_idx) : soldoutState.sel.delete(o.opt_idx)); soldoutRender(); }
 function soldoutPickAll(on) { soldoutState.sel = new Set(on ? soldoutList().flatMap(p => p.options.map(o => o.opt_idx)) : []); soldoutRender(); }
-async function soldoutSell() {
+async function soldoutSell(target) {
+  target = target === 3 ? 3 : 0;
+  const T = SOLDOUT_TARGET[target];
   const S = stableBridge();
   if (!S || typeof S.sellBatch !== 'function') { soldoutBridgeRender(); showToast('셀메이트 연결 스크립트 1.2.0이 필요해요'); return; }
+  if (target === 3 && String(S.version || '') < '1.3.0') { showToast('소진시품절로 바꾸려면 셀메이트 연결 스크립트를 1.3.0으로 교체하세요'); return; }
   if (soldoutState.busy) { showToast('처리 중이에요 — 잠시만 기다려 주세요'); return; }
   const d = soldoutState.data; if (!d) return;
   const items = (d.products || []).map(p => ({ p_no: p.p_no, code: p.code, name: p.name, opts: p.options.filter(o => soldoutState.sel.has(o.opt_idx)) })).filter(x => x.opts.length);
@@ -3288,10 +3313,10 @@ async function soldoutSell() {
   const batchId = `${new Date().toISOString().slice(0, 19).replace(/[-:T]/g, '')}-${Math.random().toString(36).slice(2, 7)}`;
   const done = []; let logErr = '', stopped = '';
   try {
-    const token = await S.beginSell({ products: items.length, options: nOpt, preview: items.slice(0, 8).map(x => `${x.name} — ${x.opts.map(o => o.option).join(', ')}`) });
+    const token = await S.beginSell({ products: items.length, options: nOpt, target, preview: items.slice(0, 8).map(x => `${x.name} — ${x.opts.map(o => o.option).join(', ')}`) });
     for (let i = 0; i < items.length; i += 10) {
       const part = items.slice(i, i + 10);
-      say(`셀메이트에서 판매중으로 바꾸는 중… 상품 ${Math.min(i + part.length, items.length)} / ${items.length} — 이 탭을 닫지 마세요`);
+      say(`셀메이트에서 ${T.label}(으)로 바꾸는 중… 상품 ${Math.min(i + part.length, items.length)} / ${items.length} — 이 탭을 닫지 마세요`);
       const res = JSON.parse(await S.sellBatch(part.map(x => ({ p_no: x.p_no, code: x.code, name: x.name, opt_idxs: x.opts.map(o => o.opt_idx) })), token));
       const logs = [];
       part.forEach((x, k) => {
@@ -3300,7 +3325,7 @@ async function soldoutSell() {
           const rr = (r.rows || []).find(z => z.opt_idx === o.opt_idx) || { ok: false, error: r.error || '결과 없음' };
           const row = { p: x.name, o: o.option, ok: !!rr.ok, skipped: !!rr.skipped, error: rr.error || '', before: rr.stock_before ?? o.stock, after: rr.stock_after ?? null, p_no: x.p_no, opt_idx: o.opt_idx };
           done.push(row);
-          logs.push({ batch_id: batchId, p_no: x.p_no, opt_idx: o.opt_idx, code: x.code || null, product_name: x.name, option_name: o.option, stock_before: row.before, stock_after: row.after, ok: row.ok, skipped: row.skipped, error: row.error ? String(row.error).slice(0, 300) : null });
+          logs.push({ batch_id: batchId, target: T.key, p_no: x.p_no, opt_idx: o.opt_idx, code: x.code || null, product_name: x.name, option_name: o.option, stock_before: row.before, stock_after: row.after, ok: row.ok, skipped: row.skipped, error: row.error ? String(row.error).slice(0, 300) : null });
         });
       });
       try { await dbProxy('soldout_fix_log', { method: 'POST', headers: { Prefer: 'return=minimal' }, body: JSON.stringify(logs) }); } catch (e) { logErr = e.message; }
@@ -3315,26 +3340,55 @@ async function soldoutSell() {
     const line = (x, c) => `<div style="color:${c};">· ${escHtml(x.p)} / ${escHtml(x.o)}${x.error ? ` <span style="color:#6b7280;">(${escHtml(x.error)})</span>` : ` — 재고 ${x.before}→${x.after}`}</div>`;
     box.innerHTML = `${stopped ? `<div style="border:1.5px solid #fca5a5;background:#fef2f2;border-radius:12px;padding:10px 14px;font-size:.84rem;color:#b91c1c;font-weight:700;margin-bottom:8px;">${escHtml(stopped)}</div>` : ''}
       <div style="border:1.5px solid ${bad.length ? '#fca5a5' : '#a7f3d0'};background:${bad.length ? '#fef2f2' : '#f0fdf4'};border-radius:12px;padding:10px 14px;font-size:.8rem;line-height:1.7;margin-bottom:10px;">
-      <b>판매중 변경 결과</b> — 성공 ${ok.length}개${bad.length ? ` · <span style="color:#b91c1c;">실패 ${bad.length}개</span>` : ''}${skip.length ? ` · 건너뜀 ${skip.length}개` : ''}
+      <b>${T.label}(으)로 변경 결과</b> — 성공 ${ok.length}개${bad.length ? ` · <span style="color:#b91c1c;">실패 ${bad.length}개</span>` : ''}${skip.length ? ` · 건너뜀 ${skip.length}개` : ''}
       ${logErr ? `<div style="color:#b91c1c;">기록 저장 실패: ${escHtml(logErr)}</div>` : ''}
       ${bad.map(x => line(x, '#b91c1c')).join('')}${skip.map(x => line(x, '#92400e')).join('')}
       <details style="margin-top:4px;"><summary style="cursor:pointer;color:#065f46;">성공 ${ok.length}개 보기</summary>${ok.map(x => line(x, '#065f46')).join('')}</details></div>`;
     soldoutRender();
-    showToast(`판매중 변경: 성공 ${ok.length}개${bad.length ? ' · 실패 ' + bad.length + '개' : ''}`);
-    if ($('soldout-log').style.display !== 'none') soldoutLogLoad();
+    showToast(`${T.label} 변경: 성공 ${ok.length}개${bad.length ? ' · 실패 ' + bad.length + '개' : ''}`);
+    soldoutLog.rows = null;   // 변경 내역은 다음에 열 때 새로 읽음
   } catch (e) {
     box.innerHTML = `<div style="border:1.5px solid #fca5a5;background:#fef2f2;border-radius:12px;padding:10px 14px;font-size:.82rem;color:#b91c1c;">${e.code === 'cancel' || /취소/.test(e.message) ? '변경을 취소했어요. 셀메이트는 바뀌지 않았습니다.' : '변경하지 못했어요 — ' + escHtml(e.message)}</div>`;
   } finally { soldoutState.busy = false; }
 }
-function soldoutLogToggle() { const b = $('soldout-log'); const open = b.style.display === 'none'; b.style.display = open ? 'block' : 'none'; if (open) soldoutLogLoad(); }
+// 변경 내역 (2026-09-29 사용자 요청 — 소진시품절로 바꾼 목록 따로 보기): soldout_fix_log, 바꾼 상태·기간·결과·검색
 async function soldoutLogLoad() {
   const b = $('soldout-log');
-  b.innerHTML = '<div class="empty-state"><p><i class="fa-solid fa-spinner fa-spin"></i> 변경 기록을 불러오는 중…</p></div>';
+  b.innerHTML = '<div class="empty-state"><p><i class="fa-solid fa-spinner fa-spin"></i> 변경 내역을 불러오는 중…</p></div>';
   try {
-    const rows = await dbProxy('soldout_fix_log?select=created_at,by_name,product_name,option_name,code,stock_before,stock_after,ok,skipped,error&order=created_at.desc,id.desc&limit=300') || [];
-    const when = t => { const d = new Date(t), p = n => String(n).padStart(2, '0'); return `${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`; };
-    b.innerHTML = `<div style="font-weight:800;color:#312e81;margin-bottom:8px;"><i class="fa-solid fa-clock-rotate-left"></i> 판매중 변경 기록 (최근 300개)</div>` + (!rows.length ? '<div class="empty-state"><p>아직 변경 기록이 없어요</p></div>' : `<div class="table-wrap" style="max-height:46vh;overflow:auto;"><table style="width:100%;font-size:.78rem;"><thead><tr><th>시각</th><th>처리자</th><th style="text-align:left;">상품</th><th style="text-align:left;">옵션</th><th>재고</th><th>결과</th><th class="m-hide" style="text-align:left;">사유</th></tr></thead><tbody>${rows.map(r => `<tr style="${r.ok ? '' : r.skipped ? 'background:#fffbeb;' : 'background:#fef2f2;'}"><td style="white-space:nowrap;">${escHtml(when(r.created_at))}</td><td>${escHtml(r.by_name || '')}</td><td style="text-align:left;">${escHtml(r.product_name || '')}${r.code ? ` <span style="color:#9ca3af;">#${r.code}</span>` : ''}</td><td style="text-align:left;">${escHtml(r.option_name || '')}</td><td>${r.stock_before ?? '—'}${r.stock_after != null ? '→' + r.stock_after : ''}</td><td style="font-weight:800;color:${r.ok ? '#15803d' : r.skipped ? '#92400e' : '#b91c1c'};">${r.ok ? '판매중' : r.skipped ? '건너뜀' : '실패'}</td><td class="m-hide" style="text-align:left;font-size:.72rem;color:#6b7280;">${escHtml(r.error || '')}</td></tr>`).join('')}</tbody></table></div>`);
-  } catch (e) { b.innerHTML = `<div class="empty-state"><p style="color:#b91c1c;">변경 기록을 불러오지 못했어요 — ${escHtml(e.message)}</p></div>`; }
+    const since = soldoutLog.period === 'all' ? '' : `&created_at=gte.${new Date(Date.now() - Number(soldoutLog.period) * 86400000).toISOString()}`;
+    const rows = [];
+    for (let off = 0; off < 10000; off += 1000) {
+      const part = await dbProxy(`soldout_fix_log?select=created_at,by_name,target,p_no,product_name,option_name,code,stock_before,stock_after,ok,skipped,error&order=created_at.desc,id.desc&limit=1000&offset=${off}${since}`);
+      rows.push(...(part || [])); if (!part || part.length < 1000) break;
+    }
+    soldoutLog.rows = rows; soldoutLogRender();
+  } catch (e) { b.innerHTML = `<div class="empty-state"><p style="color:#b91c1c;">변경 내역을 불러오지 못했어요 — ${escHtml(e.message)}</p></div>`; }
+}
+function soldoutLogSet(k, v) { soldoutLog[k] = v; k === 'period' ? soldoutLogLoad() : soldoutLogRender(); }
+function soldoutLogRender() {
+  const all = soldoutLog.rows || [], q = soldoutLog.q;
+  const chip = (k, v, l) => `<button class="${soldoutLog[k] === v ? 'active' : ''}" onclick="soldoutLogSet('${k}','${v}')">${l}</button>`;
+  const byRes = all.filter(r => soldoutLog.result === 'all' || r.ok);
+  const cnt = t => byRes.filter(r => (r.target || 'selling') === t).length;
+  $('soldout-log-target').innerHTML = chip('target', 'all', `전체 ${byRes.length}`) + chip('target', 'exhaust', `<span style="color:#2563eb;">●</span> 소진시품절 ${cnt('exhaust')}`) + chip('target', 'selling', `<span style="color:#059669;">●</span> 판매중 ${cnt('selling')}`);
+  $('soldout-log-period').innerHTML = chip('period', '7', '최근 7일') + chip('period', '30', '최근 30일') + chip('period', '90', '최근 3달') + chip('period', 'all', '전체');
+  $('soldout-log-result').innerHTML = chip('result', 'ok', '바뀐 것만') + chip('result', 'all', '전체(실패·건너뜀 포함)');
+  const rows = byRes.filter(r => (soldoutLog.target === 'all' || (r.target || 'selling') === soldoutLog.target)
+    && (!q || [r.product_name, r.option_name, r.by_name, String(r.code || '')].some(x => String(x || '').toLowerCase().includes(q))));
+  const b = $('soldout-log');
+  if (!rows.length) { b.innerHTML = `<div class="empty-state"><p>${all.length ? '조건에 맞는 내역이 없어요' : '이 기간에 워크스페이스에서 바꾼 내역이 없어요'}</p></div>`; return; }
+  const when = t => { const d = new Date(t), p = n => String(n).padStart(2, '0'); return `${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`; };
+  const prods = new Set(rows.map(r => r.p_no)).size;
+  b.innerHTML = `<div style="font-size:.76rem;color:#6b7280;margin-bottom:6px;">옵션 ${fmt(rows.length)}개 · 상품 ${fmt(prods)}개 — 워크스페이스 '품절 재고 점검'에서 바꾼 것만 (셀메이트 화면에서 직접 바꾼 건 없음)</div>
+    <div class="table-wrap" style="max-height:60vh;overflow:auto;"><table style="width:100%;font-size:.78rem;"><thead><tr><th>바꾼 시각</th><th>처리자</th><th>바꾼 상태</th><th style="text-align:left;">상품</th><th style="text-align:left;">옵션</th><th>그때 재고</th><th>결과</th><th class="m-hide" style="text-align:left;">사유</th></tr></thead><tbody>${rows.map(r => {
+      const T = (r.target || 'selling') === 'exhaust' ? SOLDOUT_TARGET[3] : SOLDOUT_TARGET[0];
+      return `<tr style="${r.ok ? '' : r.skipped ? 'background:#fffbeb;' : 'background:#fef2f2;'}"><td style="white-space:nowrap;">${escHtml(when(r.created_at))}</td><td>${escHtml(r.by_name || '')}</td>
+        <td><span style="background:${T.bg};color:${T.color};border-radius:99px;padding:1px 9px;font-size:.7rem;font-weight:800;white-space:nowrap;">품절 → ${T.label}</span></td>
+        <td style="text-align:left;">${escHtml(r.product_name || '')}${r.code ? ` <span style="color:#9ca3af;">#${r.code}</span>` : ''}</td><td style="text-align:left;">${escHtml(r.option_name || '')}</td>
+        <td>${r.stock_before ?? '—'}개</td>
+        <td style="font-weight:800;color:${r.ok ? '#15803d' : r.skipped ? '#92400e' : '#b91c1c'};white-space:nowrap;">${r.ok ? '바뀜' : r.skipped ? '건너뜀' : '실패'}</td>
+        <td class="m-hide" style="text-align:left;font-size:.72rem;color:#6b7280;">${escHtml(r.error || '')}</td></tr>`; }).join('')}</tbody></table></div>`;
 }
 
 /* ══ 미발송 관리 (#unship, 2026-09-28 사용자 요청 — 물류팀) ══
