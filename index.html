@@ -1335,6 +1335,7 @@
       <h2><span><i class="fa-solid fa-box-open" style="color:#4f46e5;font-size:.9em;"></i></span> 품절 재고 점검</h2>
       <div style="display:flex;gap:8px;flex-wrap:wrap;">
         <button class="btn-analyze" id="btn-soldout-scan" onclick="soldoutScan()"><i class="fa-solid fa-cloud-arrow-down"></i> 셀메이트에서 불러오기</button>
+        <button class="toggle-btn" onclick="soldoutDiag()" title="특정 상품이 목록에 안 나올 때 — 셀메이트에서 그 상품이 어떻게 읽히는지 확인합니다(읽기만)"><i class="fa-solid fa-stethoscope"></i> 문제 진단</button>
       </div>
     </div>
     <div class="section-body">
@@ -3279,6 +3280,26 @@ function soldoutBridgeRender() {
   el.innerHTML = !S ? stableBridgeHelp()
     : typeof S.scanSoldout !== 'function' ? `<div style="background:#fffbeb;border:1.5px solid #fde68a;border-radius:12px;padding:10px 14px;font-size:.82rem;color:#78350f;"><b><i class="fa-solid fa-circle-exclamation"></i> 셀메이트 연결 스크립트가 옛 버전(${escHtml(String(S.version || ''))})이에요.</b> Tampermonkey에서 <b>danarobe-sellmate-stock.user.js 1.2.0</b>으로 교체(파일에서 가져오기)한 뒤 이 페이지를 새로고침하세요.</div>`
     : `<span style="font-size:.78rem;color:#065f46;font-weight:700;"><i class="fa-solid fa-plug-circle-check"></i> 셀메이트 연결 스크립트 v${escHtml(String(S.version || ''))} 연결됨</span>`;
+}
+// 문제 진단 (2026-09-30 — 흑청,S가 불러오기에 안 나오는 원인 찾기): 연결 스크립트 1.3.3 diagSoldout(상품코드), 읽기만
+async function soldoutDiag() {
+  const S = stableBridge();
+  if (!S || typeof S.diagSoldout !== 'function') { soldoutBridgeRender(); showToast('문제 진단은 셀메이트 연결 스크립트 1.3.3 이상이 필요해요'); return; }
+  if (soldoutState.busy) { showToast('처리 중이에요 — 잠시만 기다려 주세요'); return; }
+  const code = (prompt('목록에 안 나오는 상품의 셀메이트 "상품코드"(숫자)를 넣어 주세요.\n예: 썸머 흑청 스티치 하프 데님 → 2403', '2403') || '').trim();
+  if (!code) return;
+  soldoutState.busy = true;
+  const box = $('soldout-result');
+  box.innerHTML = '<div class="empty-state"><p><i class="fa-solid fa-spinner fa-spin"></i> 진단 중… 셀메이트 전체를 한 번 훑어서 1~3분 걸려요</p></div>';
+  try {
+    const txt = await S.diagSoldout(code);
+    box.innerHTML = `<div style="border:1.5px solid #c7d2fe;background:#eef2ff;border-radius:12px;padding:10px 14px;margin-bottom:10px;">
+      <div style="display:flex;gap:8px;align-items:center;margin-bottom:6px;"><b style="font-size:.84rem;color:#312e81;"><i class="fa-solid fa-stethoscope"></i> 진단 결과</b>
+        <button class="toggle-btn" style="font-size:.74rem;" onclick="const t=$('soldout-diag-txt');t.select();(navigator.clipboard?navigator.clipboard.writeText(t.value):Promise.resolve(document.execCommand('copy'))).then(()=>showToast('진단 결과를 복사했어요 — 대화창에 붙여넣어 주세요'))"><i class="fa-regular fa-copy"></i> 복사</button>
+        <span style="font-size:.72rem;color:#6b7280;">이 내용을 복사해서 보내 주세요</span></div>
+      <textarea id="soldout-diag-txt" readonly style="width:100%;box-sizing:border-box;height:260px;font-family:monospace;font-size:.74rem;border:1px solid #c7d2fe;border-radius:8px;padding:8px;">${escHtml(txt)}</textarea></div>`;
+  } catch (e) { box.innerHTML = `<div style="border:1.5px solid #fca5a5;background:#fef2f2;border-radius:12px;padding:10px 14px;font-size:.8rem;color:#b91c1c;white-space:pre-wrap;">진단 실패 — ${escHtml(e.message)}</div>`; }
+  finally { soldoutState.busy = false; }
 }
 async function soldoutScan() {
   const S = stableBridge();
