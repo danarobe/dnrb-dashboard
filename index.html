@@ -4287,10 +4287,17 @@ function rscanRender(r) {
         : `<div style="font-size:.78rem;color:#6b7280;margin-top:6px;">최근 ${r.index.days}일(어제까지) 카페24 반품·교환 목록(${fmt(r.index.row_count)}건)과 네이버페이센터 표에 없는 번호예요. <b>조회 기간을 늘려</b> 다시 찾아보세요. 네이버페이 주문이면 네이버페이센터 엑셀을 올려주세요. 방금 접수된 건이면 '목록 갱신'을 눌러주세요.<br>고객이 직접 보낸 반품(우체국·편의점)은 카페24에 송장이 없어요 — 위의 <b>이름·주소 찾기</b> 칸에 상자의 보내는 사람 이름이나 주소를 넣어 보세요.</div>`}</div>`;
     return;
   }
-  const top = r.hits.find(h => h.alert && h.alert.level === 'alert') || r.hits.find(h => h.alert) || null;
+  // 철회된 접수의 송장(2026-09-30): 서버가 같은 주문의 진행 중인 접수를 linked_from으로 앞에 붙여 줌 — 판정·배너는 철회 안 된 접수 기준
+  const live = r.hits.filter(h => !h.withdrawn);
+  const wd = r.hits.find(h => h.withdrawn);
+  const wdNote = wd ? `<div style="background:#f3f4f6;border:1.5px solid #9ca3af;border-radius:12px;padding:10px 14px;margin-bottom:10px;font-size:.84rem;color:#374151;"><i class="fa-solid fa-circle-info"></i> <b>스캔한 송장 ${escHtml(wd.invoice || r.q)}은(는) 철회된 ${wd.kind === 'exchange' ? '교환' : '반품'} 접수(클레임 ${escHtml(wd.claim_code || '—')})의 송장이에요.</b> ${live.length ? '고객이 철회 전 송장을 붙여 보낸 것으로 보여요 — <b>같은 주문의 진행 중인 접수를 맨 위에</b> 보여 드려요. 이 접수로 처리하세요.' : '같은 주문에 진행 중인 접수가 없어요 — 카페24 주문에서 상태를 확인해 주세요.'}</div>` : '';
+  if (!live.length) {
+    rscanBeep('warn'); rscanFlashInput(rscanTheme(null));
+  }
+  const top = live.find(h => h.alert && h.alert.level === 'alert') || live.find(h => h.alert) || null;
   const th = rscanTheme(top ? top.alert : null);
-  rscanBeep(top ? top.alert.level : 'ok', top ? top.alert.type : ''); rscanFlashInput(th);
-  const banner = top
+  if (live.length) { rscanBeep(top ? top.alert.level : 'ok', top ? top.alert.type : ''); rscanFlashInput(th); }
+  const banner = !live.length ? '' : top
     ? (top.alert.level === 'alert'
       ? `<div style="background:${th.bg};border:3px solid ${th.border};border-radius:14px;padding:18px 20px;margin-bottom:10px;animation:rscanBlink 1s ease-in-out 3;color:${th.text};">
           <div style="font-size:1.7rem;font-weight:900;letter-spacing:-.01em;line-height:1.2;"><i class="fa-solid ${th.icon}"></i> ${escHtml(top.alert.type)} 건 — 검수 필요</div>
@@ -4300,7 +4307,8 @@ function rscanRender(r) {
           <div style="font-size:.8rem;margin-top:3px;">사유: ${escHtml(top.reason || '')}</div></div>`)
     : `<div style="background:${th.bg};border:2px solid ${th.border};border-radius:14px;padding:12px 18px;margin-bottom:10px;">
         <div style="font-size:1rem;font-weight:800;color:${th.text};"><i class="fa-solid ${th.icon}"></i> 변심·기타 사유 — 일반 반품 처리</div></div>`;
-  const cards = r.hits.map(h => { const ct = h.alert ? rscanTheme(h.alert) : null; return `<div style="border:${ct ? (h.alert.level === 'alert' ? '2.5px' : '1.5px') + ' solid ' + ct.border : '1.5px solid #e5e7eb'};border-radius:12px;padding:12px 14px;margin-bottom:8px;background:${ct && h.alert.level === 'alert' ? ct.bg : '#fff'};${ct && h.alert.level === 'alert' ? 'color:' + ct.text + ';' : ''}">
+  const cards = r.hits.map(h => { const ct = h.alert && !h.withdrawn ? rscanTheme(h.alert) : null; return `<div style="border:${ct ? (h.alert.level === 'alert' ? '2.5px' : '1.5px') + ' solid ' + ct.border : h.withdrawn ? '1.5px dashed #9ca3af' : '1.5px solid #e5e7eb'};border-radius:12px;padding:12px 14px;margin-bottom:8px;background:${ct && h.alert.level === 'alert' ? ct.bg : h.withdrawn ? '#f9fafb' : '#fff'};${ct && h.alert.level === 'alert' ? 'color:' + ct.text + ';' : ''}${h.withdrawn ? 'opacity:.75;' : ''}">
+    ${h.withdrawn ? `<div style="font-size:.76rem;font-weight:800;color:#6b7280;margin-bottom:4px;"><i class="fa-solid fa-ban"></i> 철회된 접수 — 이 접수로 처리하지 마세요</div>` : h.linked_from ? `<div style="font-size:.76rem;font-weight:800;color:#047857;margin-bottom:4px;"><i class="fa-solid fa-arrow-right"></i> 같은 주문의 진행 중인 접수 (스캔한 송장은 철회된 접수 ${escHtml(h.linked_from.claim_code || '')}의 것)</div>` : ''}
     <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;">
       <b style="font-size:.95rem;">주문 ${escHtml(h.order_id)}</b>
       <button onclick="navigator.clipboard&&navigator.clipboard.writeText(${jsArg(h.order_id)}).then(()=>showToast('주문번호 복사'))" class="toggle-btn" style="font-size:.7rem;padding:2px 8px;">복사</button>
@@ -4314,7 +4322,7 @@ function rscanRender(r) {
     ${rscanNrSummary(h.items)}
     <table style="width:100%;margin-top:8px;font-size:.8rem;"><thead><tr><th style="text-align:left;">상품</th><th style="text-align:left;">옵션</th><th>수량</th><th class="m-hide">품목 상태</th><th class="m-hide">발송 송장</th></tr></thead>
       <tbody>${(h.items || []).map(it => `<tr style="${rscanNrRowStyle(it)}"><td style="text-align:left;font-weight:600;">${escHtml(it.name)}${rscanNrChips(it)}</td><td style="text-align:left;">${escHtml(it.option || '—')}</td><td>${it.qty}</td><td class="m-hide">${escHtml(it.status || '')}</td><td class="m-hide" style="font-family:monospace;font-size:.72rem;">${escHtml(it.tracking_no || '')}</td></tr>`).join('')}</tbody></table></div>`; }).join('');
-  box.innerHTML = `<style>@keyframes rscanBlink{0%,100%{box-shadow:0 0 0 0 rgba(${th.glow},0)}50%{box-shadow:0 0 0 10px rgba(${th.glow},.4)}}</style>` + banner + cards;
+  box.innerHTML = `<style>@keyframes rscanBlink{0%,100%{box-shadow:0 0 0 0 rgba(${th.glow},0)}50%{box-shadow:0 0 0 10px rgba(${th.glow},.4)}}</style>` + wdNote + banner + cards;
 }
 function rscanHistoryRender() {
   const h = rscanState.history; const box = $('rscan-history'); if (!box) return;

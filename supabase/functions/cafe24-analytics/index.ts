@@ -199,7 +199,9 @@ function rscanEntriesOf(o: Record<string, any>, kind: "return" | "exchange", nrS
     if (seen.has(key)) continue; seen.add(key);
     // 고객이 반품·교환 접수한 품목만(2026-09-22 사용자 지적 — 전에는 claim_code 없는 정상 품목까지 섞여 주문 상품이 다 보였음):
     // ① 이 클레임 코드가 붙은 품목 → ② 없으면 반품(R)·교환(E) 상태인 품목 → ③ 그래도 없으면 전체(안전망)
-    let its = c.claim_code ? items.filter((it) => it.claim_code === c.claim_code) : [];
+    // 교환 접수는 수거 후 새 발송 품목(exchanged_items)도 같은 claim_code를 달고 나온다(2026-09-30 실측 20260918-0004868-04 배송중) → 고객이 보낸 품목만
+    const newCodes = new Set(((c.exchanged_items ?? []) as Record<string, any>[]).map((x) => String(x.order_item_code ?? "")).filter(Boolean));
+    let its = c.claim_code ? items.filter((it) => it.claim_code === c.claim_code && !newCodes.has(String(it.order_item_code ?? ""))) : [];
     if (!its.length) its = items.filter((it) => /^[RE]\d/.test(String(it.order_status ?? "")));
     if (!its.length) its = items;
     out.push({
@@ -832,7 +834,11 @@ Deno.serve(async (req) => {
         if (!/^\d{8}-\d{7}$/.test(orderId) || !/^[A-Z]\d{8}-\d{7}$/.test(claimCode) || !["return", "exchange"].includes(kind)) return json({ error: "주문번호·접수번호가 올바르지 않습니다" }, 400);
         const logAct = (ok: boolean, result: string, items: unknown, extra: Record<string, unknown> = {}) => sbRest("rscan_actions", { method: "POST", headers: { Prefer: "return=minimal" }, body: JSON.stringify({ action: "collect", kind, order_id: orderId, claim_code: claimCode, items, ok, result: String(result).slice(0, 500), by_id: authed.id, by_name: authed.name, ...extra }) }).catch(() => null);
         const readOrder = async () => ((await apiGet(`${API_BASE}/admin/orders/${orderId}?embed=items,${kind}`, token)).order ?? {}) as Record<string, any>;
-        const pick = (o: Record<string, any>) => ((o.items ?? []) as Record<string, any>[]).filter((it) => it.claim_code === claimCode);
+        const pick = (o: Record<string, any>) => {   // 접수 품목 — 교환으로 새로 생긴 발송 품목(exchanged_items)은 제외(2026-09-30)
+          const cl = (((o[kind] ?? []) as Record<string, any>[]).find((c) => c.claim_code === claimCode)) ?? {};
+          const newCodes = new Set(((cl.exchanged_items ?? []) as Record<string, any>[]).map((x) => String(x.order_item_code ?? "")).filter(Boolean));
+          return ((o.items ?? []) as Record<string, any>[]).filter((it) => it.claim_code === claimCode && !newCodes.has(String(it.order_item_code ?? "")));
+        };
         const collectedOf = (its: Record<string, any>[]) => its.length > 0 && its.every((it) => !!(kind === "return" ? it.return_collected_date : it.exchange_collected_date ?? it.return_collected_date) || /환불전|수거완료/.test(String(it.order_status_additional_info ?? "")) || ["반품완료", "교환완료"].includes(String(it.status_text ?? "")));
         let order: Record<string, any>;
         try { order = await readOrder(); } catch (e) { return json({ error: "카페24에서 주문을 읽지 못했어요 — " + String(e).slice(0, 200) }, 502); }
@@ -936,6 +942,22 @@ Deno.serve(async (req) => {
           hits = payload.filter((e) => pons.length && (e.naver_ids ?? []).some((id: unknown) => pons.includes(String(id))));
           hits = hits.map((e) => ({ ...e, invoice: naverRow!.invoice, company: naverRow!.company ?? e.company, reason: e.reason || naverRow!.reason || "", naver_reason: naverRow!.reason ?? null, naver_kind: naverRow!.kind ?? null }));
         }
+      }
+      // 철회된 접수의 송장(2026-09-30 사용자 신고 — 주문 20260918-0004868: 교환 신청 → 철회 → 재신청, 고객이 첫 접수의 수거 송장을 붙여 보냄):
+      //   철회된 접수는 withdrawn 표시, 같은 주문·같은 구분의 철회 안 된 접수를 linked(스캔 송장 = 철회 접수의 것)로 앞에 붙인다.
+      const isWithdrawn = (e: Record<string, any>) => /철회/.test(String(e.status ?? "") + String(e.status_extra ?? ""));
+      if (hits.some(isWithdrawn)) {
+        const have = new Set(hits.map((e) => `${e.kind}:${e.order_id}:${e.claim_code}`));
+        const linked: Record<string, any>[] = [];
+        for (const w of hits.filter(isWithdrawn)) {
+          for (const e of payload) {
+            if (e.order_id !== w.order_id || e.kind !== w.kind || isWithdrawn(e)) continue;
+            const k = `${e.kind}:${e.order_id}:${e.claim_code}`;
+            if (have.has(k)) continue; have.add(k);
+            linked.push({ ...e, linked_from: { claim_code: w.claim_code ?? null, invoice: w.invoice ?? null } });
+          }
+        }
+        hits = [...linked, ...hits.filter((e) => !isWithdrawn(e)), ...hits.filter(isWithdrawn).map((e) => ({ ...e, withdrawn: true }))];
       }
       const cmap = hits.length ? await rscanCollectedMap() : {};
       const result = hits.map((e) => ({ ...e, collected_by: cmap[`${e.kind}:${e.claim_code}`] ?? null, alert: rscanJudge({ ...e, reason: e.naver ? `${e.reason} ${e.naver_reason ?? ""}` : e.reason }, st) }));
