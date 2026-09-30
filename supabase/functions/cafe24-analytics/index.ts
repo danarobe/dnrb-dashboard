@@ -1665,6 +1665,8 @@ Deno.serve(async (req) => {
       const endMs = new Date(e).getTime();
       const s30 = dstr(endMs - 29 * day);
       const MADE_RE = /자체제작|made/i;
+      // scope=all (2026-09-30): 재고·입고 점검 탭의 '지정 상품'(made 아님)도 평균이 필요해 상품명 필터 없이 전체 — 캐시 키에 scope 포함
+      const scopeAll = url.searchParams.get("scope") === "all";
 
       // v2 (2026-09-03): 발주는 옵션 단위라 옵션별 집계가 필요 → 애널리틱스 대신 30일 주문 품목 스캔 1회로 전환.
       // 결제수량 = 품목 quantity 전체(취소분 포함 — 판매 성과의 애널리틱스 결제수량과 같은 사상),
@@ -1682,7 +1684,7 @@ Deno.serve(async (req) => {
           if (age < 0 || age > 29) continue;
           for (const it of (o.items ?? []) as Record<string, unknown>[]) {
             const name = String(it.product_name ?? "");
-            if (!MADE_RE.test(name)) continue;
+            if (!scopeAll && !MADE_RE.test(name)) continue;
             const no = Number(it.product_no);
             let r = map.get(no);
             if (!r) { r = { product_no: no, product_name: name, daily: [0, 0, 0, 0, 0, 0, 0], win: newWin(), opts: new Map() }; map.set(no, r); }
