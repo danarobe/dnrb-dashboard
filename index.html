@@ -629,7 +629,6 @@
       <button class="menu-item" data-menu="perf" onclick="showMenu('perf')"><i class="fa-solid fa-chart-column" style="width:18px;text-align:center;color:#818cf8;"></i>종합 판매 데이터</button>
       <button class="menu-item" data-menu="an"   onclick="showMenu('an')"><i class="fa-solid fa-magnifying-glass-chart" style="width:18px;text-align:center;color:#818cf8;"></i>상품 분석</button>
       <button class="menu-item" data-menu="disp" id="menu-disp" onclick="showMenu('disp')"><i class="fa-solid fa-table-cells-large" style="width:18px;text-align:center;color:#818cf8;"></i>카테고리별 진열</button>
-      <button class="menu-item" data-menu="soldout" id="menu-soldout" style="display:none;" onclick="showMenu('soldout')"><i class="fa-solid fa-box-open" style="width:18px;text-align:center;color:#818cf8;"></i>품절 재고 점검</button>
       <button class="menu-item" id="menu-npm" title="상품 관리 시스템 — 같은 계정으로 자동 로그인, 새 탭으로 열립니다" onclick="npmOpen()"><i class="fa-solid fa-box-open" style="width:18px;text-align:center;color:#818cf8;"></i>상품 관리<i class="fa-solid fa-arrow-up-right-from-square" style="font-size:.62rem;color:#9ca3af;margin-left:auto;"></i></button>
     </div>
   </div>
@@ -652,6 +651,7 @@
     <div class="menu-sec-body">
       <button class="menu-item" data-menu="rscan" id="menu-rscan" onclick="showMenu('rscan')"><i class="fa-solid fa-barcode" style="width:18px;text-align:center;color:#818cf8;"></i>반품 스캔</button>
       <button class="menu-item" data-menu="unship" id="menu-unship" onclick="showMenu('unship')"><i class="fa-solid fa-hourglass-half" style="width:18px;text-align:center;color:#818cf8;"></i>미발송 관리</button>
+      <button class="menu-item" data-menu="soldout" id="menu-soldout" style="display:none;" onclick="showMenu('soldout')"><i class="fa-solid fa-box-open" style="width:18px;text-align:center;color:#818cf8;"></i>품절 재고 점검</button>
     </div>
   </div>
   <div class="menu-sec" data-sec="ads">
@@ -11356,10 +11356,24 @@ async function wmLoadEmps() {
   $('wm-emp-result').innerHTML = '<div class="empty-state"><p>불러오는 중...</p></div>';
   try {
     wmState.emps = await wmApi({ action: 'employee_list' });   // 항상 새로 (수정 직후 반영)
-    const body = wmState.emps.map(e => {
+    wmEmpRender();
+  } catch (err) {
+    $('wm-emp-result').innerHTML = `<div class="empty-state"><p style="color:#b91c1c;">불러오지 못했어요 — ${escHtml(err.message)}</p></div>`;
+  }
+}
+// 활성·비활성 나눠 보기 (2026-09-30 사용자 요청 — 퇴사자는 비활성으로 숨김, 키오스크는 활성 직원만 보여 줌)
+function wmEmpSetView(v) { wmState.empView = v; wmEmpRender(); }
+function wmEmpRender() {
+  {
+    const view = wmState.empView || 'active';
+    const all = wmState.emps || [], nAct = all.filter(e => e.active !== false).length, nOff = all.length - nAct;
+    const rows = all.filter(e => view === 'all' || (view === 'active') === (e.active !== false));
+    const chips = `<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px;"><span class="qp">${[['active', `활성 ${nAct}`], ['inactive', `비활성 ${nOff}`], ['all', `전체 ${all.length}`]].map(([k, l]) => `<button class="${view === k ? 'active' : ''}" onclick="wmEmpSetView('${k}')">${l}</button>`).join('')}</span>
+      <span style="font-size:.72rem;color:#6b7280;">퇴사 등으로 <b>비활성</b> 처리한 직원은 키오스크 출퇴근 화면과 급여 계산에서 빠져요(과거 기록은 그대로). <b>복구</b>로 되돌릴 수 있어요.</span></div>`;
+    const body = rows.map(e => {
       const pt = e.type === 'parttime';
       return `<tr style="${e.active === false ? 'opacity:.45;' : ''}">
-        <td style="font-weight:600;">${e.name}${e.active === false ? ' <span style="font-size:.65rem;color:#dc2626;">(비활성)</span>' : ''}</td>
+        <td style="font-weight:600;">${escHtml(e.name)}${e.active === false ? ' <span style="font-size:.65rem;color:#dc2626;">(비활성)</span>' : ''}</td>
         <td><span class="badge badge-${pt ? 'staff' : 'admin'}" style="font-size:.68rem;">${pt ? '알바' : '직원'}</span>${!pt ? (e.app_user_id
           ? '<div style="font-size:.6rem;color:#16a34a;white-space:nowrap;"><i class="fa-solid fa-link"></i> 계정 연결됨</div>'
           : `<div style="font-size:.6rem;color:#d97706;white-space:nowrap;">미연결 <button class="toggle-btn" style="font-size:.6rem;padding:1px 6px;" onclick="wmEmpLinkPick(${e.id})">연결</button></div>`) : ''}</td>
@@ -11373,20 +11387,18 @@ async function wmLoadEmps() {
         <td>${e.pin_set_at ? '<span style="color:#16a34a;font-size:.7rem;">설정됨</span>' : '<span style="color:#6b7280;font-size:.7rem;">미설정</span>'}</td>
         <td style="white-space:nowrap;">
           <button class="toggle-btn" style="font-size:.68rem;padding:2px 8px;" onclick="wmEmpFormOpen(${e.id})">수정</button>
-          <button class="toggle-btn" style="font-size:.68rem;padding:2px 8px;${e.active === false ? '' : 'color:#dc2626;'}" onclick="wmEmpToggle(${e.id},${e.active === false})">${e.active === false ? '복구' : '비활성'}</button>
+          <button class="toggle-btn" style="font-size:.68rem;padding:2px 8px;${e.active === false ? '' : 'color:#dc2626;'}" onclick="wmEmpToggle(${e.id},${e.active === false})" title="${e.active === false ? '다시 활성화 — 키오스크에 다시 보여요' : '퇴사 등 — 키오스크에서 숨기고 급여 계산에서 빼요(기록 보존)'}">${e.active === false ? '복구' : '비활성'}</button>
         </td>
       </tr>`;
     }).join('');
-    $('wm-emp-result').innerHTML = `<div style="overflow-x:auto;"><table style="width:100%;font-size:.8rem;">
+    $('wm-emp-result').innerHTML = chips + (rows.length ? `<div style="overflow-x:auto;"><table style="width:100%;font-size:.8rem;">
       <thead><tr><th>이름</th><th>구분</th><th>급여</th><th>교통비</th><th>연차</th><th>출근고정</th><th>계좌</th><th>PIN</th><th></th></tr></thead>
-      <tbody>${body}</tbody></table></div>
+      <tbody>${body}</tbody></table></div>` : `<div class="empty-state"><p>${view === 'inactive' ? '비활성 직원이 없어요' : '직원이 없어요'}</p></div>`) + `
       <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
         <button class="toggle-btn" onclick="wmEmpFormOpen(null)"><i class="fa-solid fa-plus"></i> 알바 추가</button>
         <button class="toggle-btn" onclick="wmEmpLinkNew()"><i class="fa-solid fa-link"></i> 직원 연결 추가</button>
         <span style="font-size:.7rem;color:#6b7280;">정직원은 대시보드 '직원 관리'에서 계정을 만든 뒤 여기서 연결하세요 — 이름은 계정을 따라갑니다.</span>
       </div>`;
-  } catch (err) {
-    $('wm-emp-result').innerHTML = `<div class="empty-state"><p>불러오지 못했어요 — ${escHtml(err.message)}</p></div>`;
   }
 }
 
@@ -13850,8 +13862,13 @@ function paJamo(s) {
   }
   return out;
 }
-/* 비교 정규화: NFC 정규화 → 자모 풀기 → 공백 제거 + 'ver.'→'ver' + 소문자 */
-const paNorm = t => paJamo(String(t || '').normalize('NFC')).replace(/\s+/g, '').replace(/ver\./gi, 'ver').toLowerCase();
+/* 광고명 줄임말 → 상품명 표기 (2026-09-30 사용자 신고: '(후기BEST) 하울 브이 니트 원피스'의 광고가 '영상_하울 브이 니트 ops'라
+   핵심명 '하울 브이 니트 원피스'가 광고명에 안 들어가 ON 광고 0으로 뜸). 영문 단어 경계로만 바꾼다. 새 줄임말이 생기면 여기에 추가 —
+   에이전트 저장소 strategy-agent/def.ts의 PA_ALIASES도 같이. (활성 광고 239개 실측: 줄임말은 ops뿐) */
+const PA_ALIASES = [[/(?<![a-z])ops(?![a-z])/gi, '원피스']];
+const paAlias = t => PA_ALIASES.reduce((s, [re, to]) => s.replace(re, to), t);
+/* 비교 정규화: NFC 정규화 → 줄임말 풀기 → 자모 풀기 → 공백 제거 + 'ver.'→'ver' + 소문자 */
+const paNorm = t => paJamo(paAlias(String(t || '').normalize('NFC'))).replace(/\s+/g, '').replace(/ver\./gi, 'ver').toLowerCase();
 
 /* 광고 → 상품 배정 (판매 성과 ON 광고 + 광고관리자 실결제 수 공용 규칙).
    · 광고명에 핵심명이 포함되면 후보. 가장 긴 핵심명 하나에만 배정(부분 겹침 오매칭 방지).
