@@ -3308,7 +3308,7 @@ async function soldoutScan() {
   soldoutState.busy = true;
   const btn = $('btn-soldout-scan'); btn.disabled = true;
   const onProg = e => { try { const d = JSON.parse(e.detail); $('soldout-list').innerHTML = d.phase === 'verify'
-    ? `<div class="empty-state"><p><i class="fa-solid fa-spinner fa-spin"></i> 후보 상품을 셀메이트에서 하나씩 확인하는 중… ${fmt(d.done)} / ${fmt(d.total)} · 찾은 옵션 ${fmt(d.hits)}개</p><p style="font-size:.76rem;color:#6b7280;">상품 수만큼 걸려요(보통 1~3분) — 창을 닫지 말고 기다려 주세요</p></div>`
+    ? `<div class="empty-state"><p><i class="fa-solid fa-spinner fa-spin"></i> 후보 상품을 셀메이트에서 하나씩 확인하는 중… ${fmt(d.done)} / ${fmt(d.total)} · 찾은 옵션 ${fmt(d.hits)}개</p><p style="font-size:.76rem;color:#6b7280;">상품 수만큼 걸려요(보통 1분 안팎) — 창을 닫지 말고 기다려 주세요</p></div>`
     : `<div class="empty-state"><p><i class="fa-solid fa-spinner fa-spin"></i> 셀메이트 품절 목록에서 후보 상품 모으는 중… ${d.page}쪽 · 상품 ${fmt(d.products)}개</p></div>`; } catch {} };
   window.addEventListener('sellmate-scan-progress', onProg);
   $('soldout-result').innerHTML = '';
