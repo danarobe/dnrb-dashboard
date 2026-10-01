@@ -1408,7 +1408,7 @@
       <div id="cn-pane-cost" class="cn-pane" style="display:none;">
         <div style="font-size:.8rem;color:#6b7280;margin-bottom:10px;line-height:1.7;">
           · 입고 엑셀의 <b>두 번째 시트</b>(물류비·검품비·관세·부가세 등 들여오는 비용, 물건 결제)를 <b>입고 차수별</b>로 보여줘요. 관리자·MD만 볼 수 있어요.<br>
-          · <b>물건 결제 대비</b> = 부가세를 뺀 들여오는 비용 ÷ 물건 결제 총합(마진 계산 참고). <b>장당 들여오는 비용</b> = 부가세 제외 총합 ÷ 그 입고의 수량(참고용).
+          · <b>물건 결제 대비</b> = 부가세를 뺀 들여오는 비용 ÷ 물건 결제 총합(마진 계산 참고). <b>실질 단가(원)</b> = 단가(위안) × 환율 200원 × (1 + 들여오는 비용 비율 + 부가세 비율). <b>장당 들여오는 비용</b> = 부가세 제외 총합 ÷ 그 입고의 수량(참고용).
         </div>
         <div id="cn-cost-body"></div>
       </div>
@@ -3767,14 +3767,14 @@ function cnCheckRender() {
   if (q) groups = groups.map(g => g.sname.toLowerCase().includes(q) || cnVendorOf(g.sname).toLowerCase().includes(q) ? g : { ...g, show: g.show.filter(l => cnOpt(l).toLowerCase().includes(q)) }).filter(g => g.show.length);
   if (!groups.length) { $('cn-check-list').innerHTML = '<div class="empty-state"><p>조건에 맞는 옵션이 없어요.</p></div>'; return; }
   const num = (v, id) => `<td style="text-align:right;"${id ? ` id="${id}"` : ''}>${v}</td>`;
-  let html = cnVendorListHtml() + `<div class="table-wrap"><table style="width:100%;font-size:.8rem;"><thead><tr><th style="text-align:left;">사입상품명 / 옵션</th><th style="text-align:left;">거래처명</th><th>전달 수량</th><th>실제 수량</th><th>차이</th><th>미출고 잔여</th>${canPrice ? '<th>단가</th><th class="m-hide">금액</th>' : ''}<th class="m-hide" style="text-align:left;">확인</th><th style="text-align:left;">메모</th></tr></thead><tbody>`;
+  let html = cnVendorListHtml() + `<div class="table-wrap"><table style="width:100%;font-size:.8rem;"><thead><tr><th style="text-align:left;">사입상품명 / 옵션</th><th style="text-align:left;">거래처명</th><th>전달 수량</th><th>실제 수량</th><th>차이</th><th>미출고 잔여</th>${canPrice ? `<th>단가</th><th title="단가(위안) × ${CN_FX}원 × (1 + 들여오는 비용 비율 + 부가세 비율)">실질 단가<div style="font-size:.62rem;font-weight:500;color:#6b7280;">원 · 환율 ${CN_FX}</div></th><th class="m-hide">금액</th>` : ''}<th class="m-hide" style="text-align:left;">확인</th><th style="text-align:left;">메모</th></tr></thead><tbody>`;
   groups.forEach(g => {
     const gi = encodeURIComponent(g.sname), h = cnProdHeadCells(g), todo = g.rows.filter(l => l.qty_actual == null).length;
     const noteTxt = [...new Set(g.rows.map(l => l.line_note).filter(Boolean))].join(' · ');
     html += `<tr style="background:#f8f9ff;" data-cn-g="${escHtml(gi)}">
       <td style="text-align:left;font-weight:800;">${escHtml(g.sname)} ${cnC24Badge(g.sname)}${noteTxt ? ` <span style="font-size:.68rem;color:#6b7280;font-weight:500;">${escHtml(noteTxt)}</span>` : ''}
         ${todo ? `<button class="toggle-btn" style="font-size:.66rem;padding:1px 8px;margin-left:6px;" data-g="${escHtml(g.sname)}" onclick="cnFillSame(this)" title="아직 안 적은 옵션 ${todo}개를 전달 수량과 같게 채워요">전달 수량과 같음</button>` : ''}</td>
-      <td style="text-align:left;">${cnVendorHtml(g.sname)}</td>${num(h.sent, '')}<td style="text-align:right;" data-cn-h="act">${h.act}</td><td style="text-align:right;" data-cn-h="diff">${h.diff}</td>${num(h.left, '')}${canPrice ? '<td></td><td class="m-hide"></td>' : ''}<td class="m-hide"></td><td></td></tr>`;
+      <td style="text-align:left;">${cnVendorHtml(g.sname)}</td>${num(h.sent, '')}<td style="text-align:right;" data-cn-h="act">${h.act}</td><td style="text-align:right;" data-cn-h="diff">${h.diff}</td>${num(h.left, '')}${canPrice ? '<td></td><td></td><td class="m-hide"></td>' : ''}<td class="m-hide"></td><td></td></tr>`;
     g.show.forEach(l => {
       html += `<tr data-cn-l="${l.id}">
         <td style="text-align:left;padding-left:22px;">${escHtml(cnOpt(l))}</td><td></td>
@@ -3782,7 +3782,7 @@ function cnCheckRender() {
         <td style="text-align:right;"><input type="number" class="cn-act" min="0" step="1" inputmode="numeric" value="${l.qty_actual == null ? '' : l.qty_actual}" data-id="${l.id}" data-prev="${l.qty_actual == null ? '' : l.qty_actual}" onchange="cnActSave(this)" onkeydown="cnActKey(event,this)" style="width:72px;text-align:right;border:1.5px solid ${l.qty_actual == null ? '#d1d5db' : l.qty_actual === l.qty_sent ? '#86efac' : '#fca5a5'};border-radius:7px;padding:4px 6px;font-size:.82rem;font-weight:700;" /></td>
         <td style="text-align:right;" data-cn-c="diff">${cnDiffHtml(l)}</td>
         ${num(l.qty_left == null ? '<span style="color:#9ca3af;">—</span>' : l.qty_left === 0 ? '<span style="color:#9ca3af;">출완</span>' : `<b style="color:#c2410c;">${fmt(l.qty_left)}</b>`, '')}
-        ${canPrice ? num(cnYuan(l.unit_price), '') + `<td class="m-hide" style="text-align:right;color:#6b7280;">${l.unit_price == null ? '—' : cnYuan(l.qty_sent * Number(l.unit_price))}</td>` : ''}
+        ${canPrice ? num(cnYuan(l.unit_price), '') + num(cnRealHtml(l.unit_price, l.shipment_id), '') + `<td class="m-hide" style="text-align:right;color:#6b7280;">${l.unit_price == null ? '—' : cnYuan(l.qty_sent * Number(l.unit_price))}</td>` : ''}
         <td class="m-hide" style="text-align:left;font-size:.68rem;color:#9ca3af;white-space:nowrap;" data-cn-c="who">${cnWhoHtml(l)}</td>
         <td style="text-align:left;"><input type="text" maxlength="300" value="${escHtml(l.memo || '')}" data-id="${l.id}" data-prev="${escHtml(l.memo || '')}" onchange="cnMemoSave(this)" placeholder="메모" style="width:100%;min-width:90px;border:1px solid #e5e7eb;border-radius:6px;padding:3px 6px;font-size:.74rem;" /></td></tr>`;
     });
@@ -3897,6 +3897,27 @@ function cnCostSums(c) {   // 항목 합계와 엑셀에 적힌 총합 비교용
   const paySum = ((c && c.payments) || []).reduce((t, x) => t + (x.krw || 0), 0), payUsd = ((c && c.payments) || []).reduce((t, x) => t + (x.usd || 0), 0);
   return { sum, vat, exVat: sum - vat, fileTotal: tot ? tot.amount : null, fileExVat: totEx ? totEx.amount : null, paySum, payUsd, filePay: c && c.pay_total ? c.pay_total : null };
 }
+// 실질 단가(원) (2026-10-01 사용자 요청): 단가(위안) × 환율 200원(계산하기 쉽게 고정 — 사용자 지정) × (1 + 들여오는 비용 비율 + 부가세 비율).
+//   두 비율 = 그 입고의 비용 시트에서 (부가세 제외 들여오는 비용 ÷ 물건 결제 총합), (부가세 ÷ 물건 결제 총합). 비용 시트가 없으면 환율만 곱한 값(비용 미반영 표시).
+const CN_FX = 200;
+function cnCostRatio(shipId) {
+  const ship = ((cnState.data || {}).ships || []).find(x => x.id === shipId);
+  if (!ship || !ship.costs) return null;
+  const cs = cnCostSums(ship.costs);
+  return cs.paySum > 0 ? { cost: cs.exVat / cs.paySum, vat: cs.vat / cs.paySum } : null;
+}
+function cnRealWon(yuan, shipId) {
+  if (yuan == null) return null;
+  const r = cnCostRatio(shipId), base = Number(yuan) * CN_FX;
+  return { won: Math.round(r ? base * (1 + r.cost + r.vat) : base), r };
+}
+function cnRealHtml(yuan, shipId) {
+  const x = cnRealWon(yuan, shipId);
+  if (!x) return '<span style="color:#9ca3af;">—</span>';
+  const pc = v => (Math.round(v * 10000) / 100).toFixed(2);
+  return x.r ? `<b title="¥${Number(yuan)} × ${CN_FX}원 × (1 + 들여오는 비용 ${pc(x.r.cost)}% + 부가세 ${pc(x.r.vat)}%)">${fmt(x.won)}원</b>`
+             : `<span style="color:#6b7280;" title="이 입고에 비용 시트가 없어 환율(${CN_FX}원)만 곱했어요">${fmt(x.won)}원<span style="font-size:.62rem;color:#b45309;"> 비용 미반영</span></span>`;
+}
 // 부가세 제외 들여오는 비용 ÷ 물건 결제 총합 (2026-10-01 사용자 요청 — 마진 계산 참고: 물건값에 몇 %를 더 얹어야 하는지)
 const cnCostPct = (exVat, pay) => pay > 0 ? (Math.round(exVat / pay * 10000) / 100).toFixed(2) + '%' : '—';
 function cnCostRender() {
@@ -3927,7 +3948,8 @@ function cnCostRender() {
         + admgrTile('들여오는 비용 총합', cnWon(s.sum), false) + admgrTile('부가세 제외 총합', cnWon(s.exVat), false)
         + admgrTile('물건 결제 대비 들여오는 비용', `<span style="color:#4338ca;">${cnCostPct(s.exVat, s.paySum)}</span> <span style="font-size:.7rem;color:#6b7280;">부가세 제외 ÷ 물건 결제</span>`, false)
         + admgrTile('장당 들여오는 비용', q ? `${cnWon(s.exVat / q)} <span style="font-size:.7rem;color:#6b7280;">부가세 제외 ÷ ${fmt(q)}장</span>` : '—', false)}</div>
-      ${s.paySum > 0 ? `<div style="font-size:.78rem;color:#374151;background:#f8f9ff;border:1px solid #e0e7ff;border-radius:8px;padding:7px 11px;margin-bottom:8px;"><i class="fa-solid fa-calculator" style="color:#4f46e5;"></i> 부가세 제외 들여오는 비용 <b>${cnWon(s.exVat)}</b> ÷ 물건 결제 총합 <b>${cnWon(s.paySum)}</b> = <b style="color:#4338ca;">${cnCostPct(s.exVat, s.paySum)}</b> — 물건값 100원당 들여오는 데 약 <b>${(Math.round(s.exVat / s.paySum * 10000) / 100).toFixed(2)}원</b>이 더 들었어요(마진 계산 참고).</div>` : ''}
+      ${s.paySum > 0 ? `<div style="font-size:.78rem;color:#374151;background:#f8f9ff;border:1px solid #e0e7ff;border-radius:8px;padding:7px 11px;margin-bottom:8px;"><i class="fa-solid fa-calculator" style="color:#4f46e5;"></i> 부가세 제외 들여오는 비용 <b>${cnWon(s.exVat)}</b> ÷ 물건 결제 총합 <b>${cnWon(s.paySum)}</b> = <b style="color:#4338ca;">${cnCostPct(s.exVat, s.paySum)}</b> — 물건값 100원당 들여오는 데 약 <b>${(Math.round(s.exVat / s.paySum * 10000) / 100).toFixed(2)}원</b>이 더 들었어요(마진 계산 참고).<br>
+        <i class="fa-solid fa-won-sign" style="color:#4f46e5;"></i> <b>실질 단가(원)</b> = 단가(위안) × 환율 <b>${CN_FX}원</b> × (1 + 들여오는 비용 <b>${cnCostPct(s.exVat, s.paySum)}</b> + 부가세 <b>${cnCostPct(s.vat, s.paySum)}</b>) = 단가 × <b style="color:#4338ca;">${(Math.round(CN_FX * (1 + (s.exVat + s.vat) / s.paySum) * 100) / 100).toLocaleString('ko-KR')}원</b> — 입고 검수·상품별 현황의 '실질 단가' 열에 들어가요. 예: ¥100 → ${fmt(Math.round(100 * CN_FX * (1 + (s.exVat + s.vat) / s.paySum)))}원</div>` : ''}
       ${warn.length ? `<div style="font-size:.76rem;color:#92400e;background:#fffbeb;border:1px solid #fcd34d;border-radius:8px;padding:6px 10px;margin-bottom:8px;"><i class="fa-solid fa-triangle-exclamation"></i> ${warn.map(escHtml).join(' · ')}</div>` : ''}
       <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:14px;align-items:start;">
         <div><div style="font-size:.84rem;font-weight:800;margin-bottom:4px;">들여오는 비용 <span style="font-size:.7rem;color:#6b7280;font-weight:500;">${escHtml(c.title || '')}</span></div>
@@ -4030,17 +4052,17 @@ function cnProdRender() {
   if (!list.length) { $('cn-prod-list').innerHTML = '<div class="empty-state"><p>조건에 맞는 상품이 없어요.</p></div>'; return; }
   const num = v => `<td style="text-align:right;">${v}</td>`;
   const diffHtml = (act, actSent, unchecked) => { const dd = act - actSent; return (unchecked && act === 0 && actSent === 0 ? '<span style="color:#9ca3af;">미확인</span>' : dd === 0 ? '<span style="color:#15803d;font-weight:700;">일치</span>' : dd < 0 ? `<b style="color:#b91c1c;">부족 ${fmt(-dd)}</b>` : `<b style="color:#1d4ed8;">초과 +${fmt(dd)}</b>`) + (unchecked && !(act === 0 && actSent === 0) ? ` <span style="font-size:.66rem;color:#9ca3af;">미확인 ${unchecked}</span>` : ''); };
-  let html = cnVendorListHtml() + `<div class="table-wrap"><table style="width:100%;font-size:.8rem;"><thead><tr><th style="text-align:left;">사입상품명 / 옵션</th><th style="text-align:left;">거래처명</th><th>주문 수량<div style="font-size:.62rem;font-weight:500;color:#6b7280;">전달+잔여</div></th><th>전달받은</th><th>실제(확인분)</th><th>차이</th><th>미출고 잔여</th>${canPrice ? '<th>단가</th>' : ''}<th style="text-align:left;">카페24</th>${showSales ? '<th>판매량<div style="font-size:.62rem;font-weight:500;color:#6b7280;">하루 평균(7일) · 30일</div></th>' : ''}</tr></thead><tbody>`;
+  let html = cnVendorListHtml() + `<div class="table-wrap"><table style="width:100%;font-size:.8rem;"><thead><tr><th style="text-align:left;">사입상품명 / 옵션</th><th style="text-align:left;">거래처명</th><th>주문 수량<div style="font-size:.62rem;font-weight:500;color:#6b7280;">전달+잔여</div></th><th>전달받은</th><th>실제(확인분)</th><th>차이</th><th>미출고 잔여</th>${canPrice ? `<th>단가</th><th title="단가(위안) × ${CN_FX}원 × (1 + 들여오는 비용 비율 + 부가세 비율) — 가장 최근 입고 기준">실질 단가<div style="font-size:.62rem;font-weight:500;color:#6b7280;">원 · 환율 ${CN_FX}</div></th>` : ''}<th style="text-align:left;">카페24</th>${showSales ? '<th>판매량<div style="font-size:.62rem;font-weight:500;color:#6b7280;">하루 평균(7일) · 30일</div></th>' : ''}</tr></thead><tbody>`;
   for (const p of list) {
     const sales = cnSalesOf(p);
     const salesHtml = sales === null ? '<span style="color:#9ca3af;">—</span>' : sales === undefined ? (cnState.salesLoading ? '<span style="color:#9ca3af;">…</span>' : `<span style="color:#9ca3af;" title="${escHtml(cnState.salesErr || '')}">—</span>`) : `<b style="color:${sales.avg7 > 0 ? '#4338ca' : '#9ca3af'};">${madeAvgFmt(sales.avg7)}</b> <span style="font-size:.7rem;color:#6b7280;">· ${fmt(sales.net30)}장</span>`;
     const c24Html = p.c24.length ? p.c24.map(h => `<div><span style="background:#dcfce7;color:#166534;border-radius:99px;padding:1px 8px;font-size:.66rem;font-weight:700;white-space:nowrap;">등록됨</span> <span style="font-size:.72rem;">${escHtml(h.product_name)}</span>${h.display !== 'T' || h.selling !== 'T' ? ` <span style="font-size:.64rem;color:#b45309;">${[h.display !== 'T' ? '진열안함' : '', h.selling !== 'T' ? '판매안함' : ''].filter(Boolean).join('·')}</span>` : ''}</div>`).join('') : (d.c24_error ? '<span style="color:#9ca3af;">확인 불가</span>' : '<span style="background:#f3f4f6;color:#6b7280;border-radius:99px;padding:1px 8px;font-size:.66rem;font-weight:700;">미등록</span>');
     const meta = [[...p.rounds].length ? '발주 ' + [...p.rounds].join(', ') : '', `입고 ${p.ships.size}건`].filter(Boolean).join(' · ');
     html += `<tr style="background:#f8f9ff;"><td style="text-align:left;font-weight:800;">${escHtml(p.sname)}<div style="font-size:.66rem;color:#6b7280;font-weight:500;">${escHtml(meta)}</div></td>
-      <td style="text-align:left;">${cnVendorHtml(p.sname)}</td>${num(`<b>${fmt(p.ordered)}</b>`)}${num(`<b>${fmt(p.sent)}</b>`)}${num(p.act || p.actSent ? `<b>${fmt(p.act)}</b>` : '<span style="color:#9ca3af;">—</span>')}${num(diffHtml(p.act, p.actSent, p.unchecked))}${num(p.left ? `<b style="color:#c2410c;">${fmt(p.left)}</b>` : '<span style="color:#9ca3af;">출완</span>')}${canPrice ? '<td></td>' : ''}
+      <td style="text-align:left;">${cnVendorHtml(p.sname)}</td>${num(`<b>${fmt(p.ordered)}</b>`)}${num(`<b>${fmt(p.sent)}</b>`)}${num(p.act || p.actSent ? `<b>${fmt(p.act)}</b>` : '<span style="color:#9ca3af;">—</span>')}${num(diffHtml(p.act, p.actSent, p.unchecked))}${num(p.left ? `<b style="color:#c2410c;">${fmt(p.left)}</b>` : '<span style="color:#9ca3af;">출완</span>')}${canPrice ? '<td></td><td></td>' : ''}
       <td style="text-align:left;">${c24Html}</td>${showSales ? num(salesHtml) : ''}</tr>`;
     for (const o of p.opts) {
-      html += `<tr><td style="text-align:left;padding-left:22px;">${escHtml(o.opt)}</td><td></td>${num(fmt(o.ordered))}${num(fmt(o.sent))}${num(o.act || o.actSent ? fmt(o.act) : '<span style="color:#9ca3af;">—</span>')}${num(diffHtml(o.act, o.actSent, o.unchecked))}${num(o.left ? `<b style="color:#c2410c;">${fmt(o.left)}</b>` : '<span style="color:#9ca3af;">출완</span>')}${canPrice ? num(cnYuan(o.price)) : ''}<td></td>${showSales ? '<td></td>' : ''}</tr>`;
+      html += `<tr><td style="text-align:left;padding-left:22px;">${escHtml(o.opt)}</td><td></td>${num(fmt(o.ordered))}${num(fmt(o.sent))}${num(o.act || o.actSent ? fmt(o.act) : '<span style="color:#9ca3af;">—</span>')}${num(diffHtml(o.act, o.actSent, o.unchecked))}${num(o.left ? `<b style="color:#c2410c;">${fmt(o.left)}</b>` : '<span style="color:#9ca3af;">출완</span>')}${canPrice ? num(cnYuan(o.price)) + num(cnRealHtml(o.price, o.priceShip)) : ''}<td></td>${showSales ? '<td></td>' : ''}</tr>`;
     }
   }
   $('cn-prod-list').innerHTML = html + '</tbody></table></div>';
