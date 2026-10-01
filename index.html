@@ -1056,10 +1056,10 @@
 
       <!-- 정렬 + 결과 -->
       <div id="an-toolbar" style="display:none;align-items:center;gap:10px;margin-bottom:12px;flex-wrap:wrap;">
-        <input type="text" id="anSearch" placeholder="상품명 검색" oninput="renderAnalytics()"
+        <input type="text" id="anSearch" placeholder="상품명 검색" oninput="renderSoon('renderAnalytics')"
                style="border:1.5px solid #d1d5db;border-radius:8px;padding:6px 12px;font-size:.82rem;outline:none;min-width:180px;" />
         <label style="font-size:.82rem;color:#6b7280;font-weight:600;">판매수량</label>
-        <input type="number" id="anMinQty" placeholder="0" min="0" oninput="renderAnalytics()"
+        <input type="number" id="anMinQty" placeholder="0" min="0" oninput="renderSoon('renderAnalytics')"
                style="border:1.5px solid #d1d5db;border-radius:8px;padding:6px 10px;font-size:.82rem;outline:none;width:80px;" />
         <span style="font-size:.82rem;color:#6b7280;">개 이상</span>
         <label style="font-size:.82rem;color:#6b7280;font-weight:600;">정렬</label>
@@ -1123,7 +1123,7 @@
         <button class="btn-analyze" id="btn-api-perf" onclick="fetchPerfApi()">
           <i class="fa-solid fa-cloud-arrow-down"></i> 카페24 불러오기
         </button>
-        <input type="text" id="perfSearch" placeholder="상품명 검색" oninput="renderPerfResult()"
+        <input type="text" id="perfSearch" placeholder="상품명 검색" oninput="renderSoon('renderPerfResult')"
                style="border:1.5px solid #d1d5db;border-radius:8px;padding:7px 12px;font-size:.82rem;outline:none;min-width:170px;" />
         <span style="font-size:.75rem;color:#6b7280;">판매수량 = 주문수량 − 취소·반품완료 수량 · 마진율은 카페24 상품정보의 공급가(+부가세 10%) 기준</span>
       </div>
@@ -1620,11 +1620,11 @@
       </div>
       <div style="display:flex;align-items:center;gap:18px;flex-wrap:wrap;margin-bottom:14px;font-size:.82rem;color:#374151;">
         <label style="display:flex;align-items:center;gap:6px;font-weight:700;">
-          차이 <input type="number" id="stb-mindiff" value="" min="0" placeholder="0" oninput="renderStableResult()"
+          차이 <input type="number" id="stb-mindiff" value="" min="0" placeholder="0" oninput="renderSoon('renderStableResult')"
                style="width:64px;border:1.5px solid #d1d5db;border-radius:6px;padding:5px 8px;font-size:.82rem;" /> 개 이상만
           <span style="font-weight:400;color:#6b7280;font-size:.75rem;">— 예: 2 입력 시 기존 8 → 추천 9·7은 숨기고 10·6부터 표시</span>
         </label>
-        <input type="text" id="stb-search" placeholder="상품명 검색" oninput="renderStableResult()"
+        <input type="text" id="stb-search" placeholder="상품명 검색" oninput="renderSoon('renderStableResult')"
                style="border:1.5px solid #d1d5db;border-radius:8px;padding:6px 12px;font-size:.82rem;outline:none;min-width:160px;" />
       </div>
 
@@ -2189,7 +2189,7 @@
         <div id="made-stk-summary" style="display:none;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin-bottom:12px;"></div>
         <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px;">
           <div id="made-stk-chips" style="display:flex;gap:6px;flex-wrap:wrap;"></div>
-          <input id="made-stk-q" placeholder="상품명·옵션 검색" oninput="madeStkRender()" style="border:1.5px solid #d1d5db;border-radius:8px;padding:6px 10px;font-size:.8rem;width:180px;" />
+          <input id="made-stk-q" placeholder="상품명·옵션 검색" oninput="renderSoon('madeStkRender')" style="border:1.5px solid #d1d5db;border-radius:8px;padding:6px 10px;font-size:.8rem;width:180px;" />
           <button class="toggle-btn" onclick="madeStkExport()" style="margin-left:auto;" title="지금 표에 보이는 옵션들을 엑셀로"><i class="fa-solid fa-file-excel" style="color:#15803d;"></i> 엑셀</button>
           <button class="toggle-btn" onclick="madeWatchPanelToggle()"><i class="fa-solid fa-plus"></i> 지정 상품 관리</button>
         </div>
@@ -6699,6 +6699,10 @@ const dispState = {
    입력이 멈춘 뒤 250ms에 한 번만 재렌더 (결과는 dispRender와 동일) */
 let __dispRenderT = null;
 function dispRenderSoon() { clearTimeout(__dispRenderT); __dispRenderT = setTimeout(dispRender, 250); }
+// 검색·숫자 칸 공용 지연 렌더 (2026-10-01 성능 점검): 상품 분석(653행 30ms)·종합 판매 데이터(719행 51ms)·안정재고·재고 입고 점검 표를
+// 글자마다 통째로 다시 그려 타이핑이 끊기던 것 → 입력이 200ms 멈추면 한 번. 결과 화면은 같다(전역 함수 이름으로 호출).
+const __renderSoonT = {};
+function renderSoon(name, ms) { clearTimeout(__renderSoonT[name]); __renderSoonT[name] = setTimeout(() => { if (typeof window[name] === 'function') window[name](); }, ms || 200); }
 
 function dispCfg() {
   const n = id => parseFloat($(id).value) || 0;
@@ -7370,8 +7374,13 @@ function madeSetTab(k) {
   uiTabs('made-tabs', MADE_TABS, k, 'madeSetTab');
   document.querySelectorAll('.made-pane').forEach(el => { el.style.display = 'none'; });
   const pane = $('made-pane-' + k); if (pane) pane.style.display = 'block';
-  if (k === 'order' && !madeState.rows && !madeState.loading) madeFetch();
-  if (k === 'stk' && !madeState.sales && !madeState.salesLoading) madeSalesFetch();
+  if (k === 'order' && !madeState.rows && !madeState.loading) {
+    // 재고·입고 점검 탭이 이미 받은 판매 수치가 있으면 다시 읽지 않는다(같은 scope=all 조회)
+    if (madeState.sales && !madeState.salesLoading) { madeState.rows = madeState.sales.rows.filter(r => /자체제작|made/i.test(String(r.product_name || ''))); madeRender(); }
+    else if (!madeState.salesLoading) madeFetch();
+    else madeState.orderPending = true;   // 판매 수치를 받는 중이면 끝난 뒤 그 결과로 그린다
+  }
+  if (k === 'stk' && !madeState.sales && !madeState.salesLoading && !madeState.loading) madeSalesFetch();
 }
 // 재고·입고 점검 탭 — 옵션별 최근 7일(어제까지) 하루 평균 주문 (2026-09-30 사용자 요청). 주문 점검 탭과 같은 서버 집계(madeavg: 결제−취소, 주문일, 신상은 판매일수로 나눔)
 async function madeSalesFetch() {
@@ -7386,7 +7395,10 @@ async function madeSalesFetch() {
     if (tags) madeState.tags = new Map((tags || []).map(t => [t.product_no, t]));
     madeState.sales = { rows: d.rows || [], end: yd };
   } catch (e) { madeState.salesErr = e.message || String(e); }
-  finally { madeState.salesLoading = false; madeStkRender(); }
+  finally {
+    madeState.salesLoading = false; madeStkRender();
+    if (madeState.orderPending) { madeState.orderPending = false; if (madeState.tab === 'order' && !madeState.rows) madeSetTab('order'); }
+  }
 }
 // 셀메이트 상품명(정규화) → 카페24 판매 행. 수동 매칭(made_products.stk_name) 우선, 없으면 상품명 정규화 일치(주문 점검 탭 madeStockOf와 같은 규칙)
 function madeSalesIndex() {
@@ -7423,13 +7435,16 @@ async function madeFetch() {
   btnBusy(btn, '수집 중');
   try {
     const yd = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(new Date(Date.now() - 864e5));
+    // 2026-10-01 성능 점검: 재고·입고 점검 탭(scope=all)과 같은 조회를 함께 쓴다 — 예전엔 탭마다 30일 주문을 따로 읽었다(각 13~40초).
+    //   scope=all 결과에서 상품명 made/자체제작만 고르면 예전 v2 응답과 완전히 같다(서버 필터와 같은 정규식, 값·정렬 동일 확인).
     const [d, tags] = await Promise.all([
-      anGet({ action: 'madeavg', end_date: yd, v: '2' }),   // v2 = 옵션별 집계 (캐시 키 분리)
+      anGet({ action: 'madeavg', end_date: yd, v: '2', scope: 'all' }),
       dbProxy('made_products?select=*'),
     ]);
-    madeState.rows = d.rows || [];
+    madeState.sales = { rows: d.rows || [], end: yd };
+    madeState.rows = (d.rows || []).filter(r => /자체제작|made/i.test(String(r.product_name || '')));
     madeState.tags = new Map((tags || []).map(t => [t.product_no, t]));
-    madeRender();
+    madeRender(); madeStkRender();
   } catch (e) { showToast('수집 실패: ' + e.message); }
   finally { madeState.loading = false; btnIdle(btn, '<i class="fa-solid fa-cloud-arrow-down"></i> 카페24 판매 수집'); }
 }
@@ -14318,8 +14333,10 @@ async function ptFetchMonth(ym) {
   const saved = localStorage.getItem(PT_KEY(ym));
   if (saved) { try { return JSON.parse(saved); } catch { /* 깨진 값은 새로 수집 */ } }
   const [s, e] = ptRange(ym);
-  const perf = await anGet({ action: 'performance', start_date: s, end_date: e });
-  const net = await anGet({ action: 'netreturns', start_date: s, end_date: e });
+  const [perf, net] = await Promise.all([   // 2026-10-01 성능 점검: 차례로 → 동시에(각각 10~35초라 합이 아니라 긴 쪽만큼만 기다림)
+    anGet({ action: 'performance', start_date: s, end_date: e }),
+    anGet({ action: 'netreturns', start_date: s, end_date: e }),
+  ]);
   let paid = 0, cancel = 0, w = 0, wq = 0;
   for (const r of (perf.rows || [])) {
     paid += r.paid_qty; cancel += r.cancel_qty;

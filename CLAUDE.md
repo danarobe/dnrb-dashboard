@@ -497,6 +497,12 @@ AUTHOR_FIELDS(notes/comments=author_id, likes=user_id): POST는 본인 id 필수
 - `rscanOpen` 읽기 시에도 https 검사, `logout()`이 문서 암호(NP_PW_KEY) 삭제, sw.js 알림 클릭 주소는 scope 안일 때만.
 - SRI: FA css·Chart.js(정적), xlsx-populate·SheetJS·html2canvas·jsPDF(동적 로더에 integrity/crossOrigin). **SheetJS 0.18.5(cdnjs) → 0.20.3(cdn.sheetjs.com)** — xlsx·EUC-KR CSV·xls 파싱 실측 정상. 버전 올릴 땐 해시 재계산(`curl | openssl dgst -sha384 -binary | base64`).
 
+**성능 점검 3차(2026-10-01 사용자 요청 — "지연·무겁게 만드는 부분 점검, 기능에 이상 없는 범위에서 개선")**
+- **측정**: HTML 1.14MB/gzip 300KB, 상시 타이머는 세션 만료 검사(10분) 하나, 화면 재렌더는 가벼움(자체제작 12ms·미발송 6ms·상품 분석 653행 30ms·종합 판매 719행 51ms). **지연의 대부분 = 카페24 주문 대량 조회의 첫 호출(10분 캐시 없을 때)** — 실측 9월 주문 13,083건, 500건 한 장 3MB·1.4초, 품목 필드 축소(`items{…}`)는 카페24 미지원(items가 빠짐), 조각 안 페이지를 한 장씩 차례로 읽고 있었음. 카페24 사용량 헤더 `x-cafe24-call-usage`/`x-cafe24-time-usage`는 누적 %(오후 4시 12% — 여유).
+- **서버 `eachOrder`(cafe24-analytics)**: `ORDER_PAGE` 500 → **1,000**(카페24 상한, 호출 수 절반), 조각은 날짜순으로 하나씩 + **조각 안 페이지를 `CHUNK_CONCURRENCY`(2)장씩 동시에**(`splitOrderRanges`가 [시작, 끝, 건수]를 돌려줘 페이지 수를 미리 앎), **받은 페이지는 offset 순서대로 onOrders에**(중복 제거·집계 순서가 직렬과 같음), 건수를 못 읽었거나 마지막 예상 페이지가 꽉 차면 예전처럼 한 장씩 이어 읽음. 동시 요청 상한은 예전과 같은 2(홈 3개월 429 사고 기준 유지). **검증: 8월 기준 9개 응답(netreturns·performance·performance 3개월·returnreasons·realmargin·revenue·paiditems·returnwatch·madeavg scope=all)이 수정 전과 바이트 단위로 완전 일치**, 시간 9.0→4.5초(performance)·24.4→12.8(3개월)·15.8→6.3(realmargin)·12.0→6.4(paiditems)·28.1→13.1(madeavg)·11.1→6.3(returnreasons)·46→36(netreturns)·45→35(returnwatch — 이 둘은 정확도용 여유 기간(앞 7일·뒤 30일) 때문에 원래 두 달 넘게 읽음, 여유는 건드리지 않음). 부하 시험: 3개월 조회 4개 동시(nocache) 전부 200·결과 일치.
+- **화면**: ① `renderSoon(name, ms=200)` — 상품 분석(검색·판매수량)·종합 판매 데이터 검색·안정재고(검색·차이)·재고 입고 점검 검색을 글자마다 다시 그리지 않고 입력이 멈춘 뒤 한 번(3글자 → 렌더 1회 확인). ② **자체제작 주문 점검: 두 탭이 30일 주문을 따로 읽던 것 → `madeavg scope=all` 한 번을 공유**(`madeFetch`가 scope=all을 받아 made/자체제작만 골라 씀 — 예전 v2 응답과 값·순서 완전 일치 확인, 탭 이동 시 추가 조회 0, 받는 중에 탭을 옮기면 `orderPending`으로 끝난 뒤 그림, [카페24 판매 수집] 버튼은 그대로 새로 받음). 상품관리(npm)는 v2 그대로. ③ 월별 추이 `ptFetchMonth`의 performance·netreturns를 차례로 → 동시에.
+- **검증**: 21개 메뉴 순회 JS 오류 0, 문법·쓰기 안전 검사 통과. **남긴 것(보고만)**: 첫 조회가 여전히 긴 순반품률·반품 관리(35초)는 캐시 시간(10분)을 늘리면 체감이 줄지만 최신성이 바뀌는 결정이라 사용자 판단, rscanBuild·unshipCollect의 자체 페이지 반복(200건·30일 창)은 그대로.
+
 ## 7-1. 반품 관리 메뉴 `#rwatch` (2026-08-08, 관리자 + MD)
 
 목적: 잘 팔리는데 반품이 많은 상품을 잡아 대응하고, '관리 상품'으로 모아 추적.

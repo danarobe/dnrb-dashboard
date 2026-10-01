@@ -446,7 +446,9 @@ const CAFE24_MAX_OFFSET = 15000;
 // 카페24는 조회 기간도 3개월 이내로 제한한다("...should be within 3 months days..." 422).
 // 패딩(e+30일)까지 더하면 두 달짜리 분석도 넘길 수 있으므로 처음부터 80일 이하로 잘라 시작한다.
 const MAX_RANGE_DAYS = 80;
-const ORDER_PAGE = 500;
+// 한 번에 받는 주문 수. 카페24 상한 1,000 (2026-10-01 성능 점검: 500 → 1,000 — 실측 9월 13,083건, 500건 1.4초·1,000건 2.4초 →
+// 호출 수가 절반이라 호출 한도(40개 버킷)에 여유가 생기고 전체 시간도 줄어든다. 응답 내용은 같다).
+const ORDER_PAGE = 1000;
 // 홈은 취소반품·판매성과·재고대조를 한꺼번에 부르므로, 조회 하나가 쓰는 동시 요청 수를 낮게 잡는다
 // (전에 3으로 뒀다가 홈에서 3개월을 고르면 카페24 429가 났다)
 const CHUNK_CONCURRENCY = 2;
@@ -468,9 +470,10 @@ async function countOrders(token: string, qs: string): Promise<number> {
 }
 
 // [s,e]를 offset 상한 안에 들어오는 날짜 조각들로 나눈다 (하루까지 쪼개도 넘치면 그대로 두고 상한까지만 읽음)
-async function splitOrderRanges(token: string, filter: string, s: string, e: string): Promise<[string, string][]> {
+//  반환 [시작, 끝, 건수] — 건수(-1 = 못 읽음)는 eachOrder가 조각 안의 페이지 수를 미리 알기 위해 쓴다(2026-10-01).
+async function splitOrderRanges(token: string, filter: string, s: string, e: string): Promise<[string, string, number][]> {
   const cf = countFilter(filter);
-  const out: [string, string][] = [];
+  const out: [string, string, number][] = [];
   // 3개월 제한부터 피하고 시작 — 80일 이하 조각으로 미리 나눈다
   const stack: [string, string][] = [];
   for (let t = new Date(s).getTime(), end = new Date(e).getTime(); t <= end;) {
@@ -483,7 +486,7 @@ async function splitOrderRanges(token: string, filter: string, s: string, e: str
     const c = await countOrders(token, `start_date=${a}&end_date=${b}&${cf}`);
     if (c === 0) continue;
     // 개수를 못 읽으면 예전처럼 통째로 읽는다 (데이터가 빈 채로 반환되는 사고 방지)
-    if (c < 0 || c < CAFE24_MAX_OFFSET || a === b) { out.push([a, b]); continue; }
+    if (c < 0 || c < CAFE24_MAX_OFFSET || a === b) { out.push([a, b, c]); continue; }
     const midMs = new Date(a).getTime() + Math.floor((new Date(b).getTime() - new Date(a).getTime()) / dayMs / 2) * dayMs;
     stack.push([a, ymd(midMs)], [ymd(midMs + dayMs), b]);
   }
@@ -500,26 +503,56 @@ async function eachOrder(
   // **부분배송 주문은 배송종료일이 여러 개라 두 조각 모두에 잡힌다**(실측: 조각 합계가 전체보다 176건 많음).
   // 조각을 나눈 뒤로 생긴 문제라 주문번호로 걸러 같은 주문을 두 번 세지 않는다.
   const seen = new Set<string>();
-  let idx = 0;
-  const worker = async () => {
-    while (idx < ranges.length) {
-      const [a, b] = ranges[idx++];
-      for (let offset = 0; offset < CAFE24_MAX_OFFSET; offset += ORDER_PAGE) {
-        const body = await apiGet(
-          `${API_BASE}/admin/orders?start_date=${a}&end_date=${b}&${filter}&limit=${ORDER_PAGE}&offset=${offset}`, token);
-        const orders = (body.orders ?? []) as Record<string, unknown>[];
-        const fresh = orders.filter((o) => {
-          const id = String(o.order_id ?? "");
-          if (!id || seen.has(id)) return false;
-          seen.add(id);
-          return true;
-        });
-        if (fresh.length) onOrders(fresh);
-        if (orders.length < ORDER_PAGE) break;    // 페이지 끝 판정은 걸러내기 전 길이로
+  const emit = (orders: Record<string, unknown>[]) => {
+    const fresh = orders.filter((o) => {
+      const id = String(o.order_id ?? "");
+      if (!id || seen.has(id)) return false;
+      seen.add(id);
+      return true;
+    });
+    if (fresh.length) onOrders(fresh);
+  };
+  const fetchPage = async (a: string, b: string, offset: number) => {
+    const body = await apiGet(
+      `${API_BASE}/admin/orders?start_date=${a}&end_date=${b}&${filter}&limit=${ORDER_PAGE}&offset=${offset}`, token);
+    return (body.orders ?? []) as Record<string, unknown>[];
+  };
+  // 2026-10-01 성능 점검: 예전엔 조각 '사이'만 동시에(2개) 읽고 조각 안의 페이지는 한 장씩 차례로 읽어, 한 달(조각 1개) 조회가 통째로 직렬이었다.
+  //   이제 조각은 날짜순으로 하나씩, 조각 안의 페이지를 CHUNK_CONCURRENCY장씩 동시에 받는다(동시 요청 수 상한은 예전과 같은 2).
+  //   건수(/count)로 페이지 수를 미리 알고, 받은 페이지는 **offset 순서대로** onOrders에 넘긴다(중복 제거·집계 순서가 직렬과 같음).
+  //   건수를 못 읽었거나(c<0) 조회 중 주문이 늘어 마지막 예상 페이지가 꽉 찼으면 그 뒤는 예전처럼 한 장씩 이어 읽는다.
+  for (const [a, b, c] of ranges) {
+    const planned: number[] = [];
+    if (c > 0) for (let off = 0; off < c && off < CAFE24_MAX_OFFSET; off += ORDER_PAGE) planned.push(off);
+    let nextOffset = 0, lastFull = true;
+    if (planned.length) {
+      const results: (Record<string, unknown>[] | undefined)[] = new Array(planned.length);
+      let take = 0, emitted = 0;
+      const worker = async () => {
+        while (take < planned.length) {
+          const i = take++;
+          results[i] = await fetchPage(a, b, planned[i]);
+          while (emitted < planned.length && results[emitted] !== undefined) {   // 앞에서부터 순서대로 넘긴다
+            const page = results[emitted]!;
+            results[emitted] = [];   // 메모리 반환(자리 표시는 유지)
+            emit(page);
+            lastFull = page.length >= ORDER_PAGE;   // 페이지 끝 판정은 걸러내기 전 길이로
+            emitted++;
+          }
+        }
+      };
+      await Promise.all(Array.from({ length: Math.min(CHUNK_CONCURRENCY, planned.length) }, worker));
+      nextOffset = planned[planned.length - 1] + ORDER_PAGE;
+    }
+    // 건수를 몰랐거나, 마지막 예상 페이지가 꽉 찼으면(그사이 주문이 늘어남) 짧은 페이지가 나올 때까지 이어 읽는다
+    if (!planned.length || lastFull) {
+      for (let offset = nextOffset; offset < CAFE24_MAX_OFFSET; offset += ORDER_PAGE) {
+        const orders = await fetchPage(a, b, offset);
+        emit(orders);
+        if (orders.length < ORDER_PAGE) break;
       }
     }
-  };
-  await Promise.all(Array.from({ length: Math.min(CHUNK_CONCURRENCY, ranges.length) }, worker));
+  }
 }
 
 // 카페24 claim_reason은 '신청 사유 (구매자|판매자 주문취소 : 접수 사유)' 형태로 두 사유가 합쳐져 온다.
