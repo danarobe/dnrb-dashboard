@@ -591,14 +591,17 @@ Deno.serve(async (req) => {
       : await verifyAuthToken(req);
     if (!authed) return json({ error: "로그인이 필요합니다" }, 401);
 
-    // ── 결과 캐시 (10분) — 무거운 주문 스캔 액션만. 반드시 각 액션의 **권한 검사 뒤에**
+    // ── 결과 캐시 (분석 30분 · 미발송 목록 10분) — 무거운 주문 스캔 액션만. 반드시 각 액션의 **권한 검사 뒤에**
     // fromCache()를 불러야 한다 (캐시가 권한 우회 통로가 되면 안 됨).
     // performance는 역할에 따라 응답이 달라서(비관리자 order_amount=0) 키에 역할 포함.
     const qsKey = new URLSearchParams(url.search);
     qsKey.delete("nocache"); qsKey.sort();
     const cacheKey = `an:${qsKey.toString()}` + (action === "performance" ? `:${authed.role}` : "");
     const noCache = url.searchParams.get("nocache") === "1";
-    const fromCache = async () => noCache ? null : await cacheGet(cacheKey, 10 * 60 * 1000);
+    // 저장 시간: 분석용 조회는 30분(2026-10-01 사용자 결정 — 첫 조회가 6~35초라 다시 기다리는 일을 줄임, 그동안 새 주문·취소는 미반영),
+    //   미발송 목록은 10분 그대로(물류팀 실시간 작업 — 화면 새로고침 버튼은 nocache). api_cache 행은 1시간 뒤 자동 삭제.
+    const CACHE_TTL_MS = (action === "unship_list" ? 10 : 30) * 60 * 1000;
+    const fromCache = async () => noCache ? null : await cacheGet(cacheKey, CACHE_TTL_MS);
     const respond = async (body: unknown) => { await cacheSet(cacheKey, body); return json(body); };
 
     const token = await getAccessToken();

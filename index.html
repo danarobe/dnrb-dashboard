@@ -5316,7 +5316,7 @@ const rwWatchSet = () => new Set((rwState.watch || []).map(w => Number(w.product
 function rwSetTab(t) { rwState.tab = t; if (t === 'watch' || t === 'stopped') rwAutoFetch(); rwRender(); }
 
 /* 관리 상품 탭 자동 조회 — 조회 버튼을 안 눌러도 7/14/30일 수치가 채워지게.
-   서버 10분 캐시가 있어 최근 조회가 있으면 즉시, 없으면 ~30초 걸린다(버튼에 경과초 표시). */
+   서버 30분 캐시가 있어 최근 조회가 있으면 즉시, 없으면 ~30초 걸린다(버튼에 경과초 표시). */
 let rwFetching = false;
 async function rwAutoFetch() {
   if (rwState.data || rwFetching) return;
@@ -8823,7 +8823,7 @@ const admgrTile = (label, val, blur) => `<div style="background:#f8f9ff;border:1
   <div class="${blur ? 'meta-blur' : ''}" style="font-size:1.05rem;font-weight:800;color:#1e1b4b;">${val}</div></div>`;
 
 /* ── 광고세트 '실결제 수' 열 (2026-08-26) — 세트명↔상품명 매칭 + 카페24 기간 결제수량 ──
-   기간은 현재 기간 칩(d.range)과 동일. paiditems는 느릴 수 있어(첫 조회 수십 초, 서버 10분 캐시)
+   기간은 현재 기간 칩(d.range)과 동일. paiditems는 느릴 수 있어(첫 조회 수십 초, 서버 30분 캐시)
    표를 먼저 그리고 도착하면 다시 채운다. 매칭은 판매 성과 ON 광고와 같은 pa* 규칙
    (자모 비교·최장 핵심명 우선·동명 계절 버전은 ver 토큰 필수). */
 async function admgrPaidFetch() {
@@ -13048,7 +13048,7 @@ function updateHomeTrafficTile() {
 }
 
 /* ── 결제 주차별 취소·반품률 (코호트, 2026-09-11) — 취소 & 반품 메뉴 두 번째 소메뉴 ──
-   서버 cohortweeks: /orders/count(date_type=pay_date) 전체·C40·R00~R40 3회/구간, 10분 캐시.
+   서버 cohortweeks: /orders/count(date_type=pay_date) 전체·C40·R00~R40 3회/구간, 30분 캐시.
    성숙 = 구간 끝에서 14일 이상 경과. 기준일 기본값 = 어제(KST). 에이전트 앱의 반품 감시 보고서와 같은 기준. */
 const crCohortState = { loaded: false, loading: false, data: null };
 function crCohortInit() {
@@ -14479,7 +14479,7 @@ async function fetchPerfApi() {
     store.perfFilter = 'all';
     paBuildMatch();
     // '오늘' 하루 조회면 어제 순위도 받아 등락 열 표시 (2026-09-01 사용자 요청).
-    // 표를 먼저 그리고 백그라운드로 어제 데이터를 받아 다시 그린다 (첫 조회 수십 초 가능, 서버 10분 캐시).
+    // 표를 먼저 그리고 백그라운드로 어제 데이터를 받아 다시 그린다 (첫 조회 수십 초 가능, 서버 30분 캐시).
     store.prevRanks = null;
     const kstToday = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(new Date());
     if (ds === de && ds === kstToday) {
