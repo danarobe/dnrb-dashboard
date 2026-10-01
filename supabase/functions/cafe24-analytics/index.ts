@@ -762,6 +762,7 @@ Deno.serve(async (req) => {
         const prods: Record<string, unknown> = {};
         for (const r of prodRows) prods[String(r.sname)] = { vendor: r.vendor ?? null, by: r.updated_by_name ?? null, at: r.updated_at ?? null };
         const outLines = canPrice ? lines : lines.map((l) => { const { unit_price: _u, ...rest } = l; return rest; });
+        const outShips = canPrice ? ships : ships.map((x) => { const { costs: _c, ...rest } = x; return rest; });   // 비용(2번째 시트)도 관리자·MD만
         // 카페24 등록 여부: 전 상품의 공급사 상품명(supply_product_name)을 30분 캐시로 받아 사입상품명과 맞춘다.
         //   같은 이름(공백·대소문자 무시)이거나, 공급사 상품명이 '사입상품명 + 구분 문자(공백·괄호 등)'로 시작하면 같은 상품으로 본다.
         const c24: Record<string, unknown[]> = {};
@@ -787,12 +788,29 @@ Deno.serve(async (req) => {
             if (hits.length) c24[name] = hits.slice(0, 5);
           }
         } catch (e) { c24_error = "카페24 상품 목록을 읽지 못했어요 — " + String(e).slice(0, 150); }
-        return json({ ships, lines: outLines, prods, c24, c24_error, can_price: canPrice, can_edit: canEdit });
+        return json({ ships: outShips, lines: outLines, prods, c24, c24_error, can_price: canPrice, can_edit: canEdit });
       }
       if (req.method !== "POST") return json({ error: "POST로 호출해주세요" }, 405);
       const b = await req.json().catch(() => ({})) as Record<string, any>;
       const now = new Date().toISOString();
       const dateOrNull = (v: unknown) => { const d = txt(v, 10); return d && /^\d{4}-\d{2}-\d{2}$/.test(d) ? d : null; };
+      // 입고 비용(엑셀 2번째 시트) 정리 — 화면이 읽어 보낸 값을 모양·크기만 확인해 저장한다 (2026-10-01)
+      const cleanCosts = (v: unknown): Record<string, unknown> | null | undefined => {
+        if (v === null) return null;
+        if (!v || typeof v !== "object" || Array.isArray(v)) return undefined;
+        const c = v as Record<string, any>;
+        const numOrNull = (x: unknown) => { const n = Number(x); return x === null || x === undefined || x === "" || !Number.isFinite(n) ? null : n; };
+        const arr = (x: unknown, max: number) => (Array.isArray(x) ? x.slice(0, max) : []) as Record<string, any>[];
+        const out = {
+          sheet: txt(c.sheet, 60), title: txt(c.title, 120),
+          items: arr(c.items, 100).map((r) => ({ name: txt(r.name, 60), amount: numOrNull(r.amount), note: txt(r.note, 200), calc: txt(r.calc, 80) })).filter((r) => r.name),
+          totals: arr(c.totals, 20).map((r) => ({ name: txt(r.name, 60), amount: numOrNull(r.amount) })).filter((r) => r.name),
+          payments: arr(c.payments, 50).map((r) => ({ name: txt(r.name, 60), usd: numOrNull(r.usd), krw: numOrNull(r.krw) })).filter((r) => r.name),
+          pay_total: c.pay_total && typeof c.pay_total === "object" ? { usd: numOrNull(c.pay_total.usd), krw: numOrNull(c.pay_total.krw) } : null,
+          saved_by: authed.name, saved_at: now,
+        };
+        return JSON.stringify(out).length > 40000 ? undefined : out;
+      };
       if (action === "cn_vendor") {
         if (!canEdit) return json({ error: "거래처명 입력은 관리자·MD만 할 수 있어요" }, 403);
         const sname = txt(b.sname, 100);
@@ -821,6 +839,7 @@ Deno.serve(async (req) => {
         const [ship] = await sbRest("cn_shipments", { method: "POST", body: JSON.stringify({
           title, vendor: txt(b.vendor, 80), order_round: txt(b.order_round, 40), ship_date: dateOrNull(b.ship_date),
           file_name: txt(b.file_name, 200), note: txt(b.note, 300), created_by: authed.id, created_by_name: authed.name,
+          costs: "costs" in b ? (cleanCosts(b.costs) ?? null) : null,
         }) }) as Record<string, any>[];
         try {
           await sbRest("cn_lines", { method: "POST", headers: { Prefer: "return=minimal" }, body: JSON.stringify(rows.map((r) => ({ ...r, shipment_id: ship.id }))) });
@@ -870,6 +889,7 @@ Deno.serve(async (req) => {
       if ("order_round" in b) patch.order_round = txt(b.order_round, 40);
       if ("ship_date" in b) patch.ship_date = dateOrNull(b.ship_date);
       if ("note" in b) patch.note = txt(b.note, 300);
+      if ("costs" in b) { const c = cleanCosts(b.costs); if (c === undefined) return json({ error: "비용 내용이 올바르지 않아요" }, 400); patch.costs = c; }
       if (!Object.keys(patch).length) return json({ error: "바꿀 내용이 없어요" }, 400);
       const [row] = await sbRest(`cn_shipments?id=eq.${sid}`, { method: "PATCH", body: JSON.stringify(patch) }) as Record<string, any>[];
       if (!row) return json({ error: "입고 건을 찾지 못했어요" }, 404);

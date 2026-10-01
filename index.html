@@ -1405,6 +1405,13 @@
         </div>
         <div id="cn-check-list"><div class="empty-state"><p>불러오는 중…</p></div></div>
       </div>
+      <div id="cn-pane-cost" class="cn-pane" style="display:none;">
+        <div style="font-size:.8rem;color:#6b7280;margin-bottom:10px;line-height:1.7;">
+          · 입고 엑셀의 <b>두 번째 시트</b>(물류비·검품비·관세·부가세 등 들여오는 비용, 물건 결제)를 <b>입고 차수별</b>로 보여줘요. 관리자·MD만 볼 수 있어요.<br>
+          · <b>장당 들여오는 비용</b> = 부가세 제외 총합 ÷ 그 입고의 수량(참고용).
+        </div>
+        <div id="cn-cost-body"></div>
+      </div>
       <div id="cn-pane-prod" class="cn-pane" style="display:none;">
         <div style="font-size:.8rem;color:#6b7280;margin-bottom:10px;line-height:1.7;">
           · 올린 입고 엑셀을 <b>사입상품명·옵션별로 합쳐</b> 보여줘요. <b>주문 수량</b> = 지금까지 전달받은 수량 + 아직 안 온 잔여 수량(가장 최근 입고 엑셀 기준).<br>
@@ -3537,14 +3544,17 @@ const unshipOverdue = (m, today) => !!(m && m.arrival_date && String(m.arrival_d
    중국에서 보낸 입고 엑셀(첫 시트: A 품번(=사입상품명=카페24 공급사 상품명) · C 색상 · D 사이즈 · E 출고 수량 · F 미출고 잔여('출완'=0) · G 단가(위안) · H 총액)을 올리면
    옵션별 '전달 수량'으로 저장(cn_shipments/cn_lines) → 현장에서 센 '실제 수량'을 적어 차이를 본다. 상품별 현황 = 입고 건을 사입상품명·옵션으로 합친 표 + 카페24 등록 여부·판매량.
    서버 cafe24-analytics cn_list / cn_upload / cn_check / cn_ship. 단가·금액은 관리자·MD만(서버가 CS·물류팀 응답에서 뺀다). 엑셀 올리기·입고 건 수정·삭제도 관리자·MD. */
-const CN_TABS = [['check', '입고 검수', null, 'fa-solid fa-clipboard-check'], ['prod', '상품별 현황', null, 'fa-solid fa-layer-group']];
+const CN_TABS = [['check', '입고 검수', null, 'fa-solid fa-clipboard-check'], ['prod', '상품별 현황', null, 'fa-solid fa-layer-group'], ['cost', '입고 비용', null, 'fa-solid fa-coins']];
+const cnTabs = () => CN_TABS.filter(t => t[0] !== 'cost' || !cnState.data || cnState.data.can_price);   // 입고 비용 = 관리자·MD만
 const cnState = { data: null, loading: false, tab: 'check', shipId: null, filter: 'all', prodFilter: 'all', pending: null, sales: null, salesLoading: false };
+function cnTabRender() { const k = cnState.tab; if (k === 'check') cnCheckRender(); else if (k === 'cost') cnCostRender(); else { cnProdRender(); cnSalesLoad(); } }
 function cnInit() { cnSetTab(cnState.tab); if (!cnState.data && !cnState.loading) cnLoad(false); }
 function cnSetTab(k) {
-  cnState.tab = k; uiTabs('cn-tabs', CN_TABS, k, 'cnSetTab');
+  if (k === 'cost' && cnState.data && !cnState.data.can_price) k = 'check';
+  cnState.tab = k; uiTabs('cn-tabs', cnTabs(), k, 'cnSetTab');
   document.querySelectorAll('.cn-pane').forEach(el => { el.style.display = 'none'; });
   $('cn-pane-' + k).style.display = 'block';
-  if (cnState.data) { if (k === 'check') cnCheckRender(); else { cnProdRender(); cnSalesLoad(); } }
+  if (cnState.data) cnTabRender();
 }
 async function cnLoad(force) {
   if (cnState.loading) return;
@@ -3555,7 +3565,7 @@ async function cnLoad(force) {
     const ships = cnState.data.ships || [];
     if (!ships.some(x => x.id === cnState.shipId)) cnState.shipId = ships.length ? ships[0].id : null;
     $('cn-upload-btn').style.display = cnState.data.can_edit ? '' : 'none';
-    if (cnState.tab === 'check') cnCheckRender(); else { cnProdRender(); cnSalesLoad(); }
+    cnSetTab(cnState.tab);   // 탭 줄(입고 비용은 관리자·MD만)도 권한에 맞게 다시
   } catch (e) { $('cn-check-list').innerHTML = `<div class="empty-state"><p style="color:#b91c1c;">불러오지 못했어요 — ${escHtml(e.message)}</p></div>`; }
   finally { cnState.loading = false; }
 }
@@ -3617,7 +3627,8 @@ async function cnFilePick(input) {
     const title = file.name.replace(/\.(xlsx|xls)$/i, '').normalize('NFC');
     const dm = title.match(/(\d{1,2})[:.\/-](\d{1,2})/);   // 파일 이름의 '9:25'·'9.25' → 출고일 추정(올해)
     const guessDate = dm ? `${new Date().getFullYear()}-${String(dm[1]).padStart(2, '0')}-${String(dm[2]).padStart(2, '0')}` : '';
-    cnState.pending = { file_name: file.name.normalize('NFC'), sheet: sheetName, title, ship_date: guessDate, ...parsed };
+    let costs = null; try { costs = cnCostSheet(wb, XLSX); } catch (e2) { costs = null; }
+    cnState.pending = { file_name: file.name.normalize('NFC'), sheet: sheetName, title, ship_date: guessDate, costs, ...parsed };
     cnUploadPanelRender();
   } catch (e) { panel.innerHTML = `<div style="border:1.5px solid #fca5a5;background:#fef2f2;border-radius:12px;padding:10px 14px;font-size:.82rem;color:#b91c1c;margin-bottom:12px;">엑셀을 읽지 못했어요 — ${escHtml(e.message)}</div>`; }
 }
@@ -3631,6 +3642,7 @@ function cnUploadPanelRender() {
   panel.innerHTML = `<div style="border:1.5px solid #c7d2fe;background:#f8f9ff;border-radius:14px;padding:14px 16px;margin-bottom:14px;">
     <div style="font-size:.9rem;font-weight:800;color:#3730a3;"><i class="fa-solid fa-file-excel"></i> 올릴 내용 확인 — ${escHtml(p.file_name)} <span style="font-weight:500;color:#6b7280;font-size:.74rem;">(시트 "${escHtml(p.sheet)}")</span></div>
     <div style="font-size:.82rem;color:#374151;margin:8px 0;">사입상품 <b>${fmt(names.length)}개</b> · 옵션 <b>${fmt(p.lines.length)}줄</b> · 전달 수량 <b>${fmt(qty)}장</b> · 미출고 잔여 <b>${fmt(left)}장</b> · 금액 <b>${cnYuan(amt)}</b></div>
+    <div style="font-size:.8rem;color:#374151;margin-bottom:8px;">${p.costs ? (() => { const cs = cnCostSums(p.costs); return `<i class="fa-solid fa-coins" style="color:#4f46e5;"></i> 비용 시트 "${escHtml(p.costs.sheet)}" — 비용 항목 <b>${p.costs.items.length}개</b> · 총합 <b>${cnWon(cs.sum)}</b> · 물건 결제 <b>${cnWon(cs.paySum)}</b> (입고 비용 탭에서 볼 수 있어요)`; })() : '<span style="color:#9ca3af;">비용 시트(두 번째 시트)는 없거나 읽지 못했어요 — 나중에 입고 비용 탭에서 넣을 수 있어요.</span>'}</div>
     ${!p.headerFound ? '<div style="font-size:.76rem;color:#b45309;margin-bottom:6px;"><i class="fa-solid fa-triangle-exclamation"></i> 머리글(색상·출고)을 못 찾아 A~H 열 순서대로 읽었어요 — 아래 내용이 맞는지 확인해 주세요.</div>' : ''}
     ${p.skipped.length ? `<details style="font-size:.76rem;color:#b45309;margin-bottom:6px;"><summary style="cursor:pointer;font-weight:700;"><i class="fa-solid fa-triangle-exclamation"></i> 읽지 못했거나 확인이 필요한 줄 ${p.skipped.length}개</summary>${p.skipped.slice(0, 30).map(t => `<div>${escHtml(t)}</div>`).join('')}</details>` : ''}
     <details style="font-size:.76rem;margin-bottom:10px;"><summary style="cursor:pointer;color:#4f46e5;font-weight:700;">읽은 내용 미리 보기</summary>
@@ -3645,7 +3657,7 @@ function cnUploadPanelRender() {
 }
 async function cnUploadSave() {
   const p = cnState.pending; if (!p) return;
-  const body = { title: $('cn-up-title').value, order_round: $('cn-up-round').value, ship_date: $('cn-up-date').value || null, note: $('cn-up-note').value, file_name: p.file_name, lines: p.lines };
+  const body = { title: $('cn-up-title').value, order_round: $('cn-up-round').value, ship_date: $('cn-up-date').value || null, note: $('cn-up-note').value, file_name: p.file_name, lines: p.lines, costs: p.costs || null };
   if (!body.title.trim()) { showToast('입고 이름을 입력해 주세요'); return; }
   const dup = ((cnState.data || {}).ships || []).find(x => x.file_name === p.file_name);
   if (dup && !confirm(`같은 파일 이름의 입고 건이 이미 있어요 ("${dup.title}").\n그래도 새 입고 건으로 저장할까요?`)) return;
@@ -3842,6 +3854,114 @@ async function cnShipDelete() {
   if (!confirm(`"${ship.title}" 입고 건을 지울까요?\n옵션 줄과 적어 둔 실제 수량${n ? ` ${n}개` : ''}·메모가 모두 지워지고 되돌릴 수 없어요.`)) return;
   try { await cnPost('cn_ship', { id: ship.id, delete: true }); showToast('입고 건을 지웠어요'); cnState.shipId = null; cnState.loading = false; cnLoad(false); }
   catch (e) { showToast('삭제 실패: ' + e.message); }
+}
+
+
+/* ── 입고 비용 (2026-10-01 사용자 요청): 입고 엑셀 2번째 시트(물류비·관부가세·물건 결제)를 입고 차수별로. 관리자·MD만(서버가 CS·물류팀 응답에서 costs를 뺀다).
+      시트 모양: 1행 제목 / '항목·금액·참고 사항·계산' 머리글 아래 비용 항목 … '총합'·'부가세 제외 총합' / '보낸돈(USD)·환전반영(KRW)' 머리글 아래 물건결제 줄 … '물건결제 총합'. ── */
+function cnParseCosts(grid, sheetName) {
+  const t = v => String(v == null ? '' : v).replace(/\s+/g, ' ').trim();
+  const numOf = v => typeof v === 'number' ? v : (/^-?[\d,]+(\.\d+)?$/.test(t(v)) ? Number(t(v).replace(/,/g, '')) : null);
+  const rows = grid.map(r => (r || []));
+  const hr = rows.findIndex(r => r.map(t).includes('항목') && r.map(t).some(c => c === '금액'));
+  const pr = rows.findIndex(r => r.map(t).some(c => /보낸돈|USD/.test(c)));
+  const out = { sheet: sheetName, title: t((rows[0] || [])[0]), items: [], totals: [], payments: [], pay_total: null };
+  if (hr >= 0) {
+    const h = rows[hr].map(t), cn = h.indexOf('항목'), ca = h.indexOf('금액'), cnote = h.findIndex(c => /참고/.test(c)), cc = h.findIndex(c => /계산/.test(c));
+    for (let r = hr + 1; r < (pr >= 0 ? pr : rows.length); r++) {
+      const name = t(rows[r][cn]), amt = numOf(rows[r][ca]); if (!name) continue;
+      if (/총합|합계/.test(name)) { if (amt != null) out.totals.push({ name, amount: amt }); }
+      else if (amt != null) out.items.push({ name, amount: amt, note: cnote >= 0 ? t(rows[r][cnote]) : '', calc: cc >= 0 ? t(rows[r][cc]) : '' });
+    }
+  }
+  if (pr >= 0) {
+    const h = rows[pr].map(t), cu = h.findIndex(c => /USD|보낸돈/.test(c)), ck = h.findIndex(c => /KRW|환전/.test(c));
+    for (let r = pr + 1; r < rows.length; r++) {
+      const name = t(rows[r][0]), usd = cu >= 0 ? numOf(rows[r][cu]) : null, krw = ck >= 0 ? numOf(rows[r][ck]) : null;
+      if (!name || (usd == null && krw == null)) continue;
+      if (/총합|합계/.test(name)) out.pay_total = { usd, krw }; else out.payments.push({ name, usd, krw });
+    }
+  }
+  return out.items.length || out.payments.length ? out : null;
+}
+function cnCostSheet(wb, XLSX) {   // 비용 시트 = 이름에 물류비·관부가세·비용이 든 시트, 없으면 두 번째 시트
+  const name = wb.SheetNames.find((n, i) => i > 0 && /물류비|관부가세|비용/.test(n)) || wb.SheetNames[1];
+  if (!name) return null;
+  return cnParseCosts(XLSX.utils.sheet_to_json(wb.Sheets[name], { header: 1, defval: '' }), name);
+}
+const cnWon = v => v == null ? '—' : Math.round(Number(v)).toLocaleString('ko-KR') + '원';
+function cnCostSums(c) {   // 항목 합계와 엑셀에 적힌 총합 비교용
+  const items = (c && c.items) || [], sum = items.reduce((t, x) => t + (x.amount || 0), 0);
+  const vat = items.filter(x => /부가세/.test(x.name)).reduce((t, x) => t + (x.amount || 0), 0);
+  const tot = ((c && c.totals) || []).find(x => !/제외/.test(x.name)), totEx = ((c && c.totals) || []).find(x => /제외/.test(x.name));
+  const paySum = ((c && c.payments) || []).reduce((t, x) => t + (x.krw || 0), 0), payUsd = ((c && c.payments) || []).reduce((t, x) => t + (x.usd || 0), 0);
+  return { sum, vat, exVat: sum - vat, fileTotal: tot ? tot.amount : null, fileExVat: totEx ? totEx.amount : null, paySum, payUsd, filePay: c && c.pay_total ? c.pay_total : null };
+}
+function cnCostRender() {
+  const d = cnState.data, box = $('cn-cost-body'); if (!d || !box) return;
+  if (!d.can_price) { box.innerHTML = '<div class="empty-state"><p>입고 비용은 관리자·MD만 볼 수 있어요.</p></div>'; return; }
+  const ships = d.ships || [];
+  if (!ships.length) { box.innerHTML = '<div class="empty-state"><p>아직 올린 입고 엑셀이 없어요.</p></div>'; return; }
+  const ship = ships.find(x => x.id === cnState.shipId) || ships[0]; cnState.shipId = ship.id;
+  const qtyOf = id => (d.lines || []).filter(l => l.shipment_id === id).reduce((t, l) => t + l.qty_sent, 0);
+  const yuanOf = id => (d.lines || []).filter(l => l.shipment_id === id).reduce((t, l) => t + l.qty_sent * (Number(l.unit_price) || 0), 0);
+  const num = v => `<td style="text-align:right;">${v}</td>`;
+  // 전체 차수 표
+  let tQty = 0, tSum = 0, tEx = 0, tPay = 0;
+  const allRows = ships.slice().reverse().map(x => {
+    const s = cnCostSums(x.costs), q = qtyOf(x.id); tQty += q; if (x.costs) { tSum += s.sum; tEx += s.exVat; tPay += s.paySum; }
+    return `<tr style="cursor:pointer;${x.id === ship.id ? 'background:#eef2ff;' : ''}" onclick="cnState.shipId=${x.id};cnCostRender()">
+      <td style="text-align:left;font-weight:700;">${escHtml(x.title)}</td><td style="text-align:left;">${escHtml(x.order_round || '—')}</td><td style="text-align:left;">${escHtml(x.ship_date || '—')}</td>
+      ${num(fmt(q) + '장')}${num(cnYuan(yuanOf(x.id)))}${num(x.costs ? cnWon(s.paySum) : '<span style="color:#9ca3af;">—</span>')}${num(x.costs ? `<b>${cnWon(s.sum)}</b>` : '<span style="color:#b45309;">비용 시트 없음</span>')}${num(x.costs ? cnWon(s.exVat) : '<span style="color:#9ca3af;">—</span>')}</tr>`;
+  }).join('');
+  const c = ship.costs, s = cnCostSums(c), q = qtyOf(ship.id);
+  const warn = [];
+  if (c && s.fileTotal != null && Math.abs(s.fileTotal - s.sum) > 1) warn.push(`항목을 더하면 ${cnWon(s.sum)}인데 엑셀의 총합은 ${cnWon(s.fileTotal)}이에요`);
+  if (c && s.fileExVat != null && Math.abs(s.fileExVat - s.exVat) > 1) warn.push(`부가세를 빼면 ${cnWon(s.exVat)}인데 엑셀의 '부가세 제외 총합'은 ${cnWon(s.fileExVat)}이에요`);
+  if (c && s.filePay && s.filePay.krw != null && Math.abs(s.filePay.krw - s.paySum) > 1) warn.push(`물건결제를 더하면 ${cnWon(s.paySum)}인데 엑셀의 총합은 ${cnWon(s.filePay.krw)}이에요`);
+  const detail = !c ? `<div class="empty-state"><p>이 입고 건에는 비용 시트가 없어요. 엑셀의 두 번째 시트에 비용을 적은 뒤 아래 <b>[비용 시트 다시 올리기]</b>로 넣을 수 있어요.</p></div>`
+    : `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px;margin-bottom:10px;">${
+        admgrTile('입고 수량', fmt(q) + '장', false) + admgrTile('물건값(위안)', cnYuan(yuanOf(ship.id)), false) + admgrTile('물건 결제(원)', cnWon(s.paySum) + (s.payUsd ? ` <span style="font-size:.7rem;color:#6b7280;">$${(Math.round(s.payUsd * 100) / 100).toLocaleString('en-US')}</span>` : ''), false)
+        + admgrTile('들여오는 비용 총합', cnWon(s.sum), false) + admgrTile('부가세 제외 총합', cnWon(s.exVat), false)
+        + admgrTile('장당 들여오는 비용', q ? `${cnWon(s.exVat / q)} <span style="font-size:.7rem;color:#6b7280;">부가세 제외 ÷ ${fmt(q)}장</span>` : '—', false)}</div>
+      ${warn.length ? `<div style="font-size:.76rem;color:#92400e;background:#fffbeb;border:1px solid #fcd34d;border-radius:8px;padding:6px 10px;margin-bottom:8px;"><i class="fa-solid fa-triangle-exclamation"></i> ${warn.map(escHtml).join(' · ')}</div>` : ''}
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:14px;align-items:start;">
+        <div><div style="font-size:.84rem;font-weight:800;margin-bottom:4px;">들여오는 비용 <span style="font-size:.7rem;color:#6b7280;font-weight:500;">${escHtml(c.title || '')}</span></div>
+          <div class="table-wrap"><table style="width:100%;font-size:.8rem;"><thead><tr><th style="text-align:left;">항목</th><th>금액</th><th style="text-align:left;">참고 사항</th><th style="text-align:left;">계산</th></tr></thead><tbody>
+            ${(c.items || []).map(x => `<tr><td style="text-align:left;font-weight:600;">${escHtml(x.name)}</td>${num(cnWon(x.amount))}<td style="text-align:left;font-size:.74rem;color:#6b7280;">${escHtml(x.note || '')}</td><td style="text-align:left;font-size:.74rem;color:#6b7280;">${escHtml(x.calc || '')}</td></tr>`).join('')}
+            <tr style="background:#f8f9ff;font-weight:800;"><td style="text-align:left;">총합</td>${num(cnWon(s.sum))}<td></td><td></td></tr>
+            <tr style="background:#f8f9ff;font-weight:800;"><td style="text-align:left;">부가세 제외 총합</td>${num(cnWon(s.exVat))}<td></td><td></td></tr></tbody></table></div></div>
+        <div><div style="font-size:.84rem;font-weight:800;margin-bottom:4px;">물건 결제</div>
+          ${(c.payments || []).length ? `<div class="table-wrap"><table style="width:100%;font-size:.8rem;"><thead><tr><th style="text-align:left;">구분</th><th>보낸 돈(USD)</th><th>환전 반영(원)</th></tr></thead><tbody>
+            ${c.payments.map(x => `<tr><td style="text-align:left;font-weight:600;">${escHtml(x.name)}</td>${num(x.usd == null ? '—' : '$' + (Math.round(x.usd * 100) / 100).toLocaleString('en-US'))}${num(cnWon(x.krw))}</tr>`).join('')}
+            <tr style="background:#f8f9ff;font-weight:800;"><td style="text-align:left;">총합</td>${num('$' + (Math.round(s.payUsd * 100) / 100).toLocaleString('en-US'))}${num(cnWon(s.paySum))}</tr></tbody></table></div>` : '<div style="font-size:.78rem;color:#9ca3af;">물건 결제 내용이 없어요.</div>'}
+          <div style="font-size:.7rem;color:#9ca3af;margin-top:6px;">시트 "${escHtml(c.sheet || '')}" · ${escHtml(c.saved_by || '')} ${escHtml(c.saved_at ? unshipKst(c.saved_at) : '')} 저장</div></div></div>`;
+  box.innerHTML = `<div style="font-size:.84rem;font-weight:800;margin-bottom:4px;">입고 차수별 비용 <span style="font-size:.7rem;color:#6b7280;font-weight:500;">줄을 누르면 아래에 상세가 나와요</span></div>
+    <div class="table-wrap" style="margin-bottom:14px;"><table style="width:100%;font-size:.8rem;"><thead><tr><th style="text-align:left;">입고</th><th style="text-align:left;">발주 차수</th><th style="text-align:left;">출고일</th><th>입고 수량</th><th>물건값(위안)</th><th>물건 결제(원)</th><th>들여오는 비용 총합</th><th>부가세 제외</th></tr></thead>
+      <tbody>${allRows}${ships.length > 1 ? `<tr style="background:#f8f9ff;font-weight:800;"><td style="text-align:left;" colspan="3">전체 합계</td>${num(fmt(tQty) + '장')}<td></td>${num(cnWon(tPay))}${num(cnWon(tSum))}${num(cnWon(tEx))}</tr>` : ''}</tbody></table></div>
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px;"><b style="font-size:.9rem;">${escHtml(ship.title)}</b>${ship.order_round ? `<span style="font-size:.76rem;color:#6b7280;">발주 ${escHtml(ship.order_round)}</span>` : ''}
+      <label class="toggle-btn" style="font-size:.7rem;padding:3px 9px;cursor:pointer;"><i class="fa-solid fa-file-arrow-up"></i> 비용 시트 다시 올리기<input type="file" accept=".xlsx,.xls" style="display:none;" onchange="cnCostFilePick(this)" /></label>
+      ${c ? `<button class="toggle-btn" style="font-size:.7rem;padding:3px 9px;color:#dc2626;" onclick="cnCostClear()">비용 지우기</button>` : ''}</div>
+    ${detail}`;
+}
+async function cnCostFilePick(input) {   // 이미 올린 입고 건에 비용 시트만 다시 넣는다(옵션 줄·실제 수량은 그대로)
+  const file = input.files[0]; input.value = ''; if (!file) return;
+  const ship = (cnState.data.ships || []).find(x => x.id === cnState.shipId); if (!ship) return;
+  try {
+    const XLSX = await loadSheetJS();
+    const costs = cnCostSheet(XLSX.read(await file.arrayBuffer(), { type: 'array' }), XLSX);
+    if (!costs) { showToast('이 엑셀에서 비용 시트(항목·금액)를 찾지 못했어요'); return; }
+    const s = cnCostSums(costs);
+    if (!confirm(`"${ship.title}"의 비용을 이 파일의 내용으로 ${ship.costs ? '바꿀' : '넣을'}까요?\n비용 항목 ${costs.items.length}개 · 총합 ${cnWon(s.sum)} · 물건 결제 ${cnWon(s.paySum)}\n(옵션 줄과 실제 수량은 바뀌지 않아요)`)) return;
+    const r = await cnPost('cn_ship', { id: ship.id, costs });
+    Object.assign(ship, r.shipment); cnCostRender(); showToast('비용을 저장했어요');
+  } catch (e) { showToast('비용 저장 실패: ' + e.message); }
+}
+async function cnCostClear() {
+  const ship = (cnState.data.ships || []).find(x => x.id === cnState.shipId); if (!ship || !ship.costs) return;
+  if (!confirm(`"${ship.title}"의 비용 내용을 지울까요? (옵션 줄과 실제 수량은 그대로예요)`)) return;
+  try { const r = await cnPost('cn_ship', { id: ship.id, costs: null }); Object.assign(ship, r.shipment); cnCostRender(); showToast('비용을 지웠어요'); }
+  catch (e) { showToast('지우기 실패: ' + e.message); }
 }
 
 /* ── 상품별 현황: 입고 건을 사입상품명·옵션으로 합침. 주문 수량 = 전달 누적 + 잔여(발주 차수별 가장 최근 입고 건의 미출고) ── */
