@@ -1415,6 +1415,7 @@
       <div id="cn-pane-prod" class="cn-pane" style="display:none;">
         <div style="font-size:.8rem;color:#6b7280;margin-bottom:10px;line-height:1.7;">
           · 올린 입고 엑셀을 <b>사입상품명·옵션별로 합쳐</b> 보여줘요. <b>주문 수량</b> = 지금까지 전달받은 수량 + 아직 안 온 잔여 수량(가장 최근 입고 엑셀 기준).<br>
+          · <b>단가·실질 단가</b>는 여러 번 입고된 상품이면 <b>입고 수량으로 가중 평균</b>한 값이에요(입고마다 들여오는 비용 비율이 달라서). 숫자에 마우스를 올리면 입고별 값이 나와요.<br>
           · <b>카페24</b> = 공급사 상품명이 사입상품명과 같은 상품이 있는지. 등록된 상품은 최근 판매량을 같이 보여줘요(관리자·MD).
         </div>
         <div id="cn-prod-summary" style="margin-bottom:10px;"></div>
@@ -3991,6 +3992,24 @@ async function cnCostClear() {
 }
 
 /* ── 상품별 현황: 입고 건을 사입상품명·옵션으로 합침. 주문 수량 = 전달 누적 + 잔여(발주 차수별 가장 최근 입고 건의 미출고) ── */
+// 실질 단가 가중 평균: 비용 시트가 있는 입고만으로 Σ(수량 × 실질 단가) ÷ Σ수량. 비용 시트 있는 입고가 하나도 없으면 환율만 곱한 값의 평균(비용 미반영).
+function cnRealAvg(parts) {
+  if (!parts.length) return null;
+  const withCost = parts.filter(x => x.hasCost), use = withCost.length ? withCost : parts;
+  const qty = use.reduce((t, x) => t + x.qty, 0);
+  const yuanQty = parts.reduce((t, x) => t + x.qty, 0);
+  return { won: Math.round(use.reduce((t, x) => t + x.qty * x.won, 0) / qty), hasCost: withCost.length > 0, skipped: withCost.length ? parts.length - withCost.length : 0,
+    yuan: Math.round(parts.reduce((t, x) => t + x.qty * x.yuan, 0) / yuanQty * 100) / 100, ships: new Set(parts.map(x => x.ship)).size, parts };
+}
+function cnRealAvgHtml(r, bold) {
+  if (!r) return '<span style="color:#9ca3af;">—</span>';
+  const by = new Map();   // 입고별로 묶어 말풍선에
+  for (const x of r.parts) { const k = x.ship, c = by.get(k) || { title: x.title, qty: 0, sum: 0, hasCost: x.hasCost }; c.qty += x.qty; c.sum += x.qty * x.won; by.set(k, c); }
+  const tip = [...by.values()].map(c => `${c.title}: ${fmt(c.qty)}장 × ${fmt(Math.round(c.sum / c.qty))}원${c.hasCost ? '' : ' (비용 미반영 — 평균에서 제외)'}`).join('&#10;')
+    + (by.size > 1 ? `&#10;→ 입고 수량으로 가중 평균 ${fmt(r.won)}원` : '');
+  return r.hasCost ? `<span style="${bold ? 'font-weight:800;' : 'font-weight:700;'}cursor:help;" title="${tip}">${fmt(r.won)}원</span>${r.ships > 1 ? `<div style="font-size:.6rem;color:#6b7280;">입고 ${r.ships}건 평균</div>` : ''}${r.skipped ? '<div style="font-size:.6rem;color:#b45309;">비용 없는 입고 제외</div>' : ''}`
+    : `<span style="color:#6b7280;cursor:help;" title="${tip}">${fmt(r.won)}원<span style="font-size:.62rem;color:#b45309;"> 비용 미반영</span></span>`;
+}
 function cnProducts() {
   const d = cnState.data, shipById = new Map((d.ships || []).map(x => [x.id, x]));
   const prods = new Map();
@@ -4002,15 +4021,18 @@ function cnProducts() {
     o.sent += l.qty_sent;
     if (l.qty_actual == null) o.unchecked++; else { o.act += l.qty_actual; o.actSent += l.qty_sent; }
     if (l.unit_price != null && l.shipment_id > o.priceShip) { o.price = Number(l.unit_price); o.priceShip = l.shipment_id; }
+    // 실질 단가 통합용(2026-10-01 사용자 요청): 입고마다 100원당 추가 비용이 달라 → 입고별 실질 단가를 입고(전달) 수량으로 가중 평균
+    if (l.unit_price != null && l.qty_sent > 0) { const rw = cnRealWon(l.unit_price, l.shipment_id); (o.parts = o.parts || []).push({ ship: l.shipment_id, title: ship.title || '', qty: l.qty_sent, yuan: Number(l.unit_price), won: rw.won, hasCost: !!rw.r }); }
     const rk = ship.order_round || '', cur = o.leftBy.get(rk);   // 발주 차수별로 가장 최근 입고 건의 잔여
     if (l.qty_left != null && (!cur || l.shipment_id > cur.ship)) o.leftBy.set(rk, { ship: l.shipment_id, left: l.qty_left });
     else if (l.qty_left != null && cur && l.shipment_id === cur.ship) cur.left += l.qty_left;
     p.opts.set(ok, o); prods.set(l.sname, p);
   }
   return [...prods.values()].map(p => {
-    const opts = [...p.opts.values()].map(o => { const left = [...o.leftBy.values()].reduce((t, x) => t + x.left, 0); return { ...o, left, ordered: o.sent + left }; });
+    const opts = [...p.opts.values()].map(o => { const left = [...o.leftBy.values()].reduce((t, x) => t + x.left, 0); return { ...o, left, ordered: o.sent + left, real: cnRealAvg(o.parts || []) }; });
     const sum = k => opts.reduce((t, o) => t + o[k], 0);
-    return { ...p, opts, sent: sum('sent'), act: sum('act'), actSent: sum('actSent'), unchecked: sum('unchecked'), left: sum('left'), ordered: sum('ordered'), c24: (d.c24 || {})[p.sname] || [] };
+    return { ...p, opts, sent: sum('sent'), act: sum('act'), actSent: sum('actSent'), unchecked: sum('unchecked'), left: sum('left'), ordered: sum('ordered'), c24: (d.c24 || {})[p.sname] || [],
+      real: cnRealAvg(opts.flatMap(o => o.parts || [])) };
   });
 }
 async function cnSalesLoad() {   // 카페24 판매량(관리자·MD) — 자체제작 점검과 같은 조회(madeavg scope=all)를 같이 쓴다
@@ -4052,17 +4074,17 @@ function cnProdRender() {
   if (!list.length) { $('cn-prod-list').innerHTML = '<div class="empty-state"><p>조건에 맞는 상품이 없어요.</p></div>'; return; }
   const num = v => `<td style="text-align:right;">${v}</td>`;
   const diffHtml = (act, actSent, unchecked) => { const dd = act - actSent; return (unchecked && act === 0 && actSent === 0 ? '<span style="color:#9ca3af;">미확인</span>' : dd === 0 ? '<span style="color:#15803d;font-weight:700;">일치</span>' : dd < 0 ? `<b style="color:#b91c1c;">부족 ${fmt(-dd)}</b>` : `<b style="color:#1d4ed8;">초과 +${fmt(dd)}</b>`) + (unchecked && !(act === 0 && actSent === 0) ? ` <span style="font-size:.66rem;color:#9ca3af;">미확인 ${unchecked}</span>` : ''); };
-  let html = cnVendorListHtml() + `<div class="table-wrap"><table style="width:100%;font-size:.8rem;"><thead><tr><th style="text-align:left;">사입상품명 / 옵션</th><th style="text-align:left;">거래처명</th><th>주문 수량<div style="font-size:.62rem;font-weight:500;color:#6b7280;">전달+잔여</div></th><th>전달받은</th><th>실제(확인분)</th><th>차이</th><th>미출고 잔여</th>${canPrice ? `<th>단가</th><th title="환율 ${CN_FX}원으로 계산&#10;부가세&amp;100원당 추가비용 포함 (입고 비용 기준)" style="cursor:help;">실질 단가</th>` : ''}<th style="text-align:left;">카페24</th>${showSales ? '<th>판매량<div style="font-size:.62rem;font-weight:500;color:#6b7280;">하루 평균(7일) · 30일</div></th>' : ''}</tr></thead><tbody>`;
+  let html = cnVendorListHtml() + `<div class="table-wrap"><table style="width:100%;font-size:.8rem;"><thead><tr><th style="text-align:left;">사입상품명 / 옵션</th><th style="text-align:left;">거래처명</th><th>주문 수량<div style="font-size:.62rem;font-weight:500;color:#6b7280;">전달+잔여</div></th><th>전달받은</th><th>실제(확인분)</th><th>차이</th><th>미출고 잔여</th>${canPrice ? `<th>단가</th><th title="환율 ${CN_FX}원으로 계산&#10;부가세&amp;100원당 추가비용 포함 (입고 비용 기준)&#10;전체 차수 값을 반영함" style="cursor:help;">실질 단가</th>` : ''}<th style="text-align:left;">카페24</th>${showSales ? '<th>판매량<div style="font-size:.62rem;font-weight:500;color:#6b7280;">하루 평균(7일) · 30일</div></th>' : ''}</tr></thead><tbody>`;
   for (const p of list) {
     const sales = cnSalesOf(p);
     const salesHtml = sales === null ? '<span style="color:#9ca3af;">—</span>' : sales === undefined ? (cnState.salesLoading ? '<span style="color:#9ca3af;">…</span>' : `<span style="color:#9ca3af;" title="${escHtml(cnState.salesErr || '')}">—</span>`) : `<b style="color:${sales.avg7 > 0 ? '#4338ca' : '#9ca3af'};">${madeAvgFmt(sales.avg7)}</b> <span style="font-size:.7rem;color:#6b7280;">· ${fmt(sales.net30)}장</span>`;
     const c24Html = p.c24.length ? p.c24.map(h => `<div><span style="background:#dcfce7;color:#166534;border-radius:99px;padding:1px 8px;font-size:.66rem;font-weight:700;white-space:nowrap;">등록됨</span> <span style="font-size:.72rem;">${escHtml(h.product_name)}</span>${h.display !== 'T' || h.selling !== 'T' ? ` <span style="font-size:.64rem;color:#b45309;">${[h.display !== 'T' ? '진열안함' : '', h.selling !== 'T' ? '판매안함' : ''].filter(Boolean).join('·')}</span>` : ''}</div>`).join('') : (d.c24_error ? '<span style="color:#9ca3af;">확인 불가</span>' : '<span style="background:#f3f4f6;color:#6b7280;border-radius:99px;padding:1px 8px;font-size:.66rem;font-weight:700;">미등록</span>');
     const meta = [[...p.rounds].length ? '발주 ' + [...p.rounds].join(', ') : '', `입고 ${p.ships.size}건`].filter(Boolean).join(' · ');
     html += `<tr style="background:#f8f9ff;"><td style="text-align:left;font-weight:800;">${escHtml(p.sname)}<div style="font-size:.66rem;color:#6b7280;font-weight:500;">${escHtml(meta)}</div></td>
-      <td style="text-align:left;">${cnVendorHtml(p.sname)}</td>${num(`<b>${fmt(p.ordered)}</b>`)}${num(`<b>${fmt(p.sent)}</b>`)}${num(p.act || p.actSent ? `<b>${fmt(p.act)}</b>` : '<span style="color:#9ca3af;">—</span>')}${num(diffHtml(p.act, p.actSent, p.unchecked))}${num(p.left ? `<b style="color:#c2410c;">${fmt(p.left)}</b>` : '<span style="color:#9ca3af;">출완</span>')}${canPrice ? '<td></td><td></td>' : ''}
+      <td style="text-align:left;">${cnVendorHtml(p.sname)}</td>${num(`<b>${fmt(p.ordered)}</b>`)}${num(`<b>${fmt(p.sent)}</b>`)}${num(p.act || p.actSent ? `<b>${fmt(p.act)}</b>` : '<span style="color:#9ca3af;">—</span>')}${num(diffHtml(p.act, p.actSent, p.unchecked))}${num(p.left ? `<b style="color:#c2410c;">${fmt(p.left)}</b>` : '<span style="color:#9ca3af;">출완</span>')}${canPrice ? num(p.real ? cnYuan(p.real.yuan) : '') + num(cnRealAvgHtml(p.real, true)) : ''}
       <td style="text-align:left;">${c24Html}</td>${showSales ? num(salesHtml) : ''}</tr>`;
     for (const o of p.opts) {
-      html += `<tr><td style="text-align:left;padding-left:22px;">${escHtml(o.opt)}</td><td></td>${num(fmt(o.ordered))}${num(fmt(o.sent))}${num(o.act || o.actSent ? fmt(o.act) : '<span style="color:#9ca3af;">—</span>')}${num(diffHtml(o.act, o.actSent, o.unchecked))}${num(o.left ? `<b style="color:#c2410c;">${fmt(o.left)}</b>` : '<span style="color:#9ca3af;">출완</span>')}${canPrice ? num(cnYuan(o.price)) + num(cnRealHtml(o.price, o.priceShip)) : ''}<td></td>${showSales ? '<td></td>' : ''}</tr>`;
+      html += `<tr><td style="text-align:left;padding-left:22px;">${escHtml(o.opt)}</td><td></td>${num(fmt(o.ordered))}${num(fmt(o.sent))}${num(o.act || o.actSent ? fmt(o.act) : '<span style="color:#9ca3af;">—</span>')}${num(diffHtml(o.act, o.actSent, o.unchecked))}${num(o.left ? `<b style="color:#c2410c;">${fmt(o.left)}</b>` : '<span style="color:#9ca3af;">출완</span>')}${canPrice ? num(o.real ? cnYuan(o.real.yuan) : cnYuan(o.price)) + num(cnRealAvgHtml(o.real, false)) : ''}<td></td>${showSales ? '<td></td>' : ''}</tr>`;
     }
   }
   $('cn-prod-list').innerHTML = html + '</tbody></table></div>';
