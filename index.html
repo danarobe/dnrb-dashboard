@@ -1408,7 +1408,7 @@
       <div id="cn-pane-cost" class="cn-pane" style="display:none;">
         <div style="font-size:.8rem;color:#6b7280;margin-bottom:10px;line-height:1.7;">
           · 입고 엑셀의 <b>두 번째 시트</b>(물류비·검품비·관세·부가세 등 들여오는 비용, 물건 결제)를 <b>입고 차수별</b>로 보여줘요. 관리자·MD만 볼 수 있어요.<br>
-          · <b>장당 들여오는 비용</b> = 부가세 제외 총합 ÷ 그 입고의 수량(참고용).
+          · <b>물건 결제 대비</b> = 부가세를 뺀 들여오는 비용 ÷ 물건 결제 총합(마진 계산 참고). <b>장당 들여오는 비용</b> = 부가세 제외 총합 ÷ 그 입고의 수량(참고용).
         </div>
         <div id="cn-cost-body"></div>
       </div>
@@ -3897,6 +3897,8 @@ function cnCostSums(c) {   // 항목 합계와 엑셀에 적힌 총합 비교용
   const paySum = ((c && c.payments) || []).reduce((t, x) => t + (x.krw || 0), 0), payUsd = ((c && c.payments) || []).reduce((t, x) => t + (x.usd || 0), 0);
   return { sum, vat, exVat: sum - vat, fileTotal: tot ? tot.amount : null, fileExVat: totEx ? totEx.amount : null, paySum, payUsd, filePay: c && c.pay_total ? c.pay_total : null };
 }
+// 부가세 제외 들여오는 비용 ÷ 물건 결제 총합 (2026-10-01 사용자 요청 — 마진 계산 참고: 물건값에 몇 %를 더 얹어야 하는지)
+const cnCostPct = (exVat, pay) => pay > 0 ? (Math.round(exVat / pay * 10000) / 100).toFixed(2) + '%' : '—';
 function cnCostRender() {
   const d = cnState.data, box = $('cn-cost-body'); if (!d || !box) return;
   if (!d.can_price) { box.innerHTML = '<div class="empty-state"><p>입고 비용은 관리자·MD만 볼 수 있어요.</p></div>'; return; }
@@ -3912,7 +3914,7 @@ function cnCostRender() {
     const s = cnCostSums(x.costs), q = qtyOf(x.id); tQty += q; if (x.costs) { tSum += s.sum; tEx += s.exVat; tPay += s.paySum; }
     return `<tr style="cursor:pointer;${x.id === ship.id ? 'background:#eef2ff;' : ''}" onclick="cnState.shipId=${x.id};cnCostRender()">
       <td style="text-align:left;font-weight:700;">${escHtml(x.title)}</td><td style="text-align:left;">${escHtml(x.order_round || '—')}</td><td style="text-align:left;">${escHtml(x.ship_date || '—')}</td>
-      ${num(fmt(q) + '장')}${num(cnYuan(yuanOf(x.id)))}${num(x.costs ? cnWon(s.paySum) : '<span style="color:#9ca3af;">—</span>')}${num(x.costs ? `<b>${cnWon(s.sum)}</b>` : '<span style="color:#b45309;">비용 시트 없음</span>')}${num(x.costs ? cnWon(s.exVat) : '<span style="color:#9ca3af;">—</span>')}</tr>`;
+      ${num(fmt(q) + '장')}${num(cnYuan(yuanOf(x.id)))}${num(x.costs ? cnWon(s.paySum) : '<span style="color:#9ca3af;">—</span>')}${num(x.costs ? `<b>${cnWon(s.sum)}</b>` : '<span style="color:#b45309;">비용 시트 없음</span>')}${num(x.costs ? cnWon(s.exVat) : '<span style="color:#9ca3af;">—</span>')}${num(x.costs ? `<b style="color:#4338ca;">${cnCostPct(s.exVat, s.paySum)}</b>` : '<span style="color:#9ca3af;">—</span>')}</tr>`;
   }).join('');
   const c = ship.costs, s = cnCostSums(c), q = qtyOf(ship.id);
   const warn = [];
@@ -3923,7 +3925,9 @@ function cnCostRender() {
     : `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px;margin-bottom:10px;">${
         admgrTile('입고 수량', fmt(q) + '장', false) + admgrTile('물건값(위안)', cnYuan(yuanOf(ship.id)), false) + admgrTile('물건 결제(원)', cnWon(s.paySum) + (s.payUsd ? ` <span style="font-size:.7rem;color:#6b7280;">$${(Math.round(s.payUsd * 100) / 100).toLocaleString('en-US')}</span>` : ''), false)
         + admgrTile('들여오는 비용 총합', cnWon(s.sum), false) + admgrTile('부가세 제외 총합', cnWon(s.exVat), false)
+        + admgrTile('물건 결제 대비 들여오는 비용', `<span style="color:#4338ca;">${cnCostPct(s.exVat, s.paySum)}</span> <span style="font-size:.7rem;color:#6b7280;">부가세 제외 ÷ 물건 결제</span>`, false)
         + admgrTile('장당 들여오는 비용', q ? `${cnWon(s.exVat / q)} <span style="font-size:.7rem;color:#6b7280;">부가세 제외 ÷ ${fmt(q)}장</span>` : '—', false)}</div>
+      ${s.paySum > 0 ? `<div style="font-size:.78rem;color:#374151;background:#f8f9ff;border:1px solid #e0e7ff;border-radius:8px;padding:7px 11px;margin-bottom:8px;"><i class="fa-solid fa-calculator" style="color:#4f46e5;"></i> 부가세 제외 들여오는 비용 <b>${cnWon(s.exVat)}</b> ÷ 물건 결제 총합 <b>${cnWon(s.paySum)}</b> = <b style="color:#4338ca;">${cnCostPct(s.exVat, s.paySum)}</b> — 물건값 100원당 들여오는 데 약 <b>${(Math.round(s.exVat / s.paySum * 10000) / 100).toFixed(2)}원</b>이 더 들었어요(마진 계산 참고).</div>` : ''}
       ${warn.length ? `<div style="font-size:.76rem;color:#92400e;background:#fffbeb;border:1px solid #fcd34d;border-radius:8px;padding:6px 10px;margin-bottom:8px;"><i class="fa-solid fa-triangle-exclamation"></i> ${warn.map(escHtml).join(' · ')}</div>` : ''}
       <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:14px;align-items:start;">
         <div><div style="font-size:.84rem;font-weight:800;margin-bottom:4px;">들여오는 비용 <span style="font-size:.7rem;color:#6b7280;font-weight:500;">${escHtml(c.title || '')}</span></div>
@@ -3937,8 +3941,8 @@ function cnCostRender() {
             <tr style="background:#f8f9ff;font-weight:800;"><td style="text-align:left;">총합</td>${num('$' + (Math.round(s.payUsd * 100) / 100).toLocaleString('en-US'))}${num(cnWon(s.paySum))}</tr></tbody></table></div>` : '<div style="font-size:.78rem;color:#9ca3af;">물건 결제 내용이 없어요.</div>'}
           <div style="font-size:.7rem;color:#9ca3af;margin-top:6px;">시트 "${escHtml(c.sheet || '')}" · ${escHtml(c.saved_by || '')} ${escHtml(c.saved_at ? unshipKst(c.saved_at) : '')} 저장</div></div></div>`;
   box.innerHTML = `<div style="font-size:.84rem;font-weight:800;margin-bottom:4px;">입고 차수별 비용 <span style="font-size:.7rem;color:#6b7280;font-weight:500;">줄을 누르면 아래에 상세가 나와요</span></div>
-    <div class="table-wrap" style="margin-bottom:14px;"><table style="width:100%;font-size:.8rem;"><thead><tr><th style="text-align:left;">입고</th><th style="text-align:left;">발주 차수</th><th style="text-align:left;">출고일</th><th>입고 수량</th><th>물건값(위안)</th><th>물건 결제(원)</th><th>들여오는 비용 총합</th><th>부가세 제외</th></tr></thead>
-      <tbody>${allRows}${ships.length > 1 ? `<tr style="background:#f8f9ff;font-weight:800;"><td style="text-align:left;" colspan="3">전체 합계</td>${num(fmt(tQty) + '장')}<td></td>${num(cnWon(tPay))}${num(cnWon(tSum))}${num(cnWon(tEx))}</tr>` : ''}</tbody></table></div>
+    <div class="table-wrap" style="margin-bottom:14px;"><table style="width:100%;font-size:.8rem;"><thead><tr><th style="text-align:left;">입고</th><th style="text-align:left;">발주 차수</th><th style="text-align:left;">출고일</th><th>입고 수량</th><th>물건값(위안)</th><th>물건 결제(원)</th><th>들여오는 비용 총합</th><th>부가세 제외</th><th title="부가세 제외 들여오는 비용 ÷ 물건 결제 총합">물건 결제 대비<div style="font-size:.62rem;font-weight:500;color:#6b7280;">부가세 제외 ÷ 물건 결제</div></th></tr></thead>
+      <tbody>${allRows}${ships.length > 1 ? `<tr style="background:#f8f9ff;font-weight:800;"><td style="text-align:left;" colspan="3">전체 합계</td>${num(fmt(tQty) + '장')}<td></td>${num(cnWon(tPay))}${num(cnWon(tSum))}${num(cnWon(tEx))}${num(`<span style="color:#4338ca;">${cnCostPct(tEx, tPay)}</span>`)}</tr>` : ''}</tbody></table></div>
     <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px;"><b style="font-size:.9rem;">${escHtml(ship.title)}</b>${ship.order_round ? `<span style="font-size:.76rem;color:#6b7280;">발주 ${escHtml(ship.order_round)}</span>` : ''}
       <label class="toggle-btn" style="font-size:.7rem;padding:3px 9px;cursor:pointer;"><i class="fa-solid fa-file-arrow-up"></i> 비용 시트 다시 올리기<input type="file" accept=".xlsx,.xls" style="display:none;" onchange="cnCostFilePick(this)" /></label>
       ${c ? `<button class="toggle-btn" style="font-size:.7rem;padding:3px 9px;color:#dc2626;" onclick="cnCostClear()">비용 지우기</button>` : ''}</div>
