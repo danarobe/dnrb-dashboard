@@ -742,7 +742,8 @@ Deno.serve(async (req) => {
     //   cn_upload POST — 엑셀에서 읽은 줄을 입고 건 하나로 저장 (관리자·MD)
     //   cn_check  POST — 실제 수량·메모 기입 (전원, 확인자는 서버가 로그인 계정으로 기입)
     //   cn_ship   POST — 입고 건 정보 수정·삭제 (관리자·MD)
-    if (action === "cn_list" || action === "cn_upload" || action === "cn_check" || action === "cn_ship") {
+    //   cn_vendor POST — 사입상품명별 거래처명 수동 입력 (관리자·MD, 2026-10-01 — 입고 건 단위가 아니라 상품마다)
+    if (action === "cn_list" || action === "cn_upload" || action === "cn_check" || action === "cn_ship" || action === "cn_vendor") {
       if (!["admin", "staff", "cs"].includes(authed.role)) return json({ error: "접근 권한이 없습니다" }, 403);
       const canPrice = authed.role !== "cs";   // 단가·금액 = 관리자 + MD
       const canEdit = canPrice;                // 엑셀 올리기·입고 건 수정·삭제 = 관리자 + MD
@@ -753,10 +754,13 @@ Deno.serve(async (req) => {
         return Number.isInteger(n) && n >= 0 && n <= max ? n : NaN;
       };
       if (action === "cn_list") {
-        const [ships, lines] = await Promise.all([
+        const [ships, lines, prodRows] = await Promise.all([
           sbRest("cn_shipments?select=*&order=id.desc&limit=500"),
           sbRest("cn_lines?select=*&order=shipment_id.desc,seq.asc&limit=20000"),
-        ]) as [Record<string, any>[], Record<string, any>[]];
+          sbRest("cn_products?select=sname,vendor,updated_by_name,updated_at&limit=5000"),
+        ]) as [Record<string, any>[], Record<string, any>[], Record<string, any>[]];
+        const prods: Record<string, unknown> = {};
+        for (const r of prodRows) prods[String(r.sname)] = { vendor: r.vendor ?? null, by: r.updated_by_name ?? null, at: r.updated_at ?? null };
         const outLines = canPrice ? lines : lines.map((l) => { const { unit_price: _u, ...rest } = l; return rest; });
         // 카페24 등록 여부: 전 상품의 공급사 상품명(supply_product_name)을 30분 캐시로 받아 사입상품명과 맞춘다.
         //   같은 이름(공백·대소문자 무시)이거나, 공급사 상품명이 '사입상품명 + 구분 문자(공백·괄호 등)'로 시작하면 같은 상품으로 본다.
@@ -783,12 +787,20 @@ Deno.serve(async (req) => {
             if (hits.length) c24[name] = hits.slice(0, 5);
           }
         } catch (e) { c24_error = "카페24 상품 목록을 읽지 못했어요 — " + String(e).slice(0, 150); }
-        return json({ ships, lines: outLines, c24, c24_error, can_price: canPrice, can_edit: canEdit });
+        return json({ ships, lines: outLines, prods, c24, c24_error, can_price: canPrice, can_edit: canEdit });
       }
       if (req.method !== "POST") return json({ error: "POST로 호출해주세요" }, 405);
       const b = await req.json().catch(() => ({})) as Record<string, any>;
       const now = new Date().toISOString();
       const dateOrNull = (v: unknown) => { const d = txt(v, 10); return d && /^\d{4}-\d{2}-\d{2}$/.test(d) ? d : null; };
+      if (action === "cn_vendor") {
+        if (!canEdit) return json({ error: "거래처명 입력은 관리자·MD만 할 수 있어요" }, 403);
+        const sname = txt(b.sname, 100);
+        if (!sname) return json({ error: "사입상품명이 없어요" }, 400);
+        const row = { sname, vendor: txt(b.vendor, 80), updated_by: authed.id, updated_by_name: authed.name, updated_at: now };
+        await sbRest("cn_products?on_conflict=sname", { method: "POST", headers: { Prefer: "resolution=merge-duplicates,return=minimal" }, body: JSON.stringify(row) });
+        return json({ ok: true, sname, vendor: row.vendor, by: authed.name, at: now });
+      }
       if (action === "cn_upload") {
         if (!canEdit) return json({ error: "엑셀 올리기는 관리자·MD만 할 수 있어요" }, 403);
         const title = txt(b.title, 100);
