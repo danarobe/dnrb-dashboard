@@ -22,6 +22,7 @@ export interface WmEmployee {
   transport_allowance: number | null;
   annual_leave_total: number | null;
   active?: boolean | null;   // 비활성(퇴사) 여부 — 계산에는 쓰지 않음(월별 포함 여부 판단·화면 표시용, 2026-10-01)
+  last_work_date?: string | null;   // 마지막 근무일(퇴사 시 입력) — 월급제는 그 달 월급을 근무일만큼 일할 계산 (2026-10-01)
 }
 export interface WmAttendance {
   id: number; employee_id: number; date: string;
@@ -196,6 +197,24 @@ export function workingDaysOf(ym: string, holidays: WmHoliday[] = []): number {
   return n;
 }
 
+/** 그 달 1일 ~ lastDate(포함)까지의 소정근로일수(평일 − 공휴일). 중도 퇴사 일할 계산의 분자 (2026-10-01).
+ *  lastDate가 그 달 이전이면 0, 그 달 이후면 그 달 전체와 같다. workingDaysOf와 같은 규칙. */
+export function workingDaysUntil(ym: string, holidays: WmHoliday[] = [], lastDate: string): number {
+  const [y, m] = ym.split('-').map(Number);
+  const holiSet = new Set(holidays.map(h => h.date));
+  const last = new Date(Date.UTC(y, m, 0)).getUTCDate();
+  let n = 0;
+  for (let d = 1; d <= last; d++) {
+    const ds = `${ym}-${String(d).padStart(2, '0')}`;
+    if (ds > lastDate) break;
+    const dow = new Date(Date.UTC(y, m - 1, d)).getUTCDay();
+    if (dow === 0 || dow === 6) continue;
+    if (holiSet.has(ds)) continue;
+    n++;
+  }
+  return n;
+}
+
 /** 월급제 급여.
  *  ⚠ 무급 병가 공제 (2026-08-27 신설): 병가(type='sick')는 무급이므로 그 날치를 월급에서 뺀다.
  *     공제액 = round(월급 ÷ 그 달 소정근로일수 × 병가일수)  — '소정근로일 기준' 일할계산.
@@ -212,6 +231,20 @@ export function calcEmployee(
   const workingDays = ym ? workingDaysOf(ym, holidays) : 0;
   const sickDeduction = (sickDays > 0 && workingDays > 0)
     ? Math.round(emp.monthly_salary / workingDays * sickDays) : 0;
+  // 중도 퇴사 일할 계산 (2026-10-01 사용자 지정 — 근무일 기준, 입력값 = 마지막 근무일):
+  //   마지막 근무일이 이 달 안이고 그날까지의 소정근로일이 그 달 전체보다 적으면
+  //   지급 월급 = round(월급 ÷ 그 달 소정근로일 × 마지막 근무일까지의 소정근로일). 병가 공제와 같은 '소정근로일 기준'.
+  //   마지막 근무일이 없거나 이 달 이후면 종전과 1원도 달라지지 않는다.
+  const lw = emp.last_work_date ? String(emp.last_work_date).slice(0, 10) : null;
+  let basePaid = emp.monthly_salary;
+  let resign: { lastWorkDate: string; resignWorkedDays: number; resignDeduction: number } | null = null;
+  if (ym && lw && workingDays > 0 && lw < `${ym}-99`) {   // 이 달 안이거나 이전
+    const worked = workingDaysUntil(ym, holidays, lw);
+    if (worked < workingDays) {
+      basePaid = Math.round(emp.monthly_salary / workingDays * worked);
+      resign = { lastWorkDate: lw, resignWorkedDays: worked, resignDeduction: emp.monthly_salary - basePaid };
+    }
+  }
   return {
     monthlySalary: emp.monthly_salary,
     workDays: records.length,
@@ -222,7 +255,8 @@ export function calcEmployee(
     totalHours: Math.round(totalHours * 100) / 100,
     mealAllowance: 0,
     mealDays: 0,
-    totalPay: emp.monthly_salary - sickDeduction,
+    ...(resign ?? {}),
+    totalPay: basePaid - sickDeduction,
   };
 }
 

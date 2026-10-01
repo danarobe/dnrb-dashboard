@@ -134,7 +134,7 @@ function nextMonthFirst(ym: string): string {
 async function loadForMonth(ym: string) {
   const { from, to } = getExtendedRange(ym);
   const [employees, attendance, leaves, holidays] = await Promise.all([
-    rest('wm_employees?select=id,name,type,hourly_rate,monthly_salary,transport_allowance,annual_leave_total,fixed_clock_in,birthday,bank_name,bank_account,bank_holder,active') as Promise<WmEmployee[]>,
+    rest('wm_employees?select=id,name,type,hourly_rate,monthly_salary,transport_allowance,annual_leave_total,fixed_clock_in,birthday,bank_name,bank_account,bank_holder,active,last_work_date') as Promise<WmEmployee[]>,
     // 확장 범위(월 경계 주 포함)만 — salary.js의 getExtendedRecords와 동일 범위
     rest(`wm_attendance?select=id,employee_id,date,clock_in,clock_out,work_minutes&date=gte.${from}&date=lte.${to}&limit=5000`) as Promise<WmAttendance[]>,
     rest(`wm_leaves?select=id,employee_id,date,type,status&date=gte.${ym}-01&date=lt.${nextMonthFirst(ym)}&limit=2000`) as Promise<WmLeave[]>,
@@ -145,11 +145,14 @@ async function loadForMonth(ym: string) {
   //   활성 직원은 종전 그대로. 비활성 직원은 **그 달에 근무 기록이 있을 때만** 포함한다.
   //     알바(시급): 확장 범위(월 경계 주 — 주휴수당 이월 때문)에 기록이 있으면 후보 → 계산 결과 지급액 0이면 monthRows에서 제외
   //     정직원(월급): 그 달 안에 출근 기록이 있을 때만(다음 달 확장 범위에 걸린 지난달 기록으로 월급이 또 잡히지 않게)
+  //   마지막 근무일(last_work_date, 2026-10-01): 월급제는 마지막 근무일이 이 달 전이면 이 달 급여 없음(활성이어도 제외),
+  //     비활성 월급제는 이 달 출근 기록이 있거나 마지막 근무일이 이 달 안일 때 포함. 알바는 마지막 근무일과 무관(근무 기록대로).
   const kept = employees.filter((e) => {
+    if (e.type === 'parttime') return e.active !== false || attendance.some((r) => r.employee_id === e.id);
+    const lw = e.last_work_date ? String(e.last_work_date).slice(0, 10) : null;
+    if (lw && lw < `${ym}-01`) return false;
     if (e.active !== false) return true;
-    return e.type === 'parttime'
-      ? attendance.some((r) => r.employee_id === e.id)
-      : attendance.some((r) => r.employee_id === e.id && r.date.startsWith(ym));
+    return attendance.some((r) => r.employee_id === e.id && r.date.startsWith(ym)) || (!!lw && lw.startsWith(ym));
   });
   return { employees: kept, attendance, leaves, holidays };
 }
@@ -218,7 +221,7 @@ Deno.serve(async (req) => {
       const year = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Seoul' }).slice(0, 4);
       const [emps, approved, users] = await Promise.all([
         rest('wm_employees?select=id,name,type,hourly_rate,monthly_salary,'
-          + 'annual_leave_total,transport_allowance,fixed_clock_in,birthday,hire_date,annual_salary,'
+          + 'annual_leave_total,transport_allowance,fixed_clock_in,birthday,hire_date,last_work_date,annual_salary,'
           + 'bank_name,bank_account,bank_holder,active,pin_set_at,app_user_id&order=type,name'),
         rest(`wm_leaves?status=eq.approved&date=gte.${year}-01-01&date=lte.${year}-12-31&select=employee_id,type,reason&limit=3000`),
         rest('app_users?select=id,name'),
@@ -469,11 +472,17 @@ Deno.serve(async (req) => {
       // 달라지면 안 됨" 규칙 보호). 12로 나눠떨어지지 않는 연봉을 월급×12로 정확히 표시할 수 없어
       // 계약서 원본 금액을 그대로 담아두는 표시 전용 필드 — 실제 지급액(monthly_salary)은 안 건드린다.
       const FIELDS = ['name', 'type', 'hourly_rate', 'monthly_salary', 'annual_salary', 'annual_leave_total',
-        'transport_allowance', 'fixed_clock_in', 'birthday', 'hire_date', 'bank_name', 'bank_account', 'bank_holder'];
+        'transport_allowance', 'fixed_clock_in', 'birthday', 'hire_date', 'last_work_date', 'bank_name', 'bank_account', 'bank_holder'];
       const patch: Record<string, unknown> = {};
       for (const f of FIELDS) if (f in body) patch[f] = body[f];
       if ('hire_date' in patch && patch.hire_date && !/^\d{4}-\d{2}-\d{2}$/.test(String(patch.hire_date))) {
         return json({ error: '입사일은 YYYY-MM-DD 형식' }, 400);
+      }
+      if ('last_work_date' in patch) {   // 마지막 근무일(퇴사 시) — 비우면 null
+        if (!patch.last_work_date) patch.last_work_date = null;
+        else if (!/^\d{4}-\d{2}-\d{2}$/.test(String(patch.last_work_date)) || isNaN(new Date(String(patch.last_work_date)).getTime())) {
+          return json({ error: '마지막 근무일은 YYYY-MM-DD 형식' }, 400);
+        }
       }
       if ('type' in patch && !['employee', 'parttime'].includes(String(patch.type))) {
         return json({ error: '직원 유형 오류' }, 400);
