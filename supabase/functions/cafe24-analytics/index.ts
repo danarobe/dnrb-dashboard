@@ -611,7 +611,7 @@ Deno.serve(async (req) => {
     if (action === "unship_list" || action === "unship_mark") {
       if (!["admin", "staff", "cs"].includes(authed.role)) return json({ error: "접근 권한이 없습니다" }, 403);
       // 상품별 입고일·특수 관리(unship_products)는 캐시하지 않고 매번 읽는다 — 목록(카페24 조회)만 10분 캐시
-      const readMarks = async () => ((await sbRest("unship_products?select=key,product_no,product_name,supplier,supplier_product,arrival_date,arrival_history,special,special_note,special_by,special_at,updated_at")) ?? []) as Record<string, any>[];
+      const readMarks = async () => ((await sbRest("unship_products?select=key,product_no,product_name,supplier,supplier_product,arrival_date,arrival_history,special,special_note,special_by,special_at,memos,updated_at")) ?? []) as Record<string, any>[];
       if (action === "unship_list") {
         let base = await fromCache() as Record<string, unknown> | null;
         if (!base) { base = await unshipCollect(token); await cacheSet(cacheKey, base); }
@@ -640,7 +640,7 @@ Deno.serve(async (req) => {
             arrival_date: e.date, arrival_history: [...hist, { date: e.date, prev, at: now, by: "카페24 발송 예정일", auto: true }].slice(-30),
             special: m?.special ?? false, special_note: m?.special_note ?? null, special_by: m?.special_by ?? null, special_at: m?.special_at ?? null, updated_at: now,
           };
-          ups.push(row); byKey.set(k, row);
+          ups.push(row); byKey.set(k, { ...(m ?? {}), ...row });   // 응답엔 기존 메모(memos) 유지 — 저장 행에는 memos를 넣지 않아 DB 값도 그대로
         }
         if (ups.length) await sbRest("unship_products?on_conflict=key", { method: "POST", headers: { Prefer: "resolution=merge-duplicates,return=minimal" }, body: JSON.stringify(ups) }).catch(() => null);
         return json({ ...base, marks: [...byKey.values()], auto_filled: ups.length });
@@ -677,9 +677,28 @@ Deno.serve(async (req) => {
         row.special = on;
       }
       if ("special_note" in b && row.special) row.special_note = txt(b.special_note, 200);
+      // 직원 메모 (2026-10-01 사용자 요청): memo_add = 새 메모(최대 300자, 작성자 = 로그인 계정) / memo_del = 메모 id(작성자 본인 또는 관리자만).
+      //   메모를 건드릴 때만 memos 열을 보낸다(입고일·특수 관리 저장이 동시에 일어나도 메모를 덮어쓰지 않게).
+      if ("memo_add" in b || "memo_del" in b) {
+        let memos = ((cur?.memos ?? []) as Record<string, any>[]).slice();
+        if ("memo_add" in b) {
+          const t = txt(b.memo_add, 300);
+          if (!t) return json({ error: "메모 내용을 입력해주세요" }, 400);
+          memos.push({ id: crypto.randomUUID().slice(0, 12), text: t, by: authed.name, by_id: authed.id, at: now });
+          memos = memos.slice(-50);
+        }
+        if ("memo_del" in b) {
+          const id = String(b.memo_del ?? "");
+          const target = memos.find((x) => x.id === id);
+          if (!target) return json({ error: "이미 지워진 메모예요" }, 404);
+          if (target.by_id !== authed.id && authed.role !== "admin") return json({ error: "내가 쓴 메모만 지울 수 있어요" }, 403);
+          memos = memos.filter((x) => x.id !== id);
+        }
+        row.memos = memos;
+      }
       if (!cur && ((await sbRest("unship_products?select=key")) ?? []).length >= 3000) return json({ error: "기록이 너무 많아요 — 관리자에게 알려주세요" }, 400);
       await sbRest("unship_products?on_conflict=key", { method: "POST", headers: { Prefer: "resolution=merge-duplicates,return=minimal" }, body: JSON.stringify(row) });
-      return json({ ok: true, mark: row });
+      return json({ ok: true, mark: { ...row, memos: row.memos ?? cur?.memos ?? [] } });
     }
 
     // ── 반품 송장 스캔 (2026-09-22): 관리자·MD·CS/물류팀 ──

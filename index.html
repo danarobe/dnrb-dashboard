@@ -3676,7 +3676,8 @@ function unshipRender() {
         <td style="vertical-align:top;width:34px;"><input type="checkbox" ${on ? 'checked' : ''} data-key="${escHtml(p.key)}" data-si="${si}" onchange="unshipToggleProduct(this)" title="문의 문자에 넣기" style="width:17px;height:17px;" /></td>
         <td style="text-align:left;vertical-align:top;min-width:180px;"><b>${escHtml(p.name)}</b>${p.fromSupplier ? '' : ' <span style="color:#b45309;font-size:.68rem;">(공급사 상품명 없음 — 우리 상품명)</span>'}<div style="font-size:.7rem;color:#9ca3af;margin-top:2px;">${escHtml(p.ours)}${p.product_no != null ? ' · #' + p.product_no : ''}</div></td>
         <td style="text-align:left;vertical-align:top;font-size:.76rem;">${opts}</td>
-        <td style="text-align:left;vertical-align:top;font-size:.74rem;min-width:170px;">${unshipMarkCell(p, d.today)}</td></tr>`;
+        <td style="text-align:left;vertical-align:top;font-size:.74rem;min-width:170px;">${unshipMarkCell(p, d.today)}</td>
+        <td style="text-align:left;vertical-align:top;font-size:.74rem;min-width:200px;">${unshipMemoCell(p)}</td></tr>`;
     }).join('');
     const msg = unshipState.msgs[s.key] ?? unshipMessage(s);
     return `<div style="border:1px solid ${s.longOpts ? '#fecaca' : '#e5e7eb'};border-radius:12px;padding:12px 14px;margin-bottom:12px;background:#fff;">
@@ -3688,7 +3689,7 @@ function unshipRender() {
         ${s.specialN ? `<span style="background:#fef3c7;color:#92400e;border-radius:99px;padding:2px 9px;font-size:.7rem;font-weight:800;"><i class="fa-solid fa-star" style="color:#d97706;"></i> 특수 관리 ${s.specialN}</span>` : ''}
         <span style="font-size:.74rem;color:#6b7280;">상품 ${s.products.length}개 · 옵션 ${s.optCount}개 · 수량 ${s.qty}개 · 주문 ${s.orders.size}건 · 최장 <b style="color:${s.maxDelay >= UNSHIP_LONG ? '#b91c1c' : '#b45309'};">${s.maxDelay}일</b></span>
       </div>
-      <div class="table-wrap"><table style="width:100%;font-size:.8rem;"><thead><tr><th title="문의 문자에 넣기">문의</th><th style="text-align:left;">공급사 상품명 <span style="font-weight:400;color:#9ca3af;">(문자에 들어가는 이름)</span></th><th style="text-align:left;">지연 옵션 · 수량 · 지연</th><th style="text-align:left;">입고일 · 특수 관리</th></tr></thead><tbody>${rows}</tbody></table></div>
+      <div class="table-wrap"><table style="width:100%;font-size:.8rem;"><thead><tr><th title="문의 문자에 넣기">문의</th><th style="text-align:left;">공급사 상품명 <span style="font-weight:400;color:#9ca3af;">(문자에 들어가는 이름)</span></th><th style="text-align:left;">지연 옵션 · 수량 · 지연</th><th style="text-align:left;">입고일 · 특수 관리</th><th style="text-align:left;">메모</th></tr></thead><tbody>${rows}</tbody></table></div>
       <div style="margin-top:10px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:10px;">
         <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:6px;"><b style="font-size:.78rem;"><i class="fa-solid fa-comment-sms" style="color:#4f46e5;"></i> 문의 문자</b>
           <button class="toggle-btn" style="font-size:.74rem;padding:4px 12px;background:#4f46e5;color:#fff;border-color:#4f46e5;" data-si="${si}" onclick="unshipCopy(this)" ${msg ? '' : 'disabled'}><i class="fa-regular fa-copy"></i> 문자 복사</button>
@@ -3721,6 +3722,35 @@ function unshipMarkCell(p, today) {
     ${auto ? '<div style="font-size:.66rem;color:#2563eb;margin-top:2px;"><i class="fa-solid fa-wand-magic-sparkles"></i> 카페24 발송 예정일로 자동 기입</div>' : ''}
     ${hist ? `<div style="font-size:.66rem;color:#6b7280;margin-top:3px;line-height:1.45;" title="입고일 변경 이력(최근 4건)">${hist}</div>` : ''}
     <div style="margin-top:5px;">${sp}</div>`;
+}
+// 상품별 직원 메모 (2026-10-01 사용자 요청) — 쌓이는 메모(작성자·시각), 최근 3개 + 더 보기, 내 메모(관리자는 전부) 삭제. 저장은 unship_mark memo_add/memo_del
+function unshipKst(iso) {   // 'MM/DD HH:mm' 한국 시간
+  const t = new Date(iso); if (isNaN(t)) return '';
+  const k = new Date(t.getTime() + 9 * 3600e3).toISOString();
+  return k.slice(5, 7) + '/' + k.slice(8, 10) + ' ' + k.slice(11, 16);
+}
+function unshipMemoCell(p) {
+  if (p.product_no == null) return '';
+  const no = escHtml(String(p.product_no));
+  const memos = ((p.mark || {}).memos || []).slice().reverse();   // 최신이 위
+  const me = (typeof SESSION !== 'undefined' && SESSION) || {};
+  const one = x => `<div style="margin-bottom:4px;line-height:1.4;"><span style="white-space:pre-wrap;word-break:break-all;color:#111827;">${escHtml(x.text || '')}</span>
+      <div style="font-size:.64rem;color:#9ca3af;">${escHtml(x.by || '')} · ${escHtml(unshipKst(x.at))}${x.by_id === me.id || me.role === 'admin' ? ` <button class="toggle-btn" style="font-size:.6rem;padding:0 5px;margin-left:2px;" data-no="${no}" data-id="${escHtml(x.id || '')}" onclick="unshipMemoDel(this)" title="메모 지우기">지우기</button>` : ''}</div></div>`;
+  const shown = memos.slice(0, 3).map(one).join(''), more = memos.slice(3);
+  return `${shown}${more.length ? `<details style="margin-bottom:4px;"><summary style="cursor:pointer;font-size:.68rem;color:#4f46e5;">이전 메모 ${more.length}개 더 보기</summary>${more.map(one).join('')}</details>` : ''}
+    <div style="display:flex;gap:4px;"><input type="text" maxlength="300" placeholder="메모 남기기 (Enter)" data-no="${no}" onkeydown="if(event.key==='Enter'&&!event.isComposing){event.preventDefault();unshipMemoAdd(this)}" style="flex:1;min-width:110px;padding:3px 6px;border:1px solid #d1d5db;border-radius:6px;font-size:.74rem;" />
+      <button class="toggle-btn" style="font-size:.68rem;padding:2px 7px;" data-no="${no}" onclick="unshipMemoAdd(this.previousElementSibling)">저장</button></div>`;
+}
+async function unshipMemoAdd(el) {
+  const v = String(el.value || '').trim(); if (!v) return;
+  el.disabled = true;
+  try { await unshipMarkSave(el.dataset.no, { memo_add: v }); showToast('메모를 남겼어요'); }
+  catch (e) { el.disabled = false; showToast('메모 저장 실패: ' + e.message); }
+}
+async function unshipMemoDel(btn) {
+  if (!confirm('이 메모를 지울까요?')) return;
+  try { await unshipMarkSave(btn.dataset.no, { memo_del: btn.dataset.id }); showToast('메모를 지웠어요'); }
+  catch (e) { showToast('지우기 실패: ' + e.message); }
 }
 async function unshipMarkSave(no, patch) {
   const meta = unshipState.prodIndex.get(String(no)) || {};
