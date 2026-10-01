@@ -737,6 +737,133 @@ Deno.serve(async (req) => {
       return json({ ok: true, mark: { ...row, memos: row.memos ?? cur?.memos ?? [] } });
     }
 
+    // ── 중국 사입 관리 (2026-10-01 사용자 요청): 입고 엑셀(전달 수량) ↔ 현장 실제 수량 비교. 관리자·MD·CS/물류팀 ──
+    //   cn_list   GET  — 입고 건·옵션 줄 + 카페24 등록 여부(사입상품명 = 공급사 상품명). 단가는 관리자·MD에게만.
+    //   cn_upload POST — 엑셀에서 읽은 줄을 입고 건 하나로 저장 (관리자·MD)
+    //   cn_check  POST — 실제 수량·메모 기입 (전원, 확인자는 서버가 로그인 계정으로 기입)
+    //   cn_ship   POST — 입고 건 정보 수정·삭제 (관리자·MD)
+    if (action === "cn_list" || action === "cn_upload" || action === "cn_check" || action === "cn_ship") {
+      if (!["admin", "staff", "cs"].includes(authed.role)) return json({ error: "접근 권한이 없습니다" }, 403);
+      const canPrice = authed.role !== "cs";   // 단가·금액 = 관리자 + MD
+      const canEdit = canPrice;                // 엑셀 올리기·입고 건 수정·삭제 = 관리자 + MD
+      const txt = (v: unknown, n: number) => v == null ? null : String(v).trim().slice(0, n) || null;
+      const intOrNull = (v: unknown, max: number) => {
+        if (v === null || v === undefined || v === "") return null;
+        const n = Number(v);
+        return Number.isInteger(n) && n >= 0 && n <= max ? n : NaN;
+      };
+      if (action === "cn_list") {
+        const [ships, lines] = await Promise.all([
+          sbRest("cn_shipments?select=*&order=id.desc&limit=500"),
+          sbRest("cn_lines?select=*&order=shipment_id.desc,seq.asc&limit=20000"),
+        ]) as [Record<string, any>[], Record<string, any>[]];
+        const outLines = canPrice ? lines : lines.map((l) => { const { unit_price: _u, ...rest } = l; return rest; });
+        // 카페24 등록 여부: 전 상품의 공급사 상품명(supply_product_name)을 30분 캐시로 받아 사입상품명과 맞춘다.
+        //   같은 이름(공백·대소문자 무시)이거나, 공급사 상품명이 '사입상품명 + 구분 문자(공백·괄호 등)'로 시작하면 같은 상품으로 본다.
+        const c24: Record<string, unknown[]> = {};
+        let c24_error: string | null = null;
+        try {
+          let prods = (await cacheGet("cn:c24products", 30 * 60 * 1000)) as Record<string, any>[] | null;
+          if (!prods || noCache) {
+            prods = [];
+            for (let offset = 0; offset < 10000; offset += 100) {
+              const body = await apiGet(`${API_BASE}/admin/products?shop_no=1&limit=100&offset=${offset}&fields=product_no,product_name,supply_product_name,display,selling`, token);
+              const page = (body.products ?? []) as Record<string, any>[];
+              prods.push(...page.map((x) => ({ product_no: x.product_no, product_name: x.product_name, supply_product_name: x.supply_product_name ?? "", display: x.display, selling: x.selling })));
+              if (page.length < 100) break;
+            }
+            await cacheSet("cn:c24products", prods);
+          }
+          const norm = (v: unknown) => String(v ?? "").toLowerCase().replace(/\s+/g, "");
+          const names = [...new Set(lines.map((l) => String(l.sname ?? "")).filter(Boolean))];
+          const withNorm = prods.map((x) => ({ x, n: norm(x.supply_product_name) })).filter((y) => y.n);
+          for (const name of names) {
+            const k = norm(name); if (!k) continue;
+            const hits = withNorm.filter((y) => y.n === k || (y.n.startsWith(k) && /[^0-9a-z가-힣]/.test(y.n.charAt(k.length)))).map((y) => y.x);
+            if (hits.length) c24[name] = hits.slice(0, 5);
+          }
+        } catch (e) { c24_error = "카페24 상품 목록을 읽지 못했어요 — " + String(e).slice(0, 150); }
+        return json({ ships, lines: outLines, c24, c24_error, can_price: canPrice, can_edit: canEdit });
+      }
+      if (req.method !== "POST") return json({ error: "POST로 호출해주세요" }, 405);
+      const b = await req.json().catch(() => ({})) as Record<string, any>;
+      const now = new Date().toISOString();
+      const dateOrNull = (v: unknown) => { const d = txt(v, 10); return d && /^\d{4}-\d{2}-\d{2}$/.test(d) ? d : null; };
+      if (action === "cn_upload") {
+        if (!canEdit) return json({ error: "엑셀 올리기는 관리자·MD만 할 수 있어요" }, 403);
+        const title = txt(b.title, 100);
+        if (!title) return json({ error: "입고 이름을 입력해주세요" }, 400);
+        const src = Array.isArray(b.lines) ? b.lines as Record<string, any>[] : [];
+        if (!src.length || src.length > 3000) return json({ error: "옵션 줄은 1~3,000개여야 해요" }, 400);
+        const rows: Record<string, unknown>[] = [];
+        for (let i = 0; i < src.length; i++) {
+          const r = src[i];
+          const sname = txt(r.sname, 100);
+          const sent = intOrNull(r.qty_sent, 1_000_000), left = intOrNull(r.qty_left, 1_000_000);
+          const price = r.unit_price === null || r.unit_price === undefined || r.unit_price === "" ? null : Number(r.unit_price);
+          if (!sname || sent === null || Number.isNaN(sent) || Number.isNaN(left) || (price !== null && !(price >= 0 && price <= 10_000_000))) {
+            return json({ error: `${i + 1}번째 줄 값이 올바르지 않아요 (사입상품명·수량·단가 확인)` }, 400);
+          }
+          rows.push({ seq: i, sname, color: txt(r.color, 60), size: txt(r.size, 40), qty_sent: sent, qty_left: left, unit_price: price, line_note: txt(r.line_note, 200) });
+        }
+        const [ship] = await sbRest("cn_shipments", { method: "POST", body: JSON.stringify({
+          title, vendor: txt(b.vendor, 80), order_round: txt(b.order_round, 40), ship_date: dateOrNull(b.ship_date),
+          file_name: txt(b.file_name, 200), note: txt(b.note, 300), created_by: authed.id, created_by_name: authed.name,
+        }) }) as Record<string, any>[];
+        try {
+          await sbRest("cn_lines", { method: "POST", headers: { Prefer: "return=minimal" }, body: JSON.stringify(rows.map((r) => ({ ...r, shipment_id: ship.id }))) });
+        } catch (e) {
+          await sbRest(`cn_shipments?id=eq.${ship.id}`, { method: "DELETE", headers: { Prefer: "return=minimal" } }).catch(() => null);   // 줄 저장 실패 → 빈 입고 건을 남기지 않는다
+          return json({ error: "저장하지 못했어요 — " + String(e).slice(0, 150) }, 500);
+        }
+        return json({ ok: true, shipment: ship, line_count: rows.length });
+      }
+      if (action === "cn_check") {
+        // items: [{ line_id, qty_actual?(0 이상 정수 | null = 확인 취소), memo? }] — 한 번에 500줄까지('전달 수량과 같음' 일괄 기입)
+        const items = (Array.isArray(b.items) ? b.items : [b]) as Record<string, any>[];
+        if (!items.length || items.length > 500) return json({ error: "한 번에 500줄까지 바꿀 수 있어요" }, 400);
+        const done: Record<string, unknown>[] = [];
+        for (const it of items) {
+          const id = Number(it.line_id);
+          if (!Number.isInteger(id) || id < 1) return json({ error: "줄 번호가 올바르지 않아요" }, 400);
+          const patch: Record<string, unknown> = {};
+          if ("qty_actual" in it) {
+            const q = intOrNull(it.qty_actual, 1_000_000);
+            if (Number.isNaN(q)) return json({ error: "실제 수량은 0 이상의 정수로 적어 주세요" }, 400);
+            patch.qty_actual = q;
+            patch.checked_by = q === null ? null : authed.id;
+            patch.checked_by_name = q === null ? null : authed.name;
+            patch.checked_at = q === null ? null : now;
+          }
+          if ("memo" in it) patch.memo = txt(it.memo, 300);
+          if (!Object.keys(patch).length) continue;
+          const [row] = await sbRest(`cn_lines?id=eq.${id}`, { method: "PATCH", body: JSON.stringify(patch) }) as Record<string, any>[];
+          if (!row) return json({ error: "이미 지워진 줄이에요 — 새로고침해 주세요" }, 404);
+          if (!canPrice) delete row.unit_price;
+          done.push(row);
+        }
+        return json({ ok: true, lines: done });
+      }
+      // cn_ship — 입고 건 정보 수정·삭제
+      if (!canEdit) return json({ error: "입고 건 수정·삭제는 관리자·MD만 할 수 있어요" }, 403);
+      const sid = Number(b.id);
+      if (!Number.isInteger(sid) || sid < 1) return json({ error: "입고 건 번호가 올바르지 않아요" }, 400);
+      if (b.delete === true) {
+        const gone = await sbRest(`cn_shipments?id=eq.${sid}`, { method: "DELETE" }) as unknown[];
+        return json({ ok: true, deleted: (gone ?? []).length });
+      }
+      const patch: Record<string, unknown> = {};
+      if ("title" in b) { const t = txt(b.title, 100); if (!t) return json({ error: "입고 이름을 입력해주세요" }, 400); patch.title = t; }
+      if ("vendor" in b) patch.vendor = txt(b.vendor, 80);
+      if ("order_round" in b) patch.order_round = txt(b.order_round, 40);
+      if ("ship_date" in b) patch.ship_date = dateOrNull(b.ship_date);
+      if ("note" in b) patch.note = txt(b.note, 300);
+      if (!Object.keys(patch).length) return json({ error: "바꿀 내용이 없어요" }, 400);
+      const [row] = await sbRest(`cn_shipments?id=eq.${sid}`, { method: "PATCH", body: JSON.stringify(patch) }) as Record<string, any>[];
+      if (!row) return json({ error: "입고 건을 찾지 못했어요" }, 404);
+      return json({ ok: true, shipment: row });
+    }
+
     // ── 반품 송장 스캔 (2026-09-22): 관리자·MD·CS/물류팀 ──
     if (action === "rscan_build" || action === "rscan_lookup" || action === "rscan_status" || action === "rscan_issues" || action === "rscan_find" || action === "rscan_collect" || action === "rscan_special") {
       if (!["admin", "staff", "cs"].includes(authed.role)) return json({ error: "접근 권한이 없습니다" }, 403);
