@@ -21,6 +21,7 @@ export interface WmEmployee {
   hourly_rate: number; monthly_salary: number;
   transport_allowance: number | null;
   annual_leave_total: number | null;
+  active?: boolean | null;   // 비활성(퇴사) 여부 — 계산에는 쓰지 않음(월별 포함 여부 판단·화면 표시용, 2026-10-01)
 }
 export interface WmAttendance {
   id: number; employee_id: number; date: string;

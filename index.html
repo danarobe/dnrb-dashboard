@@ -10633,7 +10633,7 @@ function wmRenderSal() {
     const defer = (r.weeklyBreakdown || []).filter(w => w.deferredToNext).length;
     return `<tr>
       <td style="width:28px;"><input type="checkbox" class="wm-sal-chk" value="${i}" onchange="wmSalSelChanged()" title="명세서 인쇄 대상 선택" /></td>
-      <td style="font-weight:600;">${escHtml(e.name)}</td>
+      <td style="font-weight:600;">${escHtml(e.name)}${e.active === false ? ` <span style="background:#f3f4f6;color:#6b7280;border:1px solid #d1d5db;border-radius:5px;padding:0 5px;font-size:.62rem;font-weight:700;white-space:nowrap;" title="직원 관리에서 비활성(퇴사) 처리된 직원 — 이 달에 근무 기록이 있어 급여에 포함돼요">퇴사(비활성)</span>${pt ? '' : `<div style="font-size:.64rem;color:#b45309;font-weight:600;" title="월급제는 월급 전액으로 계산돼요. 달 중간에 퇴사했다면 실제 지급액은 따로 계산해야 해요">월급 전액 기준 — 중도 퇴사면 금액 확인</div>`}` : ''}</td>
       <td><span class="badge badge-${pt ? 'staff' : 'admin'}" style="font-size:.68rem;">${pt ? '알바' : '직원'}</span></td>
       <td>${r.totalHours || 0}시간</td>
       <td>${fmt(pt ? r.basePay : r.monthlySalary)}원</td>

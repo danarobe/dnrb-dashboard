@@ -134,13 +134,31 @@ function nextMonthFirst(ym: string): string {
 async function loadForMonth(ym: string) {
   const { from, to } = getExtendedRange(ym);
   const [employees, attendance, leaves, holidays] = await Promise.all([
-    rest('wm_employees?select=id,name,type,hourly_rate,monthly_salary,transport_allowance,annual_leave_total,fixed_clock_in,birthday,bank_name,bank_account,bank_holder,active&active=is.true') as Promise<WmEmployee[]>,
+    rest('wm_employees?select=id,name,type,hourly_rate,monthly_salary,transport_allowance,annual_leave_total,fixed_clock_in,birthday,bank_name,bank_account,bank_holder,active') as Promise<WmEmployee[]>,
     // 확장 범위(월 경계 주 포함)만 — salary.js의 getExtendedRecords와 동일 범위
     rest(`wm_attendance?select=id,employee_id,date,clock_in,clock_out,work_minutes&date=gte.${from}&date=lte.${to}&limit=5000`) as Promise<WmAttendance[]>,
     rest(`wm_leaves?select=id,employee_id,date,type,status&date=gte.${ym}-01&date=lt.${nextMonthFirst(ym)}&limit=2000`) as Promise<WmLeave[]>,
     rest('wm_holidays?select=date,name,hours&limit=2000') as Promise<WmHoliday[]>,
   ]);
-  return { employees, attendance, leaves, holidays };
+  // 비활성(퇴사) 직원 (2026-10-01 사용자 신고 — 비활성 처리하자 일했던 달 급여에서 사라짐):
+  //   예전엔 활성 직원만 불러와, 퇴사 처리하는 순간 그 사람이 일한 달의 급여 표·인건비 합계에서도 빠졌다.
+  //   활성 직원은 종전 그대로. 비활성 직원은 **그 달에 근무 기록이 있을 때만** 포함한다.
+  //     알바(시급): 확장 범위(월 경계 주 — 주휴수당 이월 때문)에 기록이 있으면 후보 → 계산 결과 지급액 0이면 monthRows에서 제외
+  //     정직원(월급): 그 달 안에 출근 기록이 있을 때만(다음 달 확장 범위에 걸린 지난달 기록으로 월급이 또 잡히지 않게)
+  const kept = employees.filter((e) => {
+    if (e.active !== false) return true;
+    return e.type === 'parttime'
+      ? attendance.some((r) => r.employee_id === e.id)
+      : attendance.some((r) => r.employee_id === e.id && r.date.startsWith(ym));
+  });
+  return { employees: kept, attendance, leaves, holidays };
+}
+/** 한 달 급여 행 — 비활성 알바는 지급액이 0이면(그 달 지급분 없음) 뺀다. 활성 직원은 종전과 같다. */
+function monthRows(ym: string, d: { employees: WmEmployee[]; attendance: WmAttendance[]; leaves: WmLeave[]; holidays: WmHoliday[] }) {
+  return sortEmployees(d.employees)
+    .map((emp) => calcOne(emp, ym, d.attendance, d.leaves, d.holidays))
+    // deno-lint-ignore no-explicit-any
+    .filter((r: any) => r.employee.active !== false || (r.totalPay || 0) !== 0);
 }
 
 Deno.serve(async (req) => {
@@ -157,9 +175,7 @@ Deno.serve(async (req) => {
 
     if (action === 'salary_all') {
       const ym = ym2(body.year, body.month);
-      const { employees, attendance, leaves, holidays } = await loadForMonth(ym);
-      const rows = sortEmployees(employees).map(emp => calcOne(emp, ym, attendance, leaves, holidays));
-      return json(rows);
+      return json(monthRows(ym, await loadForMonth(ym)));
     }
 
     if (action === 'salary_one') {
@@ -189,8 +205,7 @@ Deno.serve(async (req) => {
       let total = 0, empN = 0;
       const detail: { ym: string; total: number }[] = [];
       for (const ym of months) {
-        const { employees, attendance, leaves, holidays } = await loadForMonth(ym);
-        const rows = sortEmployees(employees).map(emp => calcOne(emp, ym, attendance, leaves, holidays));
+        const rows = monthRows(ym, await loadForMonth(ym));
         const sub = rows.reduce((t, r: any) => t + (r.totalPay || 0), 0);
         total += sub; empN = rows.length;
         detail.push({ ym, total: sub });
