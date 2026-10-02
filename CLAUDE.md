@@ -74,6 +74,7 @@
 - **카페24 access_token의 expires_at 값은 믿지 말 것**(저장된 시각이 어긋남) — 직접 API를 칠 때 401이면 cron 비밀키로 `rscan_build`를 한 번 불러 갱신시킨 뒤 다시 읽는다. ⚠ 그때 `days=90`으로 부를 것(작게 부르면 공용 인덱스가 줄어듦).
 - **카페24 API 문서**는 apidocs.cafe24.com(Docusaurus) — 요청 스키마는 화면에 안 보이고 JS 청크의 `api:"…"`(base64+zlib)에 있음. 문서에 선택으로 나온 항목이 실제로는 필수일 수 있음(`recover_inventory`).
 - 스크래치패드 파일(치환 스크립트·syntax.js)은 세션 중에도 지워질 수 있다 — 없으면 다시 만든다.
+- **카페24 주문 상태 변경 이력(누가·언제·어느 상태에서 바꿨나)은 API에 없다 — 관리자 화면의 '주문처리 히스토리'에만 있음(2026-10-02)**: 주소 `GET /exec/admin/shop1/shop/OrderItemsStatushistory?order_id=…&ord_item_code=…`(관리자 로그인 세션 필요, 응답 JSON 배열 `[{issue_dates, message(상태), order_status_info, manager_id, manager_name, client_ip}]`, 변경 전 상태 = 앞 줄의 message). 쓰는 법: 사용자가 **내장 브라우저 창에서 카페24 관리자에 직접 로그인** → 그 탭에서 javascript_tool로 fetch(읽기만). 후보 목록 같은 큰 자료는 관리자 화면이 localhost를 못 읽으므로(혼합 콘텐츠 차단) **Supabase 비공개 버킷 + 서명 주소(읽기·올리기)**로 주고받고 끝나면 버킷 삭제. 속도: 동시 3개·60ms 간격으로 2,433건 105초·오류 0. 참고: 주문 API에서 배송준비중으로 되돌린 품목은 tracking_no·shipped_date가 지워져 과거 상태를 알 수 없음, 운영자 활동 로그 API(activitylogs)는 mall.read_store 권한이 없어 403. 상품준비중→배송준비중·배송중 처리는 평소 'Sellmate Linkage Ser'(셀메이트 연동)가 함.
 
 ---
 
