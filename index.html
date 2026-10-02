@@ -3547,7 +3547,7 @@ const unshipOverdue = (m, today) => !!(m && m.arrival_date && String(m.arrival_d
    서버 cafe24-analytics cn_list / cn_upload / cn_check / cn_ship. 단가·금액은 관리자·MD만(서버가 CS·물류팀 응답에서 뺀다). 엑셀 올리기·입고 건 수정·삭제도 관리자·MD. */
 const CN_TABS = [['check', '입고 검수', null, 'fa-solid fa-clipboard-check'], ['prod', '상품별 현황', null, 'fa-solid fa-layer-group'], ['cost', '입고 비용', null, 'fa-solid fa-coins']];
 const cnTabs = () => CN_TABS.filter(t => t[0] !== 'cost' || !cnState.data || cnState.data.can_price);   // 입고 비용 = 관리자·MD만
-const cnState = { data: null, loading: false, tab: 'check', shipId: null, filter: 'all', prodFilter: 'all', pending: null, sales: null, salesLoading: false, open: { check: new Set(), prod: new Set() } };
+const cnState = { data: null, loading: false, tab: 'check', shipId: null, filter: 'all', prodFilter: 'all', pending: null, sales: null, salesLoading: false, open: { check: new Set(), prod: new Set() }, thumbs: {}, thumbAsked: new Set(), thumbWant: [], thumbT: null, thumbScroll: false };
 function cnTabRender() { const k = cnState.tab; if (k === 'check') cnCheckRender(); else if (k === 'cost') cnCostRender(); else { cnProdRender(); cnSalesLoad(); } }
 function cnInit() { cnSetTab(cnState.tab); if (!cnState.data && !cnState.loading) cnLoad(false); }
 function cnSetTab(k) {
@@ -3567,6 +3567,7 @@ async function cnLoad(force) {
     if (!ships.some(x => x.id === cnState.shipId)) cnState.shipId = ships.length ? ships[0].id : null;
     $('cn-upload-btn').style.display = cnState.data.can_edit ? '' : 'none';
     cnSetTab(cnState.tab);   // 탭 줄(입고 비용은 관리자·MD만)도 권한에 맞게 다시
+    cnThumbsLoad(!!force);   // 사진은 표를 그린 뒤 따로(표를 늦추지 않게)
   } catch (e) { $('cn-check-list').innerHTML = `<div class="empty-state"><p style="color:#b91c1c;">불러오지 못했어요 — ${escHtml(e.message)}</p></div>`; }
   finally { cnState.loading = false; }
 }
@@ -3594,11 +3595,12 @@ function cnParseGrid(grid) {
       break;
     }
   }
-  const lines = [], skipped = [];
+  const lines = [], skipped = [], rowNames = [];   // rowNames[엑셀 줄(0부터)] = 그 줄의 품번(이어받은 값) — 그림 위치 → 품번 연결용
   let cur = '';
   for (let r = hr + 1; r < grid.length; r++) {
     const row = grid[r] || [];
     const name = txt(row[col.name]); if (name) cur = name;
+    rowNames[r] = cur;
     const color = txt(row[col.color]), size = txt(row[col.size]);
     const sentRaw = row[col.sent];
     const sent = typeof sentRaw === 'number' ? sentRaw : (/^\d+$/.test(txt(sentRaw)) ? Number(txt(sentRaw)) : null);
@@ -3611,7 +3613,7 @@ function cnParseGrid(grid) {
     const pr = row[col.price], price = typeof pr === 'number' ? pr : (/^\d+(\.\d+)?$/.test(txt(pr)) ? Number(txt(pr)) : null);
     lines.push({ sname: cur, color: color || null, size: size || null, qty_sent: sent, qty_left: left, unit_price: price, line_note: txt(row[col.note]) || null });
   }
-  return { lines, skipped, headerFound: hr >= 0 };
+  return { lines, skipped, headerFound: hr >= 0, rowNames };
 }
 async function cnFilePick(input) {
   const file = input.files[0]; input.value = '';
@@ -3629,7 +3631,8 @@ async function cnFilePick(input) {
     const dm = title.match(/(\d{1,2})[:.\/-](\d{1,2})/);   // 파일 이름의 '9:25'·'9.25' → 출고일 추정(올해)
     const guessDate = dm ? `${new Date().getFullYear()}-${String(dm[1]).padStart(2, '0')}-${String(dm[2]).padStart(2, '0')}` : '';
     let costs = null; try { costs = cnCostSheet(wb, XLSX); } catch (e2) { costs = null; }
-    cnState.pending = { file_name: file.name.normalize('NFC'), sheet: sheetName, title, ship_date: guessDate, costs, ...parsed };
+    let thumbs = {}; try { thumbs = await cnExtractThumbs(await file.arrayBuffer(), XLSX, parsed.rowNames); } catch (e3) { thumbs = {}; }
+    cnState.pending = { file_name: file.name.normalize('NFC'), sheet: sheetName, title, ship_date: guessDate, costs, thumbs, ...parsed };
     cnUploadPanelRender();
   } catch (e) { panel.innerHTML = `<div style="border:1.5px solid #fca5a5;background:#fef2f2;border-radius:12px;padding:10px 14px;font-size:.82rem;color:#b91c1c;margin-bottom:12px;">엑셀을 읽지 못했어요 — ${escHtml(e.message)}</div>`; }
 }
@@ -3644,6 +3647,7 @@ function cnUploadPanelRender() {
     <div style="font-size:.9rem;font-weight:800;color:#3730a3;"><i class="fa-solid fa-file-excel"></i> 올릴 내용 확인 — ${escHtml(p.file_name)} <span style="font-weight:500;color:#6b7280;font-size:.74rem;">(시트 "${escHtml(p.sheet)}")</span></div>
     <div style="font-size:.82rem;color:#374151;margin:8px 0;">사입상품 <b>${fmt(names.length)}개</b> · 옵션 <b>${fmt(p.lines.length)}줄</b> · 전달 수량 <b>${fmt(qty)}장</b> · 미출고 잔여 <b>${fmt(left)}장</b> · 금액 <b>${cnYuan(amt)}</b></div>
     <div style="font-size:.8rem;color:#374151;margin-bottom:8px;">${p.costs ? (() => { const cs = cnCostSums(p.costs); return `<i class="fa-solid fa-coins" style="color:#4f46e5;"></i> 비용 시트 "${escHtml(p.costs.sheet)}" — 비용 항목 <b>${p.costs.items.length}개</b> · 총합 <b>${cnWon(cs.sum)}</b> · 물건 결제 <b>${cnWon(cs.paySum)}</b> (입고 비용 탭에서 볼 수 있어요)`; })() : '<span style="color:#9ca3af;">비용 시트(두 번째 시트)는 없거나 읽지 못했어요 — 나중에 입고 비용 탭에서 넣을 수 있어요.</span>'}</div>
+    <div style="font-size:.8rem;color:#374151;margin-bottom:8px;">${Object.keys(p.thumbs || {}).length ? `<i class="fa-regular fa-image" style="color:#4f46e5;"></i> 상품 사진 <b>${Object.keys(p.thumbs).length}장</b>을 작게 줄여 같이 저장해요 <span style="display:inline-flex;gap:3px;vertical-align:middle;margin-left:4px;">${Object.entries(p.thumbs).slice(0, 12).map(([n, u]) => `<img src="${u}" alt="" title="${escHtml(n)}" style="width:26px;height:26px;object-fit:cover;border-radius:4px;" />`).join('')}</span>` : '<span style="color:#9ca3af;">엑셀에서 상품 사진을 찾지 못했어요(사진 없이 저장돼요).</span>'}</div>
     ${!p.headerFound ? '<div style="font-size:.76rem;color:#b45309;margin-bottom:6px;"><i class="fa-solid fa-triangle-exclamation"></i> 머리글(색상·출고)을 못 찾아 A~H 열 순서대로 읽었어요 — 아래 내용이 맞는지 확인해 주세요.</div>' : ''}
     ${p.skipped.length ? `<details style="font-size:.76rem;color:#b45309;margin-bottom:6px;"><summary style="cursor:pointer;font-weight:700;"><i class="fa-solid fa-triangle-exclamation"></i> 읽지 못했거나 확인이 필요한 줄 ${p.skipped.length}개</summary>${p.skipped.slice(0, 30).map(t => `<div>${escHtml(t)}</div>`).join('')}</details>` : ''}
     <details style="font-size:.76rem;margin-bottom:10px;"><summary style="cursor:pointer;color:#4f46e5;font-weight:700;">읽은 내용 미리 보기</summary>
@@ -3658,13 +3662,14 @@ function cnUploadPanelRender() {
 }
 async function cnUploadSave() {
   const p = cnState.pending; if (!p) return;
-  const body = { title: $('cn-up-title').value, order_round: $('cn-up-round').value, ship_date: $('cn-up-date').value || null, note: $('cn-up-note').value, file_name: p.file_name, lines: p.lines, costs: p.costs || null };
+  const body = { title: $('cn-up-title').value, order_round: $('cn-up-round').value, ship_date: $('cn-up-date').value || null, note: $('cn-up-note').value, file_name: p.file_name, lines: p.lines, costs: p.costs || null, thumbs: p.thumbs || {} };
   if (!body.title.trim()) { showToast('입고 이름을 입력해 주세요'); return; }
   const dup = ((cnState.data || {}).ships || []).find(x => x.file_name === p.file_name);
   if (dup && !confirm(`같은 파일 이름의 입고 건이 이미 있어요 ("${dup.title}").\n그래도 새 입고 건으로 저장할까요?`)) return;
   const btn = $('cn-up-save'); btn.disabled = true;
   try {
     const r = await cnPost('cn_upload', body);
+    if (Object.keys(p.thumbs || {}).length) Object.assign(cnState.thumbs, p.thumbs);
     cnState.pending = null; cnUploadPanelRender();
     cnState.shipId = r.shipment.id; cnState.filter = 'all';
     showToast(`입고 건 저장 완료 — 옵션 ${fmt(r.line_count)}줄`);
@@ -3766,7 +3771,7 @@ function cnCheckRender() {
     <select onchange="cnState.shipId=Number(this.value);cnState.filter='all';cnCheckRender()" style="border:1.5px solid #d1d5db;border-radius:8px;padding:6px 10px;font-size:.84rem;font-weight:700;max-width:100%;">
       ${ships.map(x => `<option value="${x.id}"${x.id === ship.id ? ' selected' : ''}>${escHtml(x.title)}${x.ship_date ? ' · ' + escHtml(String(x.ship_date).slice(5)) + ' 출고' : ''}</option>`).join('')}</select>
     <span style="font-size:.76rem;color:#6b7280;">${[ship.order_round ? '발주 <b>' + escHtml(ship.order_round) + '</b>' : '', ship.ship_date ? '출고 ' + escHtml(ship.ship_date) : '', '올린 사람 ' + escHtml(ship.created_by_name || '') + ' ' + escHtml(unshipKst(ship.created_at))].filter(Boolean).join(' · ')}${ship.note ? ' · ' + escHtml(ship.note) : ''}</span>
-    ${d.can_edit ? `<button class="toggle-btn" style="font-size:.7rem;padding:3px 9px;" onclick="cnShipEdit()">정보 수정</button><button class="toggle-btn" style="font-size:.7rem;padding:3px 9px;color:#dc2626;" onclick="cnShipDelete()">삭제</button>` : ''}</div>`;
+    ${d.can_edit ? `<label class="toggle-btn" style="font-size:.7rem;padding:3px 9px;cursor:pointer;" title="이 입고의 엑셀을 다시 고르면 상품 사진만 작게 줄여 넣어요(수량은 그대로)"><i class="fa-regular fa-image"></i> 사진 넣기<input type="file" accept=".xlsx" style="display:none;" onchange="cnThumbFilePick(this)" /></label><button class="toggle-btn" style="font-size:.7rem;padding:3px 9px;" onclick="cnShipEdit()">정보 수정</button><button class="toggle-btn" style="font-size:.7rem;padding:3px 9px;color:#dc2626;" onclick="cnShipDelete()">삭제</button>` : ''}</div>`;
   $('cn-check-summary').innerHTML = cnCheckSummaryHtml(lines);
   const q = String(($('cn-check-q') || {}).value || '').trim().toLowerCase();
   const pass = CN_CHECK_PASS;
@@ -3784,7 +3789,7 @@ function cnCheckRender() {
     const noteTxt = [...new Set(g.rows.map(l => l.line_note).filter(Boolean))].join(' · ');
     const open = forceOpen || cnState.open.check.has(g.sname);
     html += `<tr style="background:#f8f9ff;" data-cn-g="${escHtml(gi)}">
-      <td style="text-align:left;font-weight:800;">${cnFoldBtn('check', g.sname, open, g.show.length)}${escHtml(g.sname)} <span style="font-size:.66rem;color:#9ca3af;font-weight:500;">옵션 ${g.show.length}</span> ${cnC24Badge(g.sname)}${noteTxt ? ` <span style="font-size:.68rem;color:#6b7280;font-weight:500;">${escHtml(noteTxt)}</span>` : ''}
+      <td style="text-align:left;font-weight:800;">${cnFoldBtn('check', g.sname, open, g.show.length)}${cnThumbHtml(g.sname)}${escHtml(g.sname)} <span style="font-size:.66rem;color:#9ca3af;font-weight:500;">옵션 ${g.show.length}</span> ${cnC24Badge(g.sname)}${noteTxt ? ` <span style="font-size:.68rem;color:#6b7280;font-weight:500;">${escHtml(noteTxt)}</span>` : ''}
         ${todo ? `<button class="toggle-btn" style="font-size:.66rem;padding:1px 8px;margin-left:6px;" data-g="${escHtml(g.sname)}" onclick="cnFillSame(this)" title="아직 안 적은 옵션 ${todo}개를 전달 수량과 같게 채워요">전달 수량과 같음</button>` : ''}</td>
       ${num(h.sent, '')}<td style="text-align:right;" data-cn-h="act">${h.act}</td><td style="text-align:right;" data-cn-h="diff">${h.diff}</td>${num(h.left, '')}${canPrice ? cnGroupPriceCells(g) : ''}<td class="m-hide"></td><td></td></tr>`;
     g.show.forEach(l => {
@@ -3800,6 +3805,7 @@ function cnCheckRender() {
     });
   });
   $('cn-check-list').innerHTML = html + '</tbody></table></div>';
+  cnThumbsApply();
 }
 function cnActKey(ev, el) {   // Enter = 저장하고 다음 실제 수량 칸으로
   if (ev.key !== 'Enter' || ev.isComposing) return;
@@ -3868,6 +3874,124 @@ async function cnShipDelete() {
   catch (e) { showToast('삭제 실패: ' + e.message); }
 }
 
+
+
+/* ── 상품 사진(작은 썸네일) (2026-10-02 사용자 요청 — "사진이 없어 헷갈림, 단 사이트가 느려지면 안 됨") ──
+   입고 엑셀 B열 그림을 올릴 때 브라우저에서 160px JPEG(한 장 몇 KB)로 줄여 cn_thumbs에 저장한다(원본 10MB는 올리지 않음).
+   표시는 목록(cn_list)과 따로: 표를 먼저 그린 뒤 cn_thumbs를 한 번 받아(접속 중 재사용) 자리 표시 칸만 채운다.
+   엑셀 구조: 그림 위치 = xl/drawings/drawingN.xml 의 anchor(from/to 행) → 그 행의 품번(이어받은 값). 압축은 SheetJS에 든 CFB(zip 읽기)로 푼다. */
+async function cnExtractThumbs(buf, XLSX, rowNames) {
+  const cfb = XLSX.CFB.read(new Uint8Array(buf), { type: 'array' });
+  const get = pth => { const i = cfb.FullPaths.indexOf('Root Entry/' + pth); return i >= 0 ? cfb.FileIndex[i].content : null; };
+  const text = pth => { const c = get(pth); return c ? new TextDecoder().decode(c instanceof Uint8Array ? c : new Uint8Array(c)) : ''; };
+  const xml = t => new DOMParser().parseFromString(t, 'application/xml');
+  const join = (base, target) => { const parts = (target.startsWith('/') ? target.slice(1) : base.replace(/[^/]*$/, '') + target).split('/'), o = []; for (const x of parts) { if (x === '..') o.pop(); else if (x && x !== '.') o.push(x); } return o.join('/'); };
+  const relsOf = pth => { const m = new Map(); const d = xml(text(pth.replace(/([^/]+)$/, '_rels/$1.rels'))); for (const r of d.getElementsByTagName('Relationship')) m.set(r.getAttribute('Id'), { target: r.getAttribute('Target'), type: r.getAttribute('Type') || '' }); return m; };
+  // 첫 시트 → 그 시트의 drawing
+  const wb = xml(text('xl/workbook.xml')), sheet0 = wb.getElementsByTagName('sheet')[0];
+  if (!sheet0) return {};
+  const rid = sheet0.getAttribute('r:id') || sheet0.getAttributeNS('http://schemas.openxmlformats.org/officeDocument/2006/relationships', 'id');
+  const wbRel = relsOf('xl/workbook.xml').get(rid); if (!wbRel) return {};
+  const sheetPath = join('xl/workbook.xml', wbRel.target);
+  const dr = [...relsOf(sheetPath).values()].find(r => /\/drawing$/.test(r.type)); if (!dr) return {};
+  const drawPath = join(sheetPath, dr.target), drRels = relsOf(drawPath), dx = xml(text(drawPath));
+  const byName = new Map();
+  const tag = (el, name) => [...el.getElementsByTagName('*')].find(n => n.localName === name);
+  for (const an of [...dx.documentElement.children].filter(n => /CellAnchor$/.test(n.localName))) {
+    const from = tag(an, 'from'), to = tag(an, 'to'), blip = tag(an, 'blip');
+    if (!from || !blip) continue;
+    const rowOf = el => { const r = [...el.children].find(n => n.localName === 'row'); return r ? Number(r.textContent) : null; };
+    const r0 = rowOf(from), r1 = to ? rowOf(to) : r0;
+    if (r0 == null) continue;
+    const name = rowNames[Math.round((r0 + (r1 == null ? r0 : r1)) / 2)] || rowNames[r0];   // 그림 가운데 줄의 품번
+    const embed = blip.getAttribute('r:embed') || blip.getAttributeNS('http://schemas.openxmlformats.org/officeDocument/2006/relationships', 'embed');
+    const rel = drRels.get(embed);
+    if (!name || !rel || byName.has(name)) continue;   // 같은 품번의 첫 그림만
+    byName.set(name, join(drawPath, rel.target));
+  }
+  const out = {};
+  for (const [name, mediaPath] of byName) {
+    const bytes = get(mediaPath); if (!bytes) continue;
+    try {
+      const ext = (mediaPath.split('.').pop() || '').toLowerCase();
+      const blob = new Blob([bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes)], { type: ext === 'jpg' || ext === 'jpeg' ? 'image/jpeg' : ext === 'gif' ? 'image/gif' : ext === 'webp' ? 'image/webp' : 'image/png' });
+      const bmp = await createImageBitmap(blob);
+      const k = Math.min(1, 160 / Math.max(bmp.width, bmp.height)), w = Math.max(1, Math.round(bmp.width * k)), h = Math.max(1, Math.round(bmp.height * k));
+      const cv = document.createElement('canvas'); cv.width = w; cv.height = h;
+      const cx = cv.getContext('2d'); cx.fillStyle = '#fff'; cx.fillRect(0, 0, w, h); cx.drawImage(bmp, 0, 0, w, h);
+      if (bmp.close) bmp.close();
+      let url = cv.toDataURL('image/jpeg', 0.72); if (url.length > 28000) url = cv.toDataURL('image/jpeg', 0.5);
+      if (url.length <= 30000) out[name] = url;
+    } catch (e) { /* 읽지 못하는 그림(emf 등)은 건너뜀 */ }
+  }
+  return out;
+}
+function cnThumbHtml(sname) {   // 상품 줄의 사진 칸(40px). 사진을 아직 못 받았으면 자리만 잡아 두고, 받으면 cnThumbsApply가 채운다
+  const url = cnState.thumbs && cnState.thumbs[sname];
+  return `<span class="cn-th" data-cn-th="${escHtml(encodeURIComponent(sname))}" style="display:inline-block;width:40px;height:40px;vertical-align:middle;margin-right:8px;border-radius:6px;overflow:hidden;background:#f3f4f6;flex:none;">${url ? cnThumbImg(sname, url) : ''}</span>`;
+}
+function cnThumbImg(sname, url) {
+  return /^data:image\/jpeg;base64,[A-Za-z0-9+/=]+$/.test(url) ? `<img src="${url}" alt="" data-g="${escHtml(sname)}" onclick="cnThumbZoom(this)" title="눌러서 크게 보기" style="width:40px;height:40px;object-fit:cover;cursor:zoom-in;display:block;" />` : '';
+}
+// 화면에 보이는 상품의 사진만 받는다(2026-10-02 사용자 우려 — 상품이 늘면 전부 받기엔 무거움): 자리 칸이 화면 근처(위아래 300px)에 있으면
+//   이름을 모아 0.15초 뒤 한꺼번에(100개씩) cn_thumbs {get}로 요청. 받은 사진·없는 상품은 기억해 다시 묻지 않는다. 스크롤하면 새로 보이는 칸만 다시 확인.
+function cnThumbsApply() {
+  cnState.thumbs = cnState.thumbs || {};
+  if (!cnState.thumbScroll) {   // 스크롤·창 크기 변화 때 0.15초에 한 번만 다시 확인(중국 사입 관리 화면일 때만)
+    cnState.thumbScroll = true;
+    let t = null;
+    const onMove = () => { if (t || location.hash !== '#cnbuy') return; t = setTimeout(() => { t = null; cnThumbsApply(); }, 150); };
+    window.addEventListener('scroll', onMove, { passive: true }); window.addEventListener('resize', onMove, { passive: true });
+  }
+  const vh = window.innerHeight || 800;
+  for (const el of document.querySelectorAll('#sec-cnbuy .cn-th')) {
+    if (el.firstChild) continue;
+    const name = decodeURIComponent(el.dataset.cnTh || ''), url = cnState.thumbs[name];
+    if (url) { el.innerHTML = cnThumbImg(name, url); continue; }
+    if (cnState.thumbAsked.has(name) || el.offsetParent === null) continue;   // 이미 물어본 상품 · 숨겨진 칸
+    const r = el.getBoundingClientRect();
+    if (r.bottom > -300 && r.top < vh + 300) cnThumbQueue(name);
+  }
+}
+function cnThumbQueue(name) {
+  if (!name || cnState.thumbAsked.has(name)) return;
+  cnState.thumbAsked.add(name); cnState.thumbWant.push(name);
+  clearTimeout(cnState.thumbT); cnState.thumbT = setTimeout(cnThumbsFetch, 150);
+}
+async function cnThumbsFetch() {
+  while (cnState.thumbWant.length) {
+    const names = cnState.thumbWant.splice(0, 100);
+    try { const r = await cnPost('cn_thumbs', { get: names }); Object.assign(cnState.thumbs, r.thumbs || {}); }
+    catch (e) { names.forEach(n => cnState.thumbAsked.delete(n)); break; }   // 실패하면 다음에 다시 물을 수 있게
+  }
+  document.querySelectorAll('#sec-cnbuy .cn-th').forEach(el => { if (el.firstChild) return; const name = decodeURIComponent(el.dataset.cnTh || ''), url = cnState.thumbs[name]; if (url) el.innerHTML = cnThumbImg(name, url); });
+}
+function cnThumbsLoad(force) { if (force) { cnState.thumbs = {}; cnState.thumbAsked = new Set(); } cnThumbsApply(); }
+function cnThumbZoom(img) {
+  const ov = document.createElement('div');
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:400;display:flex;align-items:center;justify-content:center;cursor:zoom-out;';
+  ov.onclick = () => ov.remove();
+  const box = document.createElement('div'); box.style.cssText = 'background:#fff;border-radius:14px;padding:12px;text-align:center;';
+  const big = document.createElement('img'); big.src = img.src; big.style.cssText = 'width:320px;max-width:80vw;height:auto;border-radius:8px;display:block;image-rendering:auto;';
+  const cap = document.createElement('div'); cap.textContent = img.dataset.g || ''; cap.style.cssText = 'font-size:.9rem;font-weight:800;margin-top:8px;';
+  box.appendChild(big); box.appendChild(cap); ov.appendChild(box); document.body.appendChild(ov);
+}
+async function cnThumbFilePick(input) {   // 이미 올린 입고 건의 엑셀을 다시 골라 사진만 넣는다(옵션 줄·수량은 그대로)
+  const file = input.files[0]; input.value = ''; if (!file) return;
+  try {
+    showToast('엑셀에서 사진을 꺼내는 중…');
+    const XLSX = await loadSheetJS(), buf = await file.arrayBuffer();
+    const wb = XLSX.read(buf, { type: 'array' });
+    const parsed = cnParseGrid(XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, defval: '' }));
+    const thumbs = await cnExtractThumbs(buf, XLSX, parsed.rowNames);
+    const n = Object.keys(thumbs).length;
+    if (!n) { showToast('이 엑셀에서 상품 사진을 찾지 못했어요'); return; }
+    const r = await cnPost('cn_thumbs', { thumbs });
+    Object.assign(cnState.thumbs, thumbs); Object.keys(thumbs).forEach(n => cnState.thumbAsked.delete(n));
+    document.querySelectorAll('#sec-cnbuy .cn-th').forEach(el => { const name = decodeURIComponent(el.dataset.cnTh || ''); if (thumbs[name]) el.innerHTML = cnThumbImg(name, thumbs[name]); });
+    showToast(`사진 ${fmt(r.saved)}장을 넣었어요`);
+  } catch (e) { showToast('사진 넣기 실패: ' + e.message); }
+}
 
 /* ── 입고 비용 (2026-10-01 사용자 요청): 입고 엑셀 2번째 시트(물류비·관부가세·물건 결제)를 입고 차수별로. 관리자·MD만(서버가 CS·물류팀 응답에서 costs를 뺀다).
       시트 모양: 1행 제목 / '항목·금액·참고 사항·계산' 머리글 아래 비용 항목 … '총합'·'부가세 제외 총합' / '보낸돈(USD)·환전반영(KRW)' 머리글 아래 물건결제 줄 … '물건결제 총합'. ── */
@@ -4095,7 +4219,7 @@ function cnProdRender() {
     const c24Html = p.c24.length ? p.c24.map(h => `<div><span style="background:#dcfce7;color:#166534;border-radius:99px;padding:1px 8px;font-size:.66rem;font-weight:700;white-space:nowrap;">등록됨</span> <span style="font-size:.72rem;">${escHtml(h.product_name)}</span>${h.display !== 'T' || h.selling !== 'T' ? ` <span style="font-size:.64rem;color:#b45309;">${[h.display !== 'T' ? '진열안함' : '', h.selling !== 'T' ? '판매안함' : ''].filter(Boolean).join('·')}</span>` : ''}</div>`).join('') : (d.c24_error ? '<span style="color:#9ca3af;">확인 불가</span>' : '<span style="background:#f3f4f6;color:#6b7280;border-radius:99px;padding:1px 8px;font-size:.66rem;font-weight:700;">미등록</span>');
     const meta = [[...p.rounds].length ? '발주 ' + [...p.rounds].join(', ') : '', `입고 ${p.ships.size}건`].filter(Boolean).join(' · ');
     const open = !!q && p.opts.some(o => o.opt.toLowerCase().includes(q)) || cnState.open.prod.has(p.sname), gi = encodeURIComponent(p.sname);
-    html += `<tr style="background:#f8f9ff;"><td style="text-align:left;font-weight:800;">${cnFoldBtn('prod', p.sname, open, p.opts.length)}${escHtml(p.sname)} <span style="font-size:.66rem;color:#9ca3af;font-weight:500;">옵션 ${p.opts.length}</span><div style="font-size:.66rem;color:#6b7280;font-weight:500;padding-left:18px;">${escHtml(meta)}</div></td>
+    html += `<tr style="background:#f8f9ff;"><td style="text-align:left;font-weight:800;">${cnFoldBtn('prod', p.sname, open, p.opts.length)}${cnThumbHtml(p.sname)}${escHtml(p.sname)} <span style="font-size:.66rem;color:#9ca3af;font-weight:500;">옵션 ${p.opts.length}</span> <span style="font-size:.66rem;color:#6b7280;font-weight:500;">${escHtml(meta)}</span></td>
       ${num(`<b>${fmt(p.ordered)}</b>`)}${num(`<b>${fmt(p.sent)}</b>`)}${num(p.act || p.actSent ? `<b>${fmt(p.act)}</b>` : '<span style="color:#9ca3af;">—</span>')}${num(diffHtml(p.act, p.actSent, p.unchecked))}${num(p.left ? `<b style="color:#c2410c;">${fmt(p.left)}</b>` : '<span style="color:#9ca3af;">출완</span>')}${canPrice ? num(p.real ? cnYuan(p.real.yuan) : '') + num(p.real ? cnKrw(p.real.yuan) : '') + num(cnRealAvgHtml(p.real, true)) : ''}
       <td style="text-align:left;">${c24Html}</td>${showSales ? num(salesHtml) : ''}</tr>`;
     for (const o of p.opts) {
@@ -4103,6 +4227,7 @@ function cnProdRender() {
     }
   }
   $('cn-prod-list').innerHTML = html + '</tbody></table></div>';
+  cnThumbsApply();
 }
 
 function unshipInit() {

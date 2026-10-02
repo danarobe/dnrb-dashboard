@@ -743,7 +743,9 @@ Deno.serve(async (req) => {
     //   cn_check  POST — 실제 수량·메모 기입 (전원, 확인자는 서버가 로그인 계정으로 기입)
     //   cn_ship   POST — 입고 건 정보 수정·삭제 (관리자·MD)
     //   cn_vendor POST — 사입상품명별 거래처명 수동 입력 (관리자·MD, 2026-10-01 — 입고 건 단위가 아니라 상품마다)
-    if (action === "cn_list" || action === "cn_upload" || action === "cn_check" || action === "cn_ship" || action === "cn_vendor") {
+    //   cn_thumbs POST {get:[사입상품명…]} — 그 상품들의 작은 사진(전원, 한 번에 200개 — 화면에 보이는 것만 받게)
+    //             POST {thumbs:{사입상품명:dataURL}} — 사진 저장(관리자·MD, 상품당 1장 — 같은 이름은 덮어씀). 목록과 따로 불러 표를 늦추지 않는다 (2026-10-02)
+    if (action === "cn_list" || action === "cn_upload" || action === "cn_check" || action === "cn_ship" || action === "cn_vendor" || action === "cn_thumbs") {
       if (!["admin", "staff", "cs"].includes(authed.role)) return json({ error: "접근 권한이 없습니다" }, 403);
       const canPrice = authed.role !== "cs";   // 단가·금액 = 관리자 + MD
       const canEdit = canPrice;                // 엑셀 올리기·입고 건 수정·삭제 = 관리자 + MD
@@ -794,6 +796,32 @@ Deno.serve(async (req) => {
       const b = await req.json().catch(() => ({})) as Record<string, any>;
       const now = new Date().toISOString();
       const dateOrNull = (v: unknown) => { const d = txt(v, 10); return d && /^\d{4}-\d{2}-\d{2}$/.test(d) ? d : null; };
+      // 사진 저장 — 브라우저가 줄여 보낸 JPEG data URL만(한 장 30KB 이하, 한 번에 400장). 형식이 다르면 그 장은 버린다.
+      const saveThumbs = async (v: unknown): Promise<number> => {
+        if (!v || typeof v !== "object" || Array.isArray(v)) return 0;
+        const rows = Object.entries(v as Record<string, unknown>).slice(0, 400)
+          .map(([k, img]) => ({ sname: txt(k, 100), img: String(img ?? "") }))
+          .filter((r) => r.sname && r.img.length <= 30000 && /^data:image\/jpeg;base64,[A-Za-z0-9+/=]+$/.test(r.img))
+          .map((r) => ({ ...r, updated_by_name: authed.name, updated_at: now }));
+        if (!rows.length) return 0;
+        await sbRest("cn_thumbs?on_conflict=sname", { method: "POST", headers: { Prefer: "resolution=merge-duplicates,return=minimal" }, body: JSON.stringify(rows) });
+        return rows.length;
+      };
+      if (action === "cn_thumbs" && Array.isArray(b.get)) {
+        // 읽기: 요청한 이름만(화면에 보이는 상품) — 상품이 늘어도 한 번에 받는 양이 커지지 않는다
+        const names = [...new Set((b.get as unknown[]).map((x) => String(x ?? "").trim()).filter((x) => x && x.length <= 100))].slice(0, 200);
+        const thumbs: Record<string, string> = {};
+        if (names.length) {
+          const list = names.map((n) => '"' + n.replace(/\\/g, "\\\\").replace(/"/g, '\\"') + '"').join(",");
+          const rows = ((await sbRest(`cn_thumbs?select=sname,img&sname=in.(${encodeURIComponent(list)})&limit=200`)) ?? []) as Record<string, any>[];
+          for (const r of rows) thumbs[String(r.sname)] = String(r.img);
+        }
+        return json({ thumbs, asked: names.length });
+      }
+      if (action === "cn_thumbs") {
+        if (!canEdit) return json({ error: "사진 넣기는 관리자·MD만 할 수 있어요" }, 403);
+        return json({ ok: true, saved: await saveThumbs(b.thumbs) });
+      }
       // 입고 비용(엑셀 2번째 시트) 정리 — 화면이 읽어 보낸 값을 모양·크기만 확인해 저장한다 (2026-10-01)
       const cleanCosts = (v: unknown): Record<string, unknown> | null | undefined => {
         if (v === null) return null;
@@ -847,7 +875,9 @@ Deno.serve(async (req) => {
           await sbRest(`cn_shipments?id=eq.${ship.id}`, { method: "DELETE", headers: { Prefer: "return=minimal" } }).catch(() => null);   // 줄 저장 실패 → 빈 입고 건을 남기지 않는다
           return json({ error: "저장하지 못했어요 — " + String(e).slice(0, 150) }, 500);
         }
-        return json({ ok: true, shipment: ship, line_count: rows.length });
+        let thumbs_saved = 0;
+        try { thumbs_saved = await saveThumbs(b.thumbs); } catch { /* 사진 저장 실패는 입고 건 저장을 막지 않는다 */ }
+        return json({ ok: true, shipment: ship, line_count: rows.length, thumbs_saved });
       }
       if (action === "cn_check") {
         // items: [{ line_id, qty_actual?(0 이상 정수 | null = 확인 취소), memo? }] — 한 번에 500줄까지('전달 수량과 같음' 일괄 기입)
