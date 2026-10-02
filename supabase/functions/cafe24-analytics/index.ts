@@ -746,8 +746,9 @@ Deno.serve(async (req) => {
     //   cn_thumbs POST {get:[사입상품명…]} — 그 상품들의 작은 사진(전원, 한 번에 200개 — 화면에 보이는 것만 받게)
     //             POST {thumbs:{사입상품명:dataURL}} — 사진 저장(관리자·MD, 상품당 1장 — 같은 이름은 덮어씀). 목록과 따로 불러 표를 늦추지 않는다 (2026-10-02)
     if (action === "cn_list" || action === "cn_upload" || action === "cn_check" || action === "cn_ship" || action === "cn_vendor" || action === "cn_thumbs") {
-      if (!["admin", "staff", "cs"].includes(authed.role)) return json({ error: "접근 권한이 없습니다" }, 403);
-      const canPrice = authed.role !== "cs";   // 단가·금액 = 관리자 + MD
+      // 관리자 + MD + 물류팀. **CS팀은 볼 필요 없음(2026-10-02 사용자 지정)** — 서버 역할은 logistics→cs로 합쳐져 있어 원래 역할을 다시 본다(soldoutRoleOk와 같은 방식)
+      if (!(authed.role === "staff" || await soldoutRoleOk(authed))) return json({ error: "접근 권한이 없습니다" }, 403);
+      const canPrice = authed.role !== "cs";   // 단가·금액 = 관리자 + MD (물류팀은 수량만)
       const canEdit = canPrice;                // 엑셀 올리기·입고 건 수정·삭제 = 관리자 + MD
       const txt = (v: unknown, n: number) => v == null ? null : String(v).trim().slice(0, n) || null;
       const intOrNull = (v: unknown, max: number) => {

@@ -2774,6 +2774,7 @@ const admgrLegacyAllowed = () => !!SESSION && ADMGR_LEGACY_USERS.includes(SESSIO
 // 품절 재고 점검(#soldout) — 셀메이트 품절분류를 바꾸는 기능. 처음엔 대표 계정만 → 2026-09-29 사용자 요청으로 관리자 전원 + 물류팀(CS팀 제외).
 //   서버(c24var_check·paiditems·soldout_fix_log)도 같은 기준(물류팀은 원래 역할 logistics로 확인). 각 PC 엣지에 셀메이트 연결 스크립트가 있어야 동작.
 const soldoutAllowed = () => !!SESSION && (isAdmin() || SESSION.role === 'logistics');
+const cnAllowed = () => !!SESSION && (isAdmin() || isStaff() || SESSION.role === 'logistics');   // 중국 사입 관리 = 관리자 + MD + 물류팀 (CS팀 제외 — 2026-10-02 사용자 지정)
 function logout() {
   localStorage.removeItem(AUTH_KEY);
   try { localStorage.removeItem(NP_PW_KEY); } catch {}   // 네이버 엑셀 문서 암호는 공용 PC를 위해 로그아웃 때 지운다 (보안 점검 2026-09-22)
@@ -2827,6 +2828,7 @@ function applyRole() {
   $('menu-stable').style.display = isAdmin() && !isCS() ? '' : 'none';
   $('menu-adv').style.display = (isAdmin() || isStaff()) && !isCS() ? '' : 'none';   // MD도 광고 효율 접근
   $('menu-admgr').style.display = admgrLegacyAllowed() ? '' : 'none';
+  $('menu-cnbuy').style.display = cnAllowed() ? '' : 'none';
   $('menu-soldout').style.display = soldoutAllowed() ? '' : 'none';   // 품절 재고 점검 = 관리자 + 물류팀 (2026-09-29 사용자 요청, CS팀 제외)   // 광고관리자(기존) = 내장 광고관리자 — 2026-09-13 사용자 요청: 본인 계정(ADMGR_LEGACY_USERS)에게만 노출. 코드·데이터·서버 액션은 그대로
   $('menu-addash').style.display = isAdmin() ? '' : 'none';   // 광고관리자(친구 광고 대시보드 SSO) = 관리자 + 허용 목록(ad_dashboard_users) — 목록은 adDashAccessLoad()가 확인해 켬 (2026-09-11 사용자 지정)
   $('menu-rwatch').style.display = (isAdmin() || isStaff()) && !isCS() ? '' : 'none'; // 반품 관리 = 관리자 + MD
@@ -13670,6 +13672,7 @@ function showMenu(key) {
   if (key === 'proj') projLoad();
   if (key === 'admgr' && !admgrLegacyAllowed()) { showMenu('home'); return; }
   if (key === 'soldout' && !soldoutAllowed()) { showMenu('home'); return; }
+  if (key === 'cnbuy' && !cnAllowed()) { showMenu('home'); return; }
   if (key === 'soldout') soldoutInit();   // 광고관리자(기존)은 지정 계정만 (2026-09-13)
   if (key === 'admgr') {
     // MD·마케터는 테스트 소재만 — 캠페인 계층(hierarchy)은 서버에서도 admin 전용이라 아예 부르지 않는다
