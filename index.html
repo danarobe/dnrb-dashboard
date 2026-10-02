@@ -3737,6 +3737,19 @@ const CN_CHECK_PASS = { all: () => true, todo: l => l.qty_actual == null, diff: 
 function cnCheckChipsRender(lines) {   // 보기 칩(건수) — 수량을 적을 때마다 건수만 다시 센다
   $('cn-check-chips').innerHTML = [['all', '전체'], ['todo', '미확인'], ['diff', '차이 있음'], ['left', '미출고 잔여']].map(([k, label]) => `<button class="${cnState.filter === k ? 'active' : ''}" onclick="cnState.filter='${k}';cnCheckRender()">${label} ${fmt(lines.filter(CN_CHECK_PASS[k]).length)}</button>`).join('');
 }
+// 상품 줄의 단가 칸(2026-10-02 사용자 요청 — 옵션을 접어도 단가(CHN)·단가(KRW)·실질 단가가 보여야 함):
+//   옵션 단가가 모두 같으면 그 값, 다르면 전달 수량으로 가중 평균(옆에 '평균' 표시). 금액 칸은 옵션 금액의 합.
+function cnGroupPriceCells(g) {
+  const priced = g.rows.filter(l => l.unit_price != null);
+  if (!priced.length) return '<td style="text-align:right;"><span style="color:#9ca3af;">—</span></td>'.repeat(3) + '<td class="m-hide" style="text-align:right;"><span style="color:#9ca3af;">—</span></td>';
+  const qty = priced.reduce((t, l) => t + l.qty_sent, 0);
+  const yuan = qty > 0 ? Math.round(priced.reduce((t, l) => t + l.qty_sent * Number(l.unit_price), 0) / qty * 100) / 100 : Number(priced[0].unit_price);
+  const mixed = new Set(priced.map(l => Number(l.unit_price))).size > 1;
+  const tag = mixed ? '<div style="font-size:.6rem;color:#6b7280;font-weight:500;" title="옵션마다 단가가 달라 전달 수량으로 가중 평균했어요">평균</div>' : '';
+  const td = v => `<td style="text-align:right;font-weight:700;">${v}</td>`;
+  return td(cnYuan(yuan) + tag) + td(cnKrw(yuan)) + td(cnRealHtml(yuan, g.rows[0].shipment_id))
+    + `<td class="m-hide" style="text-align:right;color:#6b7280;font-weight:700;">${cnYuan(priced.reduce((t, l) => t + l.qty_sent * Number(l.unit_price), 0))}</td>`;
+}
 function cnCheckRender() {
   const d = cnState.data; if (!d) return;
   const ships = d.ships || [];
@@ -3773,7 +3786,7 @@ function cnCheckRender() {
     html += `<tr style="background:#f8f9ff;" data-cn-g="${escHtml(gi)}">
       <td style="text-align:left;font-weight:800;">${cnFoldBtn('check', g.sname, open, g.show.length)}${escHtml(g.sname)} <span style="font-size:.66rem;color:#9ca3af;font-weight:500;">옵션 ${g.show.length}</span> ${cnC24Badge(g.sname)}${noteTxt ? ` <span style="font-size:.68rem;color:#6b7280;font-weight:500;">${escHtml(noteTxt)}</span>` : ''}
         ${todo ? `<button class="toggle-btn" style="font-size:.66rem;padding:1px 8px;margin-left:6px;" data-g="${escHtml(g.sname)}" onclick="cnFillSame(this)" title="아직 안 적은 옵션 ${todo}개를 전달 수량과 같게 채워요">전달 수량과 같음</button>` : ''}</td>
-      ${num(h.sent, '')}<td style="text-align:right;" data-cn-h="act">${h.act}</td><td style="text-align:right;" data-cn-h="diff">${h.diff}</td>${num(h.left, '')}${canPrice ? '<td></td><td></td><td></td><td class="m-hide"></td>' : ''}<td class="m-hide"></td><td></td></tr>`;
+      ${num(h.sent, '')}<td style="text-align:right;" data-cn-h="act">${h.act}</td><td style="text-align:right;" data-cn-h="diff">${h.diff}</td>${num(h.left, '')}${canPrice ? cnGroupPriceCells(g) : ''}<td class="m-hide"></td><td></td></tr>`;
     g.show.forEach(l => {
       html += `<tr data-cn-l="${l.id}" data-cn-o="${escHtml(gi)}"${open ? '' : ' style="display:none;"'}>
         <td style="text-align:left;padding-left:28px;">${escHtml(cnOpt(l))}</td>
