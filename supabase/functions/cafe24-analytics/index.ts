@@ -748,8 +748,9 @@ Deno.serve(async (req) => {
     if (action === "cn_list" || action === "cn_upload" || action === "cn_check" || action === "cn_ship" || action === "cn_vendor" || action === "cn_thumbs") {
       // 관리자 + MD + 물류팀. **CS팀은 볼 필요 없음(2026-10-02 사용자 지정)** — 서버 역할은 logistics→cs로 합쳐져 있어 원래 역할을 다시 본다(soldoutRoleOk와 같은 방식)
       if (!(authed.role === "staff" || await soldoutRoleOk(authed))) return json({ error: "접근 권한이 없습니다" }, 403);
-      const canPrice = authed.role !== "cs";   // 단가·금액 = 관리자 + MD (물류팀은 수량만)
-      const canEdit = canPrice;                // 엑셀 올리기·입고 건 수정·삭제 = 관리자 + MD
+      const canPrice = authed.role === "admin";   // 단가·비용 = **관리자만** (2026-10-02 사용자 지정 — MD도 안 보이게. 물류팀은 원래 수량만)
+      const canEdit = authed.role !== "cs";       // 엑셀 올리기·입고 건 수정·삭제·사진 넣기 = 관리자 + MD (MD는 올릴 수는 있지만 단가·비용은 응답에서 빠진다)
+      const hideCosts = <T extends Record<string, any>>(x: T): T => { if (canPrice) return x; const { costs: _c, ...rest } = x; return rest as T; };
       const txt = (v: unknown, n: number) => v == null ? null : String(v).trim().slice(0, n) || null;
       const intOrNull = (v: unknown, max: number) => {
         if (v === null || v === undefined || v === "") return null;
@@ -765,7 +766,7 @@ Deno.serve(async (req) => {
         const prods: Record<string, unknown> = {};
         for (const r of prodRows) prods[String(r.sname)] = { vendor: r.vendor ?? null, by: r.updated_by_name ?? null, at: r.updated_at ?? null };
         const outLines = canPrice ? lines : lines.map((l) => { const { unit_price: _u, ...rest } = l; return rest; });
-        const outShips = canPrice ? ships : ships.map((x) => { const { costs: _c, ...rest } = x; return rest; });   // 비용(2번째 시트)도 관리자·MD만
+        const outShips = ships.map(hideCosts);   // 비용(2번째 시트)도 관리자만
         // 카페24 등록 여부: 전 상품의 공급사 상품명(supply_product_name)을 30분 캐시로 받아 사입상품명과 맞춘다.
         //   같은 이름(공백·대소문자 무시)이거나, 공급사 상품명이 '사입상품명 + 구분 문자(공백·괄호 등)'로 시작하면 같은 상품으로 본다.
         const c24: Record<string, unknown[]> = {};
@@ -878,7 +879,7 @@ Deno.serve(async (req) => {
         }
         let thumbs_saved = 0;
         try { thumbs_saved = await saveThumbs(b.thumbs); } catch { /* 사진 저장 실패는 입고 건 저장을 막지 않는다 */ }
-        return json({ ok: true, shipment: ship, line_count: rows.length, thumbs_saved });
+        return json({ ok: true, shipment: hideCosts(ship), line_count: rows.length, thumbs_saved });
       }
       if (action === "cn_check") {
         // items: [{ line_id, qty_actual?(0 이상 정수 | null = 확인 취소), memo? }] — 한 번에 500줄까지('전달 수량과 같음' 일괄 기입)
@@ -920,11 +921,14 @@ Deno.serve(async (req) => {
       if ("order_round" in b) patch.order_round = txt(b.order_round, 40);
       if ("ship_date" in b) patch.ship_date = dateOrNull(b.ship_date);
       if ("note" in b) patch.note = txt(b.note, 300);
-      if ("costs" in b) { const c = cleanCosts(b.costs); if (c === undefined) return json({ error: "비용 내용이 올바르지 않아요" }, 400); patch.costs = c; }
+      if ("costs" in b) {
+        if (!canPrice) return json({ error: "비용 내용은 관리자만 바꿀 수 있어요" }, 403);
+        const c = cleanCosts(b.costs); if (c === undefined) return json({ error: "비용 내용이 올바르지 않아요" }, 400); patch.costs = c;
+      }
       if (!Object.keys(patch).length) return json({ error: "바꿀 내용이 없어요" }, 400);
       const [row] = await sbRest(`cn_shipments?id=eq.${sid}`, { method: "PATCH", body: JSON.stringify(patch) }) as Record<string, any>[];
       if (!row) return json({ error: "입고 건을 찾지 못했어요" }, 404);
-      return json({ ok: true, shipment: row });
+      return json({ ok: true, shipment: hideCosts(row) });
     }
 
     // ── 반품 송장 스캔 (2026-09-22): 관리자·MD·CS/물류팀 ──
