@@ -386,6 +386,34 @@ async function cafe24MarkCollected(kind: "return" | "exchange", orderId: string,
   if (!res.ok) throw Object.assign(new Error(`PUT ${res.status}: ${JSON.stringify(body).slice(0, 400)}`), { status: res.status, body });
   return body;
 }
+// ══ 카페24 쓰기 ② — 네이버페이 취소신청 접수 (2026-10-05 사용자 요청·승인) ══
+// 고객이 네이버페이에서 넣은 '취소신청'을 관리자 화면의 [취소접수]와 같게 접수한다. 수거 완료와 같은 원칙:
+//  · 주소와 본문을 호출자가 넘기지 못한다 — 검증된 주문번호·품주코드·취소 구분 코드로 이 함수가 직접 조립한다.
+//  · 본문은 { shop_no:1, request:{ status:"accepted", naverpay_cancel_reason_type, reason, recover_inventory:"T", items:[{order_item_code, quantity}] } } 로 고정.
+//    status는 'accepted'(취소접수)뿐 — 취소완료·환불·PG 취소 필드는 보내지 않는다(네이버페이 주문은 접수 뒤 네이버가 환불을 진행).
+//    배송 전 취소라 재고는 복구(T)로 고정. 취소 구분은 네이버페이 목록(51~60)만 허용.
+//  · 다른 쓰기가 필요해지면 여기 허용 목록을 넓히지 말고 사용자 승인부터 받을 것. tools/check_cafe24_writes.sh 가 배포 전 검사한다.
+const NPAY_CANCEL_TYPES: Record<string, string> = { "구매 의사 취소": "51", "색상 및 사이즈 변경": "52", "다른 상품 잘못 주문": "53", "서비스 및 상품 불만족": "54", "배송 지연": "55", "상품 품절": "56", "상품 정보 상이": "60" };
+async function cafe24AcceptNaverCancel(orderId: string, items: { code: string; qty: number }[], reasonType: string, reason: string, token: string): Promise<Record<string, unknown>> {
+  if (!/^\d{8}-\d{7}$/.test(orderId)) throw new Error("허용되지 않은 쓰기(주문번호 형식)");
+  if (!Object.values(NPAY_CANCEL_TYPES).includes(reasonType)) throw new Error("허용되지 않은 쓰기(취소 구분)");
+  if (!Array.isArray(items) || !items.length || items.length > 50 || items.some((x) => typeof x.code !== "string" || !x.code.startsWith(orderId + "-") || !/^\d{8}-\d{7}-\d{2,3}$/.test(x.code) || !Number.isInteger(x.qty) || x.qty < 1 || x.qty > 999)) throw new Error("허용되지 않은 쓰기(품주코드·수량)");
+  const url = `${API_BASE}/admin/orders/${orderId}/cancellation`;
+  const payload = JSON.stringify({ shop_no: 1, request: { status: "accepted", naverpay_cancel_reason_type: reasonType, reason: String(reason ?? "").slice(0, 2000), recover_inventory: "T", items: items.map((x) => ({ order_item_code: x.code, quantity: x.qty })) } });
+  const doFetch = (tk: string) => fetch(url, { method: "POST", headers: { Authorization: `Bearer ${tk}`, "Content-Type": "application/json", "X-Cafe24-Api-Version": API_VERSION }, body: payload });
+  let tok = token;
+  let res = await doFetch(tok);
+  if (res.status === 401) { tok = await getAccessToken(true); res = await doFetch(tok); }
+  for (let i = 0; res.status === 429 && i < RATE_LIMIT_RETRIES; i++) {
+    const ra = Number(res.headers.get("Retry-After"));
+    await res.body?.cancel();
+    await sleep(isFinite(ra) && ra > 0 ? ra * 1000 : Math.min(1000 * 2 ** i, 8000));
+    res = await doFetch(tok);
+  }
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw Object.assign(new Error(`POST ${res.status}: ${JSON.stringify(body).slice(0, 400)}`), { status: res.status, body });
+  return body;
+}
 
 // ── 품절 재고 점검 권한 (2026-09-29 사용자 요청): 관리자 + 물류팀. 서버 역할은 logistics→cs로 합쳐져 있어(CS팀과 구분 불가) 원래 역할을 다시 읽는다.
 //    서버 간 비밀키(에이전트·자동 갱신·상품관리 연동)로는 허용하지 않는다.
@@ -565,6 +593,58 @@ function splitClaimReason(raw: unknown): { request: string; accept: string } {
   return { request: s.slice(0, m.index).trim(), accept: (m[1] ?? "").trim() };
 }
 
+// ── 취소·반품 접수 (#cxl, 2026-10-05 사용자 요청) — 네이버페이 취소신청(C00) 분류 ──
+// 한 주문의 취소신청 품목을 '사유가 같은 것끼리' 한 건으로 묶고, 고객이 고른 사유("… (구매자 주문취소 : 배송 지연)")를
+// 네이버페이 취소 구분(NPAY_CANCEL_TYPES)으로 옮긴다. 자동으로 접수해도 되는지 애매하면 flags에 이유를 적는다:
+//   level 'block' = 이 화면에서 접수할 수 없음(카페24에서 직접) / 'check' = 직접 확인 권장(확인 뒤 한 건씩 접수 가능).
+const CXL_ASK_WORDS = /연락|전화|통화|문의|주소|합배송|묶음|배송비|교환|부탁|주세요|주실|가능한가요|가능할까요|되나요|될까요|\?/;
+const CXL_WAIT = new Set(["N10", "N20"]);            // 취소 전 상태가 이 둘이면 아직 안 보낸 상품
+const CXL_UNSHIPPED = new Set(["N10", "N20", "N21", "N22"]);
+type CxlFlag = { level: "block" | "check"; text: string };
+function cxlGroupsOf(o: Record<string, any>): Record<string, any>[] {
+  const all = (o.items ?? []) as Record<string, any>[];
+  const req = all.filter((it) => String(it.order_status ?? "") === "C00");
+  if (!req.length) return [];
+  const naver = o.order_place_id === "NCHECKOUT" || o.market_id === "NCHECKOUT";
+  const byReason = new Map<string, Record<string, any>[]>();
+  for (const it of req) { const k = String(it.claim_reason ?? "").trim(); byReason.set(k, [...(byReason.get(k) ?? []), it]); }
+  const reqCodes = new Set(req.map((it) => String(it.order_item_code ?? "")));
+  const others = all.filter((it) => !reqCodes.has(String(it.order_item_code ?? "")));
+  const othersWaiting = others.filter((it) => CXL_UNSHIPPED.has(String(it.order_status ?? "")));
+  const othersClaim = others.filter((it) => /^[ER][0-3]/.test(String(it.order_status ?? "")));
+  const groups: Record<string, any>[] = [];
+  for (const [raw, its] of byReason) {
+    const { request, accept } = splitClaimReason(raw);
+    const bySeller = /\(판매자\s*주문취소/.test(raw);
+    const type = NPAY_CANCEL_TYPES[accept] ?? null;
+    const flags: CxlFlag[] = [];
+    if (!naver) flags.push({ level: "block", text: "네이버페이 주문이 아니에요 — 이 화면에서는 접수할 수 없어요" });
+    if (!type) flags.push({ level: "block", text: accept ? `취소 구분 목록에 없는 사유예요("${accept}") — 카페24에서 직접 접수해주세요` : "고객이 고른 취소 사유를 읽지 못했어요 — 카페24에서 직접 접수해주세요" });
+    if (bySeller) flags.push({ level: "check", text: "고객이 아니라 판매자 쪽에서 넣은 취소예요" });
+    if (naver && its.some((it) => String(it.naver_pay_claim_status ?? "") !== "CANCEL_REQUEST")) flags.push({ level: "check", text: "네이버페이 쪽 상태가 '취소 요청'이 아니에요 — 고객이 철회했을 수 있어요" });
+    const beforeBad = [...new Set(its.map((it) => String(it.order_status_before_cs ?? "")).filter((b) => !CXL_WAIT.has(b)))];
+    if (beforeBad.length) flags.push({ level: "check", text: `취소 신청 전 상태가 배송준비중이 아니에요(${beforeBad.map((b) => b || "알 수 없음").join(", ")}) — 이미 발송 단계일 수 있어요` });
+    if (its.some((it) => !!it.tracking_no)) flags.push({ level: "check", text: "송장번호가 이미 등록돼 있어요 — 발송됐는지 확인이 필요해요" });
+    if (o.paid !== "T") flags.push({ level: "check", text: "결제가 끝나지 않은 주문이에요" });
+    if (othersWaiting.length) flags.push({ level: "check", text: `주문의 일부만 취소 신청했어요 — 남은 상품 ${othersWaiting.length}개는 그대로 발송돼요` });
+    if (othersClaim.length) flags.push({ level: "check", text: "같은 주문에 교환·반품이 함께 진행 중이에요" });
+    if (its.some((it) => it.claim_quantity != null && Number(it.claim_quantity) !== Number(it.quantity))) flags.push({ level: "check", text: "주문 수량 중 일부만 취소 신청했어요" });
+    if (byReason.size > 1) flags.push({ level: "check", text: "한 주문 안에 취소 사유가 여러 가지예요" });
+    if (request && CXL_ASK_WORDS.test(request)) flags.push({ level: "check", text: "고객이 사유에 요청이나 문의를 적었어요 — 읽어 보고 접수하세요" });
+    const items = its.map((it) => ({ code: String(it.order_item_code ?? ""), product_name: String(it.product_name ?? ""), option: String(it.option_value ?? ""), qty: Number(it.quantity ?? 0),
+      price: (Number(it.product_price ?? 0) + Number(it.option_price ?? 0)) * Number(it.quantity ?? 0), supplier: String(it.supplier_name ?? ""), before: String(it.order_status_before_cs ?? "") }))
+      .sort((a, b) => a.code.localeCompare(b.code));
+    groups.push({
+      key: items.map((x) => x.code).join(","), order_id: String(o.order_id ?? ""), naver, place: String(o.order_place_name ?? ""), naver_order_no: o.market_order_no ?? null,
+      buyer: String(o.billing_name ?? ""), paid_at: String(o.payment_date ?? "").slice(0, 16).replace("T", " "),
+      requested_at: its.map((it) => String(it.cancel_request_date ?? "").slice(0, 16).replace("T", " ")).sort().pop() ?? "",
+      label: accept, reason_type: type, reason_text: request, reason_raw: raw, items, amount: items.reduce((a, x) => a + x.price, 0),
+      other_items: others.length, flags,
+    });
+  }
+  return groups;
+}
+
 Deno.serve(async (req) => {
   const opt = handleOptions(req);
   if (opt) return opt;
@@ -641,6 +721,87 @@ Deno.serve(async (req) => {
         }
         return json({ results });
       }
+    }
+
+    // ── 취소·반품 접수 (#cxl, 2026-10-05 사용자 요청): 관리자 전용. 네이버페이 취소신청(C00) 목록·분류 / 접수(쓰기) / 처리 내역.
+    //    목록은 캐시하지 않는다(접수 직전 상태가 곧 기준). 접수는 한 번에 한 건(주문 + 사유가 같은 품목 묶음) — 화면이 차례로 부른다.
+    if (action === "cancelreq_list" || action === "cancelreq_accept" || action === "cancelreq_log") {
+      if (authed.role !== "admin") return json({ error: "접근 권한이 없습니다" }, 403);
+      const CXL_RECENT_MS = 30 * 60 * 1000;   // 접수 직후 카페24 조회에 늦게 반영될 수 있어, 30분 안에 접수한 품목은 '방금 접수'로 보고 다시 보내지 않는다
+      const recentOk = async () => {
+        const rows = ((await sbRest(`cancel_accept_log?select=order_id,items,created_at,by_name&ok=is.true&created_at=gte.${new Date(Date.now() - CXL_RECENT_MS).toISOString()}&limit=1000`)) ?? []) as Record<string, any>[];
+        const m = new Map<string, { at: string; by: string }>();
+        for (const r of rows) for (const x of (r.items ?? []) as Record<string, any>[]) m.set(String(x.code ?? ""), { at: String(r.created_at ?? ""), by: String(r.by_name ?? "") });
+        return m;
+      };
+      if (action === "cancelreq_log") {
+        const since = new Date(Date.now() - 30 * 86400e3).toISOString();
+        const rows = (await sbRest(`cancel_accept_log?select=id,created_at,order_id,items,reason_type,reason_label,reason,flags,ok,result,claim_code,by_name&created_at=gte.${since}&order=created_at.desc&limit=1000`)) ?? [];
+        return json({ rows });
+      }
+      if (action === "cancelreq_list") {
+        const end = rscanYesterday(); end.setUTCDate(end.getUTCDate() + 1);   // 한국 날짜 오늘
+        const start = new Date(end); start.setUTCDate(start.getUTCDate() - 89);
+        const fmtD = (d: Date) => d.toISOString().slice(0, 10);
+        const groups: Record<string, any>[] = [];
+        for (let offset = 0; offset < 5000; offset += 200) {
+          const body = await apiGet(`${API_BASE}/admin/orders?start_date=${fmtD(start)}&end_date=${fmtD(end)}&date_type=order_date&order_status=C00&embed=items&limit=200&offset=${offset}`, token);
+          const orders = (body.orders ?? []) as Record<string, any>[];
+          for (const o of orders) groups.push(...cxlGroupsOf(o));
+          if (orders.length < 200) break;
+        }
+        const recent = await recentOk();
+        for (const g of groups) { const hit = (g.items as Record<string, any>[]).map((x) => recent.get(x.code)).find(Boolean); if (hit) g.just_accepted = hit; }
+        groups.sort((a, b) => String(a.requested_at).localeCompare(String(b.requested_at)));
+        return json({ today: fmtD(end), fetched_at: new Date().toISOString(), range: { start: fmtD(start), end: fmtD(end) }, labels: Object.keys(NPAY_CANCEL_TYPES), groups });
+      }
+      // ── 접수 (카페24 쓰기 ②) — POST 전용, 사람 로그인으로만, 실행마다 cancel_accept_log에 기록
+      if (req.method !== "POST") return json({ error: "POST로 호출해주세요" }, 405);
+      if (viaAgent || viaCron || viaSecret) return json({ error: "이 기능은 로그인한 사람만 쓸 수 있습니다" }, 403);
+      const orderId = String(url.searchParams.get("order_id") ?? "");
+      if (!/^\d{8}-\d{7}$/.test(orderId)) return json({ error: "주문번호가 올바르지 않습니다" }, 400);
+      const b = await req.json().catch(() => ({})) as Record<string, any>;
+      const want = (Array.isArray(b.codes) ? b.codes : []).map((c: unknown) => String(c)).sort();
+      if (!want.length || want.length > 50 || want.some((c: string) => !c.startsWith(orderId + "-"))) return json({ error: "접수할 품목이 올바르지 않습니다" }, 400);
+      const readOrder = async () => ((await apiGet(`${API_BASE}/admin/orders/${orderId}?embed=items`, token)).order ?? {}) as Record<string, any>;
+      const stateOf = (o: Record<string, any>) => [...new Set(((o.items ?? []) as Record<string, any>[]).filter((it) => want.includes(String(it.order_item_code ?? ""))).map((it) => String(it.status_text ?? it.order_status ?? "")))].join(", ");
+      let order: Record<string, any>;
+      try { order = await readOrder(); } catch (e) { return json({ error: "카페24에서 주문을 읽지 못했어요 — " + String(e).slice(0, 200) }, 502); }
+      // 최신 주문으로 다시 분류한다 — 화면이 보낸 것은 주문번호·품목뿐이고 취소 구분·사유는 서버가 정한다
+      const g = cxlGroupsOf(order).find((x) => x.key === want.join(","));
+      if (!g) {
+        const its = ((order.items ?? []) as Record<string, any>[]).filter((it) => want.includes(String(it.order_item_code ?? "")));
+        if (its.length === want.length && its.every((it) => /^C[1-4]/.test(String(it.order_status ?? "")))) return json({ ok: true, already: true, status: stateOf(order) });
+        return json({ error: "그 사이 주문 상태가 바뀌었어요 — 새로고침한 뒤 다시 확인해주세요", stale: true, status: stateOf(order) }, 409);
+      }
+      const logRow = (ok: boolean, result: string, extra: Record<string, unknown> = {}) => sbRest("cancel_accept_log", { method: "POST", headers: { Prefer: "return=minimal" }, body: JSON.stringify({
+        order_id: orderId, items: (g.items as Record<string, any>[]).map((x) => ({ code: x.code, product_name: x.product_name, option: x.option, qty: x.qty })), reason_type: g.reason_type, reason_label: g.label, reason: g.reason_raw,
+        flags: (g.flags as CxlFlag[]).length ? g.flags : null, ok, result: String(result).slice(0, 500), by_id: authed.id, by_name: authed.name, ...extra }) }).catch(() => null);
+      const flags = g.flags as CxlFlag[];
+      const blocks = flags.filter((f) => f.level === "block");
+      if (blocks.length) return json({ error: blocks.map((f) => f.text).join(" / "), blocked: true }, 400);
+      if (flags.length && b.ack !== true) return json({ error: "직접 확인이 필요한 주문이에요", need_ack: true, flags }, 409);
+      const recent = await recentOk();
+      if ((g.items as Record<string, any>[]).some((x) => recent.has(x.code))) return json({ ok: true, already: true, status: "방금 접수함(카페24 반영 대기)" });
+      // 안전장치: 사람별 1시간 300건 · 전체 하루 1,000건 (성공·실패 모두 셈)
+      const sinceIso = (ms: number) => new Date(Date.now() - ms).toISOString();
+      const mine = ((await sbRest(`cancel_accept_log?select=id&by_id=eq.${encodeURIComponent(authed.id)}&created_at=gte.${sinceIso(3600e3)}&limit=500`)) ?? []) as unknown[];
+      const allDay = ((await sbRest(`cancel_accept_log?select=id&created_at=gte.${sinceIso(24 * 3600e3)}&limit=1500`)) ?? []) as unknown[];
+      if (mine.length >= 300 || allDay.length >= 1000) return json({ error: "취소 접수 한도를 넘었어요 — 잠시 뒤 다시 시도해주세요" }, 429);
+      let res: Record<string, any>;
+      try {
+        res = await cafe24AcceptNaverCancel(orderId, (g.items as Record<string, any>[]).map((x) => ({ code: String(x.code), qty: Number(x.qty) })), String(g.reason_type), String(g.reason_raw), token) as Record<string, any>;
+      } catch (e) {
+        const st = (e as { status?: number }).status ?? 0, raw = String((e as Error).message ?? e);
+        await logRow(false, raw);
+        const msg = st === 403 || /scope|permission|insufficient/i.test(raw) ? "카페24 앱에 '주문 쓰기' 권한이 없어요 — '카페24 연동'으로 다시 연동해주세요" : "카페24가 접수하지 못했어요 — " + raw.slice(0, 300);
+        return json({ error: msg, cafe24_status: st }, st === 403 ? 403 : 502);
+      }
+      const claim = String((res.cancellation ?? res.order ?? res)?.claim_code ?? "") || null;
+      let after = "";
+      try { after = stateOf(await readOrder()); } catch { /* 읽기 실패해도 접수는 성립 */ }
+      await logRow(true, after && !/취소신청/.test(after) ? after : "접수됨(카페24 반영 대기)", { claim_code: claim });
+      return json({ ok: true, status: after, claim_code: claim, label: g.label });
     }
 
     // ── 미발송 관리 (2026-09-28 사용자 요청): 관리자·MD·CS/물류팀. 10분 캐시(권한 검사 뒤), 새로고침은 nocache=1

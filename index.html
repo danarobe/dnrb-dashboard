@@ -653,6 +653,7 @@
       <button class="menu-item" data-menu="rscan" id="menu-rscan" onclick="showMenu('rscan')"><i class="fa-solid fa-barcode" style="width:18px;text-align:center;color:#818cf8;"></i>반품 스캔</button>
       <button class="menu-item" data-menu="unship" id="menu-unship" onclick="showMenu('unship')"><i class="fa-solid fa-hourglass-half" style="width:18px;text-align:center;color:#818cf8;"></i>미발송 관리</button>
       <button class="menu-item" data-menu="soldout" id="menu-soldout" style="display:none;" onclick="showMenu('soldout')"><i class="fa-solid fa-box-open" style="width:18px;text-align:center;color:#818cf8;"></i>품절 재고 점검</button>
+      <button class="menu-item" data-menu="cxl" id="menu-cxl" style="display:none;" onclick="showMenu('cxl')"><i class="fa-solid fa-ban" style="width:18px;text-align:center;color:#818cf8;"></i>취소·반품 접수</button>
     </div>
   </div>
   <div class="menu-sec" data-sec="ads">
@@ -1453,6 +1454,34 @@
         </div>
         <div id="unship-summary" style="margin-bottom:12px;"></div>
         <div id="unship-list"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══ 취소·반품 접수 (#cxl, 2026-10-05 사용자 요청 — 관리자) — 고객이 넣은 취소신청을 사유별로 나눠 한 번에 접수한다.
+       지금은 네이버페이 취소신청(카페24 '취소신청')만. 자사몰 취소접수·반품은 다음 단계. ══ -->
+  <div class="section-card page-sec" id="sec-cxl">
+    <div class="section-header" style="cursor:default;">
+      <h2><span><i class="fa-solid fa-ban" style="color:#4f46e5;font-size:.9em;"></i></span> 취소·반품 접수</h2>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;">
+        <button class="toggle-btn" onclick="cxlReload()" title="카페24에서 취소신청을 다시 불러옵니다"><i class="fa-solid fa-rotate"></i> 새로고침</button>
+      </div>
+    </div>
+    <div class="section-body">
+      <div id="cxl-tabs" style="display:flex;gap:2px;border-bottom:2px solid #e5e7eb;margin-bottom:14px;flex-wrap:wrap;"></div>
+      <div id="cxl-pane-npay" class="cxl-pane">
+        <div style="font-size:.8rem;color:#6b7280;margin-bottom:10px;line-height:1.7;">
+          · 고객이 <b>네이버페이에서 넣은 취소신청</b>을 모아, 고객이 고른 사유대로 <b>취소 구분</b>을 나눴어요.<br>
+          · <b>[접수하기]</b>를 누르면 체크된 주문이 카페24에서 <b>'취소접수'</b>로 바뀌어요. 취소 구분과 취소 사유는 고객이 신청한 그대로 들어가요.<br>
+          · 접수하면 네이버페이에서 <b>취소·환불이 진행되고 되돌릴 수 없어요.</b> 빼고 싶은 주문은 체크를 풀어 두세요.<br>
+          · <b style="color:#b45309;">직접 확인 권장</b>은 [접수하기]에 들어가지 않아요. 이유를 읽어 보고 한 건씩 접수하거나 카페24에서 처리하세요.
+        </div>
+        <div id="cxl-summary" style="margin-bottom:12px;"></div>
+        <div id="cxl-result"></div>
+        <div id="cxl-list"></div>
+      </div>
+      <div id="cxl-pane-log" class="cxl-pane" style="display:none;">
+        <div id="cxl-log"></div>
       </div>
     </div>
   </div>
@@ -2829,6 +2858,7 @@ function applyRole() {
   $('menu-adv').style.display = (isAdmin() || isStaff()) && !isCS() ? '' : 'none';   // MD도 광고 효율 접근
   $('menu-admgr').style.display = admgrLegacyAllowed() ? '' : 'none';
   $('menu-cnbuy').style.display = cnAllowed() ? '' : 'none';
+  $('menu-cxl').style.display = isAdmin() ? '' : 'none';   // 취소·반품 접수 = 관리자 전용 (2026-10-05 — 카페24에 취소접수를 보내는 기능)
   $('menu-soldout').style.display = soldoutAllowed() ? '' : 'none';   // 품절 재고 점검 = 관리자 + 물류팀 (2026-09-29 사용자 요청, CS팀 제외)   // 광고관리자(기존) = 내장 광고관리자 — 2026-09-13 사용자 요청: 본인 계정(ADMGR_LEGACY_USERS)에게만 노출. 코드·데이터·서버 액션은 그대로
   $('menu-addash').style.display = isAdmin() ? '' : 'none';   // 광고관리자(친구 광고 대시보드 SSO) = 관리자 + 허용 목록(ad_dashboard_users) — 목록은 adDashAccessLoad()가 확인해 켬 (2026-09-11 사용자 지정)
   $('menu-rwatch').style.display = (isAdmin() || isStaff()) && !isCS() ? '' : 'none'; // 반품 관리 = 관리자 + MD
@@ -3525,6 +3555,229 @@ function soldoutLogRender() {
         <td>${r.target === 'cafe24' ? `카페24 ${r.stock_before ?? '—'}→${r.stock_after ?? '—'}` : (r.stock_before ?? '—') + '개'}</td>
         <td style="font-weight:800;color:${r.ok ? '#15803d' : r.skipped ? '#92400e' : '#b91c1c'};white-space:nowrap;">${r.ok ? '바뀜' : r.skipped ? '건너뜀' : '실패'}</td>
         <td class="m-hide" style="text-align:left;font-size:.72rem;color:#6b7280;">${escHtml(r.error || '')}</td></tr>`; }).join('')}</tbody></table></div>`;
+}
+
+/* ══ 취소·반품 접수 (#cxl, 2026-10-05 사용자 요청 — 관리자) ══
+   ① 네이버페이 취소신청: 서버 cafe24-analytics cancelreq_list(카페24 '취소신청' 주문을 고객이 고른 사유대로 분류, 캐시 없음)
+      → [접수하기]가 체크된 주문을 한 건씩 cancelreq_accept(카페24 쓰기 ② — 취소접수)로 보낸다. 취소 구분·사유는 서버가 최신 주문으로 다시 정한다.
+      애매한 주문은 '직접 확인 권장'(flags)으로 빼고 한 건씩만 접수. 처리 기록은 cancel_accept_log(처리 내역 탭).
+   자사몰 취소접수·반품은 다음 단계(사용자: 이게 잘 되면 진행). */
+const CXL_TABS = [['npay', '네이버페이 취소신청', null, 'fa-solid fa-ban'], ['log', '처리 내역', null, 'fa-solid fa-clock-rotate-left']];
+const cxlState = { data: null, loading: false, tab: 'npay', off: new Set(), status: new Map(), running: false, lastRun: null, log: null, logLoading: false };
+const cxlKey = g => g.order_id + '|' + g.key;
+const cxlShort = v => String(v || '').slice(5);   // 2026-10-04 23:04 → 10-04 23:04
+function cxlInit() {
+  cxlTabsRender();
+  if (!cxlState.data && !cxlState.loading) cxlLoad(); else cxlRender();
+}
+function cxlTabsRender() {
+  const n = cxlState.data ? cxlState.data.groups.filter(g => !cxlDone(g)).length : null;
+  uiTabs('cxl-tabs', CXL_TABS.map(t => t[0] === 'npay' ? [t[0], t[1], n ? String(n) : null, t[3]] : t), cxlState.tab, 'cxlSetTab');
+}
+function cxlSetTab(k) {
+  cxlState.tab = k; cxlTabsRender();
+  document.querySelectorAll('.cxl-pane').forEach(el => { el.style.display = el.id === 'cxl-pane-' + k ? '' : 'none'; });
+  if (k === 'log') cxlLogLoad();
+}
+function cxlReload() { if (cxlState.running) { showToast('접수 처리 중이에요 — 끝난 뒤 눌러주세요'); return; } if (cxlState.tab === 'log') cxlLogLoad(); else { cxlState.lastRun = null; cxlState.status = new Map(); cxlLoad(); } }
+async function cxlLoad() {
+  if (cxlState.loading) return;
+  cxlState.loading = true;
+  if (!cxlState.data) $('cxl-list').innerHTML = '<div class="empty-state"><p><i class="fa-solid fa-spinner fa-spin"></i> 카페24에서 취소신청을 불러오는 중…</p></div>';
+  try {
+    cxlState.data = await anGet({ action: 'cancelreq_list' });
+    cxlTabsRender(); cxlRender();
+  } catch (e) { $('cxl-list').innerHTML = `<div class="empty-state"><p style="color:#b91c1c;">불러오지 못했어요 — ${escHtml(e.message)}</p></div>`; }
+  finally { cxlState.loading = false; }
+}
+// 접수가 끝난 주문: 서버가 '방금 접수'로 표시했거나, 이번 화면에서 접수에 성공한 것
+function cxlDone(g) { const s = cxlState.status.get(cxlKey(g)); return !!g.just_accepted || !!(s && s.state === 'ok'); }
+function cxlBuckets() {
+  const groups = (cxlState.data && cxlState.data.groups) || [];
+  const done = groups.filter(cxlDone);
+  const rest = groups.filter(g => !cxlDone(g));
+  const check = rest.filter(g => (g.flags || []).length);
+  const auto = rest.filter(g => !(g.flags || []).length);
+  const order = (cxlState.data && cxlState.data.labels) || [];
+  const byLabel = new Map();
+  for (const g of auto) { if (!byLabel.has(g.label)) byLabel.set(g.label, []); byLabel.get(g.label).push(g); }
+  const labels = [...byLabel.keys()].sort((a, b) => (byLabel.get(b).length - byLabel.get(a).length) || (order.indexOf(a) - order.indexOf(b)));
+  return { groups, done, check, auto, byLabel, labels };
+}
+function cxlItemsHtml(g) {
+  return g.items.map(x => `<div style="padding:1px 0;"><b>${escHtml(x.product_name)}</b> <span style="color:#6b7280;">${escHtml(x.option || '')}</span> <span style="color:#374151;white-space:nowrap;">${x.qty}개</span></div>`).join('')
+    + (g.other_items ? `<div style="font-size:.68rem;color:#9ca3af;">같은 주문의 다른 상품 ${g.other_items}개는 취소 신청하지 않음</div>` : '');
+}
+function cxlOrderCell(g) {
+  return `<div style="white-space:nowrap;"><b style="font-family:monospace;">${escHtml(g.order_id)}</b></div><div style="font-size:.7rem;color:#6b7280;">${escHtml(g.buyer || '')} · 결제 ${escHtml(cxlShort(g.paid_at))}</div>`;
+}
+function cxlStatusCell(g) {
+  const s = cxlState.status.get(cxlKey(g));
+  if (g.just_accepted && !s) return `<span style="color:#15803d;font-weight:800;white-space:nowrap;"><i class="fa-solid fa-circle-check"></i> 접수됨</span><div style="font-size:.68rem;color:#6b7280;">${escHtml(g.just_accepted.by || '')} · 카페24 반영 대기</div>`;
+  if (!s) return '<span style="color:#9ca3af;">대기</span>';
+  if (s.state === 'run') return '<span style="color:#4f46e5;font-weight:700;white-space:nowrap;"><i class="fa-solid fa-spinner fa-spin"></i> 접수 중</span>';
+  if (s.state === 'ok') return `<span style="color:#15803d;font-weight:800;white-space:nowrap;"><i class="fa-solid fa-circle-check"></i> 접수됨</span>${s.text ? `<div style="font-size:.68rem;color:#6b7280;">${escHtml(s.text)}</div>` : ''}`;
+  return `<span style="color:#b91c1c;font-weight:800;white-space:nowrap;"><i class="fa-solid fa-circle-xmark"></i> 접수 안 됨</span><div style="font-size:.68rem;color:#b91c1c;max-width:260px;">${escHtml(s.text || '')}</div>`;
+}
+function cxlRender() {
+  const d = cxlState.data; if (!d || !$('cxl-list')) return;
+  const b = cxlBuckets();
+  const cnt = list => list.reduce((n, g) => n + g.items.length, 0);
+  const picked = b.auto.filter(g => !cxlState.off.has(cxlKey(g)));
+  const tile = (label, v, sub, col) => `<div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:10px;padding:8px 14px;min-width:120px;"><div style="font-size:.7rem;color:#6b7280;">${label}</div><div style="font-size:1.15rem;font-weight:800;color:${col || '#111827'};">${v}</div>${sub ? `<div style="font-size:.68rem;color:#9ca3af;">${sub}</div>` : ''}</div>`;
+  const bt = d.fetched_at ? new Date(d.fetched_at).toLocaleString('ko-KR', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '';
+  const chip = (label, n, bg, fg, anchor) => `<button onclick="cxlJump('${anchor}')" style="border:none;cursor:pointer;background:${bg};color:${fg};border-radius:99px;padding:5px 13px;font-size:.82rem;font-weight:800;white-space:nowrap;">${escHtml(label)} <span style="font-size:.95rem;">${n}</span></button>`;
+  const chips = b.labels.map((l, i) => chip(l, b.byLabel.get(l).length, '#eef2ff', '#3730a3', 'cxl-sec-' + i)).join('<span style="color:#d1d5db;">/</span>')
+    + (b.check.length ? `<span style="color:#d1d5db;">/</span>` + chip('직접 확인 권장', b.check.length, '#fef3c7', '#92400e', 'cxl-sec-check') : '');
+  const total = b.auto.length + b.check.length;
+  $('cxl-summary').innerHTML = `<div style="display:flex;gap:8px;flex-wrap:wrap;">
+      ${tile('취소신청', fmt(total) + '건', '품목 ' + fmt(cnt(b.auto) + cnt(b.check)) + '개')}
+      ${tile('바로 접수할 수 있는 주문', fmt(b.auto.length) + '건', '품목 ' + fmt(cnt(b.auto)) + '개', '#4338ca')}
+      ${tile('직접 확인 권장', fmt(b.check.length) + '건', b.check.length ? '아래에서 한 건씩 확인' : '', b.check.length ? '#b45309' : '')}
+      ${b.done.length ? tile('방금 접수함', fmt(b.done.length) + '건', '카페24 반영 대기', '#15803d') : ''}
+    </div>
+    ${total ? `<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-top:10px;"><span style="font-size:.78rem;font-weight:700;color:#374151;">취소 구분</span>${chips || '<span style="font-size:.78rem;color:#6b7280;">바로 접수할 수 있는 주문이 없어요</span>'}</div>` : ''}
+    <div style="font-size:.72rem;color:#6b7280;margin-top:6px;">카페24 조회 ${escHtml(bt)} · 최근 90일 주문 가운데 '취소신청' 상태</div>
+    ${b.auto.length ? `<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:12px;padding:10px 12px;background:#eef2ff;border:1px solid #c7d2fe;border-radius:12px;">
+      <button class="btn-analyze" style="background:#4f46e5;" onclick="cxlRunAll()" ${cxlState.running || !picked.length ? 'disabled' : ''}>${cxlState.running ? '<i class="fa-solid fa-spinner fa-spin"></i> 접수하는 중…' : `<i class="fa-solid fa-circle-check"></i> 접수하기 (${picked.length}건)`}</button>
+      <span style="font-size:.78rem;color:#3730a3;">체크된 주문 <b>${picked.length}건</b>(품목 ${cnt(picked)}개)을 고객이 신청한 사유 그대로 카페24에서 '취소접수'로 바꿔요.${picked.length < b.auto.length ? ` 체크를 푼 ${b.auto.length - picked.length}건은 건너뛰어요.` : ''}</span></div>` : ''}`;
+  const lr = cxlState.lastRun;
+  $('cxl-result').innerHTML = lr ? `<div style="border:1px solid ${lr.fail || lr.stopped ? '#fecaca' : '#bbf7d0'};background:${lr.fail || lr.stopped ? '#fef2f2' : '#f0fdf4'};border-radius:12px;padding:10px 14px;margin-bottom:12px;font-size:.82rem;">
+      <b style="color:${lr.fail || lr.stopped ? '#b91c1c' : '#15803d'};">${lr.running ? `접수하는 중… ${lr.ok + lr.fail} / ${lr.total}` : `접수 ${lr.ok}건 완료${lr.fail ? ` · 접수 안 된 주문 ${lr.fail}건` : ''}`}</b>
+      ${lr.stopped ? `<div style="color:#b91c1c;margin-top:4px;">${escHtml(lr.stopped)}</div>` : ''}
+      ${(lr.fails || []).map(f => `<div style="margin-top:3px;color:#7f1d1d;"><b style="font-family:monospace;">${escHtml(f.order_id)}</b> — ${escHtml(f.msg)}</div>`).join('')}</div>` : '';
+  if (!b.groups.length) { $('cxl-list').innerHTML = '<div class="empty-state"><p>지금 들어와 있는 취소신청이 없어요</p></div>'; return; }
+  const dis = cxlState.running ? 'disabled' : '';
+  const head = `<thead><tr><th style="width:34px;"></th><th style="text-align:left;">신청</th><th style="text-align:left;">주문</th><th style="text-align:left;">상품 · 옵션 · 수량</th><th>금액</th><th style="text-align:left;">고객이 적은 사유</th><th style="text-align:left;">결과</th></tr></thead>`;
+  const autoHtml = b.labels.map((l, i) => {
+    const list = b.byLabel.get(l);
+    const allOn = list.every(g => !cxlState.off.has(cxlKey(g)));
+    const rows = list.map(g => {
+      const k = cxlKey(g), on = !cxlState.off.has(k);
+      return `<tr style="${on ? '' : 'opacity:.5;'}">
+        <td style="vertical-align:top;"><input type="checkbox" ${on ? 'checked' : ''} ${dis} data-k="${escHtml(k)}" onchange="cxlToggle(this)" title="접수하기에 넣기" style="width:17px;height:17px;" /></td>
+        <td style="text-align:left;vertical-align:top;white-space:nowrap;font-size:.76rem;">${escHtml(cxlShort(g.requested_at))}</td>
+        <td style="text-align:left;vertical-align:top;">${cxlOrderCell(g)}</td>
+        <td style="text-align:left;vertical-align:top;font-size:.78rem;">${cxlItemsHtml(g)}</td>
+        <td style="vertical-align:top;white-space:nowrap;">${fmt(g.amount)}원</td>
+        <td style="text-align:left;vertical-align:top;font-size:.78rem;max-width:260px;white-space:pre-wrap;">${g.reason_text ? escHtml(g.reason_text) : '<span style="color:#9ca3af;">(적지 않음)</span>'}</td>
+        <td style="text-align:left;vertical-align:top;font-size:.76rem;">${cxlStatusCell(g)}</td></tr>`;
+    }).join('');
+    return `<div id="cxl-sec-${i}" style="border:1px solid #e5e7eb;border-radius:12px;padding:12px 14px;margin-bottom:12px;background:#fff;">
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px;">
+        <b style="font-size:.95rem;"><i class="fa-solid fa-tag" style="color:#818cf8;"></i> ${escHtml(l)}</b>
+        <span style="background:#eef2ff;color:#3730a3;border-radius:99px;padding:2px 10px;font-size:.74rem;font-weight:800;">${list.length}건</span>
+        <span style="font-size:.74rem;color:#6b7280;">품목 ${cnt(list)}개 · 카페24 취소 구분도 같은 이름으로 들어가요</span>
+        <button class="toggle-btn" style="margin-left:auto;font-size:.72rem;padding:3px 10px;" ${dis} data-l="${escHtml(l)}" data-on="${allOn ? '0' : '1'}" onclick="cxlToggleAll(this)">${allOn ? '전체 해제' : '전체 선택'}</button>
+      </div>
+      <div class="table-wrap"><table style="width:100%;font-size:.8rem;">${head}<tbody>${rows}</tbody></table></div></div>`;
+  }).join('');
+  const checkHtml = b.check.length ? `<div id="cxl-sec-check" style="border:1px solid #fcd34d;border-radius:12px;padding:12px 14px;margin-bottom:12px;background:#fffbeb;">
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:4px;">
+        <b style="font-size:.95rem;color:#92400e;"><i class="fa-solid fa-triangle-exclamation"></i> 직접 확인 권장</b>
+        <span style="background:#fde68a;color:#92400e;border-radius:99px;padding:2px 10px;font-size:.74rem;font-weight:800;">${b.check.length}건</span>
+      </div>
+      <div style="font-size:.74rem;color:#92400e;margin-bottom:8px;">[접수하기]에는 들어가지 않아요. '확인할 점'을 읽어 보고 괜찮으면 한 건씩 접수하세요.</div>
+      <div class="table-wrap"><table style="width:100%;font-size:.8rem;"><thead><tr><th style="text-align:left;">신청</th><th style="text-align:left;">주문</th><th style="text-align:left;">상품 · 옵션 · 수량</th><th style="text-align:left;">취소 구분 · 고객이 적은 사유</th><th style="text-align:left;">확인할 점</th><th style="text-align:left;">처리</th></tr></thead><tbody>
+      ${b.check.map(g => {
+        const k = cxlKey(g), blocked = g.flags.some(f => f.level === 'block'), s = cxlState.status.get(k);
+        return `<tr>
+          <td style="text-align:left;vertical-align:top;white-space:nowrap;font-size:.76rem;">${escHtml(cxlShort(g.requested_at))}</td>
+          <td style="text-align:left;vertical-align:top;">${cxlOrderCell(g)}<div style="font-size:.7rem;color:#6b7280;">${fmt(g.amount)}원${g.naver ? '' : ' · ' + escHtml(g.place || '')}</div></td>
+          <td style="text-align:left;vertical-align:top;font-size:.78rem;">${cxlItemsHtml(g)}</td>
+          <td style="text-align:left;vertical-align:top;font-size:.78rem;max-width:230px;">${g.label ? `<span style="background:#eef2ff;color:#3730a3;border-radius:99px;padding:1px 8px;font-weight:800;white-space:nowrap;">${escHtml(g.label)}</span>` : '<span style="color:#b91c1c;font-weight:700;">구분 없음</span>'}<div style="margin-top:3px;white-space:pre-wrap;">${g.reason_text ? escHtml(g.reason_text) : '<span style="color:#9ca3af;">(적지 않음)</span>'}</div></td>
+          <td style="text-align:left;vertical-align:top;font-size:.76rem;min-width:200px;">${g.flags.map(f => `<div style="color:${f.level === 'block' ? '#b91c1c' : '#92400e'};padding:1px 0;">· ${escHtml(f.text)}</div>`).join('')}</td>
+          <td style="text-align:left;vertical-align:top;font-size:.76rem;white-space:nowrap;">
+            <button class="toggle-btn" style="font-size:.7rem;padding:2px 9px;" data-site="cafe24" data-oid="${escHtml(g.order_id)}" onclick="rscanOpen(this)"><i class="fa-solid fa-arrow-up-right-from-square"></i> 카페24</button>
+            ${blocked ? '' : `<button class="toggle-btn" style="font-size:.7rem;padding:2px 9px;background:#b45309;color:#fff;border-color:#b45309;" ${dis} data-k="${escHtml(k)}" onclick="cxlAcceptChecked(this)">확인하고 접수</button>`}
+            ${s ? `<div style="margin-top:4px;white-space:normal;">${cxlStatusCell(g)}</div>` : ''}</td></tr>`;
+      }).join('')}</tbody></table></div></div>` : '';
+  const doneHtml = b.done.length ? `<details style="border:1px solid #bbf7d0;border-radius:12px;padding:10px 14px;margin-bottom:12px;background:#f0fdf4;font-size:.8rem;">
+      <summary style="cursor:pointer;font-weight:800;color:#166534;"><i class="fa-solid fa-circle-check"></i> 방금 접수한 주문 ${b.done.length}건 <span style="font-weight:600;color:#6b7280;">— 카페24 조회에 반영되면 목록에서 사라져요</span></summary>
+      ${b.done.map(g => `<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;padding:4px 0;border-top:1px solid #dcfce7;"><b style="font-family:monospace;">${escHtml(g.order_id)}</b><span>${escHtml(g.label || '')}</span><span style="color:#6b7280;">${escHtml(g.items.map(x => x.product_name).join(', '))}</span></div>`).join('')}</details>` : '';
+  $('cxl-list').innerHTML = autoHtml + checkHtml + doneHtml;
+}
+function cxlJump(id) { const el = $(id); if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' }); }
+function cxlToggle(cb) { if (cxlState.running) return; const k = cb.dataset.k; if (cb.checked) cxlState.off.delete(k); else cxlState.off.add(k); cxlRender(); }
+function cxlToggleAll(btn) {
+  if (cxlState.running) return;
+  const list = cxlBuckets().byLabel.get(btn.dataset.l) || [];
+  for (const g of list) { if (btn.dataset.on === '1') cxlState.off.delete(cxlKey(g)); else cxlState.off.add(cxlKey(g)); }
+  cxlRender();
+}
+// 한 건 접수 — 서버가 최신 주문으로 다시 분류하고(취소 구분·사유는 서버가 정함) 카페24에 '취소접수'를 보낸다
+async function cxlAcceptOne(g, ack) {
+  try {
+    const res = await fetch(fnUrl('cafe24-analytics', { action: 'cancelreq_accept', order_id: g.order_id }), { method: 'POST', headers: sbHeaders(), body: JSON.stringify({ codes: g.items.map(x => x.code), ack: !!ack }) });
+    const r = await res.json().catch(() => ({}));
+    if (!res.ok || r.error) return { ok: false, error: r.error || ('오류 ' + res.status), need_ack: !!r.need_ack, flags: r.flags || [] };
+    return r;
+  } catch (e) { return { ok: false, error: '연결이 끊겼어요 — ' + (e.message || e) }; }
+}
+async function cxlRunAll() {
+  if (cxlState.running) return;
+  const b = cxlBuckets();
+  const targets = b.auto.filter(g => !cxlState.off.has(cxlKey(g)));
+  if (!targets.length) { showToast('접수할 주문이 없어요'); return; }
+  const byL = new Map(); targets.forEach(g => byL.set(g.label, (byL.get(g.label) || 0) + 1));
+  const nItems = targets.reduce((n, g) => n + g.items.length, 0);
+  if (!confirm(`네이버페이 취소신청 ${targets.length}건(품목 ${nItems}개)을 접수할까요?\n\n${[...byL].map(([l, n]) => `· ${l} ${n}건`).join('\n')}\n\n취소 구분과 취소 사유는 고객이 신청한 그대로 들어가요.\n접수하면 네이버페이에서 취소·환불이 진행되고, 되돌릴 수 없어요.`)) return;
+  cxlState.running = true;
+  const run = cxlState.lastRun = { running: true, total: targets.length, ok: 0, fail: 0, fails: [], stopped: '' };
+  let streak = 0;
+  for (let i = 0; i < targets.length; i++) {
+    const g = targets[i], k = cxlKey(g);
+    cxlState.status.set(k, { state: 'run' }); cxlRender();
+    const r = await cxlAcceptOne(g, false);
+    if (r.ok) { run.ok++; streak = 0; cxlState.status.set(k, { state: 'ok', text: r.already ? '이미 접수돼 있었어요' : (r.status && !/취소신청/.test(r.status) ? r.status : '') }); }
+    else {
+      run.fail++; streak++;
+      const msg = r.need_ack ? '그 사이 확인이 필요한 주문으로 바뀌었어요 — ' + (r.flags || []).map(f => f.text).join(' / ') : r.error;
+      run.fails.push({ order_id: g.order_id, msg }); cxlState.status.set(k, { state: 'fail', text: msg });
+      // 첫 건부터 막히거나 연달아 3건이 막히면 같은 원인일 가능성이 커서 나머지는 보내지 않는다
+      if (run.ok === 0 || streak >= 3) { const left = targets.length - i - 1; if (left) run.stopped = run.ok === 0 ? `첫 주문부터 접수되지 않아 나머지 ${left}건은 보내지 않았어요. 카페24에는 아무 변화가 없어요.` : `연달아 3건이 접수되지 않아 나머지 ${left}건은 보내지 않았어요. 앞서 접수된 ${run.ok}건은 그대로 접수돼 있어요.`; break; }
+    }
+    cxlRender();
+  }
+  run.running = false; cxlState.running = false;
+  cxlRender();
+  await cxlLoad();
+}
+async function cxlAcceptChecked(btn) {
+  if (cxlState.running) return;
+  const g = ((cxlState.data && cxlState.data.groups) || []).find(x => cxlKey(x) === btn.dataset.k); if (!g) return;
+  if (!confirm(`주문 ${g.order_id} 의 취소신청을 접수할까요?\n\n취소 구분: ${g.label}\n상품: ${g.items.map(x => x.product_name + (x.option ? ' / ' + x.option : '')).join(', ')}\n\n확인할 점\n${g.flags.map(f => '· ' + f.text).join('\n')}\n\n접수하면 네이버페이에서 취소·환불이 진행되고, 되돌릴 수 없어요.`)) return;
+  const k = cxlKey(g);
+  cxlState.running = true; cxlState.status.set(k, { state: 'run' }); cxlRender();
+  const r = await cxlAcceptOne(g, true);
+  cxlState.status.set(k, r.ok ? { state: 'ok', text: r.already ? '이미 접수돼 있었어요' : (r.status && !/취소신청/.test(r.status) ? r.status : '') } : { state: 'fail', text: r.error });
+  cxlState.running = false;
+  showToast(r.ok ? '접수했어요' : '접수되지 않았어요');
+  cxlRender();
+  if (r.ok) await cxlLoad();
+}
+async function cxlLogLoad() {
+  if (cxlState.logLoading) return;
+  cxlState.logLoading = true;
+  if (!cxlState.log) $('cxl-log').innerHTML = '<div class="empty-state"><p><i class="fa-solid fa-spinner fa-spin"></i> 불러오는 중…</p></div>';
+  try { cxlState.log = (await anGet({ action: 'cancelreq_log' })).rows || []; cxlLogRender(); }
+  catch (e) { $('cxl-log').innerHTML = `<div class="empty-state"><p style="color:#b91c1c;">불러오지 못했어요 — ${escHtml(e.message)}</p></div>`; }
+  finally { cxlState.logLoading = false; }
+}
+function cxlLogRender() {
+  const rows = cxlState.log || [];
+  if (!rows.length) { $('cxl-log').innerHTML = '<div class="empty-state"><p>최근 30일 동안 접수한 기록이 없어요</p></div>'; return; }
+  const when = v => v ? new Date(v).toLocaleString('ko-KR', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '';
+  const okN = rows.filter(r => r.ok).length;
+  $('cxl-log').innerHTML = `<div style="font-size:.76rem;color:#6b7280;margin-bottom:8px;">최근 30일 · 접수 ${fmt(okN)}건${rows.length - okN ? ` · 접수 안 됨 ${fmt(rows.length - okN)}건` : ''}</div>
+    <div class="table-wrap"><table style="width:100%;font-size:.8rem;"><thead><tr><th style="text-align:left;">처리 시각</th><th style="text-align:left;">처리자</th><th style="text-align:left;">주문</th><th style="text-align:left;">취소 구분 · 사유</th><th style="text-align:left;">상품</th><th style="text-align:left;">결과</th></tr></thead><tbody>
+    ${rows.map(r => `<tr>
+      <td style="text-align:left;vertical-align:top;white-space:nowrap;font-size:.76rem;">${escHtml(when(r.created_at))}</td>
+      <td style="text-align:left;vertical-align:top;white-space:nowrap;">${escHtml(r.by_name || '')}</td>
+      <td style="text-align:left;vertical-align:top;white-space:nowrap;"><b style="font-family:monospace;">${escHtml(r.order_id)}</b>${r.claim_code ? `<div style="font-size:.68rem;color:#9ca3af;">${escHtml(r.claim_code)}</div>` : ''}</td>
+      <td style="text-align:left;vertical-align:top;font-size:.78rem;max-width:260px;"><b>${escHtml(r.reason_label || '')}</b><div style="color:#6b7280;white-space:pre-wrap;">${escHtml(r.reason || '')}</div>${(r.flags || []).length ? `<div style="color:#92400e;font-size:.7rem;">직접 확인 뒤 접수: ${escHtml(r.flags.map(f => f.text).join(' / '))}</div>` : ''}</td>
+      <td style="text-align:left;vertical-align:top;font-size:.78rem;">${(r.items || []).map(x => `<div>${escHtml(x.product_name || '')} <span style="color:#6b7280;">${escHtml(x.option || '')}</span> ${x.qty || ''}개</div>`).join('')}</td>
+      <td style="text-align:left;vertical-align:top;font-size:.76rem;max-width:260px;">${r.ok ? `<span style="color:#15803d;font-weight:800;"><i class="fa-solid fa-circle-check"></i> ${escHtml(r.result || '접수됨')}</span>` : `<span style="color:#b91c1c;font-weight:800;"><i class="fa-solid fa-circle-xmark"></i> 접수 안 됨</span><div style="color:#b91c1c;font-size:.7rem;">${escHtml(r.result || '')}</div>`}</td></tr>`).join('')}</tbody></table></div>`;
 }
 
 /* ══ 미발송 관리 (#unship, 2026-09-28 사용자 요청 — 물류팀) ══
@@ -13568,7 +13821,7 @@ async function myChangePw() {
   } catch (e) { showToast('변경 실패 — ' + e.message); }
 }
 
-const MENU_KEYS = ['home', 'cr', 'an', 'perf', 'rwatch', 'rscan', 'unship', 'soldout', 'disp', 'stable', 'adv', 'admgr', 'profit', 'wm', 'meet', 'board', 'proj', 'users', 'my', 'purch', 'madechk', 'cnbuy'];
+const MENU_KEYS = ['home', 'cr', 'an', 'perf', 'rwatch', 'rscan', 'unship', 'soldout', 'disp', 'stable', 'adv', 'admgr', 'profit', 'wm', 'meet', 'board', 'proj', 'users', 'my', 'purch', 'madechk', 'cnbuy', 'cxl'];
 
 /* 모바일 메뉴 서랍 (2026-08-27) — 열기/닫기. 데스크톱에선 ☰ 버튼이 숨겨져 호출되지 않는다. */
 /* ── 홈 접기 (2026-08-27 UI 정리) ──
@@ -13644,7 +13897,7 @@ function showMenu(key) {
   const denied = (key === 'cr' && isStaff())
     || (key === 'rwatch' && isCS())                      // 반품 관리 = 관리자 + MD
     || (key === 'madechk' && isCS())                     // 자체제작 주문 점검 = 관리자 + MD (2026-09-03)
-    || (['users', 'disp', 'stable', 'profit', 'board', 'proj', 'wm'].includes(key) && !isAdmin());   // admgr은 MD·마케터도 진입(테스트 소재 탭만, 2026-08-27), wm = 근무 관리 (급여·계좌 포함)
+    || (['users', 'disp', 'stable', 'profit', 'board', 'proj', 'wm', 'cxl'].includes(key) && !isAdmin());   // admgr은 MD·마케터도 진입(테스트 소재 탭만, 2026-08-27), wm = 근무 관리 (급여·계좌 포함)
   if (denied) { showToast('접근 권한이 없습니다'); key = 'home'; }
   document.querySelectorAll('.page-sec').forEach(el => { el.style.display = 'none'; });
   const target = $('sec-' + key);
@@ -13686,6 +13939,7 @@ function showMenu(key) {
   if (key === 'rscan') rscanInit();
   if (key === 'unship') unshipInit();
   if (key === 'cnbuy') cnInit();
+  if (key === 'cxl') cxlInit();
   if (key === 'an' && anState.renderPending) renderAnalytics();   // 시작 시 미뤄 둔 상품 분석 표
   if (key === 'perf') perfTrendInit();
 }
