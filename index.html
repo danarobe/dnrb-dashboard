@@ -8558,6 +8558,7 @@ async function madeParseEz(buf) {
       ordered: cells.findIndex(c => c === '주문수량'), received: cells.findIndex(c => c === '입고수량' || c === '기입고수량'),
       remaining: cells.findIndex(c => c === '잔여수량'), status: cells.findIndex(c => c === '처리상태'),
       mall: cells.findIndex(c => c === '쇼핑몰상품명'), code: cells.findIndex(c => c === '쇼핑몰상품코드'),
+      ono: cells.findIndex(c => c === '주문번호'),
     };
     if (idx.name >= 0 && idx.ordered >= 0) { headerIdx = i; col = idx; break; }
   }
@@ -8575,11 +8576,48 @@ async function madeParseEz(buf) {
       opt: col.opt >= 0 ? String(c[col.opt] ?? '').trim() : '', ordered, received,
       remaining: remRaw !== '' ? Math.max(0, toNum(remRaw)) : Math.max(0, ordered - received),
       status: col.status >= 0 ? String(c[col.status] ?? '').trim() : '',
+      ...madeEzOrderDate(col.ono >= 0 ? c[col.ono] : ''),
     });
   }
   if (!rows.length) throw new Error('제작 상품 행이 없습니다');
   return rows;
 }
+// 이지픽 주문번호(A열, 예 2026100401146227)의 앞 8자리 = 주문한 날 → { ono, odate:'2026-10-04' }. 날짜로 읽히지 않으면 odate 없음
+function madeEzOrderDate(v) {
+  const ono = String(v ?? '').replace(/\.0$/, '').replace(/\s/g, '');
+  const m = ono.match(/^(20\d{2})(\d{2})(\d{2})\d{4,}$/);
+  if (!m || +m[2] < 1 || +m[2] > 12 || +m[3] < 1 || +m[3] > 31) return ono ? { ono } : {};
+  return { ono, odate: `${m[1]}-${m[2]}-${m[3]}` };
+}
+/* ── 최근 주문 표시 (2026-10-05 사용자 요청) — 최근 5일 안에 이지픽으로 주문한 옵션을 한눈에 구별 ──
+   기준 = 이지픽 주문번호의 날짜(취소 행 제외), 오늘 포함 5일 전까지. 두 탭(재고·입고 점검 / 주문 점검) 공통. */
+const MADE_RECENT_DAYS = 5;
+function madeRecentCut() { const d = new Date(); d.setDate(d.getDate() - MADE_RECENT_DAYS); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; }
+// 이지픽 행들 → 최근 주문 요약 { qty, list:[{date, qty}] } (없으면 null)
+function madeRecentOf(ezRows) {
+  const cut = madeRecentCut(), by = new Map();
+  for (const r of ezRows || []) {
+    if (!r.odate || r.odate < cut || String(r.status || '').includes('취소')) continue;
+    by.set(r.odate, (by.get(r.odate) || 0) + (r.ordered || 0));
+  }
+  if (!by.size) return null;
+  const list = [...by].sort((a, b) => b[0].localeCompare(a[0])).map(([date, qty]) => ({ date, qty }));
+  return { qty: list.reduce((t, x) => t + x.qty, 0), list };
+}
+const madeRecentMd = d => `${+d.slice(5, 7)}/${+d.slice(8, 10)}`;
+function madeRecentBadge(rc, small) {
+  if (!rc) return '';
+  const tip = `최근 ${MADE_RECENT_DAYS}일 안에 이지픽으로 주문 — ` + rc.list.map(x => `${madeRecentMd(x.date)} ${fmt(x.qty)}장`).join(', ');
+  return `<span title="${escHtml(tip)}" style="display:inline-block;background:#dbeafe;color:#1d4ed8;border:1px solid #93c5fd;border-radius:5px;padding:1px 6px;font-size:${small ? '.6rem' : '.64rem'};font-weight:800;margin-left:4px;white-space:nowrap;"><i class="fa-solid fa-cart-shopping" style="font-size:.58rem;"></i> 최근 주문 ${rc.list.map(x => madeRecentMd(x.date)).join('·')} · ${fmt(rc.qty)}장</span>`;
+}
+function madeRecentProductBadge(n) {
+  return n ? `<span title="최근 ${MADE_RECENT_DAYS}일 안에 이지픽으로 주문한 옵션 수" style="display:inline-block;background:#dbeafe;color:#1d4ed8;border:1px solid #93c5fd;border-radius:5px;padding:1px 6px;font-size:.64rem;font-weight:800;margin-left:4px;white-space:nowrap;"><i class="fa-solid fa-cart-shopping" style="font-size:.58rem;"></i> 최근 주문 ${n}옵션</span>` : '';
+}
+// 올린 이지픽 파일에 주문일이 들어 있는지(2026-10-05 이전에 올린 파일은 없음 → 다시 올리면 표시)
+const madeRecentReady = () => (((madeState.files.ez || {}).rows) || []).some(r => r.odate);
+const madeRecentLegend = () => !madeState.files.ez ? '' : madeRecentReady()
+  ? `<span style="display:inline-flex;align-items:center;gap:5px;"><span style="display:inline-block;width:11px;height:11px;background:#dbeafe;border:1px solid #93c5fd;border-left:3px solid #2563eb;border-radius:2px;"></span><b style="color:#1d4ed8;">파란 표시</b> = 최근 ${MADE_RECENT_DAYS}일(${madeRecentMd(madeRecentCut())}부터) 안에 이지픽으로 주문한 옵션</span>`
+  : `<span style="color:#b45309;">이지픽 엑셀을 다시 올리면 '최근 ${MADE_RECENT_DAYS}일 안에 주문한 옵션' 표시가 나와요</span>`;
 // 서버 저장/조회 — made_check_files(kind PK). 관리자·MD 공용
 async function madeFilesSave(kind, fileName, rows) {
   const rec = { kind, file_name: fileName, uploaded_by: SESSION.name, uploaded_at: new Date().toISOString(), row_count: rows.length, rows };
@@ -8665,10 +8703,11 @@ function madeStkCompute() {
     // 카페24 판매(최근 7일 하루 평균). 집계(scope=all)는 최근 30일 주문이 있는 상품 전부라, 없으면 = 30일 주문 없음 → 0 (판매 수치를 못 받았으면 null)
     const sr = salesIdx.get(key) || null, hasSales = !!madeState.sales;
     if (sr) salesUsed.add(sr.product_no);
-    const g = groups.get(key) || { key, name: r.name, sname: r.sname, watched, made: madeIsMade(r.name), rows: [], stock: 0, unshipped: 0, incoming: 0, shortage: 0, warn: 0,
+    const recent = ez ? madeRecentOf(ez.rows) : null;   // 최근 5일 안에 주문한 옵션 (2026-10-05)
+    const g = groups.get(key) || { key, name: r.name, sname: r.sname, watched, made: madeIsMade(r.name), rows: [], stock: 0, unshipped: 0, incoming: 0, shortage: 0, warn: 0, recent: 0,
       avg7: sr ? sr.avg7 : hasSales ? 0 : null, noSale: hasSales && !sr, days7: sr ? sr.days7 : null, firstSale: sr ? sr.first_sale : null };
-    g.rows.push({ ...r, incoming, avail, after, shortage, warn, warnLow, warnSafe, ez, avg7: sr ? madeSalesOpt(sr, r.opt, cellCount.get(key) || 0) : hasSales ? 0 : null });
-    g.stock += r.stock; g.unshipped += r.unshipped; g.incoming += incoming; g.shortage += shortage; if (warn) g.warn++;
+    g.rows.push({ ...r, incoming, avail, after, shortage, warn, warnLow, warnSafe, ez, recent, avg7: sr ? madeSalesOpt(sr, r.opt, cellCount.get(key) || 0) : hasSales ? 0 : null });
+    g.stock += r.stock; g.unshipped += r.unshipped; g.incoming += incoming; g.shortage += shortage; if (warn) g.warn++; if (recent) g.recent++;
     groups.set(key, g);
   }
   const noCode = ezRows.filter(r => !r.code);
@@ -8698,11 +8737,13 @@ function madeStkRender() {
     admgrTile(admgrDot('#0ea5e9') + '이지픽 미입고', madeState.files.ez ? fmt(allOpts.reduce((t, o) => t + o.incoming, 0)) + '장' : '—', false) +
     admgrTile('코드 없음 / 매칭 안 됨', madeState.files.ez ? `${noCode.length} / ${unmatched.length}건` : '—', false);
   const chip = (k, label, n) => `<button onclick="madeState.stkFilter='${k}';madeStkRender()" style="border:1.5px solid ${madeState.stkFilter === k ? 'transparent' : '#d1d5db'};background:${madeState.stkFilter === k ? '#4f46e5' : '#fff'};color:${madeState.stkFilter === k ? '#fff' : '#4b5563'};border-radius:99px;padding:5px 13px;font-size:.78rem;font-weight:700;cursor:pointer;">${label} ${n}</button>`;
-  $('made-stk-chips').innerHTML = chip('all', '전체', groups.length) + chip('short', '부족 있음', groups.filter(g => g.shortage > 0).length) + chip('warn', '주의 있음', groups.filter(g => g.warn > 0).length) + chip('watch', '지정 상품', groups.filter(g => g.watched).length);
+  $('made-stk-chips').innerHTML = chip('all', '전체', groups.length) + chip('short', '부족 있음', groups.filter(g => g.shortage > 0).length) + chip('warn', '주의 있음', groups.filter(g => g.warn > 0).length) + chip('watch', '지정 상품', groups.filter(g => g.watched).length)
+    + (madeRecentReady() ? chip('recent', `최근 ${MADE_RECENT_DAYS}일 주문`, groups.filter(g => g.recent > 0).length) : '');
   let list = groups;
   if (madeState.stkFilter === 'short') list = list.filter(g => g.shortage > 0);
   if (madeState.stkFilter === 'warn') list = list.filter(g => g.warn > 0);
   if (madeState.stkFilter === 'watch') list = list.filter(g => g.watched);
+  if (madeState.stkFilter === 'recent') list = list.filter(g => g.recent > 0);
   if (q) list = list.filter(g => stkNorm(g.name).includes(q) || stkNorm(g.sname).includes(q) || g.rows.some(r => stkNorm(r.opt).includes(q)));
   list.sort((a, b) => b.shortage - a.shortage || b.warn - a.warn || a.name.localeCompare(b.name, 'ko'));
   const warnBadge = (low, safe, safeVal) => `<span title="${low ? '입고 후 5개 미만' : ''}${low && safe ? ' · ' : ''}${safe ? `안정재고 ${fmt(safeVal)} 미달` : ''}" style="display:inline-block;background:#fef3c7;color:#92400e;border:1px solid #fcd34d;border-radius:5px;padding:1px 6px;font-size:.64rem;font-weight:800;margin-left:4px;white-space:nowrap;"><i class="fa-solid fa-triangle-exclamation" style="font-size:.6rem;"></i> 주의</span>`;
@@ -8717,12 +8758,12 @@ function madeStkRender() {
       : madeState.sales ? `<div style="font-size:.72rem;color:#6b7280;margin-bottom:6px;">하루 평균 주문 = 최근 7일(${escHtml(madeState.sales.end)}까지) 카페24 주문 − 취소 ÷ 7 · 7일 안에 처음 팔린 신상품은 판매한 날수로 나눔 · 주문 점검 탭과 같은 기준</div>`
         + (salesOrphans.length ? `<div style="font-size:.74rem;color:#92400e;background:#fffbeb;border:1px solid #fcd34d;border-radius:8px;padding:6px 10px;margin-bottom:6px;"><i class="fa-solid fa-triangle-exclamation"></i> 카페24에서 팔리는데 셀메이트 파일의 상품과 이름이 맞지 않아 평균을 못 붙인 자체제작 상품 ${salesOrphans.length}개: ${salesOrphans.slice(0, 6).map(r => `<b>${escHtml(r.product_name)}</b>(하루 ${madeAvgFmt(r.avg7)})`).join(', ')}${salesOrphans.length > 6 ? ' …' : ''} — 주문 점검 탭에서 '셀메이트 상품 찾기'로 매칭하면 여기에도 붙어요.</div>` : '')
       : '';
-    let html = salesNote + `<div class="table-wrap"><table>
+    let html = salesNote + (madeRecentLegend() ? `<div style="font-size:.72rem;color:#6b7280;margin-bottom:6px;">${madeRecentLegend()}</div>` : '') + `<div class="table-wrap"><table>
       <thead><tr><th style="text-align:left;">상품 / 옵션</th><th class="m-hide">코드</th><th>하루 평균 주문<div style="font-size:.62rem;font-weight:500;color:#6b7280;">최근 7일·어제까지</div></th><th>현재재고</th><th>미발송</th><th>가용<div style="font-size:.62rem;font-weight:500;color:#6b7280;">재고−미발송</div></th>
         <th>이지픽 미입고<div style="font-size:.62rem;font-weight:500;color:#6b7280;">주문−입고</div></th><th>입고 후<div style="font-size:.62rem;font-weight:500;color:#6b7280;">가용+미입고</div></th><th class="m-hide">안정재고<div style="font-size:.62rem;font-weight:500;color:#6b7280;">셀메이트</div></th><th>부족<div style="font-size:.62rem;font-weight:500;color:#6b7280;">미발송−재고−미입고</div></th></tr></thead><tbody>`;
     for (const g of list) {
       html += `<tr style="background:#f8f9ff;">
-        <td style="text-align:left;font-weight:700;">${escHtml(g.name)}${g.watched ? ' <span style="background:#e0e7ff;color:#4338ca;border-radius:5px;padding:1px 6px;font-size:.62rem;font-weight:700;">지정</span>' : ''}${g.warn ? `<span style="display:inline-block;background:#fef3c7;color:#92400e;border:1px solid #fcd34d;border-radius:5px;padding:1px 6px;font-size:.64rem;font-weight:800;margin-left:4px;white-space:nowrap;"><i class="fa-solid fa-triangle-exclamation" style="font-size:.6rem;"></i> 주의 ${g.warn}옵션</span>` : ''}${g.sname ? `<div style="font-size:.64rem;color:#6b7280;font-weight:500;">사입명 ${escHtml(g.sname)}</div>` : ''}</td>
+        <td style="text-align:left;font-weight:700;">${escHtml(g.name)}${g.watched ? ' <span style="background:#e0e7ff;color:#4338ca;border-radius:5px;padding:1px 6px;font-size:.62rem;font-weight:700;">지정</span>' : ''}${g.warn ? `<span style="display:inline-block;background:#fef3c7;color:#92400e;border:1px solid #fcd34d;border-radius:5px;padding:1px 6px;font-size:.64rem;font-weight:800;margin-left:4px;white-space:nowrap;"><i class="fa-solid fa-triangle-exclamation" style="font-size:.6rem;"></i> 주의 ${g.warn}옵션</span>` : ''}${madeRecentProductBadge(g.recent)}${g.sname ? `<div style="font-size:.64rem;color:#6b7280;font-weight:500;">사입명 ${escHtml(g.sname)}</div>` : ''}</td>
         <td class="m-hide" style="color:#9ca3af;font-size:.7rem;">옵션 ${g.rows.length}</td>
         ${numCell(avgCell(g.avg7, true) + (g.avg7 != null && g.days7 != null && g.days7 < 7 ? `<div style="font-size:.6rem;color:#6b7280;" title="첫 판매 ${escHtml(g.firstSale || '')} — 판매한 날수로 나눔">판매 ${g.days7}일</div>` : ''))}
         ${numCell(`<b>${fmt(g.stock)}</b>`)}${numCell(fmt(g.unshipped))}${numCell(fmt(g.stock - g.unshipped))}${numCell(g.incoming ? `<b style="color:#0369a1;">+${fmt(g.incoming)}</b>` : '<span style="color:#9ca3af;">0</span>')}${numCell(fmt(g.stock - g.unshipped + g.incoming))}
@@ -8730,7 +8771,7 @@ function madeStkRender() {
       for (const r of g.rows) {
         const ezNote = r.ez ? `주문 ${fmt(r.ez.ordered)} · 입고 ${fmt(r.ez.received)}` : (madeState.files.ez ? '이지픽 주문 없음' : '');
         html += `<tr>
-          <td style="text-align:left;padding-left:22px;${r.warn ? 'background:#fffbeb;' : ''}">${escHtml(r.opt || '단일')}${r.soldout ? ' <span style="color:#b91c1c;font-size:.64rem;font-weight:700;">품절</span>' : ''}${r.warn ? warnBadge(r.warnLow, r.warnSafe, r.safe) : ''}</td>
+          <td style="text-align:left;padding-left:22px;${r.warn ? 'background:#fffbeb;' : r.recent ? 'background:#eff6ff;' : ''}${r.recent ? 'box-shadow:inset 3px 0 0 #2563eb;' : ''}">${escHtml(r.opt || '단일')}${r.soldout ? ' <span style="color:#b91c1c;font-size:.64rem;font-weight:700;">품절</span>' : ''}${r.warn ? warnBadge(r.warnLow, r.warnSafe, r.safe) : ''}${madeRecentBadge(r.recent)}</td>
           <td class="m-hide" style="font-family:monospace;font-size:.7rem;color:#6b7280;">${escHtml(r.code || '—')}</td>
           ${numCell(avgCell(r.avg7, false))}
           ${numCell(fmt(r.stock))}${numCell(r.unshipped ? `<b style="color:#c2410c;">${fmt(r.unshipped)}</b>` : '0')}${numCell(r.avail < 0 ? `<b style="color:#b91c1c;">${fmt(r.avail)}</b>` : fmt(r.avail))}
@@ -8786,8 +8827,9 @@ async function madeStkExport() {
   if (madeState.stkFilter === 'short') list = list.filter(g => g.shortage > 0);
   if (madeState.stkFilter === 'warn') list = list.filter(g => g.warn > 0);
   if (madeState.stkFilter === 'watch') list = list.filter(g => g.watched);
+  if (madeState.stkFilter === 'recent') list = list.filter(g => g.recent > 0);
   const lines = [];
-  for (const g of list) for (const r of g.rows) lines.push([g.name, r.opt || '단일', r.code || '', r.avg7 == null ? '' : Math.round(r.avg7 * 10) / 10, r.stock, r.unshipped, r.avail, r.incoming, r.after, r.safe != null ? r.safe : '', r.shortage, r.warn ? ['주의', r.warnLow ? '5개 미만' : '', r.warnSafe ? '안정재고 미달' : ''].filter(Boolean).join(' ') : '', g.watched ? '지정' : 'made/자체제작', r.ez ? r.ez.ordered : '', r.ez ? r.ez.received : '']);
+  for (const g of list) for (const r of g.rows) lines.push([g.name, r.opt || '단일', r.code || '', r.avg7 == null ? '' : Math.round(r.avg7 * 10) / 10, r.stock, r.unshipped, r.avail, r.incoming, r.after, r.safe != null ? r.safe : '', r.shortage, r.warn ? ['주의', r.warnLow ? '5개 미만' : '', r.warnSafe ? '안정재고 미달' : ''].filter(Boolean).join(' ') : '', g.watched ? '지정' : 'made/자체제작', r.ez ? r.ez.ordered : '', r.ez ? r.ez.received : '', r.recent ? r.recent.list.map(x => `${madeRecentMd(x.date)} ${x.qty}장`).join(', ') : '']);
   if (!lines.length) { showToast('내보낼 행이 없어요'); return; }
   try {
     await loadXlsxPopulate();
@@ -8796,9 +8838,9 @@ async function madeStkExport() {
     const today = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Seoul' });
     ws.cell(1, 1).value(`자체제작 재고·입고 점검 (${today})`).style({ bold: true, fontSize: 14 });
     ws.cell(2, 1).value(`셀메이트 ${(madeState.files.cell || {}).file_name || ''} · 이지픽 ${(madeState.files.ez || {}).file_name || '없음'} · 가용=재고−미발송 · 입고 후=가용+이지픽 미입고 · 부족=미발송−재고−미입고(현재 재고 기준) · 주의=입고 후 5개 미만 또는 안정재고 미달`).style({ fontColor: '6B7280', fontSize: 9 });
-    ['상품명', '옵션', '코드', '하루 평균 주문(최근 7일)', '현재재고', '미발송', '가용', '이지픽 미입고', '입고 후', '안정재고', '부족', '주의', '구분', '이지픽 주문', '이지픽 입고'].forEach((h, i) => ws.cell(4, i + 1).value(h).style({ bold: true, fill: 'EEF2FF', horizontalAlignment: 'center' }));
+    ['상품명', '옵션', '코드', '하루 평균 주문(최근 7일)', '현재재고', '미발송', '가용', '이지픽 미입고', '입고 후', '안정재고', '부족', '주의', '구분', '이지픽 주문', '이지픽 입고', `최근 ${MADE_RECENT_DAYS}일 주문`].forEach((h, i) => ws.cell(4, i + 1).value(h).style({ bold: true, fill: 'EEF2FF', horizontalAlignment: 'center' }));
     lines.forEach((row, ri) => row.forEach((v, ci) => ws.cell(5 + ri, ci + 1).value(v)));
-    [34, 24, 13, 12, 9, 8, 8, 12, 9, 9, 8, 12, 12, 10, 10].forEach((w, i) => ws.column(i + 1).width(w));
+    [34, 24, 13, 12, 9, 8, 8, 12, 9, 9, 8, 12, 12, 10, 10, 18].forEach((w, i) => ws.column(i + 1).width(w));
     const blob = await wb.outputAsync(); const url = URL.createObjectURL(blob);
     const a = document.createElement('a'); a.href = url; a.download = `자체제작_재고입고점검_${today}.xlsx`; document.body.appendChild(a); a.click(); a.remove();
     setTimeout(() => URL.revokeObjectURL(url), 60000);
@@ -8958,7 +9000,7 @@ function madeRender() {
         }
       }
       // 이지픽 옵션 매칭 — 같은 토큰 규칙. incoming = 잔여수량 합 = 추가 입고 예정
-      let incoming = 0, ezNote = '';
+      let incoming = 0, ezNote = '', recent = null;
       if (ezE) {
         let hits = ezE.rows.filter(c => stkSameOpt(c.tokens, tk));
         if (!hits.length && tk.length) hits = ezE.rows.filter(c => stkLooseOpt(c.tokens, tk));
@@ -8966,13 +9008,14 @@ function madeRender() {
         if (hits.length) {
           incoming = hits.reduce((t, h) => t + h.remaining, 0);
           ezNote = `주문 ${fmt(hits.reduce((t, h) => t + h.ordered, 0))} · 입고 ${fmt(hits.reduce((t, h) => t + h.received, 0))}`;
+          recent = madeRecentOf(hits);   // 최근 5일 안에 주문한 옵션 (2026-10-05)
         }
       }
       const afterIn = availO == null ? null : availO + incoming;
       // 판정·권장 주문량은 입고 예정까지 들어온 뒤(afterIn) 기준 — 이미 주문한 수량을 또 주문하지 않도록
       const j = (!tag || !tag.origin) ? { state: 'notag', rank: 2, runout: null, safety: null, basisDays: 0, rec: null } : judgeOne(o.avg7, afterIn, lead);
       const gap = afterIn != null && j.safety != null && o.avg7 > 0 ? afterIn - j.safety : null;   // 과부족 = 입고 후 − 안정재고
-      return { ...o, avail: availO, looseNote, lead, incoming, ezNote, afterIn, gap, safeCsv, ...j };
+      return { ...o, avail: availO, looseNote, lead, incoming, ezNote, recent, afterIn, gap, safeCsv, ...j };
     });
     const incoming = opts.some(o => o.incoming > 0) ? opts.reduce((t, o) => t + o.incoming, 0) : (ezE ? ezE.remaining : 0);
     const afterIn = avail == null ? null : avail + incoming;
@@ -8999,7 +9042,9 @@ function madeRender() {
     }
     const gap = afterIn != null && safety != null && r.avg7 > 0 ? afterIn - safety : null;
     if (state === 'notag' && hasStock && avail == null) { state = 'nomatch'; rank = 3; }   // 제작처 미지정이어도 매칭부터 보이게
-    return { ...r, tag, lead, st, manual, avail, incoming, afterIn, gap, safeCsv, runout, state, rec, rank, opts, safety, basisDays, moq, moqApplied };
+    // 상품 줄 표시용: 최근 주문 옵션 수. 옵션에 못 붙은 이지픽 주문만 있으면(옵션 표기 차이 등) 상품 단위로라도 알린다
+    const recentN = opts.filter(o => o.recent).length, recentAny = !recentN && ezE ? madeRecentOf(ezE.rows) : null;
+    return { ...r, tag, lead, st, manual, avail, incoming, afterIn, gap, safeCsv, runout, state, rec, rank, opts, safety, basisDays, moq, moqApplied, recentN, recentAny };
   }).sort((a, b) => a.rank - b.rank || b.avg7 - a.avg7);
 
   const cnt = s => judged.filter(j => j.state === s).length;
@@ -9057,7 +9102,7 @@ function madeRender() {
     const nOpt = (j.opts || []).length;
     const open = madeState.open && madeState.open.has(j.product_no);
     html += `<tr>
-      <td style="text-align:left;min-width:180px;font-weight:600;">${escHtml(j.product_name)}${j.first_sale ? `<div style="font-size:.64rem;color:#6b7280;">첫 판매 ${j.first_sale}</div>` : ''}
+      <td style="text-align:left;min-width:180px;font-weight:600;${j.recentN || j.recentAny ? 'box-shadow:inset 3px 0 0 #2563eb;' : ''}">${escHtml(j.product_name)}${madeRecentProductBadge(j.recentN)}${j.recentAny ? madeRecentBadge(j.recentAny) : ''}${j.first_sale ? `<div style="font-size:.64rem;color:#6b7280;">첫 판매 ${j.first_sale}</div>` : ''}
         ${j.manual ? `<div style="font-size:.64rem;color:#0369a1;font-weight:600;">셀메이트: ${escHtml(j.st.name)} <span style="color:#6b7280;font-weight:500;">(수동 매칭)</span></div>` : (j.tag && j.tag.stk_name && hasStock && !j.st ? `<div style="font-size:.64rem;color:#c2410c;">수동 매칭한 '${escHtml(j.tag.stk_name)}'이(가) 이 CSV에 없어요</div>` : '')}
         <div style="display:flex;gap:4px;flex-wrap:wrap;margin-top:3px;">
         ${nOpt ? `<button onclick="madeToggleOpts(${j.product_no})" style="border:1px solid #c7d2fe;background:#eef2ff;color:#4338ca;border-radius:6px;padding:2px 9px;font-size:.7rem;font-weight:700;cursor:pointer;">옵션 ${nOpt}개 ${open ? '▴' : '▾'}</button>` : ''}
@@ -9079,8 +9124,8 @@ function madeRender() {
         : (j.moq ? fmt(j.moq) + '개' : '—')}</td></tr>`;
     // ── 옵션별 발주 행 (펼치기) — 주문은 옵션 단위 (2026-09-03 사용자 지정) ──
     if (nOpt) {
-      const optRows = j.opts.map(o => `<div style="display:flex;align-items:center;gap:10px;padding:4px 0;border-bottom:1px dashed #eef0f5;flex-wrap:wrap;">
-        <span style="flex:1;min-width:150px;text-align:left;font-weight:600;">${escHtml(o.option)}${o.looseNote ? `<span style="color:#c2410c;font-size:.66rem;">${o.looseNote}</span>` : ''}</span>
+      const optRows = j.opts.map(o => `<div style="display:flex;align-items:center;gap:10px;padding:4px 0;border-bottom:1px dashed #eef0f5;flex-wrap:wrap;${o.recent ? 'background:#eff6ff;box-shadow:inset 3px 0 0 #2563eb;padding-left:8px;' : ''}">
+        <span style="flex:1;min-width:150px;text-align:left;font-weight:600;">${escHtml(o.option)}${o.looseNote ? `<span style="color:#c2410c;font-size:.66rem;">${o.looseNote}</span>` : ''}${madeRecentBadge(o.recent, true)}</span>
         <span style="width:76px;text-align:right;">${o.avg7.toFixed(1)}<span style="font-size:.64rem;color:#6b7280;">/일</span></span>
         <span style="width:64px;text-align:right;color:#6b7280;">${fmt(o.net30)}<span style="font-size:.64rem;">/30일</span></span>
         <span style="width:76px;text-align:right;">${o.avail != null ? '<b>' + fmt(o.avail) + '</b>' : '<span style="color:#9ca3af;">매칭 없음</span>'}</span>
@@ -9097,7 +9142,7 @@ function madeRender() {
           </div>${optRows}</td></tr>`;
     }
   }
-  $('made-result').innerHTML = html + '</tbody></table></div>' +
+  $('made-result').innerHTML = (madeRecentLegend() ? `<div style="font-size:.72rem;color:#6b7280;margin-bottom:6px;">${madeRecentLegend()}</div>` : '') + html + '</tbody></table></div>' +
     `<div style="font-size:.72rem;color:#6b7280;margin-top:8px;">안정재고 = 일평균 3개 이상 옵션은 일평균 × 리드타임, 3개 미만은 일평균 × 3일 · 입고 예정 = 이지픽 제작상품 엑셀의 잔여수량(주문 − 입고) · 입고 후 과부족 = (가용재고 + 입고 예정) − 안정재고 · 권장 주문량 = 부족분(옵션별 합계, 최소 주문 수량 미만이면 최소 주문 수량) · 리드타임 기본값: 중국 10일 / 국내 5일 · 제작처·리드타임·최소 주문 수량 지정은 관리자·MD · <b>매칭불가</b> = CSV에서 같은 이름을 못 찾은 상품(셀메이트 미등록이거나 이름이 다름) — '셀메이트 상품 찾기'로 검색해 수동 매칭하면 양쪽 시스템에 기억됩니다</div>`;
 }
 
