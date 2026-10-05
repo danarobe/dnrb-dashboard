@@ -824,7 +824,7 @@ Deno.serve(async (req) => {
       };
       if (action === "cancelreq_log") {
         const since = new Date(Date.now() - 30 * 86400e3).toISOString();
-        const rows = (await sbRest(`cancel_accept_log?select=id,created_at,order_id,items,reason_type,reason_label,reason,flags,ok,result,claim_code,by_name,kind,expected_amount,refund_amount,points&created_at=gte.${since}&order=created_at.desc&limit=1000`)) ?? [];
+        const rows = (await sbRest(`cancel_accept_log?select=id,created_at,order_id,items,reason_type,reason_label,reason,flags,ok,result,claim_code,by_name,kind,expected_amount,refund_amount,points,stage:detail->>stage&created_at=gte.${since}&order=created_at.desc&limit=1000`)) ?? [];
         return json({ rows });
       }
       if (action === "cancelreq_list") {
@@ -895,7 +895,8 @@ Deno.serve(async (req) => {
     }
 
     // ── 취소·반품 접수 2단계 — 자사몰 취소접수(C10) → 환불 (2026-10-05 사용자 요청): 관리자 전용.
-    //    selfcancel_list: 목록·분류(캐시 없음) / selfcancel_run(POST, 사람 로그인만): 한 건 처리 = ② 취소처리중 → 금액 확인 → ③ 환불완료 → 재확인·기록.
+    //    selfcancel_list: 목록·분류(캐시 없음) / selfcancel_run(POST, 사람 로그인만): 한 건 처리 = ② 취소처리중으로 넘김 → 금액 확인(여기까지가 기본)
+    //    → [요청에 refund:true가 있을 때만] ③ 환불완료 → 재확인·기록.
     if (action === "selfcancel_list" || action === "selfcancel_run") {
       if (authed.role !== "admin") return json({ error: "접근 권한이 없습니다" }, 403);
       const nrSets = await rscanNrSets(token).catch(() => null);
@@ -960,7 +961,12 @@ Deno.serve(async (req) => {
       let rf: Record<string, any> | null = null;
       for (let i = 0; i < 5 && !rf; i++) { await sleep(i ? 1200 : 500); try { rf = await findRefund("F"); } catch { rf = null; } }
       const leftMsg = "주문은 '취소처리중(환불전)'에 남아 있어요 — 카페24 환불 관리에서 금액을 확인하고 직접 마무리해주세요";
-      if (!rf) { await logRow(false, "취소처리중으로 넘겼지만 환불 내역을 읽지 못함 — 환불은 보내지 않음"); return json({ error: "취소처리중으로 넘겼지만 카페24의 환불 내역을 읽지 못했어요. 환불은 보내지 않았어요. " + leftMsg, step: "check", left: true }, 502); }
+      // 2026-10-05 사용자 지정: **기본은 '취소처리중(환불전)'으로 넘기기까지만.** 환불완료(PG 결제취소)는 화면에서 '최종 환불까지 한 번에 진행'을 켠 요청(refund:true)만.
+      const fullRefund = b.refund === true;
+      if (!rf) {
+        if (!fullRefund) { await logRow(true, "취소처리중(환불전)으로 넘김 · 카페24 환불 내역은 아직 읽지 못함", { detail: { stage: "moved", pay: g.pay, recover_inventory: g.recover } }); return json({ ok: true, moved: true, warn: "넘기긴 했지만 카페24가 계산한 환불액을 아직 읽지 못했어요 — 카페24 환불 관리에서 금액을 확인해주세요" }); }
+        await logRow(false, "취소처리중으로 넘겼지만 환불 내역을 읽지 못함 — 환불은 보내지 않음"); return json({ error: "취소처리중으로 넘겼지만 카페24의 환불 내역을 읽지 못했어요. 환불은 보내지 않았어요. " + leftMsg, step: "check", left: true }, 502);
+      }
       const got = { amount: Math.round(Number(rf.actual_refund_amount ?? NaN)), points: Math.round(Number(rf.used_points ?? 0) || 0), credits: Math.round(Number(rf.used_credits ?? 0) || 0),
         methods: ((rf.refund_payment_methods ?? []) as unknown[]).map(String), code: String(rf.refund_code ?? "") };
       const detail: Record<string, unknown> = { pay: g.pay, refund_methods: got.methods, refund_code: got.code, cafe24_points: got.points, recover_inventory: g.recover };
@@ -971,6 +977,17 @@ Deno.serve(async (req) => {
       if (got.credits !== 0) diffs.push(`예치금 반환 ${won(got.credits)}이 있어요`);
       if (got.methods.length !== 1 || got.methods[0] !== g.main) diffs.push(`환불 수단이 결제 수단과 달라요(${got.methods.join("+") || "없음"} · 결제 ${g.main})`);
       if (!/^[A-Z]\d{8}-\d{7}$/.test(got.code)) diffs.push("환불 번호를 읽지 못했어요");
+      if (!fullRefund) {
+        // 넘기기까지만: 환불은 보내지 않는다. 카페24가 계산한 환불액이 예정과 같은지는 알려 준다(다르면 경고 — 환불 관리에서 금액 확인)
+        Object.assign(detail, { stage: "moved" });
+        if (diffs.length) {
+          await logRow(true, "취소처리중(환불전)으로 넘김 · ⚠ 카페24 계산이 예정과 다름 — " + diffs.join(" / "), { refund_amount: isFinite(got.amount) ? got.amount : null, detail });
+          return json({ ok: true, moved: true, warn: "넘기긴 했지만 카페24가 계산한 환불 내역이 예정과 달라요 — " + diffs.join(" / ") + ". 카페24 환불 관리에서 금액을 꼭 확인해주세요", cafe24_amount: isFinite(got.amount) ? got.amount : null });
+        }
+        await logRow(true, `취소처리중(환불전)으로 넘김 · 환불 예정 ${won(got.amount)}${expect.points ? ` · 적립금 반환 ${won(expect.points)}` : ""} (카페24 계산과 같음)`, { refund_amount: got.amount, detail });
+        return json({ ok: true, moved: true, refund_amount: got.amount, points: expect.points });
+      }
+      Object.assign(detail, { stage: "refunded" });
       if (diffs.length) {
         await logRow(false, "금액 확인에서 멈춤 — " + diffs.join(" / ") + " · 환불은 보내지 않음", { refund_amount: isFinite(got.amount) ? got.amount : null, detail });
         return json({ error: "카페24가 계산한 환불 내역이 예정과 달라 환불을 보내지 않았어요 — " + diffs.join(" / ") + ". " + leftMsg, step: "check", left: true, mismatch: true }, 409);
