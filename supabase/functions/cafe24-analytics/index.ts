@@ -389,17 +389,21 @@ async function cafe24MarkCollected(kind: "return" | "exchange", orderId: string,
 // ══ 카페24 쓰기 ② — 네이버페이 취소신청 접수 (2026-10-05 사용자 요청·승인) ══
 // 고객이 네이버페이에서 넣은 '취소신청'을 관리자 화면의 [취소접수]와 같게 접수한다. 수거 완료와 같은 원칙:
 //  · 주소와 본문을 호출자가 넘기지 못한다 — 검증된 주문번호·품주코드·취소 구분 코드로 이 함수가 직접 조립한다.
-//  · 본문은 { shop_no:1, request:{ status:"accepted", naverpay_cancel_reason_type, reason, recover_inventory:"T", items:[{order_item_code, quantity}] } } 로 고정.
+//  · 본문은 { shop_no:1, request:{ status:"accepted", naverpay_cancel_reason_type, reason, recover_inventory:"T" } } 로 고정 — **품목(items)은 보내지 않는다**.
+//    2026-10-05 첫 실사용 422 "Partial cancellation is unavailable for NAVER Pay orders": 품목을 하나라도 적으면(주문에 상품이 하나뿐이어도) 부분 취소로 보고 거절한다
+//    → 네이버페이 주문은 '주문 전체' 접수만 가능. 그래서 호출 전에 '주문의 모든 품목이 이번 취소신청에 들어 있는지'를 반드시 확인한다(allCodes).
 //    status는 'accepted'(취소접수)뿐 — 취소완료·환불·PG 취소 필드는 보내지 않는다(네이버페이 주문은 접수 뒤 네이버가 환불을 진행).
 //    배송 전 취소라 재고는 복구(T)로 고정. 취소 구분은 네이버페이 목록(51~60)만 허용.
 //  · 다른 쓰기가 필요해지면 여기 허용 목록을 넓히지 말고 사용자 승인부터 받을 것. tools/check_cafe24_writes.sh 가 배포 전 검사한다.
 const NPAY_CANCEL_TYPES: Record<string, string> = { "구매 의사 취소": "51", "색상 및 사이즈 변경": "52", "다른 상품 잘못 주문": "53", "서비스 및 상품 불만족": "54", "배송 지연": "55", "상품 품절": "56", "상품 정보 상이": "60" };
-async function cafe24AcceptNaverCancel(orderId: string, items: { code: string; qty: number }[], reasonType: string, reason: string, token: string): Promise<Record<string, unknown>> {
+async function cafe24AcceptNaverCancel(orderId: string, reqCodes: string[], allCodes: string[], reasonType: string, reason: string, token: string): Promise<Record<string, unknown>> {
   if (!/^\d{8}-\d{7}$/.test(orderId)) throw new Error("허용되지 않은 쓰기(주문번호 형식)");
   if (!Object.values(NPAY_CANCEL_TYPES).includes(reasonType)) throw new Error("허용되지 않은 쓰기(취소 구분)");
-  if (!Array.isArray(items) || !items.length || items.length > 50 || items.some((x) => typeof x.code !== "string" || !x.code.startsWith(orderId + "-") || !/^\d{8}-\d{7}-\d{2,3}$/.test(x.code) || !Number.isInteger(x.qty) || x.qty < 1 || x.qty > 999)) throw new Error("허용되지 않은 쓰기(품주코드·수량)");
+  // 주문 전체 접수만: 취소신청 품목(reqCodes)이 주문의 전체 품목(allCodes)과 정확히 같아야 한다 — 하나라도 다르면 신청하지 않은 상품까지 취소될 수 있다
+  const okCodes = (l: unknown) => Array.isArray(l) && l.length > 0 && l.length <= 50 && l.every((c) => typeof c === "string" && c.startsWith(orderId + "-") && /^\d{8}-\d{7}-\d{2,3}$/.test(c));
+  if (!okCodes(reqCodes) || !okCodes(allCodes) || [...reqCodes].sort().join(",") !== [...allCodes].sort().join(",")) throw new Error("허용되지 않은 쓰기(주문 전체가 취소신청이 아님)");
   const url = `${API_BASE}/admin/orders/${orderId}/cancellation`;
-  const payload = JSON.stringify({ shop_no: 1, request: { status: "accepted", naverpay_cancel_reason_type: reasonType, reason: String(reason ?? "").slice(0, 2000), recover_inventory: "T", items: items.map((x) => ({ order_item_code: x.code, quantity: x.qty })) } });
+  const payload = JSON.stringify({ shop_no: 1, request: { status: "accepted", naverpay_cancel_reason_type: reasonType, reason: String(reason ?? "").slice(0, 2000), recover_inventory: "T" } });
   const doFetch = (tk: string) => fetch(url, { method: "POST", headers: { Authorization: `Bearer ${tk}`, "Content-Type": "application/json", "X-Cafe24-Api-Version": API_VERSION }, body: payload });
   let tok = token;
   let res = await doFetch(tok);
@@ -626,10 +630,13 @@ function cxlGroupsOf(o: Record<string, any>): Record<string, any>[] {
     if (beforeBad.length) flags.push({ level: "check", text: `취소 신청 전 상태가 배송준비중이 아니에요(${beforeBad.map((b) => b || "알 수 없음").join(", ")}) — 이미 발송 단계일 수 있어요` });
     if (its.some((it) => !!it.tracking_no)) flags.push({ level: "check", text: "송장번호가 이미 등록돼 있어요 — 발송됐는지 확인이 필요해요" });
     if (o.paid !== "T") flags.push({ level: "check", text: "결제가 끝나지 않은 주문이에요" });
-    if (othersWaiting.length) flags.push({ level: "check", text: `주문의 일부만 취소 신청했어요 — 남은 상품 ${othersWaiting.length}개는 그대로 발송돼요` });
+    // 네이버페이 주문은 카페24 API로 '주문 전체' 접수만 된다(품목을 지정하면 422) → 주문에 다른 품목이 하나라도 있으면 여기서 접수 불가
+    if (others.length) flags.push({ level: "block", text: othersWaiting.length
+      ? `주문의 일부 상품만 취소 신청했어요(남은 상품 ${othersWaiting.length}개는 발송) — 일부만 취소하는 접수는 여기서 할 수 없어요. 카페24에서 직접 접수해주세요`
+      : "같은 주문에 이미 처리된 다른 상품이 있어요 — 여기서는 주문 전체 접수만 할 수 있어요. 카페24에서 직접 접수해주세요" });
     if (othersClaim.length) flags.push({ level: "check", text: "같은 주문에 교환·반품이 함께 진행 중이에요" });
-    if (its.some((it) => it.claim_quantity != null && Number(it.claim_quantity) !== Number(it.quantity))) flags.push({ level: "check", text: "주문 수량 중 일부만 취소 신청했어요" });
-    if (byReason.size > 1) flags.push({ level: "check", text: "한 주문 안에 취소 사유가 여러 가지예요" });
+    if (its.some((it) => it.claim_quantity != null && Number(it.claim_quantity) !== Number(it.quantity))) flags.push({ level: "block", text: "주문 수량 중 일부만 취소 신청했어요 — 카페24에서 직접 접수해주세요" });
+    if (byReason.size > 1) flags.push({ level: "block", text: "한 주문 안에 취소 사유가 여러 가지예요 — 카페24에서 직접 접수해주세요" });
     if (request && CXL_ASK_WORDS.test(request)) flags.push({ level: "check", text: "고객이 사유에 요청이나 문의를 적었어요 — 읽어 보고 접수하세요" });
     const items = its.map((it) => ({ code: String(it.order_item_code ?? ""), product_name: String(it.product_name ?? ""), option: String(it.option_value ?? ""), qty: Number(it.quantity ?? 0),
       price: (Number(it.product_price ?? 0) + Number(it.option_price ?? 0)) * Number(it.quantity ?? 0), supplier: String(it.supplier_name ?? ""), before: String(it.order_status_before_cs ?? "") }))
@@ -790,7 +797,8 @@ Deno.serve(async (req) => {
       if (mine.length >= 300 || allDay.length >= 1000) return json({ error: "취소 접수 한도를 넘었어요 — 잠시 뒤 다시 시도해주세요" }, 429);
       let res: Record<string, any>;
       try {
-        res = await cafe24AcceptNaverCancel(orderId, (g.items as Record<string, any>[]).map((x) => ({ code: String(x.code), qty: Number(x.qty) })), String(g.reason_type), String(g.reason_raw), token) as Record<string, any>;
+        const allCodes = ((order.items ?? []) as Record<string, any>[]).map((it) => String(it.order_item_code ?? ""));
+        res = await cafe24AcceptNaverCancel(orderId, (g.items as Record<string, any>[]).map((x) => String(x.code)), allCodes, String(g.reason_type), String(g.reason_raw), token) as Record<string, any>;
       } catch (e) {
         const st = (e as { status?: number }).status ?? 0, raw = String((e as Error).message ?? e);
         await logRow(false, raw);

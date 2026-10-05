@@ -30,7 +30,7 @@ if grep -rn -E "function (apiSend|apiPut|apiPost|apiDelete)\b" supabase/function
 # ③ 수거 완료 본문이 고정값 그대로인지
 grep -q 'request: { pickup_completed: "T", recover_inventory: recover, items: itemCodes.map' supabase/functions/cafe24-analytics/index.ts || { echo "위반: cafe24MarkCollected 본문이 바뀌었습니다"; bad=1; }
 # ③-2 취소 접수 본문이 고정값 그대로인지 (상태는 'accepted'뿐 — 취소완료·환불·PG 취소 필드 금지)
-grep -q 'request: { status: "accepted", naverpay_cancel_reason_type: reasonType, reason: String(reason ?? "").slice(0, 2000), recover_inventory: "T", items: items.map' supabase/functions/cafe24-analytics/index.ts || { echo "위반: cafe24AcceptNaverCancel 본문이 바뀌었습니다"; bad=1; }
+grep -q 'request: { status: "accepted", naverpay_cancel_reason_type: reasonType, reason: String(reason ?? "").slice(0, 2000), recover_inventory: "T" } });' supabase/functions/cafe24-analytics/index.ts || { echo "위반: cafe24AcceptNaverCancel 본문이 바뀌었습니다"; bad=1; }
 grep -n -E 'payment_gateway_cancel|status: *"cancel(ed|ing)"|refund_method_code' supabase/functions/cafe24-analytics/index.ts | grep -v "^[0-9]*:\s*//" | grep -q . && { echo "위반: 취소완료·환불·PG 취소를 보내는 코드가 있습니다"; bad=1; }
 # ④ 쓰기 함수는 하나뿐 + 상품 쓰기 권한(scope) 요청 금지
 n=$(grep -c "^async function cafe24[A-Z][A-Za-z]*(" supabase/functions/cafe24-analytics/index.ts); [ "$n" -le 2 ] || { echo "위반: cafe24 쓰기 함수가 $n개입니다(허용 2개)"; bad=1; }
