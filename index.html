@@ -1473,6 +1473,7 @@
         <div style="font-size:.8rem;color:#6b7280;margin-bottom:10px;line-height:1.7;">
           · 고객이 <b>네이버페이에서 넣은 취소신청</b>을 모아, 고객이 고른 사유대로 <b>취소 구분</b>을 나눴어요.<br>
           · <b>[접수하기]</b>를 누르면 체크된 주문이 카페24에서 <b>'취소접수'</b>로 바뀌어요. 취소 구분과 취소 사유는 고객이 신청한 그대로 들어가요.<br>
+          · 접수는 <b>이 PC 엣지에 로그인된 카페24 관리자</b>를 통해 보내요(연결 스크립트 필요 — 없으면 아래에 설치 안내가 나와요).<br>
           · 접수하면 네이버페이에서 <b>취소·환불이 진행되고 되돌릴 수 없어요.</b> 빼고 싶은 주문은 체크를 풀어 두세요.<br>
           · <b style="color:#b45309;">직접 확인 권장</b>은 [접수하기]에 들어가지 않아요. 이유를 읽어 보고 한 건씩 접수하거나 카페24에서 처리하세요.
         </div>
@@ -3558,13 +3559,27 @@ function soldoutLogRender() {
 }
 
 /* ══ 취소·반품 접수 (#cxl, 2026-10-05 사용자 요청 — 관리자) ══
-   ① 네이버페이 취소신청: 서버 cafe24-analytics cancelreq_list(카페24 '취소신청' 주문을 고객이 고른 사유대로 분류, 캐시 없음)
-      → [접수하기]가 체크된 주문을 한 건씩 cancelreq_accept(카페24 쓰기 ② — 취소접수)로 보낸다. 취소 구분·사유는 서버가 최신 주문으로 다시 정한다.
+   ① 네이버페이 취소신청: 서버 cafe24-analytics cancelreq_list(카페24 '취소신청' 주문을 고객이 고른 사유대로 분류, 캐시 없음).
+      접수는 서버가 아니라 **이 PC 엣지의 연결 스크립트(window.CAFE24_CANCEL — danarobe-cafe24-cancel.user.js)**가 한다:
+      카페24 공개 API는 고객 취소신청을 접수하지 못해(422), 관리자 화면 '취소 처리' 창의 요청을 그대로 보내야 하기 때문(로그인된 카페24 관리자 필요).
+      한 건마다 cancelreq_prepare(서버가 최신 주문으로 취소 구분·사유 확정) → 연결 스크립트 accept → cancelreq_record(서버가 다시 읽어 확인·기록).
       애매한 주문은 '직접 확인 권장'(flags)으로 빼고 한 건씩만 접수. 처리 기록은 cancel_accept_log(처리 내역 탭).
    자사몰 취소접수·반품은 다음 단계(사용자: 이게 잘 되면 진행). */
 const CXL_TABS = [['npay', '네이버페이 취소신청', null, 'fa-solid fa-ban'], ['log', '처리 내역', null, 'fa-solid fa-clock-rotate-left']];
 const cxlState = { data: null, loading: false, tab: 'npay', off: new Set(), status: new Map(), running: false, lastRun: null, log: null, logLoading: false };
 const cxlKey = g => g.order_id + '|' + g.key;
+const CXL_BRIDGE_MIN = '1.0.0';
+const cxlBridge = () => (window.CAFE24_CANCEL && typeof window.CAFE24_CANCEL.accept === 'function' && typeof window.CAFE24_CANCEL.begin === 'function') ? window.CAFE24_CANCEL : null;
+window.addEventListener('cafe24-cancel-ready', () => { try { if ($('sec-cxl') && $('sec-cxl').style.display !== 'none' && cxlState.data) cxlRender(); } catch {} });
+function cxlBridgeHtml() {
+  const B = cxlBridge();
+  if (B) return `<div style="font-size:.78rem;color:#065f46;font-weight:700;margin-top:10px;"><i class="fa-solid fa-plug-circle-check"></i> 카페24 취소 접수 연결 스크립트 v${escHtml(String(B.version || ''))} 연결됨 <span style="font-weight:500;color:#6b7280;">— 이 엣지에서 카페24 관리자에 로그인돼 있어야 접수돼요</span></div>`;
+  return `<div style="background:#fffbeb;border:1.5px solid #fde68a;border-radius:12px;padding:12px 14px;font-size:.82rem;color:#78350f;line-height:1.75;margin-top:10px;">
+    <b><i class="fa-solid fa-plug-circle-xmark"></i> 이 PC에 '카페24 취소 접수 연결 스크립트'가 없어서 [접수하기]를 쓸 수 없어요.</b> 목록과 분류는 그대로 볼 수 있어요.<br>
+    카페24는 고객이 넣은 취소신청을 바깥 프로그램으로 접수하는 길을 열어 두지 않아서, <b>이 PC 엣지에 로그인된 카페24 관리자</b>를 통해 접수해요(셀메이트 연결과 같은 방식).<br>
+    <b>설치</b> ① 엣지의 Tampermonkey 아이콘 → 대시보드 → 유틸리티 → '파일에서 가져오기'로 <b>danarobe-cafe24-cancel.user.js</b> 선택 → 설치 ② 이 페이지 새로고침 ③ 같은 엣지에서 카페24 관리자에 로그인<br>
+    <span style="font-size:.76rem;">설치했는데 이 안내가 계속 뜨면: Tampermonkey에서 스크립트가 켜져 있는지, 엣지 확장 관리에서 '사용자 스크립트 허용'(개발자 모드)이 켜져 있는지 확인하세요.</span></div>`;
+}
 const cxlShort = v => String(v || '').slice(5);   // 2026-10-04 23:04 → 10-04 23:04
 function cxlInit() {
   cxlTabsRender();
@@ -3638,8 +3653,9 @@ function cxlRender() {
     </div>
     ${total ? `<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-top:10px;"><span style="font-size:.78rem;font-weight:700;color:#374151;">취소 구분</span>${chips || '<span style="font-size:.78rem;color:#6b7280;">바로 접수할 수 있는 주문이 없어요</span>'}</div>` : ''}
     <div style="font-size:.72rem;color:#6b7280;margin-top:6px;">카페24 조회 ${escHtml(bt)} · 최근 90일 주문 가운데 '취소신청' 상태</div>
+    ${total ? cxlBridgeHtml() : ''}
     ${b.auto.length ? `<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:12px;padding:10px 12px;background:#eef2ff;border:1px solid #c7d2fe;border-radius:12px;">
-      <button class="btn-analyze" style="background:#4f46e5;" onclick="cxlRunAll()" ${cxlState.running || !picked.length ? 'disabled' : ''}>${cxlState.running ? '<i class="fa-solid fa-spinner fa-spin"></i> 접수하는 중…' : `<i class="fa-solid fa-circle-check"></i> 접수하기 (${picked.length}건)`}</button>
+      <button class="btn-analyze" style="background:#4f46e5;" onclick="cxlRunAll()" ${cxlState.running || !picked.length || !cxlBridge() ? 'disabled' : ''}>${cxlState.running ? '<i class="fa-solid fa-spinner fa-spin"></i> 접수하는 중…' : `<i class="fa-solid fa-circle-check"></i> 접수하기 (${picked.length}건)`}</button>
       <span style="font-size:.78rem;color:#3730a3;">체크된 주문 <b>${picked.length}건</b>(품목 ${cnt(picked)}개)을 고객이 신청한 사유 그대로 카페24에서 '취소접수'로 바꿔요.${picked.length < b.auto.length ? ` 체크를 푼 ${b.auto.length - picked.length}건은 건너뛰어요.` : ''}</span></div>` : ''}`;
   const lr = cxlState.lastRun;
   $('cxl-result').innerHTML = lr ? `<div style="border:1px solid ${lr.fail || lr.stopped ? '#fecaca' : '#bbf7d0'};background:${lr.fail || lr.stopped ? '#fef2f2' : '#f0fdf4'};border-radius:12px;padding:10px 14px;margin-bottom:12px;font-size:.82rem;">
@@ -3689,7 +3705,7 @@ function cxlRender() {
           <td style="text-align:left;vertical-align:top;font-size:.76rem;min-width:200px;">${g.flags.map(f => `<div style="color:${f.level === 'block' ? '#b91c1c' : '#92400e'};padding:1px 0;">· ${escHtml(f.text)}</div>`).join('')}</td>
           <td style="text-align:left;vertical-align:top;font-size:.76rem;white-space:nowrap;">
             <button class="toggle-btn" style="font-size:.7rem;padding:2px 9px;" data-site="cafe24" data-oid="${escHtml(g.order_id)}" onclick="rscanOpen(this)"><i class="fa-solid fa-arrow-up-right-from-square"></i> 카페24</button>
-            ${blocked ? '' : `<button class="toggle-btn" style="font-size:.7rem;padding:2px 9px;background:#b45309;color:#fff;border-color:#b45309;" ${dis} data-k="${escHtml(k)}" onclick="cxlAcceptChecked(this)">확인하고 접수</button>`}
+            ${blocked || !cxlBridge() ? '' : `<button class="toggle-btn" style="font-size:.7rem;padding:2px 9px;background:#b45309;color:#fff;border-color:#b45309;" ${dis} data-k="${escHtml(k)}" onclick="cxlAcceptChecked(this)">확인하고 접수</button>`}
             ${s ? `<div style="margin-top:4px;white-space:normal;">${cxlStatusCell(g)}</div>` : ''}</td></tr>`;
       }).join('')}</tbody></table></div></div>` : '';
   const doneHtml = b.done.length ? `<details style="border:1px solid #bbf7d0;border-radius:12px;padding:10px 14px;margin-bottom:12px;background:#f0fdf4;font-size:.8rem;">
@@ -3705,37 +3721,59 @@ function cxlToggleAll(btn) {
   for (const g of list) { if (btn.dataset.on === '1') cxlState.off.delete(cxlKey(g)); else cxlState.off.add(cxlKey(g)); }
   cxlRender();
 }
-// 한 건 접수 — 서버가 최신 주문으로 다시 분류하고(취소 구분·사유는 서버가 정함) 카페24에 '취소접수'를 보낸다
-async function cxlAcceptOne(g, ack) {
+// 한 건 접수 — ① 서버 prepare(최신 주문으로 다시 분류: 취소 구분·사유 확정) ② 연결 스크립트 accept(이 PC의 카페24 관리자에서 취소접수)
+//   ③ 서버 record(주문을 다시 읽어 확인하고 기록). token = 연결 스크립트 begin()의 확인 창에서 받은 일회용 표.
+async function cxlPost(action, g, body) {
+  const res = await fetch(fnUrl('cafe24-analytics', { action, order_id: g.order_id }), { method: 'POST', headers: sbHeaders(), body: JSON.stringify(Object.assign({ codes: g.items.map(x => x.code) }, body)) });
+  const r = await res.json().catch(() => ({}));
+  if (!res.ok || r.error) return Object.assign({}, r, { ok: false, error: r.error || ('오류 ' + res.status) });
+  return r;
+}
+async function cxlAcceptOne(g, ack, token) {
+  const B = cxlBridge();
+  if (!B) return { ok: false, error: '연결 스크립트가 없어요', fatal: true };
   try {
-    const res = await fetch(fnUrl('cafe24-analytics', { action: 'cancelreq_accept', order_id: g.order_id }), { method: 'POST', headers: sbHeaders(), body: JSON.stringify({ codes: g.items.map(x => x.code), ack: !!ack }) });
-    const r = await res.json().catch(() => ({}));
-    if (!res.ok || r.error) return { ok: false, error: r.error || ('오류 ' + res.status), need_ack: !!r.need_ack, flags: r.flags || [] };
-    return r;
+    const p = await cxlPost('cancelreq_prepare', g, { ack: !!ack });
+    if (!p.ok) return { ok: false, error: p.need_ack ? '그 사이 확인이 필요한 주문으로 바뀌었어요 — ' + (p.flags || []).map(f => f.text).join(' / ') : p.error };
+    if (p.already) return { ok: true, already: true, status: p.status };
+    let r;
+    try { r = JSON.parse(await B.accept(JSON.stringify(p.job), token)); } catch (e) { r = { ok: false, error: String(e && e.message || e) }; }
+    // 카페24에 아무것도 보내지 못한 경우(로그인 안 됨 등)는 기록하지 않고 바로 알린다
+    if (!r.ok && !r.sent && r.code === 'login') return { ok: false, error: r.error, fatal: true };
+    const rec = await cxlPost('cancelreq_record', g, { ok: !!r.ok, message: r.error || '', job: p.job, flags: g.flags || [], items: g.items.map(x => ({ code: x.code, product_name: x.product_name, option: x.option, qty: x.qty })) });
+    if (rec.ok) return { ok: true, status: rec.status };
+    return { ok: false, error: r.error || rec.error || '접수되지 않았어요', gone: r.code === 'gone' || r.code === 'stale' };
   } catch (e) { return { ok: false, error: '연결이 끊겼어요 — ' + (e.message || e) }; }
 }
 async function cxlRunAll() {
   if (cxlState.running) return;
+  const B = cxlBridge(); if (!B) { showToast('이 PC에 카페24 취소 접수 연결 스크립트가 필요해요'); cxlRender(); return; }
   const b = cxlBuckets();
   const targets = b.auto.filter(g => !cxlState.off.has(cxlKey(g)));
   if (!targets.length) { showToast('접수할 주문이 없어요'); return; }
   const byL = new Map(); targets.forEach(g => byL.set(g.label, (byL.get(g.label) || 0) + 1));
   const nItems = targets.reduce((n, g) => n + g.items.length, 0);
-  if (!confirm(`네이버페이 취소신청 ${targets.length}건(품목 ${nItems}개)을 접수할까요?\n\n${[...byL].map(([l, n]) => `· ${l} ${n}건`).join('\n')}\n\n취소 구분과 취소 사유는 고객이 신청한 그대로 들어가요.\n접수하면 네이버페이에서 취소·환불이 진행되고, 되돌릴 수 없어요.`)) return;
+  // 확인 창은 연결 스크립트가 직접 띄운다(확인받은 주문 수 안에서만 접수)
+  let token;
+  try { token = await B.begin({ orders: targets.length, items: nItems, preview: [...byL].map(([l, n]) => `${l} ${n}건`) }); }
+  catch (e) { if (!/취소했습니다/.test(String(e && e.message || e))) showToast(String(e && e.message || e)); return; }
   cxlState.running = true;
   const run = cxlState.lastRun = { running: true, total: targets.length, ok: 0, fail: 0, fails: [], stopped: '' };
   let streak = 0;
   for (let i = 0; i < targets.length; i++) {
     const g = targets[i], k = cxlKey(g);
     cxlState.status.set(k, { state: 'run' }); cxlRender();
-    const r = await cxlAcceptOne(g, false);
+    const r = await cxlAcceptOne(g, false, token);
     if (r.ok) { run.ok++; streak = 0; cxlState.status.set(k, { state: 'ok', text: r.already ? '이미 접수돼 있었어요' : (r.status && !/취소신청/.test(r.status) ? r.status : '') }); }
     else {
-      run.fail++; streak++;
-      const msg = r.need_ack ? '그 사이 확인이 필요한 주문으로 바뀌었어요 — ' + (r.flags || []).map(f => f.text).join(' / ') : r.error;
-      run.fails.push({ order_id: g.order_id, msg }); cxlState.status.set(k, { state: 'fail', text: msg });
-      // 첫 건부터 막히거나 연달아 3건이 막히면 같은 원인일 가능성이 커서 나머지는 보내지 않는다
-      if (run.ok === 0 || streak >= 3) { const left = targets.length - i - 1; if (left) run.stopped = run.ok === 0 ? `첫 주문부터 접수되지 않아 나머지 ${left}건은 보내지 않았어요. 카페24에는 아무 변화가 없어요.` : `연달아 3건이 접수되지 않아 나머지 ${left}건은 보내지 않았어요. 앞서 접수된 ${run.ok}건은 그대로 접수돼 있어요.`; break; }
+      run.fail++; if (!r.gone) streak++;   // 그 사이 처리됐거나 바뀐 주문은 같은 원인의 연속 실패로 세지 않는다
+      run.fails.push({ order_id: g.order_id, msg: r.error }); cxlState.status.set(k, { state: 'fail', text: r.error });
+      const left = targets.length - i - 1;
+      // 로그인 문제·첫 건부터 막힘·연달아 3건 막힘 = 같은 원인일 가능성이 커서 나머지는 보내지 않는다
+      if (r.fatal || (run.ok === 0 && !r.gone) || streak >= 3) {
+        if (left || r.fatal) run.stopped = r.fatal ? `${r.error}${left ? ` — 나머지 ${left}건은 보내지 않았어요.` : ''}` : run.ok === 0 ? `첫 주문부터 접수되지 않아 나머지 ${left}건은 보내지 않았어요.` : `연달아 3건이 접수되지 않아 나머지 ${left}건은 보내지 않았어요. 앞서 접수된 ${run.ok}건은 그대로 접수돼 있어요.`;
+        break;
+      }
     }
     cxlRender();
   }
@@ -3745,11 +3783,14 @@ async function cxlRunAll() {
 }
 async function cxlAcceptChecked(btn) {
   if (cxlState.running) return;
+  const B = cxlBridge(); if (!B) { showToast('이 PC에 카페24 취소 접수 연결 스크립트가 필요해요'); return; }
   const g = ((cxlState.data && cxlState.data.groups) || []).find(x => cxlKey(x) === btn.dataset.k); if (!g) return;
-  if (!confirm(`주문 ${g.order_id} 의 취소신청을 접수할까요?\n\n취소 구분: ${g.label}\n상품: ${g.items.map(x => x.product_name + (x.option ? ' / ' + x.option : '')).join(', ')}\n\n확인할 점\n${g.flags.map(f => '· ' + f.text).join('\n')}\n\n접수하면 네이버페이에서 취소·환불이 진행되고, 되돌릴 수 없어요.`)) return;
+  let token;
+  try { token = await B.begin({ orders: 1, items: g.items.length, preview: [`주문 ${g.order_id} · ${g.label}`].concat(g.items.map(x => x.product_name + (x.option ? ' / ' + x.option : ''))), notes: g.flags.map(f => f.text) }); }
+  catch (e) { if (!/취소했습니다/.test(String(e && e.message || e))) showToast(String(e && e.message || e)); return; }
   const k = cxlKey(g);
   cxlState.running = true; cxlState.status.set(k, { state: 'run' }); cxlRender();
-  const r = await cxlAcceptOne(g, true);
+  const r = await cxlAcceptOne(g, true, token);
   cxlState.status.set(k, r.ok ? { state: 'ok', text: r.already ? '이미 접수돼 있었어요' : (r.status && !/취소신청/.test(r.status) ? r.status : '') } : { state: 'fail', text: r.error });
   cxlState.running = false;
   showToast(r.ok ? '접수했어요' : '접수되지 않았어요');

@@ -386,38 +386,13 @@ async function cafe24MarkCollected(kind: "return" | "exchange", orderId: string,
   if (!res.ok) throw Object.assign(new Error(`PUT ${res.status}: ${JSON.stringify(body).slice(0, 400)}`), { status: res.status, body });
   return body;
 }
-// ══ 카페24 쓰기 ② — 네이버페이 취소신청 접수 (2026-10-05 사용자 요청·승인) ══
-// 고객이 네이버페이에서 넣은 '취소신청'을 관리자 화면의 [취소접수]와 같게 접수한다. 수거 완료와 같은 원칙:
-//  · 주소와 본문을 호출자가 넘기지 못한다 — 검증된 주문번호·품주코드·취소 구분 코드로 이 함수가 직접 조립한다.
-//  · 본문은 { shop_no:1, request:{ status:"accepted", naverpay_cancel_reason_type, reason, recover_inventory:"T" } } 로 고정 — **품목(items)은 보내지 않는다**.
-//    2026-10-05 첫 실사용 422 "Partial cancellation is unavailable for NAVER Pay orders": 품목을 하나라도 적으면(주문에 상품이 하나뿐이어도) 부분 취소로 보고 거절한다
-//    → 네이버페이 주문은 '주문 전체' 접수만 가능. 그래서 호출 전에 '주문의 모든 품목이 이번 취소신청에 들어 있는지'를 반드시 확인한다(allCodes).
-//    status는 'accepted'(취소접수)뿐 — 취소완료·환불·PG 취소 필드는 보내지 않는다(네이버페이 주문은 접수 뒤 네이버가 환불을 진행).
-//    배송 전 취소라 재고는 복구(T)로 고정. 취소 구분은 네이버페이 목록(51~60)만 허용.
-//  · 다른 쓰기가 필요해지면 여기 허용 목록을 넓히지 말고 사용자 승인부터 받을 것. tools/check_cafe24_writes.sh 가 배포 전 검사한다.
+// ── 네이버페이 취소신청 접수는 서버가 하지 않는다 (2026-10-05) ──
+// 처음엔 여기서 공개 API(POST orders/{id}/cancellation, status accepted)로 접수하려 했으나(cafe24AcceptNaverCancel) 실사용 두 번 모두 422:
+//   품목 지정 → "Partial cancellation is unavailable for NAVER Pay orders." / 품목 없이 → "Partial return is unavailable for NAVER Pay orders."
+// 공개 API는 '관리자가 새로 넣는 취소'만 처리하고, 고객이 넣은 취소신청(C00) 품목은 취소 가능한 상품으로 보지 않는다(관리자 화면 order_cancel_list.php도
+// "현재 취소 가능한 상품이 없습니다"). 접수는 관리자 화면 '취소 처리' 창(order_cancel_handling.php → do_order_ncheckout.php)으로만 되므로,
+// 이 PC 브라우저의 연결 스크립트(window.CAFE24_CANCEL)가 한다. 서버는 분류·준비·확인·기록만 — **카페24 쓰기는 다시 수거 완료 하나뿐.**
 const NPAY_CANCEL_TYPES: Record<string, string> = { "구매 의사 취소": "51", "색상 및 사이즈 변경": "52", "다른 상품 잘못 주문": "53", "서비스 및 상품 불만족": "54", "배송 지연": "55", "상품 품절": "56", "상품 정보 상이": "60" };
-async function cafe24AcceptNaverCancel(orderId: string, reqCodes: string[], allCodes: string[], reasonType: string, reason: string, token: string): Promise<Record<string, unknown>> {
-  if (!/^\d{8}-\d{7}$/.test(orderId)) throw new Error("허용되지 않은 쓰기(주문번호 형식)");
-  if (!Object.values(NPAY_CANCEL_TYPES).includes(reasonType)) throw new Error("허용되지 않은 쓰기(취소 구분)");
-  // 주문 전체 접수만: 취소신청 품목(reqCodes)이 주문의 전체 품목(allCodes)과 정확히 같아야 한다 — 하나라도 다르면 신청하지 않은 상품까지 취소될 수 있다
-  const okCodes = (l: unknown) => Array.isArray(l) && l.length > 0 && l.length <= 50 && l.every((c) => typeof c === "string" && c.startsWith(orderId + "-") && /^\d{8}-\d{7}-\d{2,3}$/.test(c));
-  if (!okCodes(reqCodes) || !okCodes(allCodes) || [...reqCodes].sort().join(",") !== [...allCodes].sort().join(",")) throw new Error("허용되지 않은 쓰기(주문 전체가 취소신청이 아님)");
-  const url = `${API_BASE}/admin/orders/${orderId}/cancellation`;
-  const payload = JSON.stringify({ shop_no: 1, request: { status: "accepted", naverpay_cancel_reason_type: reasonType, reason: String(reason ?? "").slice(0, 2000), recover_inventory: "T" } });
-  const doFetch = (tk: string) => fetch(url, { method: "POST", headers: { Authorization: `Bearer ${tk}`, "Content-Type": "application/json", "X-Cafe24-Api-Version": API_VERSION }, body: payload });
-  let tok = token;
-  let res = await doFetch(tok);
-  if (res.status === 401) { tok = await getAccessToken(true); res = await doFetch(tok); }
-  for (let i = 0; res.status === 429 && i < RATE_LIMIT_RETRIES; i++) {
-    const ra = Number(res.headers.get("Retry-After"));
-    await res.body?.cancel();
-    await sleep(isFinite(ra) && ra > 0 ? ra * 1000 : Math.min(1000 * 2 ** i, 8000));
-    res = await doFetch(tok);
-  }
-  const body = await res.json().catch(() => ({}));
-  if (!res.ok) throw Object.assign(new Error(`POST ${res.status}: ${JSON.stringify(body).slice(0, 400)}`), { status: res.status, body });
-  return body;
-}
 
 // ── 품절 재고 점검 권한 (2026-09-29 사용자 요청): 관리자 + 물류팀. 서버 역할은 logistics→cs로 합쳐져 있어(CS팀과 구분 불가) 원래 역할을 다시 읽는다.
 //    서버 간 비밀키(에이전트·자동 갱신·상품관리 연동)로는 허용하지 않는다.
@@ -630,10 +605,8 @@ function cxlGroupsOf(o: Record<string, any>): Record<string, any>[] {
     if (beforeBad.length) flags.push({ level: "check", text: `취소 신청 전 상태가 배송준비중이 아니에요(${beforeBad.map((b) => b || "알 수 없음").join(", ")}) — 이미 발송 단계일 수 있어요` });
     if (its.some((it) => !!it.tracking_no)) flags.push({ level: "check", text: "송장번호가 이미 등록돼 있어요 — 발송됐는지 확인이 필요해요" });
     if (o.paid !== "T") flags.push({ level: "check", text: "결제가 끝나지 않은 주문이에요" });
-    // 네이버페이 주문은 카페24 API로 '주문 전체' 접수만 된다(품목을 지정하면 422) → 주문에 다른 품목이 하나라도 있으면 여기서 접수 불가
-    if (others.length) flags.push({ level: "block", text: othersWaiting.length
-      ? `주문의 일부 상품만 취소 신청했어요(남은 상품 ${othersWaiting.length}개는 발송) — 일부만 취소하는 접수는 여기서 할 수 없어요. 카페24에서 직접 접수해주세요`
-      : "같은 주문에 이미 처리된 다른 상품이 있어요 — 여기서는 주문 전체 접수만 할 수 있어요. 카페24에서 직접 접수해주세요" });
+    // 관리자 '취소 처리' 창은 취소신청 품목만 접수한다 → 일부만 취소 신청한 주문도 접수는 되지만, 남은 상품이 발송되므로 확인 권장
+    if (othersWaiting.length) flags.push({ level: "check", text: `주문의 일부만 취소 신청했어요 — 남은 상품 ${othersWaiting.length}개는 그대로 발송돼요` });
     if (othersClaim.length) flags.push({ level: "check", text: "같은 주문에 교환·반품이 함께 진행 중이에요" });
     if (its.some((it) => it.claim_quantity != null && Number(it.claim_quantity) !== Number(it.quantity))) flags.push({ level: "block", text: "주문 수량 중 일부만 취소 신청했어요 — 카페24에서 직접 접수해주세요" });
     if (byReason.size > 1) flags.push({ level: "block", text: "한 주문 안에 취소 사유가 여러 가지예요 — 카페24에서 직접 접수해주세요" });
@@ -731,8 +704,8 @@ Deno.serve(async (req) => {
     }
 
     // ── 취소·반품 접수 (#cxl, 2026-10-05 사용자 요청): 관리자 전용. 네이버페이 취소신청(C00) 목록·분류 / 접수(쓰기) / 처리 내역.
-    //    목록은 캐시하지 않는다(접수 직전 상태가 곧 기준). 접수는 한 번에 한 건(주문 + 사유가 같은 품목 묶음) — 화면이 차례로 부른다.
-    if (action === "cancelreq_list" || action === "cancelreq_accept" || action === "cancelreq_log") {
+    //    목록은 캐시하지 않는다(접수 직전 상태가 곧 기준). 접수는 서버가 아니라 화면의 연결 스크립트가 한 건씩 한다 — 서버는 준비(prepare)·기록(record).
+    if (action === "cancelreq_list" || action === "cancelreq_prepare" || action === "cancelreq_record" || action === "cancelreq_log") {
       if (authed.role !== "admin") return json({ error: "접근 권한이 없습니다" }, 403);
       const CXL_RECENT_MS = 30 * 60 * 1000;   // 접수 직후 카페24 조회에 늦게 반영될 수 있어, 30분 안에 접수한 품목은 '방금 접수'로 보고 다시 보내지 않는다
       const recentOk = async () => {
@@ -762,54 +735,55 @@ Deno.serve(async (req) => {
         groups.sort((a, b) => String(a.requested_at).localeCompare(String(b.requested_at)));
         return json({ today: fmtD(end), fetched_at: new Date().toISOString(), range: { start: fmtD(start), end: fmtD(end) }, labels: Object.keys(NPAY_CANCEL_TYPES), groups });
       }
-      // ── 접수 (카페24 쓰기 ②) — POST 전용, 사람 로그인으로만, 실행마다 cancel_accept_log에 기록
+      // ── 접수 준비·기록 — 접수 자체는 화면이 이 PC의 연결 스크립트(window.CAFE24_CANCEL)에 맡긴다(위 '서버가 하지 않는다' 참고).
+      //    prepare: 보내기 직전 최신 주문으로 다시 분류해 '어떤 품목을 어떤 취소 구분·사유로' 접수할지 서버가 정해 준다(화면이 보낸 것은 주문번호·품목뿐).
+      //    record : 끝난 뒤 주문을 다시 읽어 취소신청에서 빠졌는지 확인하고 cancel_accept_log에 기록(성공·실패 모두).
       if (req.method !== "POST") return json({ error: "POST로 호출해주세요" }, 405);
       if (viaAgent || viaCron || viaSecret) return json({ error: "이 기능은 로그인한 사람만 쓸 수 있습니다" }, 403);
       const orderId = String(url.searchParams.get("order_id") ?? "");
       if (!/^\d{8}-\d{7}$/.test(orderId)) return json({ error: "주문번호가 올바르지 않습니다" }, 400);
       const b = await req.json().catch(() => ({})) as Record<string, any>;
       const want = (Array.isArray(b.codes) ? b.codes : []).map((c: unknown) => String(c)).sort();
-      if (!want.length || want.length > 50 || want.some((c: string) => !c.startsWith(orderId + "-"))) return json({ error: "접수할 품목이 올바르지 않습니다" }, 400);
+      if (!want.length || want.length > 50 || want.some((c: string) => !/^\d{8}-\d{7}-\d{2,3}$/.test(c) || !c.startsWith(orderId + "-"))) return json({ error: "접수할 품목이 올바르지 않습니다" }, 400);
       const readOrder = async () => ((await apiGet(`${API_BASE}/admin/orders/${orderId}?embed=items`, token)).order ?? {}) as Record<string, any>;
-      const stateOf = (o: Record<string, any>) => [...new Set(((o.items ?? []) as Record<string, any>[]).filter((it) => want.includes(String(it.order_item_code ?? ""))).map((it) => String(it.status_text ?? it.order_status ?? "")))].join(", ");
+      const wantItems = (o: Record<string, any>) => ((o.items ?? []) as Record<string, any>[]).filter((it) => want.includes(String(it.order_item_code ?? "")));
+      const stateOf = (o: Record<string, any>) => [...new Set(wantItems(o).map((it) => String(it.status_text ?? it.order_status ?? "")))].join(", ");
       let order: Record<string, any>;
       try { order = await readOrder(); } catch (e) { return json({ error: "카페24에서 주문을 읽지 못했어요 — " + String(e).slice(0, 200) }, 502); }
-      // 최신 주문으로 다시 분류한다 — 화면이 보낸 것은 주문번호·품목뿐이고 취소 구분·사유는 서버가 정한다
-      const g = cxlGroupsOf(order).find((x) => x.key === want.join(","));
-      if (!g) {
-        const its = ((order.items ?? []) as Record<string, any>[]).filter((it) => want.includes(String(it.order_item_code ?? "")));
-        if (its.length === want.length && its.every((it) => /^C[1-4]/.test(String(it.order_status ?? "")))) return json({ ok: true, already: true, status: stateOf(order) });
-        return json({ error: "그 사이 주문 상태가 바뀌었어요 — 새로고침한 뒤 다시 확인해주세요", stale: true, status: stateOf(order) }, 409);
+      if (action === "cancelreq_prepare") {
+        const g = cxlGroupsOf(order).find((x) => x.key === want.join(","));
+        if (!g) {
+          const its = wantItems(order);
+          if (its.length === want.length && its.every((it) => /^C[1-4]/.test(String(it.order_status ?? "")))) return json({ ok: true, already: true, status: stateOf(order) });
+          return json({ error: "그 사이 주문 상태가 바뀌었어요 — 새로고침한 뒤 다시 확인해주세요", stale: true, status: stateOf(order) }, 409);
+        }
+        const flags = g.flags as CxlFlag[];
+        const blocks = flags.filter((f) => f.level === "block");
+        if (blocks.length) return json({ error: blocks.map((f) => f.text).join(" / "), blocked: true }, 400);
+        if (flags.length && b.ack !== true) return json({ error: "직접 확인이 필요한 주문이에요", need_ack: true, flags }, 409);
+        const recent = await recentOk();
+        if ((g.items as Record<string, any>[]).some((x) => recent.has(x.code))) return json({ ok: true, already: true, status: "방금 접수함(카페24 반영 대기)" });
+        // 안전장치: 사람별 1시간 300건 · 전체 하루 1,000건 (성공·실패 모두 셈)
+        const sinceIso = (ms: number) => new Date(Date.now() - ms).toISOString();
+        const mine = ((await sbRest(`cancel_accept_log?select=id&by_id=eq.${encodeURIComponent(authed.id)}&created_at=gte.${sinceIso(3600e3)}&limit=500`)) ?? []) as unknown[];
+        const allDay = ((await sbRest(`cancel_accept_log?select=id&created_at=gte.${sinceIso(24 * 3600e3)}&limit=1500`)) ?? []) as unknown[];
+        if (mine.length >= 300 || allDay.length >= 1000) return json({ error: "취소 접수 한도를 넘었어요 — 잠시 뒤 다시 시도해주세요" }, 429);
+        return json({ ok: true, job: { order_id: orderId, codes: want, type: String(g.reason_type), label: String(g.label), reason: String(g.reason_raw).trim() }, flags });
       }
-      const logRow = (ok: boolean, result: string, extra: Record<string, unknown> = {}) => sbRest("cancel_accept_log", { method: "POST", headers: { Prefer: "return=minimal" }, body: JSON.stringify({
-        order_id: orderId, items: (g.items as Record<string, any>[]).map((x) => ({ code: x.code, product_name: x.product_name, option: x.option, qty: x.qty })), reason_type: g.reason_type, reason_label: g.label, reason: g.reason_raw,
-        flags: (g.flags as CxlFlag[]).length ? g.flags : null, ok, result: String(result).slice(0, 500), by_id: authed.id, by_name: authed.name, ...extra }) }).catch(() => null);
-      const flags = g.flags as CxlFlag[];
-      const blocks = flags.filter((f) => f.level === "block");
-      if (blocks.length) return json({ error: blocks.map((f) => f.text).join(" / "), blocked: true }, 400);
-      if (flags.length && b.ack !== true) return json({ error: "직접 확인이 필요한 주문이에요", need_ack: true, flags }, 409);
-      const recent = await recentOk();
-      if ((g.items as Record<string, any>[]).some((x) => recent.has(x.code))) return json({ ok: true, already: true, status: "방금 접수함(카페24 반영 대기)" });
-      // 안전장치: 사람별 1시간 300건 · 전체 하루 1,000건 (성공·실패 모두 셈)
-      const sinceIso = (ms: number) => new Date(Date.now() - ms).toISOString();
-      const mine = ((await sbRest(`cancel_accept_log?select=id&by_id=eq.${encodeURIComponent(authed.id)}&created_at=gte.${sinceIso(3600e3)}&limit=500`)) ?? []) as unknown[];
-      const allDay = ((await sbRest(`cancel_accept_log?select=id&created_at=gte.${sinceIso(24 * 3600e3)}&limit=1500`)) ?? []) as unknown[];
-      if (mine.length >= 300 || allDay.length >= 1000) return json({ error: "취소 접수 한도를 넘었어요 — 잠시 뒤 다시 시도해주세요" }, 429);
-      let res: Record<string, any>;
-      try {
-        const allCodes = ((order.items ?? []) as Record<string, any>[]).map((it) => String(it.order_item_code ?? ""));
-        res = await cafe24AcceptNaverCancel(orderId, (g.items as Record<string, any>[]).map((x) => String(x.code)), allCodes, String(g.reason_type), String(g.reason_raw), token) as Record<string, any>;
-      } catch (e) {
-        const st = (e as { status?: number }).status ?? 0, raw = String((e as Error).message ?? e);
-        await logRow(false, raw);
-        const msg = st === 403 || /scope|permission|insufficient/i.test(raw) ? "카페24 앱에 '주문 쓰기' 권한이 없어요 — '카페24 연동'으로 다시 연동해주세요" : "카페24가 접수하지 못했어요 — " + raw.slice(0, 300);
-        return json({ error: msg, cafe24_status: st }, st === 403 ? 403 : 502);
-      }
-      const claim = String((res.cancellation ?? res.order ?? res)?.claim_code ?? "") || null;
-      let after = "";
-      try { after = stateOf(await readOrder()); } catch { /* 읽기 실패해도 접수는 성립 */ }
-      await logRow(true, after && !/취소신청/.test(after) ? after : "접수됨(카페24 반영 대기)", { claim_code: claim });
-      return json({ ok: true, status: after, claim_code: claim, label: g.label });
+      // record — 연결 스크립트가 끝난 뒤. 화면이 보낸 결과(b.ok·b.message)는 참고이고, 서버가 주문을 다시 읽어 확인한다.
+      const its = wantItems(order);
+      const verified = its.length === want.length && its.every((it) => String(it.order_status ?? "") !== "C00");
+      // 연결 스크립트는 관리자 창을 다시 읽어 '취소신청 목록에서 빠졌는지' 직접 확인한 뒤 ok를 준다 — 공개 API 조회는 반영이 조금 늦을 수 있어 둘 중 하나면 접수로 본다
+      const ok = verified || b.ok === true;
+      const job = (b.job ?? {}) as Record<string, any>;
+      const txt = (v: unknown, n: number) => String(v ?? "").slice(0, n);
+      await sbRest("cancel_accept_log", { method: "POST", headers: { Prefer: "return=minimal" }, body: JSON.stringify({
+        order_id: orderId,
+        items: (Array.isArray(b.items) ? b.items : []).slice(0, 50).filter((x: any) => want.includes(String(x?.code ?? ""))).map((x: any) => ({ code: txt(x.code, 30), product_name: txt(x.product_name, 200), option: txt(x.option, 200), qty: Number(x.qty) || 0 })),
+        reason_type: Object.values(NPAY_CANCEL_TYPES).includes(String(job.type)) ? String(job.type) : null, reason_label: txt(job.label, 40) || null, reason: txt(job.reason, 2000) || null,
+        flags: Array.isArray(b.flags) && b.flags.length ? b.flags.slice(0, 12).map((f: any) => ({ level: f?.level === "block" ? "block" : "check", text: txt(f?.text, 200) })) : null,
+        ok, result: ok ? (verified ? (stateOf(order) || "접수됨") : "접수됨(카페24 반영 대기)") : (txt(b.message, 450) || "접수되지 않음"), by_id: authed.id, by_name: authed.name }) }).catch(() => null);
+      return json({ ok, verified, status: stateOf(order) });
     }
 
     // ── 미발송 관리 (2026-09-28 사용자 요청): 관리자·MD·CS/물류팀. 10분 캐시(권한 검사 뒤), 새로고침은 nocache=1
