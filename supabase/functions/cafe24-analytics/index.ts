@@ -614,7 +614,19 @@ function splitClaimReason(raw: unknown): { request: string; accept: string } {
 const CXL_ASK_WORDS = /연락|전화|통화|문의|주소|합배송|묶음|배송비|교환|부탁|주세요|주실|가능한가요|가능할까요|되나요|될까요|\?/;
 const CXL_WAIT = new Set(["N10", "N20"]);            // 취소 전 상태가 이 둘이면 아직 안 보낸 상품
 const CXL_UNSHIPPED = new Set(["N10", "N20", "N21", "N22"]);
-type CxlFlag = { level: "block" | "check"; text: string };
+type CxlFlag = { level: "block" | "check"; text: string; tag?: string };
+// '확인할 점' 문장 → 짧은 꼬리표(화면에서 한눈에 보이게, 2026-10-05 사용자 요청). 문장은 그대로 두고 꼬리표만 붙인다.
+const CXL_TAGS: [RegExp, string][] = [
+  [/일부만 취소|일부 상품만/, "부분 취소"], [/이미 처리된 다른 상품/, "다른 상품 처리됨"], [/접수가 여러 건|사유가 여러 가지/, "접수 여러 건"],
+  [/상품별 추가할인/, "상품별 할인"], [/1\+1/, "1+1 상품"], [/예치금/, "예치금"], [/결제가 끝나지/, "미결제"], [/취소 (신청 )?전 상태/, "발송 단계"],
+  [/송장번호/, "송장 있음"], [/수량 중 일부/, "수량 일부"], [/결제 금액을 읽지/, "금액 확인"], [/네이버페이 주문이 아니/, "네이버페이 아님"], [/네이버페이 주문이에요/, "네이버페이"],
+  [/취소 구분 목록에 없는|취소 사유를 읽지/, "구분 없음"], [/판매자 쪽/, "판매자 취소"], [/'취소 요청'이 아니/, "철회 가능성"], [/교환·반품이 함께/, "교환·반품 진행"], [/요청이나 문의/, "고객 요청 글"],
+];
+function cxlTagOf(text: string): string {
+  const pm = text.match(/^결제 수단\(([^+)]+)/);
+  if (pm) return `${pm[1]} 결제`;
+  return (CXL_TAGS.find(([re]) => re.test(text)) ?? [null, "확인"])[1] as string;
+}
 function cxlGroupsOf(o: Record<string, any>): Record<string, any>[] {
   const all = (o.items ?? []) as Record<string, any>[];
   const req = all.filter((it) => String(it.order_status ?? "") === "C00");
@@ -654,7 +666,7 @@ function cxlGroupsOf(o: Record<string, any>): Record<string, any>[] {
       buyer: String(o.billing_name ?? ""), paid_at: String(o.payment_date ?? "").slice(0, 16).replace("T", " "),
       requested_at: its.map((it) => String(it.cancel_request_date ?? "").slice(0, 16).replace("T", " ")).sort().pop() ?? "",
       label: accept, reason_type: type, reason_text: request, reason_raw: raw, items, amount: items.reduce((a, x) => a + x.price, 0),
-      other_items: others.length, flags,
+      other_items: others.length, flags: flags.map((f) => ({ ...f, tag: cxlTagOf(f.text) })),
     });
   }
   return groups;
@@ -709,7 +721,7 @@ function selfGroupsOf(o: Record<string, any>, nrSets: NrSets): Record<string, an
       goods: n(init.order_price_amount), shipping: n(init.shipping_fee), coupon: n(init.coupon_discount_price),
       // 환불 예정(전체 취소 기준): 결제 수단으로 돌려줄 돈 = 처음 결제액, 적립금 = 쓴 만큼 전액
       expect: { amount: n(init.payment_amount), points: n(init.points_spent_amount) },
-      recover: reasonType === "H" ? "F" : "T", manual,
+      recover: reasonType === "H" ? "F" : "T", manual: manual.map((text) => ({ tag: cxlTagOf(text), text })),
     });
   }
   return groups;
@@ -912,7 +924,7 @@ Deno.serve(async (req) => {
         if (its.length && its.every((it) => String(it.order_status ?? "") === "C40")) return json({ ok: true, already: true, status: stateOf(order) });
         return json({ error: `그 사이 주문 상태가 바뀌었어요(${stateOf(order) || "접수 없음"}) — 새로고침한 뒤 다시 확인해주세요`, stale: true }, 409);
       }
-      if ((g.manual as string[]).length) return json({ error: "직접 확인이 필요한 주문이에요 — " + (g.manual as string[]).join(" / "), blocked: true }, 400);
+      if ((g.manual as { text: string }[]).length) return json({ error: "직접 확인이 필요한 주문이에요 — " + (g.manual as { text: string }[]).map((m) => m.text).join(" / "), blocked: true }, 400);
       const expect = g.expect as { amount: number; points: number };
       // 화면에 보여 준 환불 예정액과 지금 다시 계산한 값이 같아야 한다(사람이 본 금액 = 처리하는 금액)
       if (Number(b.expect_amount) !== expect.amount || Number(b.expect_points) !== expect.points) return json({ error: "화면의 환불 예정액과 지금 계산한 금액이 달라요 — 새로고침한 뒤 다시 확인해주세요", stale: true }, 409);

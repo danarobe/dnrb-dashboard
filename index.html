@@ -382,6 +382,12 @@
     tbody tr:hover { background:#fafbff; }
     tbody td { padding:9px 13px; text-align:center; border-bottom:1px solid #f3f4f6; color:#374151; white-space:nowrap; }
     tbody td.name-cell { text-align:left; white-space:normal; max-width:220px; }
+    /* 취소·반품 접수(#cxl) 표: 긴 글이 표를 옆으로 밀어 '확인할 점'·'결과' 칸이 잘리던 문제 — 줄바꿈을 켜고 꼭 필요한 칸만 한 줄(.nw) (2026-10-05) */
+    .cxl-tbl { table-layout:auto; }
+    .cxl-tbl tbody td { white-space:normal; word-break:keep-all; overflow-wrap:anywhere; padding:8px 10px; }
+    .cxl-tbl thead th { padding:9px 10px; }
+    .cxl-tbl td.nw { white-space:nowrap; }
+    .cxl-tag { display:inline-block; border-radius:6px; padding:2px 8px; font-size:.72rem; font-weight:800; white-space:nowrap; margin:0 4px 4px 0; }
     .option-tag { display:inline-block; font-size:.7rem; color:#6366f1; background:#ede9fe; border-radius:4px; padding:1px 6px; margin-top:2px; }
 
     /* ── 상태 뱃지 ── */
@@ -3592,6 +3598,19 @@ function cxlBridgeHtml() {
     <span style="font-size:.76rem;">설치했는데 이 안내가 계속 뜨면: Tampermonkey에서 스크립트가 켜져 있는지, 엣지 확장 관리에서 '사용자 스크립트 허용'(개발자 모드)이 켜져 있는지 확인하세요.</span></div>`;
 }
 const cxlShort = v => String(v || '').slice(5);   // 2026-10-04 23:04 → 10-04 23:04
+// '확인할 점' 꼬리표 (2026-10-05 사용자 요청 — 한눈에 보이게): 서버가 문장마다 붙여 준 tag를 색 칩으로, 표 위에는 꼬리표별 건수 필터
+const cxlTagChip = (f, block) => `<span class="cxl-tag" style="background:${block ? '#fee2e2' : '#fde68a'};color:${block ? '#b91c1c' : '#92400e'};">${escHtml(f.tag || '확인')}</span>`;
+function cxlFlagCell(list, isBlock) {
+  return `<div>${list.map(f => cxlTagChip(f, isBlock(f))).join('')}</div>` + list.map(f => `<div style="font-size:.72rem;color:${isBlock(f) ? '#b91c1c' : '#78350f'};line-height:1.5;">· ${escHtml(f.text)}</div>`).join('');
+}
+function cxlTagFilterHtml(groups, flagsOf, cur, fn) {
+  const cnt = new Map(); groups.forEach(g => new Set(flagsOf(g).map(f => f.tag || '확인')).forEach(t => cnt.set(t, (cnt.get(t) || 0) + 1)));
+  if (cnt.size < 2) return '';
+  const btn = (k, label, n) => `<button data-t="${escHtml(k)}" onclick="${fn}(this.dataset.t)" style="border:1.5px solid ${cur === k ? 'transparent' : '#fcd34d'};background:${cur === k ? '#b45309' : '#fff'};color:${cur === k ? '#fff' : '#92400e'};border-radius:99px;padding:3px 11px;font-size:.74rem;font-weight:800;cursor:pointer;white-space:nowrap;">${escHtml(label)} ${n}</button>`;
+  return `<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:8px;"><span style="font-size:.74rem;font-weight:700;color:#92400e;">확인할 점별로 보기</span>${btn('', '전체', groups.length)}${[...cnt].sort((a, b) => b[1] - a[1]).map(([t, n]) => btn(t, t, n)).join('')}</div>`;
+}
+function cxlSetTag(t) { cxlState.tag = t || ''; cxlRender(); }
+function cxsSetTag(t) { cxsState.tag = t || ''; cxsRender(); }
 function cxlInit() {
   cxlTabsRender();
   if (!cxlState.data && !cxlState.loading) cxlLoad(); else cxlRender();
@@ -3685,10 +3704,10 @@ function cxlRender() {
       const k = cxlKey(g), on = !cxlState.off.has(k);
       return `<tr style="${on ? '' : 'opacity:.5;'}">
         <td style="vertical-align:top;"><input type="checkbox" ${on ? 'checked' : ''} ${dis} data-k="${escHtml(k)}" onchange="cxlToggle(this)" title="접수하기에 넣기" style="width:17px;height:17px;" /></td>
-        <td style="text-align:left;vertical-align:top;white-space:nowrap;font-size:.76rem;">${escHtml(cxlShort(g.requested_at))}</td>
-        <td style="text-align:left;vertical-align:top;">${cxlOrderCell(g)}</td>
+        <td class="nw" style="text-align:left;vertical-align:top;font-size:.76rem;">${escHtml(cxlShort(g.requested_at))}</td>
+        <td class="nw" style="text-align:left;vertical-align:top;">${cxlOrderCell(g)}</td>
         <td style="text-align:left;vertical-align:top;font-size:.78rem;">${cxlItemsHtml(g)}</td>
-        <td style="vertical-align:top;white-space:nowrap;">${fmt(g.amount)}원</td>
+        <td class="nw" style="vertical-align:top;">${fmt(g.amount)}원</td>
         <td style="text-align:left;vertical-align:top;font-size:.78rem;max-width:260px;white-space:pre-wrap;">${g.reason_text ? escHtml(g.reason_text) : '<span style="color:#9ca3af;">(적지 않음)</span>'}</td>
         <td style="text-align:left;vertical-align:top;font-size:.76rem;">${cxlStatusCell(g)}</td></tr>`;
     }).join('');
@@ -3699,27 +3718,28 @@ function cxlRender() {
         <span style="font-size:.74rem;color:#6b7280;">품목 ${cnt(list)}개 · 카페24 취소 구분도 같은 이름으로 들어가요</span>
         <button class="toggle-btn" style="margin-left:auto;font-size:.72rem;padding:3px 10px;" ${dis} data-l="${escHtml(l)}" data-on="${allOn ? '0' : '1'}" onclick="cxlToggleAll(this)">${allOn ? '전체 해제' : '전체 선택'}</button>
       </div>
-      <div class="table-wrap"><table style="width:100%;font-size:.8rem;">${head}<tbody>${rows}</tbody></table></div></div>`;
+      <div class="table-wrap"><table class="cxl-tbl" style="width:100%;font-size:.8rem;">${head}<tbody>${rows}</tbody></table></div></div>`;
   }).join('');
+  const checkShown = cxlState.tag ? b.check.filter(g => g.flags.some(f => (f.tag || '확인') === cxlState.tag)) : b.check;
   const checkHtml = b.check.length ? `<div id="cxl-sec-check" style="border:1px solid #fcd34d;border-radius:12px;padding:12px 14px;margin-bottom:12px;background:#fffbeb;">
       <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:4px;">
         <b style="font-size:.95rem;color:#92400e;"><i class="fa-solid fa-triangle-exclamation"></i> 직접 확인 권장</b>
-        <span style="background:#fde68a;color:#92400e;border-radius:99px;padding:2px 10px;font-size:.74rem;font-weight:800;">${b.check.length}건</span>
+        <span style="background:#fde68a;color:#92400e;border-radius:99px;padding:2px 10px;font-size:.74rem;font-weight:800;">${b.check.length}건 · 품목 ${cnt(b.check)}개</span>
       </div>
-      <div style="font-size:.74rem;color:#92400e;margin-bottom:8px;">[접수하기]에는 들어가지 않아요. '확인할 점'을 읽어 보고 괜찮으면 한 건씩 접수하세요.</div>
-      <div class="table-wrap"><table style="width:100%;font-size:.8rem;"><thead><tr><th style="text-align:left;">신청</th><th style="text-align:left;">주문</th><th style="text-align:left;">상품 · 옵션 · 수량</th><th style="text-align:left;">취소 구분 · 고객이 적은 사유</th><th style="text-align:left;">확인할 점</th><th style="text-align:left;">처리</th></tr></thead><tbody>
-      ${b.check.map(g => {
+      <div style="font-size:.74rem;color:#92400e;margin-bottom:8px;">[접수하기]에는 들어가지 않아요. 맨 앞 칸의 '확인할 점'을 보고 괜찮으면 한 건씩 접수하세요. <b style="color:#b91c1c;">빨간 꼬리표</b>는 여기서 접수할 수 없는 주문이에요(카페24에서 직접).</div>
+      ${cxlTagFilterHtml(b.check, g => g.flags, cxlState.tag || '', 'cxlSetTag')}
+      <div class="table-wrap"><table class="cxl-tbl" style="width:100%;font-size:.8rem;"><thead><tr><th style="text-align:left;min-width:230px;">확인할 점</th><th style="text-align:left;">주문</th><th style="text-align:left;">상품 · 옵션 · 수량</th><th style="text-align:left;">취소 구분 · 고객이 적은 사유</th><th style="text-align:left;">처리</th></tr></thead><tbody>
+      ${checkShown.map(g => {
         const k = cxlKey(g), blocked = g.flags.some(f => f.level === 'block'), s = cxlState.status.get(k);
         return `<tr>
-          <td style="text-align:left;vertical-align:top;white-space:nowrap;font-size:.76rem;">${escHtml(cxlShort(g.requested_at))}</td>
-          <td style="text-align:left;vertical-align:top;">${cxlOrderCell(g)}<div style="font-size:.7rem;color:#6b7280;">${fmt(g.amount)}원${g.naver ? '' : ' · ' + escHtml(g.place || '')}</div></td>
+          <td style="text-align:left;vertical-align:top;min-width:230px;">${cxlFlagCell(g.flags, f => f.level === 'block')}</td>
+          <td class="nw" style="text-align:left;vertical-align:top;">${cxlOrderCell(g)}<div style="font-size:.7rem;color:#6b7280;">신청 ${escHtml(cxlShort(g.requested_at))} · ${fmt(g.amount)}원${g.naver ? '' : ' · ' + escHtml(g.place || '')}</div></td>
           <td style="text-align:left;vertical-align:top;font-size:.78rem;">${cxlItemsHtml(g)}</td>
           <td style="text-align:left;vertical-align:top;font-size:.78rem;max-width:230px;">${g.label ? `<span style="background:#eef2ff;color:#3730a3;border-radius:99px;padding:1px 8px;font-weight:800;white-space:nowrap;">${escHtml(g.label)}</span>` : '<span style="color:#b91c1c;font-weight:700;">구분 없음</span>'}<div style="margin-top:3px;white-space:pre-wrap;">${g.reason_text ? escHtml(g.reason_text) : '<span style="color:#9ca3af;">(적지 않음)</span>'}</div></td>
-          <td style="text-align:left;vertical-align:top;font-size:.76rem;min-width:200px;">${g.flags.map(f => `<div style="color:${f.level === 'block' ? '#b91c1c' : '#92400e'};padding:1px 0;">· ${escHtml(f.text)}</div>`).join('')}</td>
-          <td style="text-align:left;vertical-align:top;font-size:.76rem;white-space:nowrap;">
+          <td class="nw" style="text-align:left;vertical-align:top;font-size:.76rem;">
             <button class="toggle-btn" style="font-size:.7rem;padding:2px 9px;" data-site="cafe24" data-oid="${escHtml(g.order_id)}" onclick="rscanOpen(this)"><i class="fa-solid fa-arrow-up-right-from-square"></i> 카페24</button>
-            ${blocked || !cxlBridge() ? '' : `<button class="toggle-btn" style="font-size:.7rem;padding:2px 9px;background:#b45309;color:#fff;border-color:#b45309;" ${dis} data-k="${escHtml(k)}" onclick="cxlAcceptChecked(this)">확인하고 접수</button>`}
-            ${s ? `<div style="margin-top:4px;white-space:normal;">${cxlStatusCell(g)}</div>` : ''}</td></tr>`;
+            ${blocked || !cxlBridge() ? '' : `<div style="margin-top:4px;"><button class="toggle-btn" style="font-size:.7rem;padding:2px 9px;background:#b45309;color:#fff;border-color:#b45309;" ${dis} data-k="${escHtml(k)}" onclick="cxlAcceptChecked(this)">확인하고 접수</button></div>`}
+            ${s ? `<div style="margin-top:4px;white-space:normal;max-width:200px;">${cxlStatusCell(g)}</div>` : ''}</td></tr>`;
       }).join('')}</tbody></table></div></div>` : '';
   const doneHtml = b.done.length ? `<details style="border:1px solid #bbf7d0;border-radius:12px;padding:10px 14px;margin-bottom:12px;background:#f0fdf4;font-size:.8rem;">
       <summary style="cursor:pointer;font-weight:800;color:#166534;"><i class="fa-solid fa-circle-check"></i> 방금 접수한 주문 ${b.done.length}건 <span style="font-weight:600;color:#6b7280;">— 카페24 조회에 반영되면 목록에서 사라져요</span></summary>
@@ -3858,19 +3878,21 @@ function cxsRender() {
   const b = cxsBuckets();
   const picked = b.auto.filter(g => !cxsState.off.has(cxsKey(g)));
   const sum = list => list.reduce((t, g) => t + g.expect.amount, 0);
+  const cnt = list => list.reduce((n, g) => n + g.items.length, 0);   // 상품(품목) 개수 — 카페24 홈 '접수' 숫자는 이 개수 기준
   const tile = (label, v, sub, col) => `<div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:10px;padding:8px 14px;min-width:120px;"><div style="font-size:.7rem;color:#6b7280;">${label}</div><div style="font-size:1.15rem;font-weight:800;color:${col || '#111827'};">${v}</div>${sub ? `<div style="font-size:.68rem;color:#9ca3af;">${sub}</div>` : ''}</div>`;
+  const nn = (list, col) => `${fmt(list.length)}건 <span style="font-size:.78rem;font-weight:700;color:${col || '#6b7280'};">· 상품 ${fmt(cnt(list))}개</span>`;
   const bt = d.fetched_at ? new Date(d.fetched_at).toLocaleString('ko-KR', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '';
-  const total = b.auto.length + b.manual.length;
+  const rest = b.auto.concat(b.manual);
   $('cxs-summary').innerHTML = `<div style="display:flex;gap:8px;flex-wrap:wrap;">
-      ${tile('취소접수', fmt(total) + '건', '')}
-      ${tile('바로 환불할 수 있는 주문', fmt(b.auto.length) + '건', '주문 전체 취소 · 환불 예정 ' + cxsWon(sum(b.auto)), '#4338ca')}
-      ${tile('직접 확인 권장', fmt(b.manual.length) + '건', b.manual.length ? '카페24에서 처리' : '', b.manual.length ? '#b45309' : '')}
-      ${b.done.length ? tile('방금 환불 완료', fmt(b.done.length) + '건', '', '#15803d') : ''}
+      ${tile('취소접수', nn(rest), '')}
+      ${tile('바로 환불할 수 있는 주문', nn(b.auto, '#6366f1'), '주문 전체 취소 · 환불 예정 ' + cxsWon(sum(b.auto)), '#4338ca')}
+      ${tile('직접 확인 권장', nn(b.manual, '#b45309'), b.manual.length ? '카페24에서 처리' : '', b.manual.length ? '#b45309' : '')}
+      ${b.done.length ? tile('방금 환불 완료', nn(b.done, '#15803d'), '', '#15803d') : ''}
     </div>
-    <div style="font-size:.72rem;color:#6b7280;margin-top:6px;">카페24 조회 ${escHtml(bt)} · 최근 90일 주문 가운데 '취소접수' 상태</div>
+    <div style="font-size:.72rem;color:#6b7280;margin-top:6px;">카페24 조회 ${escHtml(bt)} · 최근 90일 주문 가운데 '취소접수' 상태 · <b>건</b> = 취소 접수 한 번(환불 한 번), <b>상품 개수</b> = 카페24 홈 '오늘의 할 일'의 '접수' 숫자와 같은 기준</div>
     ${b.auto.length ? `<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:12px;padding:10px 12px;background:#eef2ff;border:1px solid #c7d2fe;border-radius:12px;">
       <button class="btn-analyze" style="background:#4f46e5;" onclick="cxsRunAll()" ${cxsState.running || !picked.length ? 'disabled' : ''}>${cxsState.running ? '<i class="fa-solid fa-spinner fa-spin"></i> 환불 처리하는 중…' : `<i class="fa-solid fa-rotate-left"></i> 환불 처리하기 (${picked.length}건)`}</button>
-      <span style="font-size:.78rem;color:#3730a3;">체크된 주문 <b>${picked.length}건</b> · 환불 예정 합계 <b>${cxsWon(sum(picked))}</b>. 카페24가 계산한 환불액이 아래 '환불 예정액'과 <b>1원이라도 다르면 그 주문은 환불을 보내지 않아요.</b></span></div>` : ''}`;
+      <span style="font-size:.78rem;color:#3730a3;">체크된 주문 <b>${picked.length}건</b>(상품 ${cnt(picked)}개) · 환불 예정 합계 <b>${cxsWon(sum(picked))}</b>. 카페24가 계산한 환불액이 아래 '환불 예정액'과 <b>1원이라도 다르면 그 주문은 환불을 보내지 않아요.</b></span></div>` : ''}`;
   const lr = cxsState.lastRun;
   $('cxs-result').innerHTML = lr ? `<div style="border:1px solid ${lr.fail || lr.stopped ? '#fecaca' : '#bbf7d0'};background:${lr.fail || lr.stopped ? '#fef2f2' : '#f0fdf4'};border-radius:12px;padding:10px 14px;margin-bottom:12px;font-size:.82rem;">
       <b style="color:${lr.fail || lr.stopped ? '#b91c1c' : '#15803d'};">${lr.running ? `환불 처리하는 중… ${lr.ok + lr.fail} / ${lr.total}` : `환불 ${lr.ok}건 완료(${cxsWon(lr.amount)})${lr.fail ? ` · 처리 안 된 주문 ${lr.fail}건` : ''}`}</b>
@@ -3882,36 +3904,37 @@ function cxsRender() {
   const autoHtml = b.auto.length ? `<div style="border:1px solid #e5e7eb;border-radius:12px;padding:12px 14px;margin-bottom:12px;background:#fff;">
       <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px;">
         <b style="font-size:.95rem;"><i class="fa-solid fa-rotate-left" style="color:#818cf8;"></i> 바로 환불할 수 있는 주문</b>
-        <span style="background:#eef2ff;color:#3730a3;border-radius:99px;padding:2px 10px;font-size:.74rem;font-weight:800;">${b.auto.length}건</span>
+        <span style="background:#eef2ff;color:#3730a3;border-radius:99px;padding:2px 10px;font-size:.74rem;font-weight:800;">${b.auto.length}건 · 상품 ${cnt(b.auto)}개</span>
         <span style="font-size:.74rem;color:#6b7280;">주문 전체 취소 — 결제한 금액 그대로 환불(배송비 포함), 쓴 적립금·쿠폰은 돌려줘요</span>
         <button class="toggle-btn" style="margin-left:auto;font-size:.72rem;padding:3px 10px;" ${dis} data-on="${allOn ? '0' : '1'}" onclick="cxsToggleAll(this)">${allOn ? '전체 해제' : '전체 선택'}</button>
       </div>
-      <div class="table-wrap"><table style="width:100%;font-size:.8rem;"><thead><tr><th style="width:34px;"></th><th style="text-align:left;">접수</th><th style="text-align:left;">주문</th><th style="text-align:left;">상품 · 옵션 · 수량</th><th style="text-align:left;">사유</th><th style="text-align:left;">결제 수단</th><th>환불 예정액</th><th>적립금 반환</th><th style="text-align:left;">결과</th></tr></thead><tbody>
+      <div class="table-wrap"><table class="cxl-tbl" style="width:100%;font-size:.8rem;"><thead><tr><th style="width:34px;"></th><th style="text-align:left;">주문</th><th style="text-align:left;">상품 · 옵션 · 수량</th><th style="text-align:left;">사유</th><th style="text-align:left;">결제 수단</th><th>환불 예정액</th><th>적립금 반환</th><th style="text-align:left;">결과</th></tr></thead><tbody>
       ${b.auto.map(g => { const k = cxsKey(g), on = !cxsState.off.has(k); return `<tr style="${on ? '' : 'opacity:.5;'}">
         <td style="vertical-align:top;"><input type="checkbox" ${on ? 'checked' : ''} ${dis} data-k="${escHtml(k)}" onchange="cxsToggle(this)" title="환불 처리에 넣기" style="width:17px;height:17px;" /></td>
-        <td style="text-align:left;vertical-align:top;white-space:nowrap;font-size:.76rem;">${escHtml(cxlShort(g.requested_at))}</td>
-        <td style="text-align:left;vertical-align:top;">${cxsOrderCell(g)}</td>
+        <td class="nw" style="text-align:left;vertical-align:top;">${cxsOrderCell(g)}<div style="font-size:.7rem;color:#6b7280;">접수 ${escHtml(cxlShort(g.requested_at))}</div></td>
         <td style="text-align:left;vertical-align:top;font-size:.78rem;">${cxsItemsHtml(g)}</td>
         <td style="text-align:left;vertical-align:top;font-size:.78rem;max-width:200px;">${cxsReasonCell(g)}</td>
-        <td style="text-align:left;vertical-align:top;font-size:.76rem;white-space:nowrap;">${escHtml(g.pay_label)}</td>
-        <td style="text-align:right;vertical-align:top;white-space:nowrap;"><b style="color:#4338ca;">${cxsWon(g.expect.amount)}</b>${cxsCalcHtml(g)}</td>
-        <td style="text-align:right;vertical-align:top;white-space:nowrap;">${g.expect.points ? cxsWon(g.expect.points) : '<span style="color:#9ca3af;">—</span>'}</td>
-        <td style="text-align:left;vertical-align:top;font-size:.76rem;">${cxsStatusCell(g)}</td></tr>`; }).join('')}</tbody></table></div></div>` : '';
+        <td class="nw" style="text-align:left;vertical-align:top;font-size:.76rem;">${escHtml(g.pay_label)}</td>
+        <td class="nw" style="text-align:right;vertical-align:top;"><b style="color:#4338ca;">${cxsWon(g.expect.amount)}</b>${cxsCalcHtml(g)}</td>
+        <td class="nw" style="text-align:right;vertical-align:top;">${g.expect.points ? cxsWon(g.expect.points) : '<span style="color:#9ca3af;">—</span>'}</td>
+        <td style="text-align:left;vertical-align:top;font-size:.76rem;min-width:90px;">${cxsStatusCell(g)}</td></tr>`; }).join('')}</tbody></table></div></div>` : '';
+  // 직접 확인 권장 — '확인할 점'을 맨 앞 칸에 색 꼬리표로(2026-10-05 사용자 요청: 잘려서 안 보이던 것을 한눈에), 표 위에는 꼬리표별 건수 필터
+  const manualShown = cxsState.tag ? b.manual.filter(g => g.manual.some(f => (f.tag || '확인') === cxsState.tag)) : b.manual;
   const manualHtml = b.manual.length ? `<div style="border:1px solid #fcd34d;border-radius:12px;padding:12px 14px;margin-bottom:12px;background:#fffbeb;">
       <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:4px;">
         <b style="font-size:.95rem;color:#92400e;"><i class="fa-solid fa-triangle-exclamation"></i> 직접 확인 권장</b>
-        <span style="background:#fde68a;color:#92400e;border-radius:99px;padding:2px 10px;font-size:.74rem;font-weight:800;">${b.manual.length}건</span>
+        <span style="background:#fde68a;color:#92400e;border-radius:99px;padding:2px 10px;font-size:.74rem;font-weight:800;">${b.manual.length}건 · 상품 ${cnt(b.manual)}개</span>
       </div>
-      <div style="font-size:.74rem;color:#92400e;margin-bottom:8px;">환불액을 따져 봐야 하는 주문이라 여기서는 처리하지 않아요. [카페24]를 눌러 지금처럼 직접 처리해주세요.</div>
-      <div class="table-wrap"><table style="width:100%;font-size:.8rem;"><thead><tr><th style="text-align:left;">접수</th><th style="text-align:left;">주문</th><th style="text-align:left;">상품 · 옵션 · 수량</th><th style="text-align:left;">사유</th><th style="text-align:left;">결제</th><th style="text-align:left;">확인할 점</th><th style="text-align:left;">처리</th></tr></thead><tbody>
-      ${b.manual.map(g => `<tr>
-        <td style="text-align:left;vertical-align:top;white-space:nowrap;font-size:.76rem;">${escHtml(cxlShort(g.requested_at))}</td>
-        <td style="text-align:left;vertical-align:top;">${cxsOrderCell(g)}</td>
+      <div style="font-size:.74rem;color:#92400e;margin-bottom:8px;">환불액을 따져 봐야 하는 주문이라 여기서는 처리하지 않아요. 맨 앞 칸의 '확인할 점'을 보고 [카페24]를 눌러 지금처럼 직접 처리해주세요.</div>
+      ${cxlTagFilterHtml(b.manual, g => g.manual, cxsState.tag || '', 'cxsSetTag')}
+      <div class="table-wrap"><table class="cxl-tbl" style="width:100%;font-size:.8rem;"><thead><tr><th style="text-align:left;min-width:230px;">확인할 점</th><th style="text-align:left;">주문</th><th style="text-align:left;">상품 · 옵션 · 수량</th><th style="text-align:left;">사유</th><th style="text-align:left;">결제</th><th style="text-align:left;">처리</th></tr></thead><tbody>
+      ${manualShown.map(g => `<tr>
+        <td style="text-align:left;vertical-align:top;min-width:230px;">${cxlFlagCell(g.manual, () => false)}</td>
+        <td class="nw" style="text-align:left;vertical-align:top;">${cxsOrderCell(g)}<div style="font-size:.7rem;color:#6b7280;">접수 ${escHtml(cxlShort(g.requested_at))}</div></td>
         <td style="text-align:left;vertical-align:top;font-size:.78rem;">${cxsItemsHtml(g)}${g.other_items ? `<div style="font-size:.68rem;color:#9ca3af;">같은 주문의 다른 상품 ${g.other_items}개</div>` : ''}</td>
         <td style="text-align:left;vertical-align:top;font-size:.78rem;max-width:200px;">${cxsReasonCell(g)}</td>
-        <td style="text-align:left;vertical-align:top;font-size:.76rem;white-space:nowrap;">${escHtml(g.pay_label)}<div style="color:#6b7280;">결제 ${cxsWon(g.expect.amount)}</div></td>
-        <td style="text-align:left;vertical-align:top;font-size:.76rem;min-width:200px;">${g.manual.map(t => `<div style="color:#92400e;padding:1px 0;">· ${escHtml(t)}</div>`).join('')}</td>
-        <td style="text-align:left;vertical-align:top;white-space:nowrap;"><button class="toggle-btn" style="font-size:.7rem;padding:2px 9px;" data-site="cafe24" data-oid="${escHtml(g.order_id)}" onclick="rscanOpen(this)"><i class="fa-solid fa-arrow-up-right-from-square"></i> 카페24</button></td></tr>`).join('')}</tbody></table></div></div>` : '';
+        <td class="nw" style="text-align:left;vertical-align:top;font-size:.76rem;">${escHtml(g.pay_label)}<div style="color:#6b7280;">결제 ${cxsWon(g.expect.amount)}</div></td>
+        <td class="nw" style="text-align:left;vertical-align:top;"><button class="toggle-btn" style="font-size:.7rem;padding:2px 9px;" data-site="cafe24" data-oid="${escHtml(g.order_id)}" onclick="rscanOpen(this)"><i class="fa-solid fa-arrow-up-right-from-square"></i> 카페24</button></td></tr>`).join('')}</tbody></table></div></div>` : '';
   $('cxs-list').innerHTML = autoHtml + manualHtml;
 }
 function cxsToggle(cb) { if (cxsState.running) return; const k = cb.dataset.k; if (cb.checked) cxsState.off.delete(k); else cxsState.off.add(k); cxsRender(); }
@@ -3964,7 +3987,7 @@ function cxlLogRender() {
   const when = v => v ? new Date(v).toLocaleString('ko-KR', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '';
   const okN = rows.filter(r => r.ok).length;
   $('cxl-log').innerHTML = `<div style="font-size:.76rem;color:#6b7280;margin-bottom:8px;">최근 30일 · 처리 ${fmt(okN)}건${rows.length - okN ? ` · 처리 안 됨 ${fmt(rows.length - okN)}건` : ''}</div>
-    <div class="table-wrap"><table style="width:100%;font-size:.8rem;"><thead><tr><th style="text-align:left;">처리 시각</th><th style="text-align:left;">처리자</th><th style="text-align:left;">종류</th><th style="text-align:left;">주문</th><th style="text-align:left;">취소 구분 · 사유</th><th style="text-align:left;">상품</th><th>환불액</th><th style="text-align:left;">결과</th></tr></thead><tbody>
+    <div class="table-wrap"><table class="cxl-tbl" style="width:100%;font-size:.8rem;"><thead><tr><th style="text-align:left;">처리 시각</th><th style="text-align:left;">처리자</th><th style="text-align:left;">종류</th><th style="text-align:left;">주문</th><th style="text-align:left;">취소 구분 · 사유</th><th style="text-align:left;">상품</th><th>환불액</th><th style="text-align:left;">결과</th></tr></thead><tbody>
     ${rows.map(r => `<tr>
       <td style="text-align:left;vertical-align:top;white-space:nowrap;font-size:.76rem;">${escHtml(when(r.created_at))}</td>
       <td style="text-align:left;vertical-align:top;white-space:nowrap;">${escHtml(r.by_name || '')}</td>
