@@ -394,6 +394,41 @@ async function cafe24MarkCollected(kind: "return" | "exchange", orderId: string,
 // 이 PC 브라우저의 연결 스크립트(window.CAFE24_CANCEL)가 한다. 서버는 분류·준비·확인·기록만 — **카페24 쓰기는 다시 수거 완료 하나뿐.**
 const NPAY_CANCEL_TYPES: Record<string, string> = { "구매 의사 취소": "51", "색상 및 사이즈 변경": "52", "다른 상품 잘못 주문": "53", "서비스 및 상품 불만족": "54", "배송 지연": "55", "상품 품절": "56", "상품 정보 상이": "60" };
 
+// ══ 카페24 쓰기 ②③ — 자사몰 취소접수의 환불 처리 (2026-10-05 사용자 요청·승인) ══
+// 고객이 자사몰에서 넣어 이미 '취소접수'(C10)인 주문을 ② 취소처리중(환불전)으로 넘기고 ③ 환불완료(PG 결제취소 포함)로 끝낸다. 수거 완료와 같은 원칙:
+//  · 주소와 본문을 호출자가 넘기지 못한다 — 검증된 주문번호·접수번호로 이 함수들이 직접 조립한다. **금액은 보내지 않는다(카페24가 계산)**.
+//  · ② 본문 고정 { shop_no:1, requests:[{ order_id, claim_code, status:"canceling", recover_inventory, add_memo_too:"F" }] } — 철회(undone)·환불 수단·계좌 필드 없음.
+//  · ③ 본문 고정 { shop_no:1, request:{ status:"complete", payment_gateway_cancel:"T", send_sms:"T", send_mail:"T" } } — 고객 알림은 카페24 자동 알림 설정대로.
+//  · ③은 반드시 ②와 ③ 사이의 금액 확인(카페24가 계산한 환불액 = 워크스페이스가 계산한 환불액, 원 단위)을 통과한 뒤에만 부른다(selfcancel_run).
+//  · 다른 쓰기가 필요해지면 여기 허용 목록을 넓히지 말고 사용자 승인부터 받을 것. tools/check_cafe24_writes.sh 가 배포 전 검사한다.
+async function cafe24Write(method: "PUT", url: string, payload: string, token: string): Promise<Record<string, unknown>> {
+  if (!/^https:\/\/[a-z0-9]+\.cafe24api\.com\/api\/v2\/admin\/(cancellation|orders\/\d{8}-\d{7}\/refunds\/[A-Z]\d{8}-\d{7})$/.test(url)) throw new Error("허용되지 않은 쓰기(주소)");
+  const doFetch = (tk: string) => fetch(url, { method, headers: { Authorization: `Bearer ${tk}`, "Content-Type": "application/json", "X-Cafe24-Api-Version": API_VERSION }, body: payload });
+  let tok = token;
+  let res = await doFetch(tok);
+  if (res.status === 401) { tok = await getAccessToken(true); res = await doFetch(tok); }
+  for (let i = 0; res.status === 429 && i < RATE_LIMIT_RETRIES; i++) {
+    const ra = Number(res.headers.get("Retry-After"));
+    await res.body?.cancel();
+    await sleep(isFinite(ra) && ra > 0 ? ra * 1000 : Math.min(1000 * 2 ** i, 8000));
+    res = await doFetch(tok);
+  }
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw Object.assign(new Error(`PUT ${res.status}: ${JSON.stringify(body).slice(0, 400)}`), { status: res.status, body });
+  return body;
+}
+async function cafe24CancelToRefunding(orderId: string, claimCode: string, recover: "T" | "F", token: string): Promise<Record<string, unknown>> {
+  if (!/^\d{8}-\d{7}$/.test(orderId) || !/^C\d{8}-\d{7}$/.test(claimCode)) throw new Error("허용되지 않은 쓰기(번호 형식)");
+  if (recover !== "T" && recover !== "F") throw new Error("허용되지 않은 쓰기(재고 복구 값)");
+  const payload = JSON.stringify({ shop_no: 1, requests: [{ order_id: orderId, claim_code: claimCode, status: "canceling", recover_inventory: recover, add_memo_too: "F" }] });
+  return await cafe24Write("PUT", `${API_BASE}/admin/cancellation`, payload, token);
+}
+async function cafe24CompleteRefund(orderId: string, refundCode: string, token: string): Promise<Record<string, unknown>> {
+  if (!/^\d{8}-\d{7}$/.test(orderId) || !/^[A-Z]\d{8}-\d{7}$/.test(refundCode)) throw new Error("허용되지 않은 쓰기(번호 형식)");
+  const payload = JSON.stringify({ shop_no: 1, request: { status: "complete", payment_gateway_cancel: "T", send_sms: "T", send_mail: "T" } });
+  return await cafe24Write("PUT", `${API_BASE}/admin/orders/${orderId}/refunds/${refundCode}`, payload, token);
+}
+
 // ── 품절 재고 점검 권한 (2026-09-29 사용자 요청): 관리자 + 물류팀. 서버 역할은 logistics→cs로 합쳐져 있어(CS팀과 구분 불가) 원래 역할을 다시 읽는다.
 //    서버 간 비밀키(에이전트·자동 갱신·상품관리 연동)로는 허용하지 않는다.
 async function soldoutRoleOk(authed: { id: string; role: string }): Promise<boolean> {
@@ -608,7 +643,7 @@ function cxlGroupsOf(o: Record<string, any>): Record<string, any>[] {
     // 관리자 '취소 처리' 창은 취소신청 품목만 접수한다 → 일부만 취소 신청한 주문도 접수는 되지만, 남은 상품이 발송되므로 확인 권장
     if (othersWaiting.length) flags.push({ level: "check", text: `주문의 일부만 취소 신청했어요 — 남은 상품 ${othersWaiting.length}개는 그대로 발송돼요` });
     if (othersClaim.length) flags.push({ level: "check", text: "같은 주문에 교환·반품이 함께 진행 중이에요" });
-    if (its.some((it) => it.claim_quantity != null && Number(it.claim_quantity) !== Number(it.quantity))) flags.push({ level: "block", text: "주문 수량 중 일부만 취소 신청했어요 — 카페24에서 직접 접수해주세요" });
+    if (its.some((it) => Number(it.claim_quantity) > 0 && Number(it.claim_quantity) !== Number(it.quantity))) flags.push({ level: "block", text: "주문 수량 중 일부만 취소 신청했어요 — 카페24에서 직접 접수해주세요" });
     if (byReason.size > 1) flags.push({ level: "block", text: "한 주문 안에 취소 사유가 여러 가지예요 — 카페24에서 직접 접수해주세요" });
     if (request && CXL_ASK_WORDS.test(request)) flags.push({ level: "check", text: "고객이 사유에 요청이나 문의를 적었어요 — 읽어 보고 접수하세요" });
     const items = its.map((it) => ({ code: String(it.order_item_code ?? ""), product_name: String(it.product_name ?? ""), option: String(it.option_value ?? ""), qty: Number(it.quantity ?? 0),
@@ -620,6 +655,61 @@ function cxlGroupsOf(o: Record<string, any>): Record<string, any>[] {
       requested_at: its.map((it) => String(it.cancel_request_date ?? "").slice(0, 16).replace("T", " ")).sort().pop() ?? "",
       label: accept, reason_type: type, reason_text: request, reason_raw: raw, items, amount: items.reduce((a, x) => a + x.price, 0),
       other_items: others.length, flags,
+    });
+  }
+  return groups;
+}
+
+// ── 취소·반품 접수 2단계 (2026-10-05 사용자 요청) — 자사몰 취소접수(C10) 분류 ──
+// 한 접수번호(claim_code)가 한 건. **1차 자동 범위 = 주문 전체 취소뿐**: 지난 한 달 전체 취소 591건의 환불액이 100% '처음 결제액 그대로'였다(배송비 포함,
+// 쓴 적립금은 전액 반환) → 환불 예정액을 '처음 결제액'으로 못 박을 수 있는 건만 자동. 그 밖은 manual(직접 확인 권장 — 카페24에서 처리)로 이유를 적는다.
+// 사용자 규칙(2026-10-05): 부분 취소는 사유·잔여 금액에 따라 배송비 3,000원 차감·쿠폰 취소·적립금 회수가 갈리고, 상품별 추가할인 품목이나 1+1 상품이
+// 든 주문은 변수가 많아 당분간 직접 본다 → 전부 manual. 품절 취소(H)는 재고 복구 안 함, 그 밖은 복구.
+const SELF_MAIN_OK = new Set(["card", "tcash"]);            // 1차: 신용카드·실시간 계좌이체만 (PG 취소가 되는 수단)
+const SELF_AUX_OK = new Set(["coupon", "point", "mileage"]);   // 같이 쓸 수 있는 보조 수단: 쿠폰·적립금
+const SELF_PAY_LABEL: Record<string, string> = { card: "신용카드", tcash: "계좌이체", cash: "무통장입금", prepaid: "선불금", coupon: "쿠폰", point: "적립금", mileage: "적립금", deposit: "예치금", cell: "휴대폰" };
+function selfGroupsOf(o: Record<string, any>, nrSets: NrSets): Record<string, any>[] {
+  const all = (o.items ?? []) as Record<string, any>[];
+  const acc = all.filter((it) => String(it.order_status ?? "") === "C10" && it.claim_code);
+  if (!acc.length) return [];
+  const n = (v: unknown) => Math.round(Number(v ?? 0) || 0);
+  const init = (o.initial_order_amount ?? {}) as Record<string, any>;
+  const pay = ((o.payment_method ?? []) as unknown[]).map((x) => String(x));
+  const main = pay.filter((m) => !SELF_AUX_OK.has(m)), claims = [...new Set(acc.map((it) => String(it.claim_code)))];
+  const onePlusOne = (it: Record<string, any>) => /1\s*\+\s*1/.test(String(it.product_name ?? "")) || ((nrSets.sale[String(Number(it.product_no))] ?? []) as string[]).some((c) => /1\s*\+\s*1/.test(c));
+  const groups: Record<string, any>[] = [];
+  for (const claim of claims) {
+    const its = acc.filter((it) => String(it.claim_code) === claim);
+    const codes = new Set(its.map((it) => String(it.order_item_code ?? "")));
+    const others = all.filter((it) => !codes.has(String(it.order_item_code ?? "")));
+    const clm = (((o.cancellation ?? []) as Record<string, any>[]).find((c) => c.claim_code === claim)) ?? {};
+    const reasonType = String(clm.claim_reason_type ?? its[0].claim_reason_type ?? "");
+    const manual: string[] = [];
+    if (o.order_place_id === "NCHECKOUT" || o.market_id === "NCHECKOUT") manual.push("네이버페이 주문이에요");
+    if (others.length) manual.push(others.some((it) => CXL_UNSHIPPED.has(String(it.order_status ?? ""))) ? `주문의 일부만 취소해요(남은 상품 ${others.filter((it) => CXL_UNSHIPPED.has(String(it.order_status ?? ""))).length}개) — 배송비·쿠폰·적립금을 따져야 해요` : "같은 주문에 이미 처리된 다른 상품이 있어요 — 환불액을 따져야 해요");
+    if (claims.length > 1) manual.push("한 주문에 취소 접수가 여러 건이에요");
+    if (all.some((it) => n(it.additional_discount_price) > 0)) manual.push("상품별 추가할인이 적용된 상품이 있어요");
+    if (all.some(onePlusOne)) manual.push("1+1 할인 상품이 들어 있어요");
+    if (main.length !== 1 || !SELF_MAIN_OK.has(main[0])) manual.push(`결제 수단(${pay.map((m) => SELF_PAY_LABEL[m] ?? m).join("+") || "알 수 없음"})은 아직 자동 환불 대상이 아니에요`);
+    if (n(init.credits_spent_amount) > 0) manual.push("예치금을 쓴 주문이에요");
+    if (o.paid !== "T") manual.push("결제가 끝나지 않은 주문이에요");
+    const beforeBad = [...new Set(its.map((it) => String(it.order_status_before_cs ?? "")).filter((b) => !CXL_WAIT.has(b)))];
+    if (beforeBad.length) manual.push(`취소 전 상태가 배송준비중이 아니에요(${beforeBad.map((b) => b || "알 수 없음").join(", ")})`);
+    if (its.some((it) => !!it.tracking_no)) manual.push("송장번호가 이미 등록돼 있어요");
+    // claim_quantity는 실데이터에서 늘 0(쓰이지 않는 값 — 취소접수 82개·취소완료 1,157개 전부) → 0보다 클 때만 수량 일부 취소로 본다
+    if (its.some((it) => Number(it.claim_quantity) > 0 && Number(it.claim_quantity) !== Number(it.quantity))) manual.push("주문 수량 중 일부만 취소해요");
+    if (n(init.payment_amount) <= 0) manual.push("결제 금액을 읽지 못했어요");
+    const items = its.map((it) => ({ code: String(it.order_item_code ?? ""), product_name: String(it.product_name ?? ""), option: String(it.option_value ?? ""), qty: Number(it.quantity ?? 0),
+      price: (n(it.product_price) + n(it.option_price)) * Number(it.quantity ?? 0) })).sort((a, b) => a.code.localeCompare(b.code));
+    groups.push({
+      order_id: String(o.order_id ?? ""), claim_code: claim, buyer: String(o.billing_name ?? ""), paid_at: String(o.payment_date ?? "").slice(0, 16).replace("T", " "),
+      requested_at: its.map((it) => String(it.cancel_request_date ?? it.cancel_date ?? "").slice(0, 16).replace("T", " ")).sort().pop() ?? "",
+      reason_type: reasonType, reason: String(clm.claim_reason ?? its[0].claim_reason ?? "").trim(), items, other_items: others.length,
+      pay, pay_label: pay.map((m) => SELF_PAY_LABEL[m] ?? m).join(" + "), main: main[0] ?? "",
+      goods: n(init.order_price_amount), shipping: n(init.shipping_fee), coupon: n(init.coupon_discount_price),
+      // 환불 예정(전체 취소 기준): 결제 수단으로 돌려줄 돈 = 처음 결제액, 적립금 = 쓴 만큼 전액
+      expect: { amount: n(init.payment_amount), points: n(init.points_spent_amount) },
+      recover: reasonType === "H" ? "F" : "T", manual,
     });
   }
   return groups;
@@ -716,7 +806,7 @@ Deno.serve(async (req) => {
       };
       if (action === "cancelreq_log") {
         const since = new Date(Date.now() - 30 * 86400e3).toISOString();
-        const rows = (await sbRest(`cancel_accept_log?select=id,created_at,order_id,items,reason_type,reason_label,reason,flags,ok,result,claim_code,by_name&created_at=gte.${since}&order=created_at.desc&limit=1000`)) ?? [];
+        const rows = (await sbRest(`cancel_accept_log?select=id,created_at,order_id,items,reason_type,reason_label,reason,flags,ok,result,claim_code,by_name,kind,expected_amount,refund_amount,points&created_at=gte.${since}&order=created_at.desc&limit=1000`)) ?? [];
         return json({ rows });
       }
       if (action === "cancelreq_list") {
@@ -784,6 +874,105 @@ Deno.serve(async (req) => {
         flags: Array.isArray(b.flags) && b.flags.length ? b.flags.slice(0, 12).map((f: any) => ({ level: f?.level === "block" ? "block" : "check", text: txt(f?.text, 200) })) : null,
         ok, result: ok ? (verified ? (stateOf(order) || "접수됨") : "접수됨(카페24 반영 대기)") : (txt(b.message, 450) || "접수되지 않음"), by_id: authed.id, by_name: authed.name }) }).catch(() => null);
       return json({ ok, verified, status: stateOf(order) });
+    }
+
+    // ── 취소·반품 접수 2단계 — 자사몰 취소접수(C10) → 환불 (2026-10-05 사용자 요청): 관리자 전용.
+    //    selfcancel_list: 목록·분류(캐시 없음) / selfcancel_run(POST, 사람 로그인만): 한 건 처리 = ② 취소처리중 → 금액 확인 → ③ 환불완료 → 재확인·기록.
+    if (action === "selfcancel_list" || action === "selfcancel_run") {
+      if (authed.role !== "admin") return json({ error: "접근 권한이 없습니다" }, 403);
+      const nrSets = await rscanNrSets(token).catch(() => null);
+      if (!nrSets) return json({ error: "상품 카테고리(1+1 여부)를 읽지 못했어요 — 잠시 뒤 다시 시도해주세요" }, 502);
+      if (action === "selfcancel_list") {
+        const end = rscanYesterday(); end.setUTCDate(end.getUTCDate() + 1);   // 한국 날짜 오늘
+        const start = new Date(end); start.setUTCDate(start.getUTCDate() - 89);
+        const fmtD = (d: Date) => d.toISOString().slice(0, 10);
+        const groups: Record<string, any>[] = [];
+        for (let offset = 0; offset < 5000; offset += 200) {
+          const body = await apiGet(`${API_BASE}/admin/orders?start_date=${fmtD(start)}&end_date=${fmtD(end)}&date_type=order_date&order_status=C10&embed=items,cancellation&limit=200&offset=${offset}`, token);
+          const orders = (body.orders ?? []) as Record<string, any>[];
+          for (const o of orders) groups.push(...selfGroupsOf(o, nrSets));
+          if (orders.length < 200) break;
+        }
+        groups.sort((a, b) => String(a.requested_at).localeCompare(String(b.requested_at)));
+        return json({ today: fmtD(end), fetched_at: new Date().toISOString(), groups });
+      }
+      if (req.method !== "POST") return json({ error: "POST로 호출해주세요" }, 405);
+      if (viaAgent || viaCron || viaSecret) return json({ error: "이 기능은 로그인한 사람만 쓸 수 있습니다" }, 403);
+      const orderId = String(url.searchParams.get("order_id") ?? ""), claimCode = String(url.searchParams.get("claim_code") ?? "");
+      if (!/^\d{8}-\d{7}$/.test(orderId) || !/^C\d{8}-\d{7}$/.test(claimCode)) return json({ error: "주문번호·접수번호가 올바르지 않습니다" }, 400);
+      const b = await req.json().catch(() => ({})) as Record<string, any>;
+      const readOrder = async () => ((await apiGet(`${API_BASE}/admin/orders/${orderId}?embed=items,cancellation`, token)).order ?? {}) as Record<string, any>;
+      const claimItems = (o: Record<string, any>) => ((o.items ?? []) as Record<string, any>[]).filter((it) => String(it.claim_code ?? "") === claimCode);
+      const stateOf = (o: Record<string, any>) => [...new Set(claimItems(o).map((it) => String(it.status_text ?? it.order_status ?? "")))].join(", ");
+      let order: Record<string, any>;
+      try { order = await readOrder(); } catch (e) { return json({ error: "카페24에서 주문을 읽지 못했어요 — " + String(e).slice(0, 200) }, 502); }
+      const g = selfGroupsOf(order, nrSets).find((x) => x.claim_code === claimCode);
+      if (!g) {
+        const its = claimItems(order);
+        if (its.length && its.every((it) => String(it.order_status ?? "") === "C40")) return json({ ok: true, already: true, status: stateOf(order) });
+        return json({ error: `그 사이 주문 상태가 바뀌었어요(${stateOf(order) || "접수 없음"}) — 새로고침한 뒤 다시 확인해주세요`, stale: true }, 409);
+      }
+      if ((g.manual as string[]).length) return json({ error: "직접 확인이 필요한 주문이에요 — " + (g.manual as string[]).join(" / "), blocked: true }, 400);
+      const expect = g.expect as { amount: number; points: number };
+      // 화면에 보여 준 환불 예정액과 지금 다시 계산한 값이 같아야 한다(사람이 본 금액 = 처리하는 금액)
+      if (Number(b.expect_amount) !== expect.amount || Number(b.expect_points) !== expect.points) return json({ error: "화면의 환불 예정액과 지금 계산한 금액이 달라요 — 새로고침한 뒤 다시 확인해주세요", stale: true }, 409);
+      const won = (v: number) => v.toLocaleString("ko-KR") + "원";
+      const logRow = (ok: boolean, result: string, extra: Record<string, unknown> = {}) => sbRest("cancel_accept_log", { method: "POST", headers: { Prefer: "return=minimal" }, body: JSON.stringify({
+        kind: "self", order_id: orderId, claim_code: claimCode, items: (g.items as Record<string, any>[]).map((x) => ({ code: x.code, product_name: x.product_name, option: x.option, qty: x.qty })),
+        reason_type: g.reason_type || null, reason_label: null, reason: g.reason || null, ok, result: String(result).slice(0, 500), expected_amount: expect.amount, points: expect.points,
+        by_id: authed.id, by_name: authed.name, ...extra }) }).catch(() => null);
+      // 안전장치: 사람별 1시간 300건 · 전체 하루 1,000건 (성공·실패 모두 셈)
+      const sinceIso = (ms: number) => new Date(Date.now() - ms).toISOString();
+      const mine = ((await sbRest(`cancel_accept_log?select=id&by_id=eq.${encodeURIComponent(authed.id)}&created_at=gte.${sinceIso(3600e3)}&limit=500`)) ?? []) as unknown[];
+      const allDay = ((await sbRest(`cancel_accept_log?select=id&created_at=gte.${sinceIso(24 * 3600e3)}&limit=1500`)) ?? []) as unknown[];
+      if (mine.length >= 300 || allDay.length >= 1000) return json({ error: "취소 처리 한도를 넘었어요 — 잠시 뒤 다시 시도해주세요" }, 429);
+      const errText = (e: unknown) => { const st = (e as { status?: number }).status ?? 0, raw = String((e as Error).message ?? e); return { st, raw, msg: st === 403 || /scope|permission|insufficient/i.test(raw) ? "카페24 앱에 '주문 쓰기' 권한이 없어요 — '카페24 연동'으로 다시 연동해주세요" : raw.slice(0, 300) }; };
+      // ② 취소처리중(환불전)으로 — 카페24가 환불액을 계산한다
+      try { await cafe24CancelToRefunding(orderId, claimCode, g.recover as "T" | "F", token); }
+      catch (e) { const x = errText(e); await logRow(false, "취소처리중으로 넘기지 못함 — " + x.raw); return json({ error: "카페24가 '취소처리중'으로 넘기지 않았어요(주문은 취소접수 그대로) — " + x.msg, step: "A" }, 502); }
+      // 카페24가 계산한 환불 내역 읽기 (반영이 조금 늦을 수 있어 5번까지)
+      const want = (g.items as Record<string, any>[]).map((x) => String(x.code)).sort().join(",");
+      const dayStr = (off: number) => { const d = rscanYesterday(); d.setUTCDate(d.getUTCDate() + 1 + off); return d.toISOString().slice(0, 10); };
+      const findRefund = async (status: "F" | "T") => {
+        const body = await apiGet(`${API_BASE}/admin/refunds?start_date=${dayStr(-1)}&end_date=${dayStr(0)}&date_type=accepted_refund_date&order_id=${orderId}&refund_status=${status}&limit=100`, token);
+        return (((body.refunds ?? []) as Record<string, any>[]).find((r) => [...((r.order_item_code ?? []) as unknown[])].map(String).sort().join(",") === want)) ?? null;
+      };
+      let rf: Record<string, any> | null = null;
+      for (let i = 0; i < 5 && !rf; i++) { await sleep(i ? 1200 : 500); try { rf = await findRefund("F"); } catch { rf = null; } }
+      const leftMsg = "주문은 '취소처리중(환불전)'에 남아 있어요 — 카페24 환불 관리에서 금액을 확인하고 직접 마무리해주세요";
+      if (!rf) { await logRow(false, "취소처리중으로 넘겼지만 환불 내역을 읽지 못함 — 환불은 보내지 않음"); return json({ error: "취소처리중으로 넘겼지만 카페24의 환불 내역을 읽지 못했어요. 환불은 보내지 않았어요. " + leftMsg, step: "check", left: true }, 502); }
+      const got = { amount: Math.round(Number(rf.actual_refund_amount ?? NaN)), points: Math.round(Number(rf.used_points ?? 0) || 0), credits: Math.round(Number(rf.used_credits ?? 0) || 0),
+        methods: ((rf.refund_payment_methods ?? []) as unknown[]).map(String), code: String(rf.refund_code ?? "") };
+      const detail: Record<string, unknown> = { pay: g.pay, refund_methods: got.methods, refund_code: got.code, cafe24_points: got.points, recover_inventory: g.recover };
+      // ── 금액 확인: 원 단위까지 같고, 환불 수단이 결제 수단과 같아야만 환불을 끝낸다 ──
+      const diffs: string[] = [];
+      if (got.amount !== expect.amount) diffs.push(`환불액이 달라요(카페24 ${isFinite(got.amount) ? won(got.amount) : "읽지 못함"} · 예정 ${won(expect.amount)})`);
+      if (got.points !== expect.points) diffs.push(`적립금 반환이 달라요(카페24 ${won(got.points)} · 예정 ${won(expect.points)})`);
+      if (got.credits !== 0) diffs.push(`예치금 반환 ${won(got.credits)}이 있어요`);
+      if (got.methods.length !== 1 || got.methods[0] !== g.main) diffs.push(`환불 수단이 결제 수단과 달라요(${got.methods.join("+") || "없음"} · 결제 ${g.main})`);
+      if (!/^[A-Z]\d{8}-\d{7}$/.test(got.code)) diffs.push("환불 번호를 읽지 못했어요");
+      if (diffs.length) {
+        await logRow(false, "금액 확인에서 멈춤 — " + diffs.join(" / ") + " · 환불은 보내지 않음", { refund_amount: isFinite(got.amount) ? got.amount : null, detail });
+        return json({ error: "카페24가 계산한 환불 내역이 예정과 달라 환불을 보내지 않았어요 — " + diffs.join(" / ") + ". " + leftMsg, step: "check", left: true, mismatch: true }, 409);
+      }
+      // ③ 환불완료(PG 결제취소)
+      try { await cafe24CompleteRefund(orderId, got.code, token); }
+      catch (e) { const x = errText(e); await logRow(false, "환불완료 처리 실패 — " + x.raw, { refund_amount: got.amount, detail }); return json({ error: "카페24가 환불완료 처리를 받지 않았어요 — " + x.msg + ". " + leftMsg, step: "B", left: true }, 502); }
+      // 재확인: 환불 상태·PG 취소 상태·주문 상태
+      let done: Record<string, any> | null = null, after = "";
+      for (let i = 0; i < 4 && !done; i++) { await sleep(i ? 1500 : 800); try { done = await findRefund("T"); } catch { done = null; } }
+      try { after = stateOf(await readOrder()); } catch { /* 읽기 실패해도 아래에서 판단 */ }
+      const pg = ((done?.payment_gateway_cancel_statuses ?? []) as Record<string, any>[]).map((x) => `${x.payment_method}:${x.cancel_status}`);
+      const pgOk = !!done && pg.length > 0 && ((done.payment_gateway_cancel_statuses ?? []) as Record<string, any>[]).every((x) => x.cancel_status === "T");
+      const finalAmt = done ? Math.round(Number(done.actual_refund_amount ?? NaN)) : NaN;
+      Object.assign(detail, { pg, status_after: after });
+      if (!done || !pgOk || finalAmt !== expect.amount) {
+        const why = !done ? "환불완료로 바뀐 것을 확인하지 못했어요" : !pgOk ? `PG 결제취소가 확인되지 않아요(${pg.join(", ") || "상태 없음"})` : `환불완료 금액이 달라요(${won(finalAmt)})`;
+        await logRow(false, "환불완료를 보냈지만 확인 실패 — " + why, { refund_amount: isFinite(finalAmt) ? finalAmt : got.amount, detail });
+        return json({ error: `환불완료 처리를 보냈지만 ${why} — 카페24 환불 관리와 PG사에서 이 주문을 꼭 확인해주세요`, step: "verify", critical: true, status: after }, 502);
+      }
+      await logRow(true, `${after || "취소완료"} · 환불 ${won(finalAmt)}${expect.points ? ` · 적립금 반환 ${won(expect.points)}` : ""} · PG 취소 확인`, { refund_amount: finalAmt, detail });
+      return json({ ok: true, status: after, refund_amount: finalAmt, points: expect.points, pg });
     }
 
     // ── 미발송 관리 (2026-09-28 사용자 요청): 관리자·MD·CS/물류팀. 10분 캐시(권한 검사 뒤), 새로고침은 nocache=1

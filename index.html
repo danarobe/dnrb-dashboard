@@ -1481,6 +1481,17 @@
         <div id="cxl-result"></div>
         <div id="cxl-list"></div>
       </div>
+      <div id="cxl-pane-self" class="cxl-pane" style="display:none;">
+        <div style="font-size:.8rem;color:#6b7280;margin-bottom:10px;line-height:1.7;">
+          · 고객이 <b>자사몰에서 넣은 취소</b>(카페24 '취소접수')를 모았어요. <b>[환불 처리하기]</b>를 누르면 체크된 주문이 환불되고 '취소완료'가 돼요.<br>
+          · 지금은 <b>주문 전체를 취소하는 건만</b> 여기서 처리해요 — 결제한 금액 그대로(배송비 포함) 환불하고, 쓴 적립금·쿠폰은 돌려줘요.<br>
+          · 처리 도중 <b>카페24가 계산한 환불액이 화면의 '환불 예정액'과 1원이라도 다르면 그 주문은 환불을 보내지 않고 멈춰요</b>(그 주문은 '취소처리중'에 남으니 카페24에서 마무리).<br>
+          · <b style="color:#b45309;">직접 확인 권장</b>(부분 취소·상품별 할인·1+1·카드/계좌이체가 아닌 결제 등)은 지금처럼 카페24에서 처리해주세요.
+        </div>
+        <div id="cxs-summary" style="margin-bottom:12px;"></div>
+        <div id="cxs-result"></div>
+        <div id="cxs-list"></div>
+      </div>
       <div id="cxl-pane-log" class="cxl-pane" style="display:none;">
         <div id="cxl-log"></div>
       </div>
@@ -3565,7 +3576,7 @@ function soldoutLogRender() {
       한 건마다 cancelreq_prepare(서버가 최신 주문으로 취소 구분·사유 확정) → 연결 스크립트 accept → cancelreq_record(서버가 다시 읽어 확인·기록).
       애매한 주문은 '직접 확인 권장'(flags)으로 빼고 한 건씩만 접수. 처리 기록은 cancel_accept_log(처리 내역 탭).
    자사몰 취소접수·반품은 다음 단계(사용자: 이게 잘 되면 진행). */
-const CXL_TABS = [['npay', '네이버페이 취소신청', null, 'fa-solid fa-ban'], ['log', '처리 내역', null, 'fa-solid fa-clock-rotate-left']];
+const CXL_TABS = [['npay', '네이버페이 취소신청', null, 'fa-solid fa-ban'], ['self', '자사몰 취소접수', null, 'fa-solid fa-rotate-left'], ['log', '처리 내역', null, 'fa-solid fa-clock-rotate-left']];
 const cxlState = { data: null, loading: false, tab: 'npay', off: new Set(), status: new Map(), running: false, lastRun: null, log: null, logLoading: false };
 const cxlKey = g => g.order_id + '|' + g.key;
 const CXL_BRIDGE_MIN = '1.0.0';
@@ -3587,14 +3598,16 @@ function cxlInit() {
 }
 function cxlTabsRender() {
   const n = cxlState.data ? cxlState.data.groups.filter(g => !cxlDone(g)).length : null;
-  uiTabs('cxl-tabs', CXL_TABS.map(t => t[0] === 'npay' ? [t[0], t[1], n ? String(n) : null, t[3]] : t), cxlState.tab, 'cxlSetTab');
+  const ns = typeof cxsState !== 'undefined' && cxsState.data ? cxsState.data.groups.filter(g => !cxsDone(g)).length : null;
+  uiTabs('cxl-tabs', CXL_TABS.map(t => t[0] === 'npay' ? [t[0], t[1], n ? String(n) : null, t[3]] : t[0] === 'self' ? [t[0], t[1], ns ? String(ns) : null, t[3]] : t), cxlState.tab, 'cxlSetTab');
 }
 function cxlSetTab(k) {
   cxlState.tab = k; cxlTabsRender();
   document.querySelectorAll('.cxl-pane').forEach(el => { el.style.display = el.id === 'cxl-pane-' + k ? '' : 'none'; });
   if (k === 'log') cxlLogLoad();
+  if (k === 'self') { if (!cxsState.data && !cxsState.loading) cxsLoad(); else cxsRender(); }
 }
-function cxlReload() { if (cxlState.running) { showToast('접수 처리 중이에요 — 끝난 뒤 눌러주세요'); return; } if (cxlState.tab === 'log') cxlLogLoad(); else { cxlState.lastRun = null; cxlState.status = new Map(); cxlLoad(); } }
+function cxlReload() { if (cxlState.running || cxsState.running) { showToast('처리 중이에요 — 끝난 뒤 눌러주세요'); return; } if (cxlState.tab === 'log') cxlLogLoad(); else if (cxlState.tab === 'self') { cxsState.lastRun = null; cxsState.status = new Map(); cxsLoad(); } else { cxlState.lastRun = null; cxlState.status = new Map(); cxlLoad(); } }
 async function cxlLoad() {
   if (cxlState.loading) return;
   cxlState.loading = true;
@@ -3797,6 +3810,146 @@ async function cxlAcceptChecked(btn) {
   cxlRender();
   if (r.ok) await cxlLoad();
 }
+/* ── 취소·반품 접수 ② 자사몰 취소접수 → 환불 (2026-10-05 사용자 요청, 1차 = 주문 전체 취소만) ──
+   서버 selfcancel_list(카페24 '취소접수' C10 주문을 접수번호별로 분류) → [환불 처리하기]가 체크된 주문을 한 건씩 selfcancel_run으로 보낸다.
+   서버가 ① 취소처리중으로 넘기고 ② 카페24가 계산한 환불액이 화면의 환불 예정액(처음 결제액)과 원 단위까지 같은지 확인한 뒤 ③ 환불완료(PG 결제취소).
+   부분 취소·상품별 할인·1+1·무통장 등은 '직접 확인 권장'(manual) — 여기서는 처리하지 않고 카페24에서. */
+const cxsState = { data: null, loading: false, off: new Set(), status: new Map(), running: false, lastRun: null };
+const CXS_REASON = { A: '고객변심', B: '배송지연', C: '배송불가지역', D: '포장불량', E: '상품불만족', F: '상품정보상이', G: '서비스불만족', H: '품절', I: '기타', L: '수출/통관 불가' };
+const cxsKey = g => g.order_id + '|' + g.claim_code;
+const cxsWon = v => fmt(v) + '원';
+async function cxsLoad() {
+  if (cxsState.loading) return;
+  cxsState.loading = true;
+  if (!cxsState.data) $('cxs-list').innerHTML = '<div class="empty-state"><p><i class="fa-solid fa-spinner fa-spin"></i> 카페24에서 취소접수 주문을 불러오는 중…</p></div>';
+  try { cxsState.data = await anGet({ action: 'selfcancel_list' }); cxlTabsRender(); cxsRender(); }
+  catch (e) { $('cxs-list').innerHTML = `<div class="empty-state"><p style="color:#b91c1c;">불러오지 못했어요 — ${escHtml(e.message)}</p></div>`; }
+  finally { cxsState.loading = false; }
+}
+function cxsDone(g) { const s = cxsState.status.get(cxsKey(g)); return !!(s && s.state === 'ok'); }
+function cxsBuckets() {
+  const groups = (cxsState.data && cxsState.data.groups) || [];
+  const rest = groups.filter(g => !cxsDone(g));
+  return { groups, done: groups.filter(cxsDone), auto: rest.filter(g => !(g.manual || []).length), manual: rest.filter(g => (g.manual || []).length) };
+}
+function cxsItemsHtml(g) {
+  return g.items.map(x => `<div style="padding:1px 0;"><b>${escHtml(x.product_name)}</b> <span style="color:#6b7280;">${escHtml(x.option || '')}</span> <span style="color:#374151;white-space:nowrap;">${x.qty}개</span></div>`).join('');
+}
+function cxsOrderCell(g) {
+  return `<div style="white-space:nowrap;"><b style="font-family:monospace;">${escHtml(g.order_id)}</b></div><div style="font-size:.7rem;color:#6b7280;">${escHtml(g.buyer || '')} · 결제 ${escHtml(cxlShort(g.paid_at))}</div>`;
+}
+function cxsReasonCell(g) {
+  return `<span style="background:#eef2ff;color:#3730a3;border-radius:99px;padding:1px 8px;font-weight:800;white-space:nowrap;">${escHtml(CXS_REASON[g.reason_type] || g.reason_type || '구분 없음')}</span>${g.recover === 'F' ? ' <span style="font-size:.66rem;color:#b45309;font-weight:700;">재고 복구 안 함</span>' : ''}<div style="margin-top:3px;white-space:pre-wrap;color:#374151;">${g.reason ? escHtml(g.reason) : '<span style="color:#9ca3af;">(적지 않음)</span>'}</div>`;
+}
+// 환불 예정 계산 풀이 — 상품 + 배송비 − 쿠폰 − 적립금 = 결제액(= 돌려줄 금액)
+function cxsCalcHtml(g) {
+  const parts = [`상품 ${fmt(g.goods)}`]; if (g.shipping) parts.push(`+ 배송비 ${fmt(g.shipping)}`); if (g.coupon) parts.push(`− 쿠폰 ${fmt(g.coupon)}`); if (g.expect.points) parts.push(`− 적립금 ${fmt(g.expect.points)}`);
+  return `<div style="font-size:.66rem;color:#9ca3af;white-space:nowrap;">${parts.join(' ')}</div>`;
+}
+function cxsStatusCell(g) {
+  const s = cxsState.status.get(cxsKey(g));
+  if (!s) return '<span style="color:#9ca3af;">대기</span>';
+  if (s.state === 'run') return '<span style="color:#4f46e5;font-weight:700;white-space:nowrap;"><i class="fa-solid fa-spinner fa-spin"></i> 처리 중</span>';
+  if (s.state === 'ok') return `<span style="color:#15803d;font-weight:800;white-space:nowrap;"><i class="fa-solid fa-circle-check"></i> 환불 완료</span>${s.text ? `<div style="font-size:.68rem;color:#6b7280;">${escHtml(s.text)}</div>` : ''}`;
+  return `<span style="color:#b91c1c;font-weight:800;white-space:nowrap;"><i class="fa-solid fa-circle-xmark"></i> ${s.left ? '환불 안 보냄 · 취소처리중에 남음' : s.critical ? '꼭 확인 필요' : '처리 안 됨'}</span><div style="font-size:.68rem;color:#b91c1c;max-width:280px;">${escHtml(s.text || '')}</div>`;
+}
+function cxsRender() {
+  const d = cxsState.data; if (!d || !$('cxs-list')) return;
+  const b = cxsBuckets();
+  const picked = b.auto.filter(g => !cxsState.off.has(cxsKey(g)));
+  const sum = list => list.reduce((t, g) => t + g.expect.amount, 0);
+  const tile = (label, v, sub, col) => `<div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:10px;padding:8px 14px;min-width:120px;"><div style="font-size:.7rem;color:#6b7280;">${label}</div><div style="font-size:1.15rem;font-weight:800;color:${col || '#111827'};">${v}</div>${sub ? `<div style="font-size:.68rem;color:#9ca3af;">${sub}</div>` : ''}</div>`;
+  const bt = d.fetched_at ? new Date(d.fetched_at).toLocaleString('ko-KR', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '';
+  const total = b.auto.length + b.manual.length;
+  $('cxs-summary').innerHTML = `<div style="display:flex;gap:8px;flex-wrap:wrap;">
+      ${tile('취소접수', fmt(total) + '건', '')}
+      ${tile('바로 환불할 수 있는 주문', fmt(b.auto.length) + '건', '주문 전체 취소 · 환불 예정 ' + cxsWon(sum(b.auto)), '#4338ca')}
+      ${tile('직접 확인 권장', fmt(b.manual.length) + '건', b.manual.length ? '카페24에서 처리' : '', b.manual.length ? '#b45309' : '')}
+      ${b.done.length ? tile('방금 환불 완료', fmt(b.done.length) + '건', '', '#15803d') : ''}
+    </div>
+    <div style="font-size:.72rem;color:#6b7280;margin-top:6px;">카페24 조회 ${escHtml(bt)} · 최근 90일 주문 가운데 '취소접수' 상태</div>
+    ${b.auto.length ? `<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:12px;padding:10px 12px;background:#eef2ff;border:1px solid #c7d2fe;border-radius:12px;">
+      <button class="btn-analyze" style="background:#4f46e5;" onclick="cxsRunAll()" ${cxsState.running || !picked.length ? 'disabled' : ''}>${cxsState.running ? '<i class="fa-solid fa-spinner fa-spin"></i> 환불 처리하는 중…' : `<i class="fa-solid fa-rotate-left"></i> 환불 처리하기 (${picked.length}건)`}</button>
+      <span style="font-size:.78rem;color:#3730a3;">체크된 주문 <b>${picked.length}건</b> · 환불 예정 합계 <b>${cxsWon(sum(picked))}</b>. 카페24가 계산한 환불액이 아래 '환불 예정액'과 <b>1원이라도 다르면 그 주문은 환불을 보내지 않아요.</b></span></div>` : ''}`;
+  const lr = cxsState.lastRun;
+  $('cxs-result').innerHTML = lr ? `<div style="border:1px solid ${lr.fail || lr.stopped ? '#fecaca' : '#bbf7d0'};background:${lr.fail || lr.stopped ? '#fef2f2' : '#f0fdf4'};border-radius:12px;padding:10px 14px;margin-bottom:12px;font-size:.82rem;">
+      <b style="color:${lr.fail || lr.stopped ? '#b91c1c' : '#15803d'};">${lr.running ? `환불 처리하는 중… ${lr.ok + lr.fail} / ${lr.total}` : `환불 ${lr.ok}건 완료(${cxsWon(lr.amount)})${lr.fail ? ` · 처리 안 된 주문 ${lr.fail}건` : ''}`}</b>
+      ${lr.stopped ? `<div style="color:#b91c1c;margin-top:4px;">${escHtml(lr.stopped)}</div>` : ''}
+      ${(lr.fails || []).map(f => `<div style="margin-top:3px;color:#7f1d1d;"><b style="font-family:monospace;">${escHtml(f.order_id)}</b> — ${escHtml(f.msg)}</div>`).join('')}</div>` : '';
+  if (!b.groups.length) { $('cxs-list').innerHTML = '<div class="empty-state"><p>지금 취소접수 상태인 자사몰 주문이 없어요</p></div>'; return; }
+  const dis = cxsState.running ? 'disabled' : '';
+  const allOn = b.auto.every(g => !cxsState.off.has(cxsKey(g)));
+  const autoHtml = b.auto.length ? `<div style="border:1px solid #e5e7eb;border-radius:12px;padding:12px 14px;margin-bottom:12px;background:#fff;">
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px;">
+        <b style="font-size:.95rem;"><i class="fa-solid fa-rotate-left" style="color:#818cf8;"></i> 바로 환불할 수 있는 주문</b>
+        <span style="background:#eef2ff;color:#3730a3;border-radius:99px;padding:2px 10px;font-size:.74rem;font-weight:800;">${b.auto.length}건</span>
+        <span style="font-size:.74rem;color:#6b7280;">주문 전체 취소 — 결제한 금액 그대로 환불(배송비 포함), 쓴 적립금·쿠폰은 돌려줘요</span>
+        <button class="toggle-btn" style="margin-left:auto;font-size:.72rem;padding:3px 10px;" ${dis} data-on="${allOn ? '0' : '1'}" onclick="cxsToggleAll(this)">${allOn ? '전체 해제' : '전체 선택'}</button>
+      </div>
+      <div class="table-wrap"><table style="width:100%;font-size:.8rem;"><thead><tr><th style="width:34px;"></th><th style="text-align:left;">접수</th><th style="text-align:left;">주문</th><th style="text-align:left;">상품 · 옵션 · 수량</th><th style="text-align:left;">사유</th><th style="text-align:left;">결제 수단</th><th>환불 예정액</th><th>적립금 반환</th><th style="text-align:left;">결과</th></tr></thead><tbody>
+      ${b.auto.map(g => { const k = cxsKey(g), on = !cxsState.off.has(k); return `<tr style="${on ? '' : 'opacity:.5;'}">
+        <td style="vertical-align:top;"><input type="checkbox" ${on ? 'checked' : ''} ${dis} data-k="${escHtml(k)}" onchange="cxsToggle(this)" title="환불 처리에 넣기" style="width:17px;height:17px;" /></td>
+        <td style="text-align:left;vertical-align:top;white-space:nowrap;font-size:.76rem;">${escHtml(cxlShort(g.requested_at))}</td>
+        <td style="text-align:left;vertical-align:top;">${cxsOrderCell(g)}</td>
+        <td style="text-align:left;vertical-align:top;font-size:.78rem;">${cxsItemsHtml(g)}</td>
+        <td style="text-align:left;vertical-align:top;font-size:.78rem;max-width:200px;">${cxsReasonCell(g)}</td>
+        <td style="text-align:left;vertical-align:top;font-size:.76rem;white-space:nowrap;">${escHtml(g.pay_label)}</td>
+        <td style="text-align:right;vertical-align:top;white-space:nowrap;"><b style="color:#4338ca;">${cxsWon(g.expect.amount)}</b>${cxsCalcHtml(g)}</td>
+        <td style="text-align:right;vertical-align:top;white-space:nowrap;">${g.expect.points ? cxsWon(g.expect.points) : '<span style="color:#9ca3af;">—</span>'}</td>
+        <td style="text-align:left;vertical-align:top;font-size:.76rem;">${cxsStatusCell(g)}</td></tr>`; }).join('')}</tbody></table></div></div>` : '';
+  const manualHtml = b.manual.length ? `<div style="border:1px solid #fcd34d;border-radius:12px;padding:12px 14px;margin-bottom:12px;background:#fffbeb;">
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:4px;">
+        <b style="font-size:.95rem;color:#92400e;"><i class="fa-solid fa-triangle-exclamation"></i> 직접 확인 권장</b>
+        <span style="background:#fde68a;color:#92400e;border-radius:99px;padding:2px 10px;font-size:.74rem;font-weight:800;">${b.manual.length}건</span>
+      </div>
+      <div style="font-size:.74rem;color:#92400e;margin-bottom:8px;">환불액을 따져 봐야 하는 주문이라 여기서는 처리하지 않아요. [카페24]를 눌러 지금처럼 직접 처리해주세요.</div>
+      <div class="table-wrap"><table style="width:100%;font-size:.8rem;"><thead><tr><th style="text-align:left;">접수</th><th style="text-align:left;">주문</th><th style="text-align:left;">상품 · 옵션 · 수량</th><th style="text-align:left;">사유</th><th style="text-align:left;">결제</th><th style="text-align:left;">확인할 점</th><th style="text-align:left;">처리</th></tr></thead><tbody>
+      ${b.manual.map(g => `<tr>
+        <td style="text-align:left;vertical-align:top;white-space:nowrap;font-size:.76rem;">${escHtml(cxlShort(g.requested_at))}</td>
+        <td style="text-align:left;vertical-align:top;">${cxsOrderCell(g)}</td>
+        <td style="text-align:left;vertical-align:top;font-size:.78rem;">${cxsItemsHtml(g)}${g.other_items ? `<div style="font-size:.68rem;color:#9ca3af;">같은 주문의 다른 상품 ${g.other_items}개</div>` : ''}</td>
+        <td style="text-align:left;vertical-align:top;font-size:.78rem;max-width:200px;">${cxsReasonCell(g)}</td>
+        <td style="text-align:left;vertical-align:top;font-size:.76rem;white-space:nowrap;">${escHtml(g.pay_label)}<div style="color:#6b7280;">결제 ${cxsWon(g.expect.amount)}</div></td>
+        <td style="text-align:left;vertical-align:top;font-size:.76rem;min-width:200px;">${g.manual.map(t => `<div style="color:#92400e;padding:1px 0;">· ${escHtml(t)}</div>`).join('')}</td>
+        <td style="text-align:left;vertical-align:top;white-space:nowrap;"><button class="toggle-btn" style="font-size:.7rem;padding:2px 9px;" data-site="cafe24" data-oid="${escHtml(g.order_id)}" onclick="rscanOpen(this)"><i class="fa-solid fa-arrow-up-right-from-square"></i> 카페24</button></td></tr>`).join('')}</tbody></table></div></div>` : '';
+  $('cxs-list').innerHTML = autoHtml + manualHtml;
+}
+function cxsToggle(cb) { if (cxsState.running) return; const k = cb.dataset.k; if (cb.checked) cxsState.off.delete(k); else cxsState.off.add(k); cxsRender(); }
+function cxsToggleAll(btn) { if (cxsState.running) return; for (const g of cxsBuckets().auto) { if (btn.dataset.on === '1') cxsState.off.delete(cxsKey(g)); else cxsState.off.add(cxsKey(g)); } cxsRender(); }
+async function cxsRunOne(g) {
+  try {
+    const res = await fetch(fnUrl('cafe24-analytics', { action: 'selfcancel_run', order_id: g.order_id, claim_code: g.claim_code }), { method: 'POST', headers: sbHeaders(), body: JSON.stringify({ expect_amount: g.expect.amount, expect_points: g.expect.points }) });
+    const r = await res.json().catch(() => ({}));
+    if (!res.ok || r.error) return Object.assign({}, r, { ok: false, error: r.error || ('오류 ' + res.status) });
+    return r;
+  } catch (e) { return { ok: false, error: '연결이 끊겼어요 — 이 주문이 어디까지 처리됐는지 새로고침해서 확인해주세요 (' + (e.message || e) + ')', unknown: true }; }
+}
+async function cxsRunAll() {
+  if (cxsState.running) return;
+  const targets = cxsBuckets().auto.filter(g => !cxsState.off.has(cxsKey(g)));
+  if (!targets.length) { showToast('환불 처리할 주문이 없어요'); return; }
+  const total = targets.reduce((t, g) => t + g.expect.amount, 0), pts = targets.reduce((t, g) => t + g.expect.points, 0);
+  if (!confirm(`자사몰 취소접수 ${targets.length}건을 환불 처리할까요?\n\n환불 예정 합계 ${cxsWon(total)}${pts ? ` · 적립금 반환 ${cxsWon(pts)}` : ''}\n\n· 결제 수단(카드·계좌이체)으로 바로 환불(결제 취소)돼요.\n· 카페24가 계산한 환불액이 화면의 환불 예정액과 다르면 그 주문은 환불을 보내지 않고 멈춰요.\n· 환불된 뒤에는 되돌릴 수 없어요.`)) return;
+  cxsState.running = true;
+  const run = cxsState.lastRun = { running: true, total: targets.length, ok: 0, fail: 0, amount: 0, fails: [], stopped: '' };
+  for (let i = 0; i < targets.length; i++) {
+    const g = targets[i], k = cxsKey(g);
+    cxsState.status.set(k, { state: 'run' }); cxsRender();
+    const r = await cxsRunOne(g);
+    if (r.ok) { run.ok++; if (!r.already) run.amount += r.refund_amount || 0; cxsState.status.set(k, { state: 'ok', text: r.already ? '이미 취소완료였어요' : `${cxsWon(r.refund_amount)}${r.points ? ' · 적립금 ' + cxsWon(r.points) : ''}` }); }
+    else {
+      run.fail++;
+      run.fails.push({ order_id: g.order_id, msg: r.error }); cxsState.status.set(k, { state: 'fail', text: r.error, left: !!r.left, critical: !!r.critical || !!r.unknown });
+      // 돈이 걸린 처리라, 그 사이 상태가 바뀐 주문(stale)이 아니면 한 건이라도 막히는 즉시 멈춘다
+      if (!r.stale) { const left = targets.length - i - 1; run.stopped = `처리가 막혀서 멈췄어요${left ? ` — 나머지 ${left}건은 보내지 않았어요` : ''}. 원인을 확인한 뒤 다시 눌러주세요.`; break; }
+    }
+    cxsRender();
+  }
+  run.running = false; cxsState.running = false;
+  cxsRender();
+  await cxsLoad();
+}
+
 async function cxlLogLoad() {
   if (cxlState.logLoading) return;
   cxlState.logLoading = true;
@@ -3810,15 +3963,17 @@ function cxlLogRender() {
   if (!rows.length) { $('cxl-log').innerHTML = '<div class="empty-state"><p>최근 30일 동안 접수한 기록이 없어요</p></div>'; return; }
   const when = v => v ? new Date(v).toLocaleString('ko-KR', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '';
   const okN = rows.filter(r => r.ok).length;
-  $('cxl-log').innerHTML = `<div style="font-size:.76rem;color:#6b7280;margin-bottom:8px;">최근 30일 · 접수 ${fmt(okN)}건${rows.length - okN ? ` · 접수 안 됨 ${fmt(rows.length - okN)}건` : ''}</div>
-    <div class="table-wrap"><table style="width:100%;font-size:.8rem;"><thead><tr><th style="text-align:left;">처리 시각</th><th style="text-align:left;">처리자</th><th style="text-align:left;">주문</th><th style="text-align:left;">취소 구분 · 사유</th><th style="text-align:left;">상품</th><th style="text-align:left;">결과</th></tr></thead><tbody>
+  $('cxl-log').innerHTML = `<div style="font-size:.76rem;color:#6b7280;margin-bottom:8px;">최근 30일 · 처리 ${fmt(okN)}건${rows.length - okN ? ` · 처리 안 됨 ${fmt(rows.length - okN)}건` : ''}</div>
+    <div class="table-wrap"><table style="width:100%;font-size:.8rem;"><thead><tr><th style="text-align:left;">처리 시각</th><th style="text-align:left;">처리자</th><th style="text-align:left;">종류</th><th style="text-align:left;">주문</th><th style="text-align:left;">취소 구분 · 사유</th><th style="text-align:left;">상품</th><th>환불액</th><th style="text-align:left;">결과</th></tr></thead><tbody>
     ${rows.map(r => `<tr>
       <td style="text-align:left;vertical-align:top;white-space:nowrap;font-size:.76rem;">${escHtml(when(r.created_at))}</td>
       <td style="text-align:left;vertical-align:top;white-space:nowrap;">${escHtml(r.by_name || '')}</td>
+      <td style="text-align:left;vertical-align:top;white-space:nowrap;font-size:.74rem;">${r.kind === 'self' ? '<span style="color:#4338ca;font-weight:700;">자사몰 환불</span>' : '<span style="color:#03a54f;font-weight:700;">네이버페이 접수</span>'}</td>
       <td style="text-align:left;vertical-align:top;white-space:nowrap;"><b style="font-family:monospace;">${escHtml(r.order_id)}</b>${r.claim_code ? `<div style="font-size:.68rem;color:#9ca3af;">${escHtml(r.claim_code)}</div>` : ''}</td>
-      <td style="text-align:left;vertical-align:top;font-size:.78rem;max-width:260px;"><b>${escHtml(r.reason_label || '')}</b><div style="color:#6b7280;white-space:pre-wrap;">${escHtml(r.reason || '')}</div>${(r.flags || []).length ? `<div style="color:#92400e;font-size:.7rem;">직접 확인 뒤 접수: ${escHtml(r.flags.map(f => f.text).join(' / '))}</div>` : ''}</td>
+      <td style="text-align:left;vertical-align:top;font-size:.78rem;max-width:260px;"><b>${escHtml(r.reason_label || (r.kind === 'self' ? (CXS_REASON[r.reason_type] || '') : ''))}</b><div style="color:#6b7280;white-space:pre-wrap;">${escHtml(r.reason || '')}</div>${(r.flags || []).length ? `<div style="color:#92400e;font-size:.7rem;">직접 확인 뒤 접수: ${escHtml(r.flags.map(f => f.text).join(' / '))}</div>` : ''}</td>
       <td style="text-align:left;vertical-align:top;font-size:.78rem;">${(r.items || []).map(x => `<div>${escHtml(x.product_name || '')} <span style="color:#6b7280;">${escHtml(x.option || '')}</span> ${x.qty || ''}개</div>`).join('')}</td>
-      <td style="text-align:left;vertical-align:top;font-size:.76rem;max-width:260px;">${r.ok ? `<span style="color:#15803d;font-weight:800;"><i class="fa-solid fa-circle-check"></i> ${escHtml(r.result || '접수됨')}</span>` : `<span style="color:#b91c1c;font-weight:800;"><i class="fa-solid fa-circle-xmark"></i> 접수 안 됨</span><div style="color:#b91c1c;font-size:.7rem;">${escHtml(r.result || '')}</div>`}</td></tr>`).join('')}</tbody></table></div>`;
+      <td style="text-align:right;vertical-align:top;white-space:nowrap;font-size:.78rem;">${r.kind === 'self' ? (r.ok && r.refund_amount != null ? `<b>${fmt(r.refund_amount)}원</b>` : r.expected_amount != null ? `<span style="color:#9ca3af;">예정 ${fmt(r.expected_amount)}원</span>` : '') + (r.points ? `<div style="font-size:.68rem;color:#6b7280;">적립금 ${fmt(r.points)}</div>` : '') : ''}</td>
+      <td style="text-align:left;vertical-align:top;font-size:.76rem;max-width:260px;">${r.ok ? `<span style="color:#15803d;font-weight:800;"><i class="fa-solid fa-circle-check"></i> ${escHtml(r.result || '접수됨')}</span>` : `<span style="color:#b91c1c;font-weight:800;"><i class="fa-solid fa-circle-xmark"></i> ${r.kind === 'self' ? '처리 안 됨' : '접수 안 됨'}</span><div style="color:#b91c1c;font-size:.7rem;">${escHtml(r.result || '')}</div>`}</td></tr>`).join('')}</tbody></table></div>`;
 }
 
 /* ══ 미발송 관리 (#unship, 2026-09-28 사용자 요청 — 물류팀) ══
