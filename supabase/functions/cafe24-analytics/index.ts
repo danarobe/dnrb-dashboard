@@ -397,7 +397,11 @@ const NPAY_CANCEL_TYPES: Record<string, string> = { "구매 의사 취소": "51"
 // ══ 카페24 쓰기 ②③ — 자사몰 취소접수의 환불 처리 (2026-10-05 사용자 요청·승인) ══
 // 고객이 자사몰에서 넣어 이미 '취소접수'(C10)인 주문을 ② 취소처리중(환불전)으로 넘기고 ③ 환불완료(PG 결제취소 포함)로 끝낸다. 수거 완료와 같은 원칙:
 //  · 주소와 본문을 호출자가 넘기지 못한다 — 검증된 주문번호·접수번호로 이 함수들이 직접 조립한다. **금액은 보내지 않는다(카페24가 계산)**.
-//  · ② 본문 고정 { shop_no:1, requests:[{ order_id, claim_code, status:"canceling", recover_inventory, add_memo_too:"F" }] } — 철회(undone)·환불 수단·계좌 필드 없음.
+//  · ② 본문 고정 { shop_no:1, requests:[{ order_id, claim_code, status:"canceling", recover_inventory, add_memo_too:"F", refund_method_code:[F|G] }] } — 철회(undone)·계좌 필드 없음.
+//    환불 수단(refund_method_code)은 필수였다: 2026-10-05 첫 실사용에서 빼고 보내자 422 "The refund amount exceeds the available amount for this refund method.
+//    Select an additional payment method for refund. The available method is [T, M, G]"(주문은 취소접수 그대로). 값은 호출자가 아니라 서버가 주문의 결제 수단으로 정한다 —
+//    신용카드 = "F", 계좌이체 = "G" 하나만(관리자 '취소 처리' 화면이 고르는 환불 방식 값과 같음: 자동 대상 40건 실측 F 38·G 2).
+//    "M"(적립금으로 환불)·"T"(현금 환불)은 보내지 않는다 — 쓴 적립금은 환불 수단이 아니라 카페24가 따로 돌려준다(used_points).
 //  · ③ 본문 고정 { shop_no:1, request:{ status:"complete", payment_gateway_cancel:"T", send_sms:"T", send_mail:"T" } } — 고객 알림은 카페24 자동 알림 설정대로.
 //  · ③은 반드시 ②와 ③ 사이의 금액 확인(카페24가 계산한 환불액 = 워크스페이스가 계산한 환불액, 원 단위)을 통과한 뒤에만 부른다(selfcancel_run).
 //  · 다른 쓰기가 필요해지면 여기 허용 목록을 넓히지 말고 사용자 승인부터 받을 것. tools/check_cafe24_writes.sh 가 배포 전 검사한다.
@@ -417,10 +421,11 @@ async function cafe24Write(method: "PUT", url: string, payload: string, token: s
   if (!res.ok) throw Object.assign(new Error(`PUT ${res.status}: ${JSON.stringify(body).slice(0, 400)}`), { status: res.status, body });
   return body;
 }
-async function cafe24CancelToRefunding(orderId: string, claimCode: string, recover: "T" | "F", token: string): Promise<Record<string, unknown>> {
+async function cafe24CancelToRefunding(orderId: string, claimCode: string, recover: "T" | "F", refundMethod: "F" | "G", token: string): Promise<Record<string, unknown>> {
   if (!/^\d{8}-\d{7}$/.test(orderId) || !/^C\d{8}-\d{7}$/.test(claimCode)) throw new Error("허용되지 않은 쓰기(번호 형식)");
   if (recover !== "T" && recover !== "F") throw new Error("허용되지 않은 쓰기(재고 복구 값)");
-  const payload = JSON.stringify({ shop_no: 1, requests: [{ order_id: orderId, claim_code: claimCode, status: "canceling", recover_inventory: recover, add_memo_too: "F" }] });
+  if (refundMethod !== "F" && refundMethod !== "G") throw new Error("허용되지 않은 쓰기(환불 수단)");
+  const payload = JSON.stringify({ shop_no: 1, requests: [{ order_id: orderId, claim_code: claimCode, status: "canceling", recover_inventory: recover, add_memo_too: "F", refund_method_code: [refundMethod] }] });
   return await cafe24Write("PUT", `${API_BASE}/admin/cancellation`, payload, token);
 }
 async function cafe24CompleteRefund(orderId: string, refundCode: string, token: string): Promise<Record<string, unknown>> {
@@ -679,6 +684,7 @@ function cxlGroupsOf(o: Record<string, any>): Record<string, any>[] {
 // 든 주문은 변수가 많아 당분간 직접 본다 → 전부 manual. 품절 취소(H)는 재고 복구 안 함, 그 밖은 복구.
 const SELF_MAIN_OK = new Set(["card", "tcash"]);            // 1차: 신용카드·실시간 계좌이체만 (PG 취소가 되는 수단)
 const SELF_AUX_OK = new Set(["coupon", "point", "mileage"]);   // 같이 쓸 수 있는 보조 수단: 쿠폰·적립금
+const SELF_REFUND_CODE: Record<string, "F" | "G"> = { card: "F", tcash: "G" };   // 결제 수단 → 환불 수단 코드(관리자 화면의 '신용카드 결제 취소'·'계좌이체 결제 취소')
 const SELF_PAY_LABEL: Record<string, string> = { card: "신용카드", tcash: "계좌이체", cash: "무통장입금", prepaid: "선불금", coupon: "쿠폰", point: "적립금", mileage: "적립금", deposit: "예치금", cell: "휴대폰" };
 function selfGroupsOf(o: Record<string, any>, nrSets: NrSets): Record<string, any>[] {
   const all = (o.items ?? []) as Record<string, any>[];
@@ -940,7 +946,9 @@ Deno.serve(async (req) => {
       if (mine.length >= 300 || allDay.length >= 1000) return json({ error: "취소 처리 한도를 넘었어요 — 잠시 뒤 다시 시도해주세요" }, 429);
       const errText = (e: unknown) => { const st = (e as { status?: number }).status ?? 0, raw = String((e as Error).message ?? e); return { st, raw, msg: st === 403 || /scope|permission|insufficient/i.test(raw) ? "카페24 앱에 '주문 쓰기' 권한이 없어요 — '카페24 연동'으로 다시 연동해주세요" : raw.slice(0, 300) }; };
       // ② 취소처리중(환불전)으로 — 카페24가 환불액을 계산한다
-      try { await cafe24CancelToRefunding(orderId, claimCode, g.recover as "T" | "F", token); }
+      const refundCode = SELF_REFUND_CODE[String(g.main)];
+      if (!refundCode) return json({ error: "이 결제 수단은 아직 자동 환불 대상이 아니에요", blocked: true }, 400);
+      try { await cafe24CancelToRefunding(orderId, claimCode, g.recover as "T" | "F", refundCode, token); }
       catch (e) { const x = errText(e); await logRow(false, "취소처리중으로 넘기지 못함 — " + x.raw); return json({ error: "카페24가 '취소처리중'으로 넘기지 않았어요(주문은 취소접수 그대로) — " + x.msg, step: "A" }, 502); }
       // 카페24가 계산한 환불 내역 읽기 (반영이 조금 늦을 수 있어 5번까지)
       const want = (g.items as Record<string, any>[]).map((x) => String(x.code)).sort().join(",");
