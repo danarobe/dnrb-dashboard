@@ -1482,7 +1482,7 @@
   </div>
 
   <!-- ══ 취소·반품 접수 (#cxl, 2026-10-05 사용자 요청 — 관리자) — 고객이 넣은 취소신청을 사유별로 나눠 한 번에 접수한다.
-       지금은 네이버페이 취소신청(카페24 '취소신청')만. 자사몰 취소접수·반품은 다음 단계. ══ -->
+       탭: 네이버페이 취소신청 / 자사몰 취소접수 / 자사몰 반품접수(2026-10-06) / 처리 내역. ══ -->
   <div class="section-card page-sec" id="sec-cxl">
     <div class="section-header" style="cursor:default;">
       <h2><span><i class="fa-solid fa-ban" style="color:#4f46e5;font-size:.9em;"></i></span> 취소·반품 접수</h2>
@@ -1515,6 +1515,18 @@
         <div id="cxs-summary" style="margin-bottom:12px;"></div>
         <div id="cxs-result"></div>
         <div id="cxs-list"></div>
+      </div>
+      <div id="cxl-pane-ret" class="cxl-pane" style="display:none;">
+        <div style="font-size:.8rem;color:#6b7280;margin-bottom:10px;line-height:1.7;">
+          · 고객이 <b>자사몰에서 넣은 반품</b>(카페24 '반품접수')을 모았어요. 버튼을 누르면 체크된 접수가 카페24에서 <b>'반품처리중(수거전)'</b>으로 넘어가면서 환불 금액이 정해져요 — <b>돈은 아직 나가지 않아요.</b><br>
+          · <b>반품 배송비</b>: 배송비를 낸 주문 3,000원 / 무료배송 주문은 전체 반품이거나 남는 금액이 7만 원 미만이면 6,000원, 7만 원 이상이면 3,000원을 환불액에서 빼요.<br>
+          · <b>쿠폰</b>은 남는 금액이 그 쿠폰의 최소 구매 금액보다 적어지면(전체 반품 포함) 할인을 취소하고, <b>적립금</b>은 전체 반품이거나 남는 금액이 3만 원 미만일 때만 돌려줘요.<br>
+          · 처리는 <b>이 PC 엣지에 로그인된 카페24 관리자의 '반품 처리' 창</b>에서 해요. 카페24 창이 계산한 환불액이 여기의 '환불 예정액'과 <b>1원이라도 다르면 보내지 않고 멈춰요.</b> 먼저 <b>[검사만 하기]</b>로 확인해 볼 수 있어요.<br>
+          · <b style="color:#b45309;">직접 확인 권장</b>(불량·오배송, 1+1·10% 이상 할인 상품, 조건을 못 읽은 쿠폰, 다른 취소·교환·반품이 섞인 주문, 수거 신청이 아닌 접수 등)은 지금처럼 카페24에서 처리해주세요.
+        </div>
+        <div id="cxr-summary" style="margin-bottom:12px;"></div>
+        <div id="cxr-result"></div>
+        <div id="cxr-list"></div>
       </div>
       <div id="cxl-pane-log" class="cxl-pane" style="display:none;">
         <div id="cxl-log"></div>
@@ -3600,7 +3612,7 @@ function soldoutLogRender() {
       한 건마다 cancelreq_prepare(서버가 최신 주문으로 취소 구분·사유 확정) → 연결 스크립트 accept → cancelreq_record(서버가 다시 읽어 확인·기록).
       애매한 주문은 '직접 확인 권장'(flags)으로 빼고 한 건씩만 접수. 처리 기록은 cancel_accept_log(처리 내역 탭).
    자사몰 취소접수·반품은 다음 단계(사용자: 이게 잘 되면 진행). */
-const CXL_TABS = [['npay', '네이버페이 취소신청', null, 'fa-solid fa-ban'], ['self', '자사몰 취소접수', null, 'fa-solid fa-rotate-left'], ['log', '처리 내역', null, 'fa-solid fa-clock-rotate-left']];
+const CXL_TABS = [['npay', '네이버페이 취소신청', null, 'fa-solid fa-ban'], ['self', '자사몰 취소접수', null, 'fa-solid fa-rotate-left'], ['ret', '자사몰 반품접수', null, 'fa-solid fa-truck-ramp-box'], ['log', '처리 내역', null, 'fa-solid fa-clock-rotate-left']];
 const cxlState = { data: null, loading: false, tab: 'npay', off: new Set(), status: new Map(), running: false, lastRun: null, log: null, logLoading: false };
 const cxlKey = g => g.order_id + '|' + g.key;
 const CXL_BRIDGE_MIN = '1.0.0';
@@ -3636,15 +3648,17 @@ function cxlInit() {
 function cxlTabsRender() {
   const n = cxlState.data ? cxlState.data.groups.filter(g => !cxlDone(g)).length : null;
   const ns = typeof cxsState !== 'undefined' && cxsState.data ? cxsState.data.groups.filter(g => !cxsDone(g)).length : null;
-  uiTabs('cxl-tabs', CXL_TABS.map(t => t[0] === 'npay' ? [t[0], t[1], n ? String(n) : null, t[3]] : t[0] === 'self' ? [t[0], t[1], ns ? String(ns) : null, t[3]] : t), cxlState.tab, 'cxlSetTab');
+  const nr = typeof cxrState !== 'undefined' && cxrState.data ? cxrState.data.groups.filter(g => !cxrDone(g)).length : null;
+  uiTabs('cxl-tabs', CXL_TABS.map(t => t[0] === 'npay' ? [t[0], t[1], n ? String(n) : null, t[3]] : t[0] === 'self' ? [t[0], t[1], ns ? String(ns) : null, t[3]] : t[0] === 'ret' ? [t[0], t[1], nr ? String(nr) : null, t[3]] : t), cxlState.tab, 'cxlSetTab');
 }
 function cxlSetTab(k) {
   cxlState.tab = k; cxlTabsRender();
   document.querySelectorAll('.cxl-pane').forEach(el => { el.style.display = el.id === 'cxl-pane-' + k ? '' : 'none'; });
   if (k === 'log') cxlLogLoad();
   if (k === 'self') { if (!cxsState.data && !cxsState.loading) cxsLoad(); else cxsRender(); }
+  if (k === 'ret') { if (!cxrState.data && !cxrState.loading) cxrLoad(); else cxrRender(); }
 }
-function cxlReload() { if (cxlState.running || cxsState.running) { showToast('처리 중이에요 — 끝난 뒤 눌러주세요'); return; } if (cxlState.tab === 'log') cxlLogLoad(); else if (cxlState.tab === 'self') { cxsState.lastRun = null; cxsState.status = new Map(); cxsLoad(); } else { cxlState.lastRun = null; cxlState.status = new Map(); cxlLoad(); } }
+function cxlReload() { if (cxlState.running || cxsState.running || cxrState.running) { showToast('처리 중이에요 — 끝난 뒤 눌러주세요'); return; } if (cxlState.tab === 'log') cxlLogLoad(); else if (cxlState.tab === 'ret') { cxrState.lastRun = null; cxrState.status = new Map(); cxrLoad(); } else if (cxlState.tab === 'self') { cxsState.lastRun = null; cxsState.status = new Map(); cxsLoad(); } else { cxlState.lastRun = null; cxlState.status = new Map(); cxlLoad(); } }
 async function cxlLoad() {
   if (cxlState.loading) return;
   cxlState.loading = true;
@@ -4022,6 +4036,208 @@ async function cxsRunAll() {
   await cxsLoad();
 }
 
+/* ── 취소·반품 접수 ③ 자사몰 반품접수 → 반품처리중(수거전) (2026-10-06 사용자 요청) ──
+   서버 retacc_list(카페24 '반품접수' R10 주문을 접수번호별로 분류 + 환불 예정액 계산). 넘기는 일은 이 PC의 연결 스크립트(window.CAFE24_RETURN —
+   danarobe-cafe24-return.user.js, 공개 저장소 금지)가 카페24 관리자 '반품 처리' 창에서 한다: 공개 API에는 반품 배송비 차감·쿠폰 취소 금액을 넣는 자리가 없기 때문.
+   한 건마다 retacc_prepare(서버가 최신 주문으로 다시 계산 — 화면의 예정액과 다르면 멈춤) → 연결 스크립트 process(창에 값을 넣고, 창이 계산한 환불액이 예정액과
+   원 단위로 같을 때만 보냄) → retacc_record(서버가 주문을 다시 읽어 상태·금액 확인·기록). [검사만 하기] = 창에 넣어 보고 금액만 대조(아무것도 보내지 않음).
+   자동 = 변심·사이즈·상품불만족 + 조건이 읽히는 쿠폰. 불량·오배송·1+1·10% 이상 할인·다른 취소/교환/반품이 섞인 주문 등은 '직접 확인 권장'. */
+const cxrState = { data: null, loading: false, off: new Set(), status: new Map(), running: false, lastRun: null, tag: '' };
+const CXR_BRIDGE_MIN = '1.0.0';
+const cxrKey = g => g.order_id + '|' + g.claim_code;
+const cxrBridge = () => (window.CAFE24_RETURN && typeof window.CAFE24_RETURN.begin === 'function' && typeof window.CAFE24_RETURN.process === 'function') ? window.CAFE24_RETURN : null;
+window.addEventListener('cafe24-return-ready', () => { try { if ($('sec-cxl') && $('sec-cxl').style.display !== 'none' && cxrState.data && cxlState.tab === 'ret') cxrRender(); } catch {} });
+function cxrBridgeHtml() {
+  const B = cxrBridge();
+  if (B) return `<div style="font-size:.78rem;color:#065f46;font-weight:700;margin-top:10px;"><i class="fa-solid fa-plug-circle-check"></i> 카페24 반품 접수 연결 스크립트 v${escHtml(String(B.version || ''))} 연결됨 <span style="font-weight:500;color:#6b7280;">— 이 엣지에서 카페24 관리자에 로그인돼 있어야 해요. 누르면 카페24 처리 창이 하나 열려요</span></div>`;
+  return `<div style="background:#fffbeb;border:1.5px solid #fde68a;border-radius:12px;padding:12px 14px;font-size:.82rem;color:#78350f;line-height:1.75;margin-top:10px;">
+    <b><i class="fa-solid fa-plug-circle-xmark"></i> 이 PC에 '카페24 반품 접수 연결 스크립트'가 없어서 [검사만 하기]·[넘기기]를 쓸 수 없어요.</b> 목록과 환불 예정액은 그대로 볼 수 있어요.<br>
+    반품 배송비 차감·쿠폰 취소 금액은 카페24 관리자의 '반품 처리' 창에서만 넣을 수 있어서, <b>이 PC 엣지에 로그인된 카페24 관리자</b>를 통해 처리해요(취소 접수 연결과 같은 방식).<br>
+    <b>설치</b> ① 엣지의 Tampermonkey 아이콘 → 대시보드 → 유틸리티 → '파일에서 가져오기'로 <b>danarobe-cafe24-return.user.js</b> 선택 → 설치 ② 이 페이지 새로고침 ③ 같은 엣지에서 카페24 관리자에 로그인<br>
+    <span style="font-size:.76rem;">설치했는데 이 안내가 계속 뜨면: Tampermonkey에서 스크립트가 켜져 있는지, 엣지 확장 관리에서 '사용자 스크립트 허용'(개발자 모드)이 켜져 있는지 확인하세요.</span></div>`;
+}
+function cxrSetTag(t) { cxrState.tag = t || ''; cxrRender(); }
+async function cxrLoad() {
+  if (cxrState.loading) return;
+  cxrState.loading = true;
+  if (!cxrState.data) $('cxr-list').innerHTML = '<div class="empty-state"><p><i class="fa-solid fa-spinner fa-spin"></i> 카페24에서 반품접수 주문을 불러오는 중…</p></div>';
+  try { cxrState.data = await anGet({ action: 'retacc_list' }); cxlTabsRender(); cxrRender(); }
+  catch (e) { $('cxr-list').innerHTML = `<div class="empty-state"><p style="color:#b91c1c;">불러오지 못했어요 — ${escHtml(e.message)}</p></div>`; }
+  finally { cxrState.loading = false; }
+}
+// 넘기기가 끝난 접수: 서버가 '방금 처리'로 표시했거나, 이번 화면에서 실제로 넘긴 것(검사만 통과한 것은 아님)
+function cxrDone(g) { const s = cxrState.status.get(cxrKey(g)); return !!g.just_done || !!(s && s.state === 'ok' && !s.dry); }
+function cxrBuckets() {
+  const groups = (cxrState.data && cxrState.data.groups) || [];
+  const rest = groups.filter(g => !cxrDone(g));
+  return { groups, done: groups.filter(cxrDone), auto: rest.filter(g => !(g.manual || []).length), manual: rest.filter(g => (g.manual || []).length) };
+}
+function cxrItemsHtml(g) {
+  return g.items.map(x => `<div style="padding:1px 0;"><b>${escHtml(x.product_name)}</b> <span style="color:#6b7280;">${escHtml(x.option || '')}</span> <span style="color:#374151;white-space:nowrap;">${x.qty}개</span>${x.disc ? ` <span style="font-size:.68rem;color:#b45309;white-space:nowrap;">할인 ${fmt(x.disc)}</span>` : ''}</div>`).join('')
+    + `<div style="font-size:.68rem;color:${g.full ? '#4338ca' : '#6b7280'};margin-top:2px;">${g.full ? '주문 전체 반품' : `부분 반품 · 남는 상품 ${g.other_items}개(${fmt(g.remain)}원)`}</div>`;
+}
+function cxrOrderCell(g) {
+  return `<div style="white-space:nowrap;"><b style="font-family:monospace;">${escHtml(g.order_id)}</b></div><div style="font-size:.7rem;color:#6b7280;">${escHtml(g.buyer || '')} · 결제 ${escHtml(cxlShort(g.paid_at))}</div><div style="font-size:.7rem;color:#6b7280;">접수 ${escHtml(cxlShort(g.requested_at))}</div>`;
+}
+function cxrReasonCell(g) {
+  return `<span style="background:#eef2ff;color:#3730a3;border-radius:99px;padding:1px 8px;font-weight:800;white-space:nowrap;">${escHtml(g.reason_label || g.reason_type || '구분 없음')}</span><div style="margin-top:3px;white-space:pre-wrap;color:#374151;">${g.reason ? escHtml(g.reason) : '<span style="color:#9ca3af;">(적지 않음)</span>'}</div>`;
+}
+// 환불 예정 계산 풀이 — 반품 상품 − 상품 할인 − 반품 배송비 − 쿠폰 취소 (− 적립금 반환)
+function cxrCalcHtml(g) {
+  const c = g.calc, parts = [`상품 ${fmt(c.goods)}`];
+  if (c.disc) parts.push(`− 상품 할인 ${fmt(c.disc)}`); parts.push(`− 반품 배송비 ${fmt(c.fee)}`); if (c.coupon_cancel) parts.push(`− 쿠폰 취소 ${fmt(c.coupon_cancel)}`); if (g.expect.points) parts.push(`− 적립금 ${fmt(g.expect.points)}`);
+  return `<div style="font-size:.66rem;color:#9ca3af;">${parts.join(' ')}</div>`;
+}
+// 창에 넣을 내용(배송비·쿠폰·적립금)을 칩으로
+function cxrPlanHtml(g) {
+  const p = g.plan, chip = (bg, col, t, title) => `<span title="${escHtml(title || '')}" style="display:inline-block;background:${bg};color:${col};border-radius:6px;padding:1px 7px;font-size:.7rem;font-weight:700;margin:1px 3px 1px 0;white-space:nowrap;">${t}</span>`;
+  const out = [chip('#e0e7ff', '#3730a3', `배송비 ${fmt(p.fee)} 차감`, g.calc.ship_paid ? '배송비를 낸 주문 — 반품 배송비 3,000원' : p.fee === 6000 ? (g.full ? '무료배송 주문 전체 반품 — 왕복 6,000원' : '무료배송 주문 · 남는 금액 7만 원 미만 — 왕복 6,000원') : '무료배송 주문 · 남는 금액 7만 원 이상 — 3,000원')];
+  if (p.coupon === 'cancel') out.push(chip('#fee2e2', '#b91c1c', `쿠폰 ${fmt(p.coupon_amount)} 취소`, `${p.coupon_name} — ${g.full ? '전체 반품' : `남는 금액이 최소 ${fmt(p.coupon_min)}원 미만`}`));
+  else if (p.coupon === 'keep') out.push(chip('#dcfce7', '#166534', `쿠폰 ${fmt(p.coupon_amount)} 유지`, `${p.coupon_name} — ${p.coupon_min ? `남는 금액이 최소 ${fmt(p.coupon_min)}원 이상` : '금액 조건 없는 쿠폰'}`));
+  if (p.points_used) out.push(p.points_return ? chip('#fef3c7', '#92400e', `적립금 ${fmt(p.points_return)} 반환`, g.full ? '전체 반품 — 쓴 적립금을 돌려줘요' : '남는 금액 3만 원 미만 — 쓴 적립금을 돌려줘요') : chip('#f3f4f6', '#4b5563', `적립금 ${fmt(p.points_used)} 유지`, '남는 금액 3만 원 이상 — 적립금은 쓴 그대로 둬요'));
+  if (p.add_sale !== 'none') out.push(chip('#ffedd5', '#9a3412', `상품 할인 ${fmt(p.add_sale_amount)} 차감`, '반품 상품에 적용됐던 할인액을 환불에서 빼요'));
+  return out.join('');
+}
+function cxrStatusCell(g) {
+  const s = cxrState.status.get(cxrKey(g));
+  if (!s) return '<span style="color:#9ca3af;">대기</span>';
+  if (s.state === 'run') return '<span style="color:#4f46e5;font-weight:700;white-space:nowrap;"><i class="fa-solid fa-spinner fa-spin"></i> 처리 중</span>';
+  if (s.state === 'ok' && s.dry) return `<span style="color:#0369a1;font-weight:800;white-space:nowrap;"><i class="fa-solid fa-magnifying-glass"></i> 검사 통과</span><div style="font-size:.68rem;color:#6b7280;">${escHtml(s.text || '')}</div>`;
+  if (s.state === 'ok' && s.warn) return `<span style="color:#b45309;font-weight:800;white-space:nowrap;"><i class="fa-solid fa-triangle-exclamation"></i> 넘김 · 확인 필요</span><div style="font-size:.68rem;color:#b45309;max-width:280px;">${escHtml(s.warn)}</div>`;
+  if (s.state === 'ok') return `<span style="color:#15803d;font-weight:800;white-space:nowrap;"><i class="fa-solid fa-circle-check"></i> 반품처리중으로 넘김</span>${s.text ? `<div style="font-size:.68rem;color:#6b7280;">${escHtml(s.text)}</div>` : ''}`;
+  return `<span style="color:#b91c1c;font-weight:800;white-space:nowrap;"><i class="fa-solid fa-circle-xmark"></i> ${s.critical ? '꼭 확인 필요' : s.dry ? '검사에서 멈춤' : '넘기지 않음'}</span><div style="font-size:.68rem;color:#b91c1c;max-width:280px;">${escHtml(s.text || '')}</div>`;
+}
+function cxrRender() {
+  const d = cxrState.data; if (!d || !$('cxr-list')) return;
+  const b = cxrBuckets(), B = cxrBridge();
+  const picked = b.auto.filter(g => !cxrState.off.has(cxrKey(g)));
+  const sum = list => list.reduce((t, g) => t + g.expect.amount, 0);
+  const cnt = list => list.reduce((n, g) => n + g.items.length, 0);   // 상품(품목) 개수 — 카페24 홈 '반품 · 접수' 숫자는 이 개수 기준
+  const tile = (label, v, sub, col) => `<div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:10px;padding:8px 14px;min-width:120px;"><div style="font-size:.7rem;color:#6b7280;">${label}</div><div style="font-size:1.15rem;font-weight:800;color:${col || '#111827'};">${v}</div>${sub ? `<div style="font-size:.68rem;color:#9ca3af;">${sub}</div>` : ''}</div>`;
+  const nn = (list, col) => `${fmt(list.length)}건 <span style="font-size:.78rem;font-weight:700;color:${col || '#6b7280'};">· 상품 ${fmt(cnt(list))}개</span>`;
+  const bt = d.fetched_at ? new Date(d.fetched_at).toLocaleString('ko-KR', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '';
+  const rest = b.auto.concat(b.manual), dis = cxrState.running ? 'disabled' : '';
+  $('cxr-summary').innerHTML = `<div style="display:flex;gap:8px;flex-wrap:wrap;">
+      ${tile('반품접수', nn(rest), '자사몰 주문')}
+      ${tile('바로 넘길 수 있는 접수', nn(b.auto, '#6366f1'), '변심·사이즈·상품불만족 · 환불 예정 ' + cxsWon(sum(b.auto)), '#4338ca')}
+      ${tile('직접 확인 권장', nn(b.manual, '#b45309'), b.manual.length ? '카페24에서 처리' : '', b.manual.length ? '#b45309' : '')}
+      ${b.done.length ? tile('방금 넘김', nn(b.done, '#15803d'), '', '#15803d') : ''}
+    </div>
+    <div style="font-size:.72rem;color:#6b7280;margin-top:6px;">카페24 조회 ${escHtml(bt)} · 최근 90일 주문 가운데 '반품접수' 상태(네이버페이 주문 제외) · <b>건</b> = 반품 접수 한 번, <b>상품 개수</b> = 카페24 홈 '오늘의 할 일'의 반품 '접수' 숫자와 같은 기준</div>
+    ${cxrBridgeHtml()}
+    ${b.auto.length ? `<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:12px;padding:10px 12px;background:#eef2ff;border:1px solid #c7d2fe;border-radius:12px;">
+      <button class="toggle-btn" style="font-weight:800;padding:8px 14px;" onclick="cxrRunAll(true)" ${cxrState.running || !picked.length || !B ? 'disabled' : ''} title="카페24 '반품 처리' 창에 값을 넣어 보고, 창이 계산한 환불액이 예정액과 같은지만 확인해요. 카페24에는 아무것도 보내지 않아요"><i class="fa-solid fa-magnifying-glass"></i> 검사만 하기 (${picked.length}건)</button>
+      <button class="btn-analyze" style="background:#4f46e5;" onclick="cxrRunAll(false)" ${cxrState.running || !picked.length || !B ? 'disabled' : ''}>${cxrState.running ? '<i class="fa-solid fa-spinner fa-spin"></i> 처리하는 중…' : `<i class="fa-solid fa-arrow-right"></i> 반품처리중으로 넘기기 (${picked.length}건)`}</button>
+      <span style="font-size:.78rem;color:#3730a3;flex:1;min-width:260px;">체크된 접수 <b>${picked.length}건</b>(상품 ${cnt(picked)}개) · 환불 예정 합계 <b>${cxsWon(sum(picked))}</b>. 카페24에서 <b>'반품처리중(수거전)'</b>으로 넘기면서 환불 금액을 정해요 — <b>돈은 아직 나가지 않아요</b>(환불은 수거 뒤). 카페24 창이 계산한 환불액이 예정액과 1원이라도 다르면 그 접수는 보내지 않고 멈춰요.</span></div>` : ''}`;
+  const lr = cxrState.lastRun;
+  $('cxr-result').innerHTML = lr ? `<div style="border:1px solid ${lr.fail || lr.stopped ? '#fecaca' : lr.dry ? '#bae6fd' : '#bbf7d0'};background:${lr.fail || lr.stopped ? '#fef2f2' : lr.dry ? '#f0f9ff' : '#f0fdf4'};border-radius:12px;padding:10px 14px;margin-bottom:12px;font-size:.82rem;">
+      <b style="color:${lr.fail || lr.stopped ? '#b91c1c' : lr.dry ? '#0369a1' : '#15803d'};">${lr.running ? `${lr.dry ? '검사하는 중' : '처리하는 중'}… ${lr.ok + lr.fail} / ${lr.total}` : lr.dry ? `검사 통과 ${lr.ok}건 — 카페24 창이 계산한 환불액이 예정액과 같았어요(아무것도 보내지 않음)${lr.fail ? ` · 멈춘 접수 ${lr.fail}건` : ''}` : `반품처리중으로 넘김 ${lr.ok}건(환불 예정 ${cxsWon(lr.amount)} — 돈은 아직 안 나감)${lr.warn ? ` · 확인 필요 ${lr.warn}건` : ''}${lr.fail ? ` · 넘기지 않은 접수 ${lr.fail}건` : ''}`}</b>
+      ${lr.stopped ? `<div style="color:#b91c1c;margin-top:4px;">${escHtml(lr.stopped)}</div>` : ''}
+      ${(lr.fails || []).map(f => `<div style="margin-top:3px;color:#7f1d1d;"><b style="font-family:monospace;">${escHtml(f.order_id)}</b> — ${escHtml(f.msg)}</div>`).join('')}</div>` : '';
+  if (!b.groups.length) { $('cxr-list').innerHTML = '<div class="empty-state"><p>지금 반품접수 상태인 자사몰 주문이 없어요</p></div>'; return; }
+  const allOn = b.auto.every(g => !cxrState.off.has(cxrKey(g)));
+  const cafeBtn = g => `<button class="toggle-btn" style="font-size:.68rem;padding:1px 8px;" title="카페24 주문 화면을 오른쪽 창에 열기 — 다른 주문을 누르면 같은 창의 내용이 바뀌어요" data-site="cafe24" data-oid="${escHtml(g.order_id)}" onclick="cxlOpenSide(this)"><i class="fa-solid fa-arrow-up-right-from-square"></i> 카페24</button>`;
+  const autoHtml = b.auto.length ? `<div style="border:1px solid #e5e7eb;border-radius:12px;padding:12px 14px;margin-bottom:12px;background:#fff;">
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px;">
+        <b style="font-size:.95rem;"><i class="fa-solid fa-truck-ramp-box" style="color:#818cf8;"></i> 바로 넘길 수 있는 접수</b>
+        <span style="background:#eef2ff;color:#3730a3;border-radius:99px;padding:2px 10px;font-size:.74rem;font-weight:800;">${b.auto.length}건 · 상품 ${cnt(b.auto)}개</span>
+        <span style="font-size:.74rem;color:#6b7280;">'넣을 내용'의 칩에 마우스를 올리면 그렇게 정한 이유가 보여요</span>
+        <button class="toggle-btn" style="margin-left:auto;font-size:.72rem;padding:3px 10px;" ${dis} data-on="${allOn ? '0' : '1'}" onclick="cxrToggleAll(this)">${allOn ? '전체 해제' : '전체 선택'}</button>
+      </div>
+      <div class="table-wrap"><table class="cxl-tbl" style="width:100%;font-size:.8rem;"><thead><tr><th style="width:34px;"></th><th style="text-align:left;">주문</th><th style="text-align:left;">반품 상품 · 옵션 · 수량</th><th style="text-align:left;">사유</th><th style="text-align:left;">결제 수단</th><th style="text-align:left;">넣을 내용</th><th>환불 예정액</th><th>적립금 반환</th><th style="text-align:left;">결과</th></tr></thead><tbody>
+      ${b.auto.map(g => { const k = cxrKey(g), on = !cxrState.off.has(k); return `<tr style="${on ? '' : 'opacity:.5;'}">
+        <td style="vertical-align:top;"><input type="checkbox" ${on ? 'checked' : ''} ${dis} data-k="${escHtml(k)}" onchange="cxrToggle(this)" title="넘기기에 넣기" style="width:17px;height:17px;" /></td>
+        <td class="nw" style="text-align:left;vertical-align:top;">${cxrOrderCell(g)}<div style="margin-top:4px;">${cafeBtn(g)}</div></td>
+        <td style="text-align:left;vertical-align:top;font-size:.78rem;">${cxrItemsHtml(g)}</td>
+        <td style="text-align:left;vertical-align:top;font-size:.78rem;max-width:190px;">${cxrReasonCell(g)}</td>
+        <td class="nw" style="text-align:left;vertical-align:top;font-size:.76rem;">${escHtml(g.pay_label)}</td>
+        <td style="text-align:left;vertical-align:top;min-width:120px;">${cxrPlanHtml(g)}</td>
+        <td class="nw" style="text-align:right;vertical-align:top;"><b style="color:#4338ca;">${cxsWon(g.expect.amount)}</b>${cxrCalcHtml(g)}</td>
+        <td class="nw" style="text-align:right;vertical-align:top;">${g.expect.points ? cxsWon(g.expect.points) : '<span style="color:#9ca3af;">—</span>'}</td>
+        <td style="text-align:left;vertical-align:top;font-size:.76rem;min-width:90px;">${cxrStatusCell(g)}</td></tr>`; }).join('')}</tbody></table></div></div>` : '';
+  const manualShown = cxrState.tag ? b.manual.filter(g => g.manual.some(f => (f.tag || '확인') === cxrState.tag)) : b.manual;
+  const manualHtml = b.manual.length ? `<div style="border:1px solid #fcd34d;border-radius:12px;padding:12px 14px;margin-bottom:12px;background:#fffbeb;">
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:4px;">
+        <b style="font-size:.95rem;color:#92400e;"><i class="fa-solid fa-triangle-exclamation"></i> 직접 확인 권장</b>
+        <span style="background:#fde68a;color:#92400e;border-radius:99px;padding:2px 10px;font-size:.74rem;font-weight:800;">${b.manual.length}건 · 상품 ${cnt(b.manual)}개</span>
+      </div>
+      <div style="font-size:.74rem;color:#92400e;margin-bottom:8px;">환불액을 따져 봐야 하는 접수라 여기서는 처리하지 않아요. 맨 앞 칸의 '확인할 점'을 보고 [카페24]를 눌러 지금처럼 직접 처리해주세요.</div>
+      ${cxlTagFilterHtml(b.manual, g => g.manual, cxrState.tag || '', 'cxrSetTag')}
+      <div class="table-wrap"><table class="cxl-tbl" style="width:100%;font-size:.8rem;"><thead><tr><th style="text-align:left;min-width:230px;">확인할 점</th><th style="text-align:left;">주문</th><th style="text-align:left;">반품 상품 · 옵션 · 수량</th><th style="text-align:left;">사유</th><th style="text-align:left;">결제</th><th style="text-align:left;">처리</th></tr></thead><tbody>
+      ${manualShown.map(g => `<tr>
+        <td style="text-align:left;vertical-align:top;min-width:230px;">${cxlFlagCell(g.manual, () => false)}</td>
+        <td class="nw" style="text-align:left;vertical-align:top;">${cxrOrderCell(g)}</td>
+        <td style="text-align:left;vertical-align:top;font-size:.78rem;">${cxrItemsHtml(g)}</td>
+        <td style="text-align:left;vertical-align:top;font-size:.78rem;max-width:200px;">${cxrReasonCell(g)}</td>
+        <td class="nw" style="text-align:left;vertical-align:top;font-size:.76rem;">${escHtml(g.pay_label)}</td>
+        <td class="nw" style="text-align:left;vertical-align:top;">${cafeBtn(g)}</td></tr>`).join('')}</tbody></table></div></div>` : '';
+  $('cxr-list').innerHTML = autoHtml + manualHtml;
+}
+function cxrToggle(cb) { if (cxrState.running) return; const k = cb.dataset.k; if (cb.checked) cxrState.off.delete(k); else cxrState.off.add(k); cxrRender(); }
+function cxrToggleAll(btn) { if (cxrState.running) return; for (const g of cxrBuckets().auto) { if (btn.dataset.on === '1') cxrState.off.delete(cxrKey(g)); else cxrState.off.add(cxrKey(g)); } cxrRender(); }
+async function cxrPost(action, g, body) {
+  const res = await fetch(fnUrl('cafe24-analytics', { action, order_id: g.order_id, claim_code: g.claim_code }), { method: 'POST', headers: sbHeaders(), body: JSON.stringify(body) });
+  const r = await res.json().catch(() => ({}));
+  if (!res.ok || r.error) return Object.assign({}, r, { ok: false, error: r.error || ('오류 ' + res.status) });
+  return r;
+}
+// 한 건 — ① 서버 prepare(최신 주문으로 다시 계산) ② 연결 스크립트 process(카페24 '반품 처리' 창) ③ 서버 record(주문을 다시 읽어 확인·기록). dry = 검사만(②에서 보내지 않고, ③ 없음)
+async function cxrOne(g, token, dry) {
+  const B = cxrBridge();
+  if (!B) return { ok: false, error: '연결 스크립트가 없어요', fatal: true };
+  try {
+    const p = await cxrPost('retacc_prepare', g, { expect_amount: g.expect.amount, expect_points: g.expect.points, expect_total: g.expect.total, dry: !!dry });
+    if (!p.ok) return { ok: false, error: p.error, stale: !!p.stale };
+    if (p.already) return { ok: true, already: true, status: p.status };
+    let r;
+    try { r = JSON.parse(await B.process(JSON.stringify(Object.assign({}, p.job, { dry: !!dry })), token)); } catch (e) { r = { ok: false, sent: false, error: String(e && e.message || e), code: 'worker', unknown: true }; }
+    const fatal = r.code === 'login' || r.code === 'worker' || r.code === 'layout', gone = r.code === 'gone' || r.code === 'stale';
+    if (dry) return r.ok ? { ok: true, dry: true, got: r.got } : { ok: false, dry: true, error: r.error, fatal, stale: gone };
+    // 카페24에 아무것도 보내지 않은 것이 분명하면 기록하지 않고 바로 알린다
+    if (!r.sent && !r.unknown) return { ok: false, error: r.error, fatal, stale: gone };
+    const rec = await cxrPost('retacc_record', g, { ok: !!r.ok, sent: !!r.sent, message: r.error || '', job: p.job, alerts: r.alerts || [], script_version: r.version || '', reason_type: g.reason_type, reason: g.reason,
+      items: g.items.map(x => ({ code: x.code, product_name: x.product_name, option: x.option, qty: x.qty })) });
+    if (rec.ok && rec.moved) return { ok: true, status: rec.status, amount: rec.refund_amount, points: rec.points, warn: rec.warn || '' };
+    if (rec.ok) return { ok: true, amount: g.expect.amount, points: g.expect.points, warn: "카페24 창에서는 넘어간 것으로 보이는데 주문 조회에는 아직 '반품접수'로 나와요 — 잠시 뒤 새로고침해서 확인해주세요" };
+    return { ok: false, error: r.error || rec.error || '넘어가지 않았어요', critical: !!r.sent || !!r.unknown, fatal };
+  } catch (e) { return { ok: false, error: '연결이 끊겼어요 — 이 접수가 어디까지 처리됐는지 새로고침해서 확인해주세요 (' + (e.message || e) + ')', critical: !dry, fatal: true }; }
+}
+async function cxrRunAll(dry) {
+  if (cxrState.running) return;
+  dry = dry === true;
+  const B = cxrBridge(); if (!B) { showToast('이 PC에 카페24 반품 접수 연결 스크립트가 필요해요'); cxrRender(); return; }
+  const targets = cxrBuckets().auto.filter(g => !cxrState.off.has(cxrKey(g)));
+  if (!targets.length) { showToast('넘길 접수가 없어요'); return; }
+  const total = targets.reduce((t, g) => t + g.expect.amount, 0), pts = targets.reduce((t, g) => t + g.expect.points, 0);
+  // 확인 창과 카페24 처리 창은 연결 스크립트가 직접 띄운다 — 창이 막히지 않도록 버튼을 누른 바로 이 자리에서 부른다(앞에 다른 기다림을 두지 말 것)
+  let token;
+  try { token = await B.begin({ jobs: targets.length, dry, preview: [`환불 예정 합계 ${cxsWon(total)}${pts ? ` · 적립금 반환 ${cxsWon(pts)}` : ''}`, `반품 배송비 3,000원 차감 ${targets.filter(g => g.plan.fee === 3000).length}건 · 6,000원 차감 ${targets.filter(g => g.plan.fee === 6000).length}건`, `쿠폰할인 취소 ${targets.filter(g => g.plan.coupon === 'cancel').length}건 · 적립금 반환 ${targets.filter(g => g.plan.points_return > 0).length}건`] }); }
+  catch (e) { if (!/취소했습니다/.test(String(e && e.message || e))) showToast(String(e && e.message || e)); return; }
+  cxrState.running = true;
+  const run = cxrState.lastRun = { running: true, dry, total: targets.length, ok: 0, fail: 0, warn: 0, amount: 0, fails: [], stopped: '' };
+  for (let i = 0; i < targets.length; i++) {
+    const g = targets[i], k = cxrKey(g), left = targets.length - i - 1;
+    cxrState.status.set(k, { state: 'run' }); cxrRender();
+    const r = await cxrOne(g, token, dry);
+    if (r.ok) {
+      run.ok++; if (!dry && !r.already) run.amount += r.amount || 0; if (r.warn) run.warn++;
+      cxrState.status.set(k, { state: 'ok', dry, warn: r.warn || '', text: r.already ? '이미 넘어가 있었어요' : dry ? `카페24 창 계산 ${cxsWon((r.got || {}).cash || 0)}${(r.got || {}).points ? ' · 적립금 ' + cxsWon(r.got.points) : ''} = 예정액` : `환불 예정 ${cxsWon(r.amount || 0)}${r.points ? ' · 적립금 ' + cxsWon(r.points) : ''}` });
+      // 넘어갔는데 카페24에 반영된 금액이 예정과 다르거나 반영이 확인되지 않으면(있어선 안 되는 일) 나머지는 보내지 않는다
+      if (r.warn) { run.stopped = `확인이 필요한 접수가 나와서 멈췄어요${left ? ` — 나머지 ${left}건은 보내지 않았어요` : ''}.`; break; }
+    } else {
+      run.fail++;
+      run.fails.push({ order_id: g.order_id, msg: r.error }); cxrState.status.set(k, { state: 'fail', dry, text: r.error, critical: !!r.critical });
+      // 돈이 걸린 처리라, 그 사이 상태가 바뀐 접수(stale)가 아니면 한 건이라도 막히는 즉시 멈춘다. 검사만 할 때는 연결 문제(fatal)일 때만 멈추고 나머지는 끝까지 본다.
+      if (dry ? r.fatal : !r.stale) { run.stopped = dry ? `${r.error}${left ? ` — 나머지 ${left}건은 검사하지 못했어요.` : ''}` : `처리가 막혀서 멈췄어요${left ? ` — 나머지 ${left}건은 보내지 않았어요` : ''}. 원인을 확인한 뒤 다시 눌러주세요.`; break; }
+    }
+    cxrRender();
+  }
+  try { B.end(); } catch {}
+  run.running = false; cxrState.running = false;
+  cxrRender();
+  if (!dry) await cxrLoad();
+}
+
 async function cxlLogLoad() {
   if (cxlState.logLoading) return;
   cxlState.logLoading = true;
@@ -4040,12 +4256,12 @@ function cxlLogRender() {
     ${rows.map(r => `<tr>
       <td style="text-align:left;vertical-align:top;white-space:nowrap;font-size:.76rem;">${escHtml(when(r.created_at))}</td>
       <td style="text-align:left;vertical-align:top;white-space:nowrap;">${escHtml(r.by_name || '')}</td>
-      <td style="text-align:left;vertical-align:top;white-space:nowrap;font-size:.74rem;">${r.kind === 'self' ? `<span style="color:#4338ca;font-weight:700;">${r.stage === 'moved' ? '자사몰 환불전 넘김' : '자사몰 환불'}</span>` : '<span style="color:#03a54f;font-weight:700;">네이버페이 접수</span>'}</td>
+      <td style="text-align:left;vertical-align:top;white-space:nowrap;font-size:.74rem;">${r.kind === 'ret' ? '<span style="color:#7c3aed;font-weight:700;">자사몰 반품 넘김</span>' : r.kind === 'self' ? `<span style="color:#4338ca;font-weight:700;">${r.stage === 'moved' ? '자사몰 환불전 넘김' : '자사몰 환불'}</span>` : '<span style="color:#03a54f;font-weight:700;">네이버페이 접수</span>'}</td>
       <td style="text-align:left;vertical-align:top;white-space:nowrap;"><b style="font-family:monospace;">${escHtml(r.order_id)}</b>${r.claim_code ? `<div style="font-size:.68rem;color:#9ca3af;">${escHtml(r.claim_code)}</div>` : ''}</td>
       <td style="text-align:left;vertical-align:top;font-size:.78rem;max-width:260px;"><b>${escHtml(r.reason_label || (r.kind === 'self' ? (CXS_REASON[r.reason_type] || '') : ''))}</b><div style="color:#6b7280;white-space:pre-wrap;">${escHtml(r.reason || '')}</div>${(r.flags || []).length ? `<div style="color:#92400e;font-size:.7rem;">직접 확인 뒤 접수: ${escHtml(r.flags.map(f => f.text).join(' / '))}</div>` : ''}</td>
       <td style="text-align:left;vertical-align:top;font-size:.78rem;">${(r.items || []).map(x => `<div>${escHtml(x.product_name || '')} <span style="color:#6b7280;">${escHtml(x.option || '')}</span> ${x.qty || ''}개</div>`).join('')}</td>
-      <td style="text-align:right;vertical-align:top;white-space:nowrap;font-size:.78rem;">${r.kind === 'self' ? (r.ok && r.refund_amount != null && r.stage !== 'moved' ? `<b>${fmt(r.refund_amount)}원</b>` : r.ok && r.stage === 'moved' ? `<span style="color:#2563eb;">환불전 · 예정 ${fmt(r.refund_amount != null ? r.refund_amount : r.expected_amount)}원</span>` : r.expected_amount != null ? `<span style="color:#9ca3af;">예정 ${fmt(r.expected_amount)}원</span>` : '') + (r.points ? `<div style="font-size:.68rem;color:#6b7280;">적립금 ${fmt(r.points)}</div>` : '') : ''}</td>
-      <td style="text-align:left;vertical-align:top;font-size:.76rem;max-width:260px;">${r.ok ? `<span style="color:#15803d;font-weight:800;"><i class="fa-solid fa-circle-check"></i> ${escHtml(r.result || '접수됨')}</span>` : `<span style="color:#b91c1c;font-weight:800;"><i class="fa-solid fa-circle-xmark"></i> ${r.kind === 'self' ? '처리 안 됨' : '접수 안 됨'}</span><div style="color:#b91c1c;font-size:.7rem;">${escHtml(r.result || '')}</div>`}</td></tr>`).join('')}</tbody></table></div>`;
+      <td style="text-align:right;vertical-align:top;white-space:nowrap;font-size:.78rem;">${r.kind === 'ret' ? `<span style="color:${r.ok ? '#7c3aed' : '#9ca3af'};">${r.ok ? '환불 예정' : '예정'} ${fmt(r.refund_amount != null ? r.refund_amount : r.expected_amount)}원</span>` + (r.points ? `<div style="font-size:.68rem;color:#6b7280;">적립금 ${fmt(r.points)}</div>` : '') : r.kind === 'self' ? (r.ok && r.refund_amount != null && r.stage !== 'moved' ? `<b>${fmt(r.refund_amount)}원</b>` : r.ok && r.stage === 'moved' ? `<span style="color:#2563eb;">환불전 · 예정 ${fmt(r.refund_amount != null ? r.refund_amount : r.expected_amount)}원</span>` : r.expected_amount != null ? `<span style="color:#9ca3af;">예정 ${fmt(r.expected_amount)}원</span>` : '') + (r.points ? `<div style="font-size:.68rem;color:#6b7280;">적립금 ${fmt(r.points)}</div>` : '') : ''}</td>
+      <td style="text-align:left;vertical-align:top;font-size:.76rem;max-width:260px;">${r.ok ? `<span style="color:#15803d;font-weight:800;"><i class="fa-solid fa-circle-check"></i> ${escHtml(r.result || '접수됨')}</span>` : `<span style="color:#b91c1c;font-weight:800;"><i class="fa-solid fa-circle-xmark"></i> ${r.kind === 'ret' ? '넘기지 않음' : r.kind === 'self' ? '처리 안 됨' : '접수 안 됨'}</span><div style="color:#b91c1c;font-size:.7rem;">${escHtml(r.result || '')}</div>`}</td></tr>`).join('')}</tbody></table></div>`;
 }
 
 /* ══ 미발송 관리 (#unship, 2026-09-28 사용자 요청 — 물류팀) ══

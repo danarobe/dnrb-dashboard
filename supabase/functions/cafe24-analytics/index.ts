@@ -735,6 +735,154 @@ function selfGroupsOf(o: Record<string, any>, nrSets: NrSets): Record<string, an
   return groups;
 }
 
+// ── 취소·반품 접수 3단계 (2026-10-06 사용자 요청) — 자사몰 반품접수(R10) → 반품처리중(수거전) ──
+// 한 접수번호(claim_code)가 한 건. 이 단계에서 환불 금액(반품 배송비 차감·쿠폰할인 취소·적립금 반환)이 정해진다.
+// 공개 API(PUT return status=processing)에는 배송비 차감·쿠폰 취소 금액을 넣는 자리가 없어서, 넘기는 일은 이 PC의 연결 스크립트(window.CAFE24_RETURN)가
+// 관리자 '반품 처리' 창(order_back_list.php?mode=step2)에서 한다. 서버는 목록·분류·예정액 계산(retacc_list) / 준비(retacc_prepare) / 확인·기록(retacc_record)만 — 카페24 쓰기 없음.
+// 사용자 규칙(2026-10-06 — 지난 60일 반품 1,326건과 실제 '반품 처리' 창 51건으로 대조):
+//  · 자동 = 사유가 변심·사이즈·상품불만족(코드 A·O·P)뿐. 불량·오배송·그 밖의 사유는 직접 확인.
+//  · 반품 배송비('환불액에서 차감'): 배송비를 낸 주문 3,000 / 무료배송 주문은 전체 반품이거나 남는 상품 금액이 7만 원 미만이면 6,000, 7만 원 이상이면 3,000.
+//  · 쿠폰: 조건이 읽히는 정액 주문서 쿠폰 1장만 자동 — 전체 반품이거나 남는 상품 금액이 쿠폰 최소 구매 금액보다 적으면 쿠폰할인 취소, 아니면 그대로.
+//  · 적립금(3만 원 이상 주문에만 사용 가능): 전체 반품이거나 남는 상품 금액이 3만 원 미만이면 쓴 적립금 전액 반환(그만큼 결제 수단 환불이 줄어듦), 3만 원 이상이면 그대로.
+//  · 상품별 할인: 반품 상품에 적용된 할인액은 환불에서 뺀다. 반품 상품이 10% 이상 할인·1+1이면 직접 확인(반품하는 상품만 본다).
+//  · 직접 확인: 같은 주문의 다른 취소·교환·반품 / 수거 신청이 아닌 접수 / 반품 불가 품목 / 카드·계좌이체·선불금 밖의 결제 / 예치금 / 그 밖의 할인 / 기준 금액이 경계에 걸린 주문.
+type RetCoupons = { byOrder: Record<string, { code: string; name: string; value: number }[]>; policy: Record<string, Record<string, any> | null> };
+const RET_AUTO_REASON = new Set(["A", "O", "P"]);
+const RET_DEFECT_REASON = new Set(["V", "K", "W", "J", "D", "F"]);
+const RET_REASON_LABEL: Record<string, string> = { A: "고객변심", O: "고객변심", P: "상품불만족", V: "상품불량", K: "상품불량", W: "배송오류", J: "배송오류", B: "배송지연", C: "배송불가지역", D: "포장불량", E: "상품불만족", F: "상품정보상이", G: "서비스불만족", H: "품절", I: "기타" };
+const RET_DEFECT_WORDS = /불량|오배송|하자|오염|얼룩|찢|구멍|잘못\s*(왔|옴|배송|보내)|다른\s*(상품|색|사이즈|옷)|누락/;
+const RET_FREE_SHIP = 70000, RET_POINT_MIN = 30000, RET_FEE = 3000;
+const RET_MOVED = new Set(["R30", "R31", "R34", "R36", "R40"]);   // 반품처리중(수거전·수거완료·환불전·환불보류)·반품완료
+async function retCouponInfo(orders: Record<string, any>[], token: string): Promise<RetCoupons> {
+  const n = (v: unknown) => Math.round(Number(v ?? 0) || 0);
+  const out: RetCoupons = { byOrder: {}, policy: {} };
+  const ids = orders.filter((o) => n(o.initial_order_amount?.coupon_discount_price) > 0 || n(o.initial_order_amount?.coupon_shipping_fee_amount) > 0 || ((o.payment_method ?? []) as unknown[]).map(String).includes("coupon"))
+    .map((o) => String(o.order_id ?? "")).filter((id) => /^\d{8}-\d{7}$/.test(id));
+  for (let i = 0; i < ids.length; i += 10) {
+    const part = ids.slice(i, i + 10);
+    try {
+      const list = ((await apiGet(`${API_BASE}/admin/orders/coupons?shop_no=1&limit=100&order_id=${part.join(",")}`, token)).coupons ?? []) as Record<string, any>[];
+      if (list.length >= 100) continue;   // 다 못 읽었을 수 있음 → 이 묶음은 '읽지 못함'으로 둔다(직접 확인으로 빠짐)
+      for (const id of part) out.byOrder[id] = [];
+      for (const c of list) (out.byOrder[String(c.order_id ?? "")] ??= []).push({ code: String(c.coupon_code ?? ""), name: String(c.coupon_name ?? ""), value: n(c.coupon_value) });
+    } catch { /* 읽지 못한 주문은 byOrder에 없음 → 직접 확인 */ }
+  }
+  const nos = [...new Set(Object.values(out.byOrder).flat().map((c) => c.code).filter((c) => /^\d{6,25}$/.test(c)))];
+  for (const no of nos) {
+    const key = `ret:coupon:${no}`;
+    let p = (await cacheGet(key, 30 * 60 * 1000)) as Record<string, any> | null;
+    if (!p) {
+      try {
+        p = { found: false };
+        for (const q of ["", "&deleted=T"]) {
+          const c = (((await apiGet(`${API_BASE}/admin/coupons?shop_no=1&coupon_no=${no}${q}`, token)).coupons ?? []) as Record<string, any>[])[0];
+          if (c) { p = { found: true, name: String(c.coupon_name ?? ""), benefit_type: String(c.benefit_type ?? ""), benefit_price: n(c.benefit_price), scope: String(c.available_scope ?? ""), price_type: String(c.available_price_type ?? ""), order_price_type: String(c.available_order_price_type ?? ""), min: n(c.available_min_price) }; break; }
+        }
+        await cacheSet(key, p);
+      } catch { p = null; }
+    }
+    out.policy[no] = p && p.found ? p : null;
+  }
+  return out;
+}
+function retGroupsOf(o: Record<string, any>, nrSets: NrSets, cp: RetCoupons): Record<string, any>[] {
+  const all = (o.items ?? []) as Record<string, any>[];
+  const acc = all.filter((it) => String(it.order_status ?? "") === "R10" && it.claim_code);
+  if (!acc.length) return [];
+  if (o.order_place_id === "NCHECKOUT" || o.market_id === "NCHECKOUT") return [];   // 네이버페이 주문은 이 탭에서 다루지 않는다(2026-10-06 사용자 지정)
+  const n = (v: unknown) => Math.round(Number(v ?? 0) || 0);
+  const orderId = String(o.order_id ?? "");
+  const init = (o.initial_order_amount ?? {}) as Record<string, any>;
+  const pay = ((o.payment_method ?? []) as unknown[]).map((x) => String(x));
+  const main = pay.filter((m) => !SELF_AUX_OK.has(m)), claims = [...new Set(acc.map((it) => String(it.claim_code)))];
+  const qty = (it: Record<string, any>) => Number(it.quantity ?? 0) || 0;
+  const unit = (it: Record<string, any>) => n(it.product_price) + n(it.option_price);
+  const price = (it: Record<string, any>) => unit(it) * qty(it);
+  const disc = (it: Record<string, any>) => n(it.additional_discount_price);
+  const onePlusOne = (it: Record<string, any>) => /1\s*\+\s*1/.test(String(it.product_name ?? "")) || ((nrSets.sale[String(Number(it.product_no))] ?? []) as string[]).some((c) => /1\s*\+\s*1/.test(c));
+  const sum = (list: Record<string, any>[], f: (it: Record<string, any>) => number) => list.reduce((t, it) => t + f(it), 0);
+  const won = (v: number) => v.toLocaleString("ko-KR") + "원";
+  const groups: Record<string, any>[] = [];
+  for (const claim of claims) {
+    const its = acc.filter((it) => String(it.claim_code) === claim);
+    const codes = new Set(its.map((it) => String(it.order_item_code ?? "")));
+    const others = all.filter((it) => !codes.has(String(it.order_item_code ?? "")));
+    const ret = (((o.return ?? []) as Record<string, any>[]).find((r) => r.claim_code === claim)) ?? {};
+    const reasonType = String(ret.claim_reason_type ?? its[0].claim_reason_type ?? "");
+    const reason = String(ret.claim_reason ?? its[0].claim_reason ?? "").trim();
+    const manual: { tag: string; text: string }[] = [];
+    const M = (tag: string, text: string) => { manual.push({ tag, text }); };
+    if (!RET_AUTO_REASON.has(reasonType)) {
+      if (RET_DEFECT_REASON.has(reasonType)) M("불량·오배송", `사유가 ${RET_REASON_LABEL[reasonType] ?? reasonType}이에요 — 물건을 확인한 뒤 배송비를 정해주세요`);
+      else M("그 밖의 사유", `사유가 ${RET_REASON_LABEL[reasonType] ?? (reasonType || "없음")}이에요 — 변심·사이즈·상품불만족만 여기서 처리해요`);
+    } else if (RET_DEFECT_WORDS.test(reason)) M("사유 글 확인", "고객이 사유에 불량·오배송으로 보이는 내용을 적었어요 — 읽어 보고 처리해주세요");
+    if (its.some(onePlusOne)) M("1+1 상품", "반품 상품에 1+1 할인 상품이 있어요");
+    if (its.some((it) => disc(it) > 0 && ((unit(it) > 0 && disc(it) / unit(it) >= 0.1) || (price(it) > 0 && disc(it) / price(it) >= 0.1)))) M("10% 이상 할인", "반품 상품에 10% 이상 할인된 상품이 있어요");
+    if (its.some((it) => disc(it) > 0 && qty(it) !== 1)) M("할인 상품 수량", "할인된 상품을 2개 이상 반품해요 — 할인 금액을 따져야 해요");
+    if (others.some((it) => /^[CER]/.test(String(it.order_status ?? "")) || !!it.claim_code) || claims.length > 1) M("다른 취소·교환·반품", "같은 주문에 다른 취소·교환·반품이 있어요 — 남는 금액을 따져야 해요");
+    const pk = (ret.pickup ?? {}) as Record<string, any>;
+    if (pk.use_pickup !== "T" || ret.pickup_request_state !== "T") M("수거 신청 아님", "수거 신청으로 접수된 반품이 아니에요(고객 직접 발송 등) — 배송비를 따져야 해요");
+    for (const it of its) for (const f of rscanItemFlags(it, nrSets)) if (f.level === "block" && f.type !== "할인") M("반품 불가 품목", `${String(it.product_name ?? "").slice(0, 30)} — ${f.text}`);
+    if (main.length !== 1 || !SELF_MAIN_OK.has(main[0])) M(`${SELF_PAY_LABEL[main[0] ?? ""] ?? (main[0] || "알 수 없는")} 결제`, `결제 수단(${pay.map((m) => SELF_PAY_LABEL[m] ?? m).join("+") || "알 수 없음"})은 여기서 처리하지 않아요`);
+    if (n(init.credits_spent_amount) > 0) M("예치금", "예치금을 쓴 주문이에요");
+    if (o.paid !== "T") M("미결제", "결제가 끝나지 않은 주문이에요");
+    const extra = ([["membership_discount_amount", "회원등급할인"], ["shipping_fee_discount_amount", "배송비할인"], ["set_product_discount_amount", "세트할인"], ["app_discount_amount", "앱할인"], ["coupon_shipping_fee_amount", "배송비 쿠폰"], ["market_other_discount_amount", "마켓 할인"]] as [string, string][]).filter(([k]) => n(init[k]) > 0).map(([, label]) => label);
+    if (extra.length) M("그 밖의 할인", `${extra.join("·")}이 적용된 주문이에요`);
+    const ship = n(init.shipping_fee);
+    if (ship !== 0 && ship !== RET_FEE) M("배송비 확인", `처음 낸 배송비가 ${won(ship)}이에요(지역 추가 배송비 등)`);
+    if (ship === 0 && sum(all, price) < RET_FREE_SHIP && !extra.includes("배송비 쿠폰") && !extra.includes("배송비할인")) M("배송비 확인", "7만 원 미만인데 배송비를 내지 않은 주문이에요");
+    if (((ret.return_shipping_fee_detail ?? []) as unknown[]).length > 1) M("배송 묶음", "배송 묶음이 여러 개인 주문이에요");
+    if (its.some((it) => Number(it.claim_quantity) > 0 && Number(it.claim_quantity) !== qty(it))) M("수량 일부", "주문 수량 중 일부만 반품해요");
+    const beforeBad = [...new Set(its.map((it) => String(it.order_status_before_cs ?? "")).filter((b) => b !== "N30" && b !== "N40"))];
+    if (beforeBad.length) M("배송 전 상태", `반품 접수 전 상태가 배송중·배송완료가 아니에요(${beforeBad.map((b) => b || "알 수 없음").join(", ")})`);
+    // 쿠폰 — 조건이 읽히는 정액 주문서 쿠폰 1장만 자동
+    const cpn = n(init.coupon_discount_price), list = cp.byOrder[orderId];
+    const coupon = { mode: "none" as "none" | "keep" | "cancel", amount: 0, name: "", min: 0 };
+    if (cpn > 0 || (list && list.length) || pay.includes("coupon")) {
+      if (!list) M("쿠폰 확인", "이 주문에 쓰인 쿠폰을 읽지 못했어요");
+      else if (list.length !== 1) { if (list.length > 1 || cpn > 0) M("쿠폰 확인", list.length > 1 ? `쿠폰이 ${list.length}장 쓰인 주문이에요` : "쿠폰 할인이 있는데 쿠폰 정보가 없어요"); }
+      else {
+        const c = list[0], p = cp.policy[c.code];
+        if (!p) M("쿠폰 확인", `쿠폰 '${c.name}'의 사용 조건을 읽지 못했어요`);
+        else if (p.benefit_type !== "A") M("쿠폰 확인", `정액 할인 쿠폰이 아니에요 — '${c.name}'`);
+        else if (p.scope !== "O" || !(p.price_type === "U" || (p.price_type === "O" && p.order_price_type === "U"))) M("쿠폰 확인", `사용 조건이 특수한 쿠폰이에요 — '${c.name}'`);
+        else if (n(p.benefit_price) !== cpn || cpn <= 0) M("쿠폰 확인", `쿠폰 할인액이 쿠폰 금액과 달라요 — '${c.name}'`);
+        else { coupon.mode = "keep"; coupon.amount = cpn; coupon.name = c.name; coupon.min = p.price_type === "O" ? n(p.min) : 0; }
+      }
+    }
+    // 예정 계산 — 기준 금액 = 남는 상품의 판매가 합계. 남는 상품에 할인이 있어 '할인 전/후'가 기준선을 사이에 두고 갈리면 직접 확인으로.
+    const full = others.length === 0;
+    const remain = sum(others, price), remainNet = remain - sum(others, disc);
+    const straddle = (th: number) => !full && th > 0 && (remain >= th) !== (remainNet >= th);
+    const fee = ship > 0 ? RET_FEE : (full || remain < RET_FREE_SHIP ? RET_FEE * 2 : RET_FEE);
+    if (ship === 0 && straddle(RET_FREE_SHIP)) M("경계 금액", "남는 금액이 할인 전후로 7만 원 기준에 걸려요 — 배송비 차감을 직접 정해주세요");
+    if (coupon.mode !== "none") {
+      if (full || remain < coupon.min) coupon.mode = "cancel";
+      if (straddle(coupon.min)) M("경계 금액", `남는 금액이 할인 전후로 쿠폰 최소 금액(${won(coupon.min)})에 걸려요`);
+    }
+    const pts = n(init.points_spent_amount);
+    const pointsReturn = pts > 0 && (full || remain < RET_POINT_MIN) ? pts : 0;
+    if (pts > 0 && straddle(RET_POINT_MIN)) M("경계 금액", "남는 금액이 할인 전후로 적립금 기준 3만 원에 걸려요");
+    const goods = sum(its, price), goodsDisc = sum(its, disc);
+    const couponCancel = coupon.mode === "cancel" ? coupon.amount : 0;
+    const total = goods - goodsDisc - fee - couponCancel, cash = total - pointsReturn;
+    if (cash <= 0 || n(init.payment_amount) <= 0) M("금액 확인", "환불 예정액을 계산하지 못했어요");
+    const items = its.map((it) => ({ code: String(it.order_item_code ?? ""), no: n(it.item_no), product_name: String(it.product_name ?? ""), option: String(it.option_value ?? ""), qty: qty(it), price: price(it), disc: disc(it) }))
+      .sort((a, b) => a.code.localeCompare(b.code));
+    groups.push({
+      order_id: orderId, claim_code: claim, buyer: String(o.billing_name ?? ""), paid_at: String(o.payment_date ?? "").slice(0, 16).replace("T", " "),
+      requested_at: its.map((it) => String(it.return_request_date ?? it.return_confirmed_date ?? "").slice(0, 16).replace("T", " ")).sort().pop() ?? "",
+      reason_type: reasonType, reason_label: RET_REASON_LABEL[reasonType] ?? "", reason, items, other_items: others.length, full, remain,
+      pay, pay_label: pay.map((m) => SELF_PAY_LABEL[m] ?? m).join(" + "), main: main[0] ?? "",
+      plan: { fee, coupon: coupon.mode, coupon_amount: coupon.amount, coupon_name: coupon.name, coupon_min: coupon.min, points_used: pts, points_return: pointsReturn,
+        add_sale: goodsDisc > 0 ? (full ? "T" : "M") : "none", add_sale_amount: goodsDisc, refund_type: SELF_REFUND_CODE[main[0] ?? ""] ?? "" },
+      calc: { goods, disc: goodsDisc, fee, coupon_cancel: couponCancel, ship_paid: ship },
+      expect: { total, amount: cash, points: pointsReturn }, manual,
+    });
+  }
+  return groups;
+}
+
 Deno.serve(async (req) => {
   const opt = handleOptions(req);
   if (opt) return opt;
@@ -1012,6 +1160,103 @@ Deno.serve(async (req) => {
       }
       await logRow(true, `${after || "취소완료"} · 환불 ${won(finalAmt)}${expect.points ? ` · 적립금 반환 ${won(expect.points)}` : ""} · PG 취소 확인`, { refund_amount: finalAmt, detail });
       return json({ ok: true, status: after, refund_amount: finalAmt, points: expect.points, pg });
+    }
+
+    // ── 취소·반품 접수 3단계 — 자사몰 반품접수(R10) → 반품처리중(수거전) (2026-10-06 사용자 요청): 관리자 전용. **서버는 카페24에 아무것도 쓰지 않는다.**
+    //    retacc_list: 목록·분류·환불 예정액 계산(캐시 없음) / retacc_prepare(POST): 넘기기 직전 최신 주문으로 다시 계산해 연결 스크립트에 줄 작업(job)을 만든다
+    //    (화면이 본 예정액과 다르면 409) / retacc_record(POST): 연결 스크립트가 끝난 뒤 주문을 다시 읽어 상태·금액을 확인하고 cancel_accept_log(kind 'ret')에 기록.
+    if (action === "retacc_list" || action === "retacc_prepare" || action === "retacc_record") {
+      if (authed.role !== "admin") return json({ error: "접근 권한이 없습니다" }, 403);
+      const nrSets = await rscanNrSets(token).catch(() => null);
+      if (!nrSets) return json({ error: "상품 카테고리(1+1·ACC 여부)를 읽지 못했어요 — 잠시 뒤 다시 시도해주세요" }, 502);
+      if (action === "retacc_list") {
+        const end = rscanYesterday(); end.setUTCDate(end.getUTCDate() + 1);   // 한국 날짜 오늘
+        const start = new Date(end); start.setUTCDate(start.getUTCDate() - 89);
+        const fmtD = (d: Date) => d.toISOString().slice(0, 10);
+        const orders: Record<string, any>[] = [];
+        for (let offset = 0; offset < 5000; offset += 200) {
+          const body = await apiGet(`${API_BASE}/admin/orders?start_date=${fmtD(start)}&end_date=${fmtD(end)}&date_type=order_date&order_status=R10&embed=items,return&limit=200&offset=${offset}`, token);
+          const page = (body.orders ?? []) as Record<string, any>[];
+          orders.push(...page);
+          if (page.length < 200) break;
+        }
+        const cp = await retCouponInfo(orders, token);
+        const groups: Record<string, any>[] = [];
+        for (const o of orders) groups.push(...retGroupsOf(o, nrSets, cp));
+        // 방금(30분 안) 넘긴 접수는 카페24 조회에 늦게 반영될 수 있어 '방금 처리함'으로 표시
+        const recent = ((await sbRest(`cancel_accept_log?select=claim_code,created_at,by_name&kind=eq.ret&ok=is.true&created_at=gte.${new Date(Date.now() - 30 * 60 * 1000).toISOString()}&limit=1000`).catch(() => [])) ?? []) as Record<string, any>[];
+        const recentMap = new Map(recent.map((r) => [String(r.claim_code ?? ""), { at: String(r.created_at ?? ""), by: String(r.by_name ?? "") }]));
+        for (const g of groups) { const hit = recentMap.get(String(g.claim_code)); if (hit) g.just_done = hit; }
+        groups.sort((a, b) => String(a.requested_at).localeCompare(String(b.requested_at)));
+        return json({ today: fmtD(end), fetched_at: new Date().toISOString(), groups });
+      }
+      if (req.method !== "POST") return json({ error: "POST로 호출해주세요" }, 405);
+      if (viaAgent || viaCron || viaSecret) return json({ error: "이 기능은 로그인한 사람만 쓸 수 있습니다" }, 403);
+      const orderId = String(url.searchParams.get("order_id") ?? ""), claimCode = String(url.searchParams.get("claim_code") ?? "");
+      if (!/^\d{8}-\d{7}$/.test(orderId) || !/^C\d{8}-\d{7}$/.test(claimCode)) return json({ error: "주문번호·접수번호가 올바르지 않습니다" }, 400);
+      const b = await req.json().catch(() => ({})) as Record<string, any>;
+      const readOrder = async () => ((await apiGet(`${API_BASE}/admin/orders/${orderId}?embed=items,return`, token)).order ?? {}) as Record<string, any>;
+      const claimItems = (o: Record<string, any>) => ((o.items ?? []) as Record<string, any>[]).filter((it) => String(it.claim_code ?? "") === claimCode);
+      const stateOf = (o: Record<string, any>) => [...new Set(claimItems(o).map((it) => [String(it.status_text ?? it.order_status ?? ""), String(it.order_status_additional_info ?? "")].filter(Boolean).join(" · ")))].join(", ");
+      const movedAll = (o: Record<string, any>) => { const its = claimItems(o); return its.length > 0 && its.every((it) => RET_MOVED.has(String(it.order_status ?? ""))); };
+      const num = (v: unknown) => Math.round(Number(v ?? 0) || 0);
+      const won = (v: number) => v.toLocaleString("ko-KR") + "원";
+      let order: Record<string, any>;
+      try { order = await readOrder(); } catch (e) { return json({ error: "카페24에서 주문을 읽지 못했어요 — " + String(e).slice(0, 200) }, 502); }
+      if (action === "retacc_prepare") {
+        const g = retGroupsOf(order, nrSets, await retCouponInfo([order], token)).find((x) => x.claim_code === claimCode);
+        if (!g) {
+          if (movedAll(order)) return json({ ok: true, already: true, status: stateOf(order) });
+          return json({ error: `그 사이 주문 상태가 바뀌었어요(${stateOf(order) || "접수 없음"}) — 새로고침한 뒤 다시 확인해주세요`, stale: true }, 409);
+        }
+        const manual = g.manual as { tag: string; text: string }[];
+        if (manual.length) return json({ error: "직접 확인이 필요한 접수예요 — " + manual.map((m) => m.text).join(" / "), blocked: true }, 400);
+        const expect = g.expect as { total: number; amount: number; points: number }, plan = g.plan as Record<string, any>;
+        // 화면에 보여 준 환불 예정액과 지금 다시 계산한 값이 같아야 한다(사람이 본 금액 = 처리하는 금액)
+        if (Number(b.expect_amount) !== expect.amount || Number(b.expect_points) !== expect.points || Number(b.expect_total) !== expect.total) return json({ error: "화면의 환불 예정액과 지금 계산한 금액이 달라요 — 새로고침한 뒤 다시 확인해주세요", stale: true }, 409);
+        if (!plan.refund_type) return json({ error: "이 결제 수단은 여기서 처리하지 않아요", blocked: true }, 400);
+        const itemNos = (g.items as Record<string, any>[]).map((x) => Number(x.no));
+        if (itemNos.some((x) => !Number.isInteger(x) || x < 1)) return json({ error: "품목 번호를 읽지 못했어요 — 카페24에서 직접 처리해주세요", blocked: true }, 400);
+        if (b.dry !== true) {
+          // 안전장치: 사람별 1시간 300건 · 전체 하루 1,000건 (취소 접수 기록과 합산, 성공·실패 모두 셈)
+          const sinceIso = (ms: number) => new Date(Date.now() - ms).toISOString();
+          const mine = ((await sbRest(`cancel_accept_log?select=id&by_id=eq.${encodeURIComponent(authed.id)}&created_at=gte.${sinceIso(3600e3)}&limit=500`)) ?? []) as unknown[];
+          const allDay = ((await sbRest(`cancel_accept_log?select=id&created_at=gte.${sinceIso(24 * 3600e3)}&limit=1500`)) ?? []) as unknown[];
+          if (mine.length >= 300 || allDay.length >= 1000) return json({ error: "처리 한도를 넘었어요 — 잠시 뒤 다시 시도해주세요" }, 429);
+        }
+        return json({ ok: true, job: { order_id: orderId, claim_code: claimCode, item_nos: itemNos, label: String(g.reason_label ?? ""), fee: plan.fee, coupon: plan.coupon, coupon_amount: plan.coupon_amount,
+          points_return: plan.points_return, add_sale: plan.add_sale, add_sale_amount: plan.add_sale_amount, refund_type: plan.refund_type, expect: { total: expect.total, cash: expect.amount, points: expect.points } } });
+      }
+      // record — 연결 스크립트가 끝난 뒤. 화면이 보낸 결과는 참고이고, 서버가 주문을 다시 읽어 상태·금액을 확인한다(반영이 조금 늦을 수 있어 4번까지).
+      const job = (b.job ?? {}) as Record<string, any>, jx = (job.expect ?? {}) as Record<string, any>;
+      const expect = { total: num(jx.total), amount: num(jx.cash), points: num(jx.points) };
+      const fee = num(job.fee), couponCancel = job.coupon === "cancel" ? num(job.coupon_amount) : 0;
+      let moved = movedAll(order);
+      for (let i = 0; i < 3 && !moved && b.ok === true; i++) { await sleep(1300); try { order = await readOrder(); moved = movedAll(order); } catch { /* 다음 시도 */ } }
+      const ret = (((order.return ?? []) as Record<string, any>[]).find((r) => r.claim_code === claimCode)) ?? {};
+      const got = { amount: ((ret.refund_amounts ?? []) as Record<string, any>[]).reduce((t, a) => t + num(a.amount), 0), points: -num(ret.point_used), fee: -num(ret.return_shipping_fee), coupon: -num(ret.coupon_discount_amount), has: Array.isArray(ret.refund_amounts) };
+      const diffs: string[] = [];
+      if (moved && got.has) {
+        if (got.amount !== expect.amount) diffs.push(`환불 예정액이 달라요(카페24 ${won(got.amount)} · 예정 ${won(expect.amount)})`);
+        if (got.points !== expect.points) diffs.push(`적립금 반환이 달라요(카페24 ${won(got.points)} · 예정 ${won(expect.points)})`);
+        if (got.fee !== fee) diffs.push(`반품 배송비가 달라요(카페24 ${won(got.fee)} · 예정 ${won(fee)})`);
+        if (got.coupon !== couponCancel) diffs.push(`쿠폰할인 취소가 달라요(카페24 ${won(got.coupon)} · 예정 ${won(couponCancel)})`);
+      }
+      const ok = moved || b.ok === true;
+      const txt = (v: unknown, k: number) => String(v ?? "").slice(0, k);
+      const result = !ok ? (txt(b.message, 450) || "넘어가지 않음")
+        : !moved ? "반품처리중으로 넘김(카페24 반영 대기)"
+        : diffs.length ? "반품처리중으로 넘김 · ⚠ 카페24 금액이 예정과 다름 — " + diffs.join(" / ")
+        : `${stateOf(order) || "반품처리중"} · 환불 예정 ${won(expect.amount)}${expect.points ? ` · 적립금 반환 ${won(expect.points)}` : ""} · 반품 배송비 ${won(fee)}${couponCancel ? ` · 쿠폰 취소 ${won(couponCancel)}` : ""}${got.has ? " (카페24와 같음)" : ""}`;
+      await sbRest("cancel_accept_log", { method: "POST", headers: { Prefer: "return=minimal" }, body: JSON.stringify({
+        kind: "ret", order_id: orderId, claim_code: claimCode,
+        items: (Array.isArray(b.items) ? b.items : []).slice(0, 50).map((x: any) => ({ code: txt(x?.code, 30), product_name: txt(x?.product_name, 200), option: txt(x?.option, 200), qty: Number(x?.qty) || 0 })),
+        reason_type: txt(b.reason_type, 2) || null, reason_label: txt(job.label, 40) || null, reason: txt(b.reason, 2000) || null, ok, result: result.slice(0, 500),
+        expected_amount: expect.amount, refund_amount: moved && got.has ? got.amount : null, points: expect.points,
+        detail: { stage: "ret_moved", fee, coupon: txt(job.coupon, 10), coupon_cancel: couponCancel, add_sale: txt(job.add_sale, 5), add_sale_amount: num(job.add_sale_amount), refund_type: txt(job.refund_type, 2), total: expect.total,
+          sent: b.sent === true, script: txt(b.script_version, 12), alerts: (Array.isArray(b.alerts) ? b.alerts : []).slice(0, 3).map((a: unknown) => txt(a, 200)), cafe24: moved && got.has ? got : null },
+        by_id: authed.id, by_name: authed.name }) }).catch(() => null);
+      return json({ ok, moved, status: stateOf(order), warn: diffs.length ? "카페24에 반영된 금액이 예정과 달라요 — " + diffs.join(" / ") + ". 카페24에서 이 접수를 꼭 확인해주세요" : "", refund_amount: moved && got.has ? got.amount : expect.amount, points: expect.points });
     }
 
     // ── 미발송 관리 (2026-09-28 사용자 요청): 관리자·MD·CS/물류팀. 10분 캐시(권한 검사 뒤), 새로고침은 nocache=1
