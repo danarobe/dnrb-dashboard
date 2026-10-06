@@ -3770,10 +3770,15 @@ function cxlRender() {
 function cxlOpenSide(btn) {
   const st = (rscanState.status || {}).settings || {};
   const url = (st.cafe24_url || RSCAN_URL_DEFAULTS.cafe24_url).replace('{order_id}', encodeURIComponent(btn.dataset.oid || ''));
-  if (!/^https:\/\//.test(url)) { showToast('카페24 주소 설정이 올바르지 않아요'); return; }
+  // 보안(2026-10-06 점검): 창을 재사용하려면 열린 창이 이 페이지와 연결(opener)돼 있어야 한다 — noopener로 열면 브라우저가 그 창을 다시 찾지 못해
+  //   누를 때마다 새 창이 뜬다. 연결된 창은 이 탭의 주소를 바꿀 수 있으므로(탭 가로채기), **우리 몰의 카페24 관리자 주소일 때만** 이 방식으로 열고
+  //   그 밖의 주소(설정이 다른 사이트로 바뀐 경우)는 연결 없는 새 탭(rscanOpenLink, noopener)으로 연다.
+  let u = null; try { u = new URL(url); } catch {}
+  const adminHost = new URL(RSCAN_URL_DEFAULTS.cafe24_url).hostname;
+  if (!u || u.protocol !== 'https:' || u.hostname !== adminHost) { rscanOpenLink({ site: 'cafe24', oid: btn.dataset.oid || '' }); return; }
   const sc = window.screen || {}, aw = sc.availWidth || 1440, ah = sc.availHeight || 900, ax = sc.availLeft || 0, ay = sc.availTop || 0;
   const w = Math.min(aw, Math.max(Math.round(aw / 2), 820));
-  const win = window.open(url, 'dnrb_cafe24_side', `popup=yes,width=${w},height=${ah},left=${ax + aw - w},top=${ay},resizable=yes,scrollbars=yes`);
+  const win = window.open(u.href, 'dnrb_cafe24_side', `popup=yes,width=${w},height=${ah},left=${ax + aw - w},top=${ay},resizable=yes,scrollbars=yes`);
   if (!win) { showToast('창이 막혔어요 — 주소창 오른쪽의 팝업 차단을 이 사이트에서 풀어주세요'); return; }
   try { win.focus(); } catch {}
 }
