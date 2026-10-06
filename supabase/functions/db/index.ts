@@ -31,6 +31,7 @@ const TABLE_ROLES: Record<string, string[]> = {
   rscan_naver: ["admin", "staff", "cs"],      // 반품 송장 스캔 — 네이버페이센터 엑셀에서 만든 수거 송장 표 (2026-09-22, 물류팀 포함)
   rscan_settings: ["admin", "staff", "cs"],   // 반품 송장 스캔 — 경고 사유 설정 (읽기 전원, 쓰기 admin은 커스텀 규칙)
   rscan_done: ["admin", "staff", "cs"],       // 반품 스캔 '불량·오배송 처리' 체크 상태 (2026-09-22, 전원 읽기·쓰기)
+  rscan_memo: ["admin", "staff", "cs"],       // 반품 스캔 '불량·오배송 처리' 주문 줄 메모 (2026-10-06, 전원 읽기·쓰기 — 팀 공유)
   rscan_actions: ["admin"],                   // 수거 완료 처리 기록 (2026-09-28) — 관리자 읽기 전용(아래 규칙), 쓰기는 cafe24-analytics만
   agent_users: ["admin", "staff", "cs"],      // AI 에이전트 접근 허용 목록 (2026-09-28) — 관리자 전체 읽기·쓰기, 그 외는 본인 행 읽기만(아래 규칙)
   stable_apply_log: ["admin"],                // 안정재고 → 셀메이트 반영 기록 (2026-09-28) — 관리자 읽기·추가만(수정·삭제 불가, 처리자는 서버가 기입)

@@ -530,8 +530,14 @@
     /* 불량·오배송 처리 표 사유 칸 — 한 줄로 줄이고(…), 마우스를 올리면 툴팁, 클릭하면 펼침 (2026-09-23 사용자 요청) */
     .rscan-issues-tbl th, .rscan-issues-tbl td { padding: 6px 7px; }
     .rscan-issues-tbl .toggle-btn { padding: 2px 7px; font-size: .68rem; }
-    .rscan-reason { max-width: 220px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; }
-    .rscan-reason.open { white-space: normal; }
+    .rscan-issues-tbl tbody td { white-space: normal; word-break: keep-all; overflow-wrap: anywhere; }   /* 2026-10-06: 한 화면에 다 보이게 줄바꿈 허용 */
+    .rscan-reason { white-space: normal; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden; cursor: pointer; line-height: 1.45; }
+    .rscan-reason.open { display: block; -webkit-line-clamp: unset; }
+    .rscan-guide { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 8px; }
+    .rscan-guide > span { display: inline-flex; align-items: center; gap: 5px; background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 99px; padding: 4px 11px; font-size: .76rem; color: #374151; white-space: nowrap; }
+    .rscan-guide .g-badge { border-radius: 99px; padding: 0 7px; font-size: .68rem; font-weight: 800; }
+    .rscan-memo { width: 100%; min-width: 130px; box-sizing: border-box; border: 1px solid #d1d5db; border-radius: 8px; padding: 5px 7px; font-size: .74rem; font-family: inherit; line-height: 1.4; resize: vertical; }
+    .rscan-memo.has { background: #fffbeb; border-color: #fcd34d; }
     .rscan-reason .naver { color: #15803d; }
 
     /* 모바일 열 숨김 공용 클래스 (④ — 판매 성과·상품 분석) */
@@ -1305,13 +1311,25 @@
       </div>
       </div><!-- /rscan-pane-scan -->
       <div id="rscan-pane-issues" class="rscan-pane" style="display:none;">
-        <div style="font-size:.8rem;color:#6b7280;margin-bottom:10px;line-height:1.7;">
-          · <b>최근 90일</b>(주문일 기준, 어제까지) 반품·교환 중 사유가 <b>불량·오배송</b>으로 판정된 건입니다. 빨간 배지는 사유 코드·네이버 사유로 확실한 건, 노란 배지는 사유 문구로 의심되는 건이에요.<br>
-          · 같은 주문의 접수가 여러 개면 한 줄 안에 접수별로 나열돼요(반품과 교환은 줄이 따로). 처리가 끝나면 체크하세요 — <b>처리완료</b>로 바뀌고 팀 전체가 같은 상태를 봅니다(누가 언제 처리했는지 표시). 다시 체크를 풀면 처리전으로 돌아가요.<br>
-          · <b>반품</b>은 카페24에서 수거가 끝나면(반품처리중·환불전 또는 반품완료) <b>자동으로 처리완료</b>가 돼요. <b>교환</b>은 주문 상태가 교환완료여도 참고 표시만 하고, 처리완료는 직접 체크해야 해요.<br>
-          · 오래 수거되지 않는 주문은 <b><i class="fa-solid fa-star" style="color:#d97706;"></i> 특별관리</b>로 표시해 두세요 — <b>90일이 지나도 목록에 계속 남고</b>(카페24 최신 상태로 다시 읽어요) '처리완료 정리'로도 지워지지 않아요. 해결되면 별을 눌러 해제하세요.
+        <div style="font-size:.86rem;font-weight:700;color:#374151;margin-bottom:8px;">최근 90일 반품·교환 가운데 <span style="color:#b91c1c;">불량·오배송으로 판정된 건만</span> 보여요</div>
+        <div class="rscan-guide">
+          <span><span class="g-badge" style="background:#fee2e2;color:#b91c1c;">불량</span><span class="g-badge" style="background:#fee2e2;color:#b91c1c;">오배송</span> 빨강 = 확실</span>
+          <span><span class="g-badge" style="background:#fef3c7;color:#92400e;">의심</span> 노랑 = 사유 글로 추정</span>
+          <span><i class="fa-solid fa-square-check" style="color:#15803d;"></i> 처리 끝나면 <b>체크</b> → 팀 전체 공유</span>
+          <span><b>반품</b>은 수거되면 자동 처리완료 · <b>교환</b>은 직접 체크</span>
+          <span><i class="fa-solid fa-star" style="color:#d97706;"></i> <b>특별관리</b> = 90일 지나도 남음</span>
+          <span><i class="fa-regular fa-note-sticky" style="color:#4f46e5;"></i> <b>메모</b> = 팀 전체가 같이 봄</span>
         </div>
+        <details style="font-size:.76rem;color:#6b7280;margin-bottom:10px;line-height:1.7;">
+          <summary style="cursor:pointer;color:#6b7280;">자세한 설명 보기</summary>
+          · 기간은 주문일 기준 어제까지 90일이에요. 빨간 배지는 사유 코드·네이버 사유로 확실한 건, 노란 배지는 사유 문구로 의심되는 건이에요.<br>
+          · 같은 주문의 접수가 여러 개면 한 줄 안에 접수별로 나열돼요(반품과 교환은 줄이 따로). 체크하면 누가 언제 처리했는지 남고, 체크를 풀면 처리전으로 돌아가요.<br>
+          · 반품은 카페24에서 수거가 끝나면(반품처리중·환불전 또는 반품완료) 자동으로 처리완료가 돼요. 교환은 주문 상태가 교환완료여도 참고 표시만 해요.<br>
+          · 특별관리로 표시한 주문은 카페24 최신 상태로 다시 읽어 오고, '처리완료 정리'로도 지워지지 않아요. 해결되면 별을 눌러 해제하세요.<br>
+          · 메모는 칸 밖을 누르면 바로 저장돼요. 내용을 지우면 메모가 삭제돼요.
+        </details>
         <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px;">
+          <span id="rscan-issue-kinds" class="qp"></span>        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px;">
           <span id="rscan-issue-kinds" class="qp"></span>
           <span style="width:1px;height:18px;background:#e5e7eb;"></span>
           <span id="rscan-issue-filters" class="qp"></span>
@@ -5068,7 +5086,11 @@ async function rscanIssuesLoad(force) {
   $('rscan-issues').innerHTML = `<div class="empty-state"><p><i class="fa-solid fa-spinner fa-spin"></i> 불량·오배송 건을 모으는 중…${needBuild ? ' (최근 90일 카페24 목록을 만드는 중 — 약 45초)' : ''}</p></div>`;
   if ($('rscan-products')) $('rscan-products').innerHTML = $('rscan-issues').innerHTML;
   try {
-    rscanState.issues = await anGet({ action: 'rscan_issues' });
+    // 메모(rscan_memo, 2026-10-06)는 목록과 같이 불러온다 — 메모를 못 읽어도 목록은 그대로 보여 준다
+    const [issues, memos] = await Promise.all([anGet({ action: 'rscan_issues' }), dbProxy('rscan_memo?select=key,memo,updated_by,updated_at').catch(e => { console.warn('메모 로드 실패', e); return null; })]);
+    rscanState.issues = issues;
+    rscanState.memos = new Map((memos || []).map(m => [String(m.key), m]));
+    rscanState.memoErr = memos === null;
     if (rscanState.status) { rscanState.status.days = Math.max(Number(rscanState.status.days || 0), 90); rscanState.status.row_count = rscanState.issues.row_count; rscanState.status.built_at = rscanState.issues.built_at; rscanState.status.age_min = Math.round((Date.now() - new Date(rscanState.issues.built_at).getTime()) / 60000); rscanStatusRender(); }
     rscanIssuesRender(); rscanProductsRender(); rscanTabsRender();
   } catch (e) { $('rscan-issues').innerHTML = `<div class="empty-state"><p style="color:#b91c1c;">불러오지 못했어요 — ${escHtml(e.message)}</p></div>`; if ($('rscan-products')) $('rscan-products').innerHTML = $('rscan-issues').innerHTML; }
@@ -5113,22 +5135,51 @@ function rscanIssuesRender() {
     const claims = g.claims.map(c => `<div style="${multi ? 'padding:4px 0;border-top:1px dashed #e5e7eb;' : ''}">
         <div style="font-size:.7rem;color:#6b7280;display:flex;gap:6px;flex-wrap:wrap;align-items:center;">${multi ? badge(c.alert) : ''}<span>접수 ${escHtml(c.claim_code || '—')} · ${escHtml(c.claim_date || '')}</span>${stBadge(c)}${rscanCollectBtn({ order_id: g.order_id, claim_code: c.claim_code, kind: g.kind, naver: g.naver, status: c.status, status_extra: c.status_extra, alert: c.alert })}${rscanCollectedByHtml(c.collected_by)}</div>
         ${(c.items || []).map(it => `<div style="${rscanNrRowStyle(it)}border-radius:6px;padding:0 3px;">${escHtml(it.name || '')}${it.option ? ` <span style="color:#6b7280;">${escHtml(it.option)}</span>` : ''}${it.qty > 1 ? ` <b>×${it.qty}</b>` : ''}${rscanNrChips(it)}</div>`).join('') || '<div>—</div>'}</div>`).join('').replace('border-top:1px dashed #e5e7eb;', '');
+    const dim = done && !g.special ? 'opacity:.55;' : '';
     const reasons = g.claims.map(c => {
       const full = `${c.reason_type ? '[' + c.reason_type + '] ' : ''}${(c.reason || '').replace(/\s+/g, ' ').trim() || (c.reason_type ? '' : '—')}${c.naver_reason ? ` / 네이버: ${c.naver_reason}` : ''}`;
       return `<div class="rscan-reason" title="${escHtml(full)}" onclick="this.classList.toggle('open')" style="${multi ? 'padding:3px 0;' : ''}">${escHtml(c.reason_type ? '[' + c.reason_type + '] ' : '')}${escHtml((c.reason || '').replace(/\s+/g, ' ').trim() || (c.reason_type ? '' : '—'))}${c.naver_reason ? `<span class="naver"> / 네이버: ${escHtml(c.naver_reason)}</span>` : ''}</div>`;
     }).join('');
-    return `<tr style="${done && !g.special ? 'opacity:.55;' : ''}${g.special ? 'background:#fffbeb;' : ''}">
-      <td style="white-space:nowrap;vertical-align:top;">${doneCell}</td>
-      <td style="white-space:nowrap;vertical-align:top;font-size:.7rem;color:#4b5563;">${escHtml((g.claim_date || g.order_date || '').slice(2))}</td>
-      <td style="white-space:nowrap;vertical-align:top;"><span style="background:${g.kind === 'exchange' ? '#e0e7ff' : '#fef3c7'};color:${g.kind === 'exchange' ? '#4338ca' : '#92400e'};border-radius:99px;padding:2px 9px;font-size:.72rem;font-weight:700;">${g.kind === 'exchange' ? '교환' : '반품'}</span> ${badge(g.alert)}${multi ? `<div style="font-size:.68rem;color:#6b7280;margin-top:3px;">접수 ${g.claims.length}건</div>` : ''}</td>
-      <td style="text-align:left;white-space:nowrap;vertical-align:top;"><b>${escHtml(g.order_id)}</b>${g.naver ? ' <b style="color:#03c75a;font-size:.7rem;">N Pay</b>' : ''}${g.naver && (g.naver_ids || []).length ? `<div style="margin-top:3px;">${rscanNaverIdsHtml(g.naver_ids, true)}</div>` : ''}<div style="display:flex;gap:4px;flex-wrap:wrap;margin-top:4px;">${rscanLinkBtns(g)}</div></td>
-      <td style="text-align:left;vertical-align:top;">${name}</td>
-      <td style="text-align:left;font-size:.78rem;vertical-align:top;">${claims}</td>
-      <td class="m-hide" style="text-align:left;font-size:.74rem;color:#374151;max-width:220px;vertical-align:top;" title="마우스를 올리면 전체 사유, 클릭하면 펼침">${reasons}</td></tr>`;
+    return `<tr style="${g.special ? 'background:#fffbeb;' : ''}">
+      <td style="white-space:nowrap;vertical-align:top;${dim}">${doneCell}</td>
+      <td style="white-space:nowrap;vertical-align:top;${dim}"><span style="background:${g.kind === 'exchange' ? '#e0e7ff' : '#fef3c7'};color:${g.kind === 'exchange' ? '#4338ca' : '#92400e'};border-radius:99px;padding:2px 9px;font-size:.72rem;font-weight:700;">${g.kind === 'exchange' ? '교환' : '반품'}</span> ${badge(g.alert)}<div style="font-size:.7rem;color:#4b5563;margin-top:4px;">접수 ${escHtml((g.claim_date || g.order_date || '').slice(2))}</div>${multi ? `<div style="font-size:.68rem;color:#6b7280;margin-top:2px;">접수 ${g.claims.length}건</div>` : ''}</td>
+      <td style="text-align:left;white-space:nowrap;vertical-align:top;${dim}"><b>${escHtml(g.order_id)}</b>${g.naver ? ' <b style="color:#03c75a;font-size:.7rem;">N Pay</b>' : ''}<div style="margin-top:2px;white-space:normal;">${name}</div>${g.naver && (g.naver_ids || []).length ? `<div style="margin-top:3px;">${rscanNaverIdsHtml(g.naver_ids, true)}</div>` : ''}<div style="display:flex;gap:4px;flex-wrap:wrap;margin-top:4px;">${rscanLinkBtns(g)}</div></td>
+      <td style="text-align:left;font-size:.78rem;vertical-align:top;min-width:180px;${dim}">${claims}</td>
+      <td class="m-hide" style="text-align:left;font-size:.74rem;color:#374151;width:21%;min-width:150px;vertical-align:top;${dim}" title="3줄까지 보여요 — 누르면 전체 사유">${reasons}</td>
+      <td style="text-align:left;vertical-align:top;width:17%;min-width:140px;">${rscanMemoCell(g)}</td></tr>`;
   }).join('');
-  // 표가 옆으로 퍼지지 않게 글씨·여백을 줄임 (2026-09-23 사용자 요청) — 접수일은 처리·구분 사이(작은 글씨, 연도 생략 'YY-MM-DD')
-  $('rscan-issues').innerHTML = `<div class="table-wrap"><table class="rscan-issues-tbl" style="width:100%;font-size:.78rem;"><thead><tr><th>처리</th><th>접수일</th><th>구분</th><th style="text-align:left;">주문번호</th><th style="text-align:left;">이름</th><th style="text-align:left;">접수 상품</th><th class="m-hide" style="text-align:left;">사유</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+  // 한 화면에 다 보이게(2026-10-06 사용자 요청 — 사유 뒤가 잘려 옆으로 밀어야 보였음): 칸 줄바꿈 허용, 접수일은 구분 칸·이름은 주문번호 칸으로 합침, 맨 끝에 메모
+  $('rscan-issues').innerHTML = (rscanState.memoErr ? '<div style="font-size:.74rem;color:#b91c1c;margin-bottom:6px;">메모를 불러오지 못했어요 — 새로고침해 주세요(목록은 정상이에요)</div>' : '')
+    + `<div class="table-wrap"><table class="rscan-issues-tbl" style="width:100%;font-size:.78rem;"><thead><tr><th>처리</th><th>구분 · 접수일</th><th style="text-align:left;">주문번호 · 이름</th><th style="text-align:left;">접수 상품</th><th class="m-hide" style="text-align:left;">사유</th><th style="text-align:left;">메모</th></tr></thead><tbody>${rows}</tbody></table></div>`;
 }
+/* 메모 (2026-10-06 사용자 요청) — 주문 줄마다 팀 전체가 같이 보는 메모. 표 rscan_memo(key = 주문 줄 키), 칸 밖을 누르면 저장, 비우면 삭제 */
+function rscanMemoMeta(m) { return m && m.memo ? `${escHtml(m.updated_by || '')} ${escHtml(m.updated_at ? new Date(m.updated_at).toLocaleString('ko-KR', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '')}` : ''; }
+function rscanMemoCell(g) {
+  const m = (rscanState.memos && rscanState.memos.get(g.key)) || null;
+  return `<textarea class="rscan-memo${m && m.memo ? ' has' : ''}" rows="2" maxlength="500" placeholder="메모" ${rscanState.memoErr ? 'disabled' : ''} data-key="${escHtml(g.key)}" data-oid="${escHtml(g.order_id)}" onchange="rscanMemoSave(this)">${escHtml(m ? m.memo : '')}</textarea><div class="rscan-memo-meta" style="font-size:.64rem;color:#9ca3af;margin-top:1px;">${rscanMemoMeta(m)}</div>`;
+}
+async function rscanMemoSave(el) {
+  const key = el.dataset.key, memo = el.value.trim();
+  if (!rscanState.memos) rscanState.memos = new Map();
+  const prev = rscanState.memos.get(key) || null;
+  if (memo === (prev ? prev.memo : '')) { el.value = memo; return; }
+  const meta = el.parentElement.querySelector('.rscan-memo-meta');
+  try {
+    if (memo) {
+      const row = { key, order_id: el.dataset.oid, memo, updated_by: SESSION.name, updated_at: new Date().toISOString() };
+      await dbProxy('rscan_memo?on_conflict=key', { method: 'POST', headers: { Prefer: 'resolution=merge-duplicates,return=minimal' }, body: JSON.stringify(row) });
+      rscanState.memos.set(key, row);
+    } else {
+      await dbProxy('rscan_memo?key=eq.' + encodeURIComponent(key), { method: 'DELETE' });
+      rscanState.memos.delete(key);
+    }
+    // 다른 칸을 쓰는 중일 수 있어 표 전체를 다시 그리지 않고 이 칸만 고친다
+    el.value = memo; el.classList.toggle('has', !!memo);
+    if (meta) meta.innerHTML = rscanMemoMeta(rscanState.memos.get(key));
+    showToast(memo ? '메모를 저장했어요' : '메모를 지웠어요');
+  } catch (e) { el.value = prev ? prev.memo : ''; showToast('메모 저장 실패: ' + e.message); }
+}
+/* 불량·오배송 처리 목록 엑셀}
 /* 불량·오배송 처리 목록 엑셀 — 현재 구분·상태 필터에 보이는 주문만, 접수 품목당 1행(주문 정보는 첫 행에만) */
 async function rscanIssuesXlsx() {
   const r = rscanState.issues; if (!r) { showToast('먼저 목록을 불러와주세요'); return; }
@@ -5138,9 +5189,9 @@ async function rscanIssuesXlsx() {
     await loadXlsxPopulate();
     const wb = await XlsxPopulate.fromBlankAsync();
     const ws = wb.sheet(0).name('불량오배송');
-    const headers = ['처리 상태', '처리자', '처리 시각', '구분', '판정', '주문번호', '주문일', '구매자', '수령인', '주문처', '접수번호', '접수일', '접수 판정', '주문 상태', '접수 상품', '옵션', '수량', '사유 코드', '사유', '네이버 사유', '반품 송장', '택배사', '특별관리', '특별관리 메모'];
+    const headers = ['처리 상태', '처리자', '처리 시각', '구분', '판정', '주문번호', '주문일', '구매자', '수령인', '주문처', '접수번호', '접수일', '접수 판정', '주문 상태', '접수 상품', '옵션', '수량', '사유 코드', '사유', '네이버 사유', '반품 송장', '택배사', '특별관리', '특별관리 메모', '메모'];
     headers.forEach((h, i) => ws.cell(1, i + 1).value(h).style({ bold: true, fill: 'EEF2FF' }));
-    [12, 9, 16, 6, 8, 20, 11, 10, 10, 12, 20, 11, 8, 18, 40, 22, 6, 8, 30, 20, 16, 12, 16, 30].forEach((w, i) => ws.column(i + 1).width(w));
+    [12, 9, 16, 6, 8, 20, 11, 10, 10, 12, 20, 11, 8, 18, 40, 22, 6, 8, 30, 20, 16, 12, 16, 30, 36].forEach((w, i) => ws.column(i + 1).width(w));
     const when = t => t ? String(t).replace('T', ' ').slice(0, 16) : '';
     const jt = a => a ? `${a.type || ''}${a.level === 'warn' ? ' 의심' : ''}` : '';
     let ri = 2;
@@ -5157,6 +5208,7 @@ async function rscanIssuesXlsx() {
           row.push(it.name || '', it.option || '', it.qty === '' ? '' : Number(it.qty || 0));
           row.push(...(k === 0 ? [c.reason_type || '', c.reason || '', c.naver_reason || '', c.invoice || '', c.company || ''] : ['', '', '', '', '']));
           row.push(...(firstOfGroup && g.special ? [`${g.special.by || ''} ${when(g.special.at)}`.trim() || '특별관리', g.special.note || ''] : ['', '']));
+          row.push(firstOfGroup ? (((rscanState.memos && rscanState.memos.get(g.key)) || {}).memo || '') : '');
           row.forEach((v, ci) => { if (v !== '' && v != null) ws.cell(ri, ci + 1).value(v); });
           ri++; firstOfGroup = false;
         });
