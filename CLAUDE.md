@@ -39,7 +39,7 @@
 
 **셀메이트 스크립트 원본 위치(2026-09-30)**: `~/Documents/DNRB-셀메이트-스크립트(원본)/`(연결 스크립트·기록용·물류팀 zip·README) — 다운로드 폴더는 사용자가 정리하며 두 번 지워졌음(그때마다 transcript에서 재구성). 새 버전을 만들면 이 폴더 + 다운로드의 `danarobe-sellmate-stock.user.js`·`품절재고점검_물류팀_설치파일.zip`을 갱신. 공개 저장소에는 절대 올리지 않음.
 
-**먼저 할 일**: 이 블록 → §1 작업 관례 → 필요한 메뉴의 본문 섹션 순으로 읽는다. 사용자는 비개발자(쉬운 한국어, 결과 중심, 브라우저는 **엣지**). 사용자 본인 워크스페이스 계정은 아이디 `admin`(§1 참고) — "나만" 요청은 이 계정 기준. 작업 흐름은 늘 같다: **수정 → 문법 검사 → (서버면 `bash tools/check_cafe24_writes.sh` → 함수 배포) → QA 계정으로 curl 검증 → QA 계정 삭제 → CLAUDE.md 갱신 → commit/push → Pages 반영 확인(curl 폴링)**.
+**먼저 할 일**: 이 블록 → §1 작업 관례 → 필요한 메뉴의 본문 섹션 순으로 읽는다. 사용자는 비개발자(쉬운 한국어, 결과 중심, 브라우저는 **엣지**). 사용자 본인 워크스페이스 계정은 아이디 `admin`(§1 참고) — "나만" 요청은 이 계정 기준. 작업 흐름은 늘 같다: **수정 → 문법 검사 + `python3 tools/check_html.py` → (서버면 `bash tools/check_cafe24_writes.sh` → 함수 배포) → QA 계정으로 curl 검증 → QA 계정 삭제 → CLAUDE.md 갱신 → commit/push → Pages 반영 확인(curl 폴링)**.
 
 **이번 세션(2026-09-22~28)에 만든 것 — 상세는 각 섹션**
 - **품절 재고 점검 메뉴 위치(2026-09-30 사용자 요청)**: 매출·상품 → **물류·CS**(반품 스캔·미발송 관리·품절 재고 점검).
@@ -85,6 +85,7 @@
 - **여러 SQL을 한 번에 보내면 뒤쪽 insert가 반영 안 된 적 있음**(관리 API) — 표 생성과 데이터 입력은 따로 보내고 select로 확인.
 - **카페24 access_token의 expires_at 값은 믿지 말 것**(저장된 시각이 어긋남) — 직접 API를 칠 때 401이면 cron 비밀키로 `rscan_build`를 한 번 불러 갱신시킨 뒤 다시 읽는다. ⚠ 그때 `days=90`으로 부를 것(작게 부르면 공용 인덱스가 줄어듦).
 - **카페24 API 문서**는 apidocs.cafe24.com(Docusaurus) — 요청 스키마는 화면에 안 보이고 JS 청크의 `api:"…"`(base64+zlib)에 있음. 문서에 선택으로 나온 항목이 실제로는 필수일 수 있음(`recover_inventory`).
+- **⚠ index.html의 HTML(화면 뼈대)을 고친 뒤에는 반드시 `python3 tools/check_html.py`(2026-10-06 사고)**: 반품 스캔 안내문을 치환하다 여는 `<div>` 한 줄이 중복으로 들어가(치환 끝 지점의 문자열을 새 글에도 넣고 원문에도 남김) **그 뒤 화면 18개가 전부 `sec-rscan`(숨김) 안으로 들어가 메뉴를 눌러도 빈 화면** — 스크립트 문법 검사(`new Function`)로는 못 잡는다. 사용자가 '취소·반품 접수가 안 뜬다'고 알려 약 15분 뒤 수정. 검사 스크립트는 `<div>` 여닫기 수·화면(.page-sec) 겹침·id 중복을 본다. 로컬 프리뷰 확인도 **고친 메뉴만 보지 말고 다른 메뉴 한두 개의 높이(offsetHeight > 0)를 같이** 볼 것.
 - 스크래치패드 파일(치환 스크립트·syntax.js)은 세션 중에도 지워질 수 있다 — 없으면 다시 만든다.
 - 치환 스크립트(python 파일)에 아주 긴 한글 줄이 있으면 맥 기본 python3(3.9)이 "Non-UTF-8 code … no encoding declared"로 멈춘다(파일은 정상 — 읽기 버퍼 경계 문제). `python3 -c "exec(compile(open(파일,encoding='utf-8').read(),'p','exec'))"`로 실행하면 된다 (2026-10-05).
 - **카페24 주문 상태 변경 이력(누가·언제·어느 상태에서 바꿨나)은 API에 없다 — 관리자 화면의 '주문처리 히스토리'에만 있음(2026-10-02)**: 주소 `GET /exec/admin/shop1/shop/OrderItemsStatushistory?order_id=…&ord_item_code=…`(관리자 로그인 세션 필요, 응답 JSON 배열 `[{issue_dates, message(상태), order_status_info, manager_id, manager_name, client_ip}]`, 변경 전 상태 = 앞 줄의 message). 쓰는 법: 사용자가 **내장 브라우저 창에서 카페24 관리자에 직접 로그인** → 그 탭에서 javascript_tool로 fetch(읽기만). 후보 목록 같은 큰 자료는 관리자 화면이 localhost를 못 읽으므로(혼합 콘텐츠 차단) **Supabase 비공개 버킷 + 서명 주소(읽기·올리기)**로 주고받고 끝나면 버킷 삭제. 속도: 동시 3개·60ms 간격으로 2,433건 105초·오류 0. 참고: 주문 API에서 배송준비중으로 되돌린 품목은 tracking_no·shipped_date가 지워져 과거 상태를 알 수 없음, 운영자 활동 로그 API(activitylogs)는 mall.read_store 권한이 없어 403. 상품준비중→배송준비중·배송중 처리는 평소 'Sellmate Linkage Ser'(셀메이트 연동)가 함.
