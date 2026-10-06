@@ -401,6 +401,7 @@ const NPAY_CANCEL_TYPES: Record<string, string> = { "구매 의사 취소": "51"
 //    환불 수단(refund_method_code)은 필수였다: 2026-10-05 첫 실사용에서 빼고 보내자 422 "The refund amount exceeds the available amount for this refund method.
 //    Select an additional payment method for refund. The available method is [T, M, G]"(주문은 취소접수 그대로). 값은 호출자가 아니라 서버가 주문의 결제 수단으로 정한다 —
 //    신용카드 = "F", 계좌이체 = "G" 하나만(관리자 '취소 처리' 화면이 고르는 환불 방식 값과 같음: 자동 대상 40건 실측 F 38·G 2).
+//    2026-10-06 사용자 지정으로 선불금(네이버페이 포인트·머니) = "O" 추가 — 지난달 선불금 취소 89건 실측: 환불 방식 '선불금 환불', 환불 수단 값 prepaid, 전체 취소 73건 환불액 = 처음 결제액.
 //    "M"(적립금으로 환불)·"T"(현금 환불)은 보내지 않는다 — 쓴 적립금은 환불 수단이 아니라 카페24가 따로 돌려준다(used_points).
 //  · ③ 본문 고정 { shop_no:1, request:{ status:"complete", payment_gateway_cancel:"T", send_sms:"T", send_mail:"T" } } — 고객 알림은 카페24 자동 알림 설정대로.
 //  · ③은 반드시 ②와 ③ 사이의 금액 확인(카페24가 계산한 환불액 = 워크스페이스가 계산한 환불액, 원 단위)을 통과한 뒤에만 부른다(selfcancel_run).
@@ -421,10 +422,10 @@ async function cafe24Write(method: "PUT", url: string, payload: string, token: s
   if (!res.ok) throw Object.assign(new Error(`PUT ${res.status}: ${JSON.stringify(body).slice(0, 400)}`), { status: res.status, body });
   return body;
 }
-async function cafe24CancelToRefunding(orderId: string, claimCode: string, recover: "T" | "F", refundMethod: "F" | "G", token: string): Promise<Record<string, unknown>> {
+async function cafe24CancelToRefunding(orderId: string, claimCode: string, recover: "T" | "F", refundMethod: "F" | "G" | "O", token: string): Promise<Record<string, unknown>> {
   if (!/^\d{8}-\d{7}$/.test(orderId) || !/^C\d{8}-\d{7}$/.test(claimCode)) throw new Error("허용되지 않은 쓰기(번호 형식)");
   if (recover !== "T" && recover !== "F") throw new Error("허용되지 않은 쓰기(재고 복구 값)");
-  if (refundMethod !== "F" && refundMethod !== "G") throw new Error("허용되지 않은 쓰기(환불 수단)");
+  if (refundMethod !== "F" && refundMethod !== "G" && refundMethod !== "O") throw new Error("허용되지 않은 쓰기(환불 수단)");
   const payload = JSON.stringify({ shop_no: 1, requests: [{ order_id: orderId, claim_code: claimCode, status: "canceling", recover_inventory: recover, add_memo_too: "F", refund_method_code: [refundMethod] }] });
   return await cafe24Write("PUT", `${API_BASE}/admin/cancellation`, payload, token);
 }
@@ -623,7 +624,7 @@ type CxlFlag = { level: "block" | "check"; text: string; tag?: string };
 // '확인할 점' 문장 → 짧은 꼬리표(화면에서 한눈에 보이게, 2026-10-05 사용자 요청). 문장은 그대로 두고 꼬리표만 붙인다.
 const CXL_TAGS: [RegExp, string][] = [
   [/일부만 취소|일부 상품만/, "부분 취소"], [/이미 처리된 다른 상품/, "다른 상품 처리됨"], [/접수가 여러 건|사유가 여러 가지/, "접수 여러 건"],
-  [/상품별 추가할인/, "상품별 할인"], [/1\+1/, "1+1 상품"], [/예치금/, "예치금"], [/결제가 끝나지/, "미결제"], [/취소 (신청 )?전 상태/, "발송 단계"],
+  [/사유가 품절/, "품절 사유"], [/상품별 추가할인/, "상품별 할인"], [/1\+1/, "1+1 상품"], [/예치금/, "예치금"], [/결제가 끝나지/, "미결제"], [/취소 (신청 )?전 상태/, "발송 단계"],
   [/송장번호/, "송장 있음"], [/수량 중 일부/, "수량 일부"], [/결제 금액을 읽지/, "금액 확인"], [/네이버페이 주문이 아니/, "네이버페이 아님"], [/네이버페이 주문이에요/, "네이버페이"],
   [/취소 구분 목록에 없는|취소 사유를 읽지/, "구분 없음"], [/판매자 쪽/, "판매자 취소"], [/'취소 요청'이 아니/, "철회 가능성"], [/교환·반품이 함께/, "교환·반품 진행"], [/요청이나 문의/, "고객 요청 글"],
 ];
@@ -682,9 +683,9 @@ function cxlGroupsOf(o: Record<string, any>): Record<string, any>[] {
 // 쓴 적립금은 전액 반환) → 환불 예정액을 '처음 결제액'으로 못 박을 수 있는 건만 자동. 그 밖은 manual(직접 확인 권장 — 카페24에서 처리)로 이유를 적는다.
 // 사용자 규칙(2026-10-05): 부분 취소는 사유·잔여 금액에 따라 배송비 3,000원 차감·쿠폰 취소·적립금 회수가 갈리고, 상품별 추가할인 품목이나 1+1 상품이
 // 든 주문은 변수가 많아 당분간 직접 본다 → 전부 manual. 품절 취소(H)는 재고 복구 안 함, 그 밖은 복구.
-const SELF_MAIN_OK = new Set(["card", "tcash"]);            // 1차: 신용카드·실시간 계좌이체만 (PG 취소가 되는 수단)
+const SELF_MAIN_OK = new Set(["card", "tcash", "prepaid"]);   // 신용카드·실시간 계좌이체 + 선불금(네이버페이 포인트·머니, 2026-10-06 사용자 지정 — 전체 취소면 자동 목록에)
 const SELF_AUX_OK = new Set(["coupon", "point", "mileage"]);   // 같이 쓸 수 있는 보조 수단: 쿠폰·적립금
-const SELF_REFUND_CODE: Record<string, "F" | "G"> = { card: "F", tcash: "G" };   // 결제 수단 → 환불 수단 코드(관리자 화면의 '신용카드 결제 취소'·'계좌이체 결제 취소')
+const SELF_REFUND_CODE: Record<string, "F" | "G" | "O"> = { card: "F", tcash: "G", prepaid: "O" };   // 결제 수단 → 환불 수단 코드(관리자 화면의 '신용카드 결제 취소'·'계좌이체 결제 취소')
 const SELF_PAY_LABEL: Record<string, string> = { card: "신용카드", tcash: "계좌이체", cash: "무통장입금", prepaid: "선불금", coupon: "쿠폰", point: "적립금", mileage: "적립금", deposit: "예치금", cell: "휴대폰" };
 function selfGroupsOf(o: Record<string, any>, nrSets: NrSets): Record<string, any>[] {
   const all = (o.items ?? []) as Record<string, any>[];
@@ -706,6 +707,7 @@ function selfGroupsOf(o: Record<string, any>, nrSets: NrSets): Record<string, an
     if (o.order_place_id === "NCHECKOUT" || o.market_id === "NCHECKOUT") manual.push("네이버페이 주문이에요");
     if (others.length) manual.push(others.some((it) => CXL_UNSHIPPED.has(String(it.order_status ?? ""))) ? `주문의 일부만 취소해요(남은 상품 ${others.filter((it) => CXL_UNSHIPPED.has(String(it.order_status ?? ""))).length}개) — 배송비·쿠폰·적립금을 따져야 해요` : "같은 주문에 이미 처리된 다른 상품이 있어요 — 환불액을 따져야 해요");
     if (claims.length > 1) manual.push("한 주문에 취소 접수가 여러 건이에요");
+    if (reasonType === "H") manual.push("사유가 품절이에요 — 재고 복구 여부와 환불을 직접 확인해주세요");   // 2026-10-06 사용자 지정: 품절 취소는 직접 확인
     if (all.some((it) => n(it.additional_discount_price) > 0)) manual.push("상품별 추가할인이 적용된 상품이 있어요");
     if (all.some(onePlusOne)) manual.push("1+1 할인 상품이 들어 있어요");
     if (main.length !== 1 || !SELF_MAIN_OK.has(main[0])) manual.push(`결제 수단(${pay.map((m) => SELF_PAY_LABEL[m] ?? m).join("+") || "알 수 없음"})은 아직 자동 환불 대상이 아니에요`);

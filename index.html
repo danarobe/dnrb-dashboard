@@ -1510,7 +1510,7 @@
           · <b>'최종 환불까지 한 번에 진행'</b>을 체크하고 누르면 결제 취소(환불)까지 끝내고 '취소완료'가 돼요.<br>
           · 지금은 <b>주문 전체를 취소하는 건만</b> 여기서 처리해요 — 결제한 금액 그대로(배송비 포함) 환불하고, 쓴 적립금·쿠폰은 돌려줘요.<br>
           · 넘긴 뒤 <b>카페24가 계산한 환불액이 화면의 '환불 예정액'과 같은지 확인</b>해요. 1원이라도 다르면 환불을 보내지 않고 멈춰서 알려드려요.<br>
-          · <b style="color:#b45309;">직접 확인 권장</b>(부분 취소·상품별 할인·1+1·카드/계좌이체가 아닌 결제 등)은 지금처럼 카페24에서 처리해주세요.
+          · <b style="color:#b45309;">직접 확인 권장</b>(부분 취소·품절 사유·상품별 할인·1+1·무통장 결제 등)은 지금처럼 카페24에서 처리해주세요.
         </div>
         <div id="cxs-summary" style="margin-bottom:12px;"></div>
         <div id="cxs-result"></div>
@@ -3977,7 +3977,7 @@ async function cxsRunAll() {
   const total = targets.reduce((t, g) => t + g.expect.amount, 0), pts = targets.reduce((t, g) => t + g.expect.points, 0);
   const full = cxsState.full === true;
   if (!confirm(full
-    ? `자사몰 취소접수 ${targets.length}건을 환불까지 처리할까요?\n\n환불 예정 합계 ${cxsWon(total)}${pts ? ` · 적립금 반환 ${cxsWon(pts)}` : ''}\n\n· 결제 수단(카드·계좌이체)으로 바로 환불(결제 취소)돼요.\n· 카페24가 계산한 환불액이 화면의 환불 예정액과 다르면 그 주문은 환불을 보내지 않고 멈춰요.\n· 환불된 뒤에는 되돌릴 수 없어요.`
+    ? `자사몰 취소접수 ${targets.length}건을 환불까지 처리할까요?\n\n환불 예정 합계 ${cxsWon(total)}${pts ? ` · 적립금 반환 ${cxsWon(pts)}` : ''}\n\n· 결제 수단(카드·계좌이체·네이버페이 선불금)으로 바로 환불(결제 취소)돼요.\n· 카페24가 계산한 환불액이 화면의 환불 예정액과 다르면 그 주문은 환불을 보내지 않고 멈춰요.\n· 환불된 뒤에는 되돌릴 수 없어요.`
     : `자사몰 취소접수 ${targets.length}건을 '취소처리중(환불전)'으로 넘길까요?\n\n환불 예정 합계 ${cxsWon(total)}${pts ? ` · 적립금 반환 ${cxsWon(pts)}` : ''}\n\n· 돈은 아직 나가지 않아요. 환불은 카페24 환불 관리에서 마무리해요.\n· 넘긴 뒤 카페24가 계산한 환불액이 화면의 환불 예정액과 같은지 확인해서 알려드려요.`)) return;
   cxsState.running = true;
   const run = cxsState.lastRun = { running: true, full, total: targets.length, ok: 0, fail: 0, warn: 0, amount: 0, fails: [], stopped: '' };
