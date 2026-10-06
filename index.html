@@ -3723,7 +3723,7 @@ function cxlRender() {
       return `<tr style="${on ? '' : 'opacity:.5;'}">
         <td style="vertical-align:top;"><input type="checkbox" ${on ? 'checked' : ''} ${dis} data-k="${escHtml(k)}" onchange="cxlToggle(this)" title="접수하기에 넣기" style="width:17px;height:17px;" /></td>
         <td class="nw" style="text-align:left;vertical-align:top;font-size:.76rem;">${escHtml(cxlShort(g.requested_at))}</td>
-        <td class="nw" style="text-align:left;vertical-align:top;">${cxlOrderCell(g)}<div style="margin-top:4px;"><button class="toggle-btn" style="font-size:.68rem;padding:1px 8px;" title="카페24 관리자에서 이 주문 열기" data-site="cafe24" data-oid="${escHtml(g.order_id)}" onclick="rscanOpen(this)"><i class="fa-solid fa-arrow-up-right-from-square"></i> 카페24</button></div></td>
+        <td class="nw" style="text-align:left;vertical-align:top;">${cxlOrderCell(g)}<div style="margin-top:4px;"><button class="toggle-btn" style="font-size:.68rem;padding:1px 8px;" title="카페24 주문 화면을 오른쪽 창에 열기 — 다른 주문을 누르면 같은 창의 내용이 바뀌어요" data-site="cafe24" data-oid="${escHtml(g.order_id)}" onclick="cxlOpenSide(this)"><i class="fa-solid fa-arrow-up-right-from-square"></i> 카페24</button></div></td>
         <td style="text-align:left;vertical-align:top;font-size:.78rem;">${cxlItemsHtml(g)}</td>
         <td class="nw" style="vertical-align:top;">${fmt(g.amount)}원</td>
         <td style="text-align:left;vertical-align:top;font-size:.78rem;max-width:260px;white-space:pre-wrap;">${g.reason_text ? escHtml(g.reason_text) : '<span style="color:#9ca3af;">(적지 않음)</span>'}</td>
@@ -3755,7 +3755,7 @@ function cxlRender() {
           <td style="text-align:left;vertical-align:top;font-size:.78rem;">${cxlItemsHtml(g)}</td>
           <td style="text-align:left;vertical-align:top;font-size:.78rem;max-width:230px;">${g.label ? `<span style="background:#eef2ff;color:#3730a3;border-radius:99px;padding:1px 8px;font-weight:800;white-space:nowrap;">${escHtml(g.label)}</span>` : '<span style="color:#b91c1c;font-weight:700;">구분 없음</span>'}<div style="margin-top:3px;white-space:pre-wrap;">${g.reason_text ? escHtml(g.reason_text) : '<span style="color:#9ca3af;">(적지 않음)</span>'}</div></td>
           <td class="nw" style="text-align:left;vertical-align:top;font-size:.76rem;">
-            <button class="toggle-btn" style="font-size:.7rem;padding:2px 9px;" data-site="cafe24" data-oid="${escHtml(g.order_id)}" onclick="rscanOpen(this)"><i class="fa-solid fa-arrow-up-right-from-square"></i> 카페24</button>
+            <button class="toggle-btn" style="font-size:.7rem;padding:2px 9px;" data-site="cafe24" data-oid="${escHtml(g.order_id)}" onclick="cxlOpenSide(this)"><i class="fa-solid fa-arrow-up-right-from-square"></i> 카페24</button>
             ${blocked || !cxlBridge() ? '' : `<div style="margin-top:4px;"><button class="toggle-btn" style="font-size:.7rem;padding:2px 9px;background:#b45309;color:#fff;border-color:#b45309;" ${dis} data-k="${escHtml(k)}" onclick="cxlAcceptChecked(this)">확인하고 접수</button></div>`}
             ${s ? `<div style="margin-top:4px;white-space:normal;max-width:200px;">${cxlStatusCell(g)}</div>` : ''}</td></tr>`;
       }).join('')}</tbody></table></div></div>` : '';
@@ -3763,6 +3763,19 @@ function cxlRender() {
       <summary style="cursor:pointer;font-weight:800;color:#166534;"><i class="fa-solid fa-circle-check"></i> 방금 접수한 주문 ${b.done.length}건 <span style="font-weight:600;color:#6b7280;">— 카페24 조회에 반영되면 목록에서 사라져요</span></summary>
       ${b.done.map(g => `<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;padding:4px 0;border-top:1px solid #dcfce7;"><b style="font-family:monospace;">${escHtml(g.order_id)}</b><span>${escHtml(g.label || '')}</span><span style="color:#6b7280;">${escHtml(g.items.map(x => x.product_name).join(', '))}</span></div>`).join('')}</details>` : '';
   $('cxl-list').innerHTML = autoHtml + checkHtml + doneHtml;
+}
+// [카페24] = 화면 오른쪽 절반에 붙는 전용 창 하나를 계속 재사용 (2026-10-06 사용자 요청 — 새 창이 쌓이지 않고 목록과 나란히 보이게).
+//   카페24 화면을 이 페이지 안에 끼워 넣는 방식(iframe)은 로그인 쿠키가 실리지 않아 불가 → 이름 있는 창('dnrb_cafe24_side')으로 대신한다.
+//   창이 이미 떠 있으면 크기·위치는 사용자가 옮겨 둔 그대로이고 주소만 바뀐다. 반품 스캔의 [카페24]는 그대로 새 창(rscanOpen).
+function cxlOpenSide(btn) {
+  const st = (rscanState.status || {}).settings || {};
+  const url = (st.cafe24_url || RSCAN_URL_DEFAULTS.cafe24_url).replace('{order_id}', encodeURIComponent(btn.dataset.oid || ''));
+  if (!/^https:\/\//.test(url)) { showToast('카페24 주소 설정이 올바르지 않아요'); return; }
+  const sc = window.screen || {}, aw = sc.availWidth || 1440, ah = sc.availHeight || 900, ax = sc.availLeft || 0, ay = sc.availTop || 0;
+  const w = Math.min(aw, Math.max(Math.round(aw / 2), 820));
+  const win = window.open(url, 'dnrb_cafe24_side', `popup=yes,width=${w},height=${ah},left=${ax + aw - w},top=${ay},resizable=yes,scrollbars=yes`);
+  if (!win) { showToast('창이 막혔어요 — 주소창 오른쪽의 팝업 차단을 이 사이트에서 풀어주세요'); return; }
+  try { win.focus(); } catch {}
 }
 function cxlJump(id) { const el = $(id); if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' }); }
 function cxlToggle(cb) { if (cxlState.running) return; const k = cb.dataset.k; if (cb.checked) cxlState.off.delete(k); else cxlState.off.add(k); cxlRender(); }
@@ -3933,7 +3946,7 @@ function cxsRender() {
       <div class="table-wrap"><table class="cxl-tbl" style="width:100%;font-size:.8rem;"><thead><tr><th style="width:34px;"></th><th style="text-align:left;">주문</th><th style="text-align:left;">상품 · 옵션 · 수량</th><th style="text-align:left;">사유</th><th style="text-align:left;">결제 수단</th><th>환불 예정액</th><th>적립금 반환</th><th style="text-align:left;">결과</th></tr></thead><tbody>
       ${b.auto.map(g => { const k = cxsKey(g), on = !cxsState.off.has(k); return `<tr style="${on ? '' : 'opacity:.5;'}">
         <td style="vertical-align:top;"><input type="checkbox" ${on ? 'checked' : ''} ${dis} data-k="${escHtml(k)}" onchange="cxsToggle(this)" title="환불 처리에 넣기" style="width:17px;height:17px;" /></td>
-        <td class="nw" style="text-align:left;vertical-align:top;">${cxsOrderCell(g)}<div style="font-size:.7rem;color:#6b7280;">접수 ${escHtml(cxlShort(g.requested_at))}</div><div style="margin-top:4px;"><button class="toggle-btn" style="font-size:.68rem;padding:1px 8px;" title="카페24 관리자에서 이 주문 열기" data-site="cafe24" data-oid="${escHtml(g.order_id)}" onclick="rscanOpen(this)"><i class="fa-solid fa-arrow-up-right-from-square"></i> 카페24</button></div></td>
+        <td class="nw" style="text-align:left;vertical-align:top;">${cxsOrderCell(g)}<div style="font-size:.7rem;color:#6b7280;">접수 ${escHtml(cxlShort(g.requested_at))}</div><div style="margin-top:4px;"><button class="toggle-btn" style="font-size:.68rem;padding:1px 8px;" title="카페24 주문 화면을 오른쪽 창에 열기 — 다른 주문을 누르면 같은 창의 내용이 바뀌어요" data-site="cafe24" data-oid="${escHtml(g.order_id)}" onclick="cxlOpenSide(this)"><i class="fa-solid fa-arrow-up-right-from-square"></i> 카페24</button></div></td>
         <td style="text-align:left;vertical-align:top;font-size:.78rem;">${cxsItemsHtml(g)}</td>
         <td style="text-align:left;vertical-align:top;font-size:.78rem;max-width:200px;">${cxsReasonCell(g)}</td>
         <td class="nw" style="text-align:left;vertical-align:top;font-size:.76rem;">${escHtml(g.pay_label)}</td>
@@ -3956,7 +3969,7 @@ function cxsRender() {
         <td style="text-align:left;vertical-align:top;font-size:.78rem;">${cxsItemsHtml(g)}${g.other_items ? `<div style="font-size:.68rem;color:#9ca3af;">같은 주문의 다른 상품 ${g.other_items}개</div>` : ''}</td>
         <td style="text-align:left;vertical-align:top;font-size:.78rem;max-width:200px;">${cxsReasonCell(g)}</td>
         <td class="nw" style="text-align:left;vertical-align:top;font-size:.76rem;">${escHtml(g.pay_label)}<div style="color:#6b7280;">결제 ${cxsWon(g.expect.amount)}</div></td>
-        <td class="nw" style="text-align:left;vertical-align:top;"><button class="toggle-btn" style="font-size:.7rem;padding:2px 9px;" data-site="cafe24" data-oid="${escHtml(g.order_id)}" onclick="rscanOpen(this)"><i class="fa-solid fa-arrow-up-right-from-square"></i> 카페24</button></td></tr>`).join('')}</tbody></table></div></div>` : '';
+        <td class="nw" style="text-align:left;vertical-align:top;"><button class="toggle-btn" style="font-size:.7rem;padding:2px 9px;" data-site="cafe24" data-oid="${escHtml(g.order_id)}" onclick="cxlOpenSide(this)"><i class="fa-solid fa-arrow-up-right-from-square"></i> 카페24</button></td></tr>`).join('')}</tbody></table></div></div>` : '';
   $('cxs-list').innerHTML = autoHtml + manualHtml;
 }
 function cxsSetFull(on) { if (cxsState.running) return; cxsState.full = !!on; cxsRender(); }
