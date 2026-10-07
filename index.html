@@ -4043,12 +4043,17 @@ async function cxsRunAll() {
    원 단위로 같을 때만 보냄) → retacc_record(서버가 주문을 다시 읽어 상태·금액 확인·기록). [검사만 하기] = 창에 넣어 보고 금액만 대조(아무것도 보내지 않음).
    자동 = 변심·사이즈·상품불만족 + 조건이 읽히는 쿠폰. 불량·오배송·1+1·10% 이상 할인·다른 취소/교환/반품이 섞인 주문 등은 '직접 확인 권장'. */
 const cxrState = { data: null, loading: false, off: new Set(), status: new Map(), running: false, lastRun: null, tag: '' };
-const CXR_BRIDGE_MIN = '1.0.0';
+const CXR_BRIDGE_MIN = '1.0.1';   // 1.0.0은 무료배송 주문 전체 반품에서 멈춘다(2026-10-07)
+const cxrVerOk = v => { const a = String(v || '').split('.').map(Number), b = CXR_BRIDGE_MIN.split('.').map(Number); for (let i = 0; i < 3; i++) { if ((a[i] || 0) !== b[i]) return (a[i] || 0) > b[i]; } return true; };
 const cxrKey = g => g.order_id + '|' + g.claim_code;
-const cxrBridge = () => (window.CAFE24_RETURN && typeof window.CAFE24_RETURN.begin === 'function' && typeof window.CAFE24_RETURN.process === 'function') ? window.CAFE24_RETURN : null;
+const cxrBridgeRaw = () => (window.CAFE24_RETURN && typeof window.CAFE24_RETURN.begin === 'function' && typeof window.CAFE24_RETURN.process === 'function') ? window.CAFE24_RETURN : null;
+const cxrBridge = () => { const B = cxrBridgeRaw(); return B && cxrVerOk(B.version) ? B : null; };   // 옛 버전은 없는 것으로 본다(버튼 비활성 + 교체 안내)
 window.addEventListener('cafe24-return-ready', () => { try { if ($('sec-cxl') && $('sec-cxl').style.display !== 'none' && cxrState.data && cxlState.tab === 'ret') cxrRender(); } catch {} });
 function cxrBridgeHtml() {
-  const B = cxrBridge();
+  const B = cxrBridge(), old = !B && cxrBridgeRaw();
+  if (old) return `<div style="background:#fffbeb;border:1.5px solid #fde68a;border-radius:12px;padding:12px 14px;font-size:.82rem;color:#78350f;line-height:1.75;margin-top:10px;">
+    <b><i class="fa-solid fa-rotate"></i> 카페24 반품 접수 연결 스크립트를 새 버전(v${CXR_BRIDGE_MIN} 이상)으로 바꿔주세요.</b> 지금 설치된 것은 v${escHtml(String(old.version || ''))}이에요 — 무료배송 주문의 전체 반품에서 멈추는 문제가 있어요(멈출 뿐, 잘못 보내지는 않아요).<br>
+    엣지의 Tampermonkey 아이콘 → 대시보드 → 유틸리티 → '파일에서 가져오기'로 새 <b>danarobe-cafe24-return.user.js</b>를 선택 → '재설치/업데이트' → 이 페이지 새로고침</div>`;
   if (B) return `<div style="font-size:.78rem;color:#065f46;font-weight:700;margin-top:10px;"><i class="fa-solid fa-plug-circle-check"></i> 카페24 반품 접수 연결 스크립트 v${escHtml(String(B.version || ''))} 연결됨 <span style="font-weight:500;color:#6b7280;">— 이 엣지에서 카페24 관리자에 로그인돼 있어야 해요. 누르면 카페24 처리 창이 하나 열려요</span></div>`;
   return `<div style="background:#fffbeb;border:1.5px solid #fde68a;border-radius:12px;padding:12px 14px;font-size:.82rem;color:#78350f;line-height:1.75;margin-top:10px;">
     <b><i class="fa-solid fa-plug-circle-xmark"></i> 이 PC에 '카페24 반품 접수 연결 스크립트'가 없어서 [검사만 하기]·[넘기기]를 쓸 수 없어요.</b> 목록과 환불 예정액은 그대로 볼 수 있어요.<br>
