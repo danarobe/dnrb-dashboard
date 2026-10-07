@@ -1493,24 +1493,54 @@
     <div class="section-body">
       <div id="cxl-tabs" style="display:flex;gap:2px;border-bottom:2px solid #e5e7eb;margin-bottom:14px;flex-wrap:wrap;"></div>
       <div id="cxl-pane-npay" class="cxl-pane">
-        <div style="font-size:.8rem;color:#6b7280;margin-bottom:10px;line-height:1.7;">
-          · 고객이 <b>네이버페이에서 넣은 취소신청</b>을 모아, 고객이 고른 사유대로 <b>취소 구분</b>을 나눴어요.<br>
-          · <b>[접수하기]</b>를 누르면 체크된 주문이 카페24에서 <b>'취소접수'</b>로 바뀌어요. 취소 구분과 취소 사유는 고객이 신청한 그대로 들어가요.<br>
-          · 접수는 <b>이 PC 엣지에 로그인된 카페24 관리자</b>를 통해 보내요(연결 스크립트 필요 — 없으면 아래에 설치 안내가 나와요).<br>
-          · 접수하면 네이버페이에서 <b>취소·환불이 진행되고 되돌릴 수 없어요.</b> 빼고 싶은 주문은 체크를 풀어 두세요.<br>
-          · <b style="color:#b45309;">직접 확인 권장</b>은 [접수하기]에 들어가지 않아요. 이유를 읽어 보고 한 건씩 접수하거나 카페24에서 처리하세요.
+        <!-- 탭 설명(2026-10-07 사용자 요청 — 긴 글 대신 한눈에): 흐름 한 줄 + 네 칸. 자세한 기준은 '취소·반품 규칙' 탭 -->
+        <div style="margin-bottom:12px;">
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px;font-size:.84rem;">
+            <span style="background:#f3f4f6;color:#374151;border-radius:99px;padding:5px 12px;font-weight:800;white-space:nowrap;">네이버페이 취소신청</span>
+            <i class="fa-solid fa-arrow-right" style="color:#9ca3af;"></i>
+            <span style="background:#4f46e5;color:#fff;border-radius:99px;padding:5px 12px;font-weight:800;white-space:nowrap;">접수하기</span>
+            <i class="fa-solid fa-arrow-right" style="color:#9ca3af;"></i>
+            <span style="background:#dcfce7;color:#166534;border-radius:99px;padding:5px 12px;font-weight:800;white-space:nowrap;">취소접수</span>
+            <span style="background:#fee2e2;color:#b91c1c;border-radius:14px;padding:5px 12px;font-weight:800;white-space:normal;word-break:keep-all;"><i class="fa-solid fa-triangle-exclamation"></i> 접수하면 네이버페이에서 취소·환불이 진행돼요 — 되돌릴 수 없어요</span>
+          </div>
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(215px,1fr));gap:8px;">
+            <div style="border:1px solid #e5e7eb;border-radius:10px;padding:8px 11px;background:#fff;"><div style="font-size:.72rem;font-weight:800;color:#4338ca;"><i class="fa-solid fa-tags"></i> 취소 구분 · 사유</div><div style="font-size:.8rem;line-height:1.55;margin-top:3px;"><b>고객이 고른 그대로</b> 들어가요<br><span style="color:#6b7280;font-size:.72rem;">목록도 취소 구분별로 묶어 보여줘요</span></div></div>
+            <div style="border:1px solid #e5e7eb;border-radius:10px;padding:8px 11px;background:#fff;"><div style="font-size:.72rem;font-weight:800;color:#374151;"><i class="fa-solid fa-square-check"></i> 뺄 주문</div><div style="font-size:.8rem;line-height:1.55;margin-top:3px;">체크를 풀면 <b>접수에서 빠져요</b><br><span style="color:#6b7280;font-size:.72rem;">체크된 주문만 한 번에 접수해요</span></div></div>
+            <div style="border:1px solid #fde68a;border-radius:10px;padding:8px 11px;background:#fffbeb;"><div style="font-size:.72rem;font-weight:800;color:#b45309;"><i class="fa-solid fa-triangle-exclamation"></i> 직접 확인 권장</div><div style="font-size:.8rem;line-height:1.55;margin-top:3px;">[접수하기]에 <b>들어가지 않아요</b><br><span style="color:#6b7280;font-size:.72rem;">이유를 읽고 한 건씩 접수하거나 카페24에서 처리</span></div></div>
+            <div style="border:1px solid #bbf7d0;border-radius:10px;padding:8px 11px;background:#f0fdf4;"><div style="font-size:.72rem;font-weight:800;color:#15803d;"><i class="fa-solid fa-shield-halved"></i> 안전장치</div><div style="font-size:.8rem;line-height:1.55;margin-top:3px;">막히면 <b>나머지는 보내지 않고 멈춤</b><br><span style="color:#6b7280;font-size:.72rem;">로그인 안 됨 · 첫 주문부터 막힘 · 연달아 3건 막힘</span></div></div>
+          </div>
+          <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:8px;font-size:.76rem;color:#6b7280;">
+            <span>접수는 <b>이 PC 엣지에 로그인된 카페24 관리자</b>를 통해 보내요(연결 스크립트 — 없으면 아래에 설치 안내).</span>
+            <button class="toggle-btn" style="font-size:.72rem;padding:2px 10px;" onclick="cxlSetTab('rules')"><i class="fa-solid fa-book-open"></i> 기준 자세히 보기</button>
+          </div>
         </div>
         <div id="cxl-summary" style="margin-bottom:12px;"></div>
         <div id="cxl-result"></div>
         <div id="cxl-list"></div>
       </div>
       <div id="cxl-pane-self" class="cxl-pane" style="display:none;">
-        <div style="font-size:.8rem;color:#6b7280;margin-bottom:10px;line-height:1.7;">
-          · 고객이 <b>자사몰에서 넣은 취소</b>(카페24 '취소접수')를 모았어요. 버튼을 누르면 체크된 주문이 카페24에서 <b>'취소처리중(환불전)'</b>으로 넘어가요 — <b>돈은 아직 나가지 않아요.</b><br>
-          · <b>'최종 환불까지 한 번에 진행'</b>을 체크하고 누르면 결제 취소(환불)까지 끝내고 '취소완료'가 돼요.<br>
-          · 지금은 <b>주문 전체를 취소하는 건만</b> 여기서 처리해요 — 결제한 금액 그대로(배송비 포함) 환불하고, 쓴 적립금·쿠폰은 돌려줘요.<br>
-          · 넘긴 뒤 <b>카페24가 계산한 환불액이 화면의 '환불 예정액'과 같은지 확인</b>해요. 1원이라도 다르면 환불을 보내지 않고 멈춰서 알려드려요.<br>
-          · <b style="color:#b45309;">직접 확인 권장</b>(부분 취소·품절 사유·상품별 할인·1+1·무통장 결제 등)은 지금처럼 카페24에서 처리해주세요.
+        <!-- 탭 설명(2026-10-07 사용자 요청 — 긴 글 대신 한눈에): 흐름 한 줄 + 네 칸. 자세한 기준은 '취소·반품 규칙' 탭 -->
+        <div style="margin-bottom:12px;">
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px;font-size:.84rem;">
+            <span style="background:#f3f4f6;color:#374151;border-radius:99px;padding:5px 12px;font-weight:800;white-space:nowrap;">자사몰 취소접수</span>
+            <i class="fa-solid fa-arrow-right" style="color:#9ca3af;"></i>
+            <span style="background:#4f46e5;color:#fff;border-radius:99px;padding:5px 12px;font-weight:800;white-space:nowrap;">넘기기</span>
+            <i class="fa-solid fa-arrow-right" style="color:#9ca3af;"></i>
+            <span style="background:#ede9fe;color:#5b21b6;border-radius:99px;padding:5px 12px;font-weight:800;white-space:nowrap;">취소처리중(환불전)</span>
+            <span style="background:#dcfce7;color:#166534;border-radius:99px;padding:5px 12px;font-weight:800;white-space:nowrap;"><i class="fa-solid fa-circle-check"></i> 기본은 여기까지 — 돈은 아직 안 나가요</span>
+            <i class="fa-solid fa-arrow-right" style="color:#fca5a5;"></i>
+            <span style="background:#fee2e2;color:#b91c1c;border-radius:99px;padding:5px 12px;font-weight:800;white-space:nowrap;">체크했을 때만 → 취소완료(환불)</span>
+          </div>
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(215px,1fr));gap:8px;">
+            <div style="border:1px solid #e5e7eb;border-radius:10px;padding:8px 11px;background:#fff;"><div style="font-size:.72rem;font-weight:800;color:#4338ca;"><i class="fa-solid fa-list-check"></i> 자동 대상</div><div style="font-size:.8rem;line-height:1.55;margin-top:3px;"><b>주문 전체 취소</b>만<br><span style="color:#6b7280;font-size:.72rem;">카드 · 계좌이체 · 선불금 결제</span></div></div>
+            <div style="border:1px solid #e5e7eb;border-radius:10px;padding:8px 11px;background:#fff;"><div style="font-size:.72rem;font-weight:800;color:#4338ca;"><i class="fa-solid fa-won-sign"></i> 환불액</div><div style="font-size:.8rem;line-height:1.55;margin-top:3px;"><b>결제한 금액 그대로</b>(배송비 포함)<br><span style="color:#6b7280;font-size:.72rem;">쓴 적립금은 전액 반환</span></div></div>
+            <div style="border:1px solid #fecaca;border-radius:10px;padding:8px 11px;background:#fef2f2;"><div style="font-size:.72rem;font-weight:800;color:#b91c1c;"><i class="fa-solid fa-rotate-left"></i> 최종 환불까지</div><div style="font-size:.8rem;line-height:1.55;margin-top:3px;"><b>'최종 환불까지 한 번에 진행'</b>을 체크했을 때만<br><span style="color:#6b7280;font-size:.72rem;">체크하면 결제 취소(환불)까지 끝내고 취소완료</span></div></div>
+            <div style="border:1px solid #bbf7d0;border-radius:10px;padding:8px 11px;background:#f0fdf4;"><div style="font-size:.72rem;font-weight:800;color:#15803d;"><i class="fa-solid fa-shield-halved"></i> 안전장치</div><div style="font-size:.8rem;line-height:1.55;margin-top:3px;">카페24 계산과 <b>1원이라도 다르면 멈춤</b><br><span style="color:#6b7280;font-size:.72rem;">환불을 보내지 않고 알려드려요</span></div></div>
+          </div>
+          <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:8px;font-size:.76rem;color:#6b7280;">
+            <span><b style="color:#b45309;">직접 확인 권장</b>(부분 취소 · 품절 사유 · 상품별 할인 · 1+1 · 무통장 결제 등)은 지금처럼 카페24에서 처리해요.</span>
+            <button class="toggle-btn" style="font-size:.72rem;padding:2px 10px;" onclick="cxlSetTab('rules')"><i class="fa-solid fa-book-open"></i> 기준 자세히 보기</button>
+          </div>
         </div>
         <div id="cxs-summary" style="margin-bottom:12px;"></div>
         <div id="cxs-result"></div>
