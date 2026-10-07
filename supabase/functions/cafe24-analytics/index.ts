@@ -1195,7 +1195,18 @@ Deno.serve(async (req) => {
       const orderId = String(url.searchParams.get("order_id") ?? ""), claimCode = String(url.searchParams.get("claim_code") ?? "");
       if (!/^\d{8}-\d{7}$/.test(orderId) || !/^C\d{8}-\d{7}$/.test(claimCode)) return json({ error: "주문번호·접수번호가 올바르지 않습니다" }, 400);
       const b = await req.json().catch(() => ({})) as Record<string, any>;
-      const readOrder = async () => ((await apiGet(`${API_BASE}/admin/orders/${orderId}?embed=items,return`, token)).order ?? {}) as Record<string, any>;
+      // ⚠ 카페24는 **같은 조회 주소를 60초 동안 옛 결과로 돌려준다**(2026-10-07 실측: 두 번째 호출부터 cache-control max-age=60, 모르는 값(&_=1)은 구분에 안 쓰임).
+      //   넘기기 직전(prepare)과 직후(record)에 같은 주소로 읽으면 직후 조회가 '반품접수' 그대로 나와 '반영 대기'로 잘못 멈춘다(첫 실사용에서 발생).
+      //   → 주문 목록 조회에 limit 값을 매번 바꿔 붙여 늘 새로 읽는다(limit은 진짜 조건이라 구분에 쓰임). 주문일 = 주문번호 앞 8자리(앞뒤 하루 여유).
+      const readOrder = async () => {
+        const base = new Date(Date.UTC(Number(orderId.slice(0, 4)), Number(orderId.slice(4, 6)) - 1, Number(orderId.slice(6, 8))));
+        const day = (off: number) => { const d = new Date(base); d.setUTCDate(d.getUTCDate() + off); return d.toISOString().slice(0, 10); };
+        const lim = 10 + (Math.floor(Date.now() / 700) % 90);
+        const list = ((await apiGet(`${API_BASE}/admin/orders?shop_no=1&order_id=${orderId}&start_date=${day(-1)}&end_date=${day(1)}&date_type=order_date&embed=items,return&limit=${lim}`, token)).orders ?? []) as Record<string, any>[];
+        const hit = list.find((o) => String(o.order_id ?? "") === orderId);
+        if (!hit) throw new Error("주문을 찾지 못했어요");
+        return hit;
+      };
       const claimItems = (o: Record<string, any>) => ((o.items ?? []) as Record<string, any>[]).filter((it) => String(it.claim_code ?? "") === claimCode);
       const stateOf = (o: Record<string, any>) => [...new Set(claimItems(o).map((it) => [String(it.status_text ?? it.order_status ?? ""), String(it.order_status_additional_info ?? "")].filter(Boolean).join(" · ")))].join(", ");
       const movedAll = (o: Record<string, any>) => { const its = claimItems(o); return its.length > 0 && its.every((it) => RET_MOVED.has(String(it.order_status ?? ""))); };
@@ -1232,7 +1243,7 @@ Deno.serve(async (req) => {
       const expect = { total: num(jx.total), amount: num(jx.cash), points: num(jx.points) };
       const fee = num(job.fee), couponCancel = job.coupon === "cancel" ? num(job.coupon_amount) : 0;
       let moved = movedAll(order);
-      for (let i = 0; i < 3 && !moved && b.ok === true; i++) { await sleep(1300); try { order = await readOrder(); moved = movedAll(order); } catch { /* 다음 시도 */ } }
+      for (let i = 0; i < 5 && !moved && b.ok === true; i++) { await sleep(1300); try { order = await readOrder(); moved = movedAll(order); } catch { /* 다음 시도 */ } }
       const ret = (((order.return ?? []) as Record<string, any>[]).find((r) => r.claim_code === claimCode)) ?? {};
       const got = { amount: ((ret.refund_amounts ?? []) as Record<string, any>[]).reduce((t, a) => t + num(a.amount), 0), points: -num(ret.point_used), fee: -num(ret.return_shipping_fee), coupon: -num(ret.coupon_discount_amount), has: Array.isArray(ret.refund_amounts) };
       const diffs: string[] = [];
