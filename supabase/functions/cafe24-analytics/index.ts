@@ -1001,7 +1001,7 @@ Deno.serve(async (req) => {
       };
       if (action === "cancelreq_log") {
         const since = new Date(Date.now() - 30 * 86400e3).toISOString();
-        const rows = (await sbRest(`cancel_accept_log?select=id,created_at,order_id,items,reason_type,reason_label,reason,flags,ok,result,claim_code,by_name,kind,expected_amount,refund_amount,points,stage:detail->>stage&created_at=gte.${since}&order=created_at.desc&limit=1000`)) ?? [];
+        const rows = (await sbRest(`cancel_accept_log?select=id,created_at,order_id,items,reason_type,reason_label,reason,flags,ok,result,claim_code,by_name,kind,expected_amount,refund_amount,points,stage:detail->>stage,fee:detail->>fee,coupon_cancel:detail->>coupon_cancel&created_at=gte.${since}&order=created_at.desc&limit=1000`)) ?? [];
         return json({ rows });
       }
       if (action === "cancelreq_list") {

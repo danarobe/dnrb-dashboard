@@ -3776,7 +3776,7 @@ function soldoutLogRender() {
       애매한 주문은 '직접 확인 권장'(flags)으로 빼고 한 건씩만 접수. 처리 기록은 cancel_accept_log(처리 내역 탭).
    자사몰 취소접수·반품은 다음 단계(사용자: 이게 잘 되면 진행). */
 const CXL_TABS = [['npay', '네이버페이 취소신청', null, 'fa-solid fa-ban'], ['self', '자사몰 취소접수', null, 'fa-solid fa-rotate-left'], ['ret', '자사몰 반품접수', null, 'fa-solid fa-truck-ramp-box'], ['log', '처리 내역', null, 'fa-solid fa-clock-rotate-left'], ['rules', '취소·반품 규칙', null, 'fa-solid fa-book-open']];
-const cxlState = { data: null, loading: false, tab: 'npay', off: new Set(), status: new Map(), running: false, lastRun: null, log: null, logLoading: false };
+const cxlState = { data: null, loading: false, tab: 'npay', off: new Set(), status: new Map(), running: false, lastRun: null, log: null, logLoading: false, logF: { days: 7, kind: 'all', res: 'all', q: '' } };   // logF = 처리 내역 보기 조건(기간·종류·결과·검색)
 const cxlKey = g => g.order_id + '|' + g.key;
 const CXL_BRIDGE_MIN = '1.0.0';
 const cxlBridge = () => (window.CAFE24_CANCEL && typeof window.CAFE24_CANCEL.accept === 'function' && typeof window.CAFE24_CANCEL.begin === 'function') ? window.CAFE24_CANCEL : null;
@@ -4426,22 +4426,94 @@ async function cxlLogLoad() {
   catch (e) { $('cxl-log').innerHTML = `<div class="empty-state"><p style="color:#b91c1c;">불러오지 못했어요 — ${escHtml(e.message)}</p></div>`; }
   finally { cxlState.logLoading = false; }
 }
+// 처리 내역 (2026-10-07 사용자 요청 — 보기 편하게): 요약 타일 + 기간·종류·결과 칩 + 검색, 날짜별로 묶어 한 줄에 한 건.
+//   줄 = 시각·처리자 | 종류 | 주문 | 상품(첫 상품 + 외 N) | 사유 | 금액(반품은 배송비·쿠폰·적립금 칩) | 결과. 긴 글은 한 줄로 줄이고 마우스를 올리면 전체가 보인다.
+const CXL_LOG_KIND = { npay: ['네이버페이 접수', '#03a54f', '#dcfce7'], self: ['자사몰 취소', '#4338ca', '#e0e7ff'], ret: ['자사몰 반품', '#7c3aed', '#ede9fe'] };
+const cxlLogKindOf = r => r.kind === 'ret' ? 'ret' : r.kind === 'self' ? 'self' : 'npay';
+const cxlLogDay = v => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(new Date(v));
+function cxlLogSet(k, v) { const f = cxlState.logF; f[k] = v; cxlLogRender(); }
+function cxlLogRows() {
+  const f = cxlState.logF, rows = cxlState.log || [];
+  const since = cxlLogDay(Date.now() - (f.days - 1) * 864e5), q = String(f.q || '').trim().toLowerCase();
+  const inDays = rows.filter(r => cxlLogDay(r.created_at) >= since);
+  const shown = inDays.filter(r => (f.kind === 'all' || cxlLogKindOf(r) === f.kind) && (f.res === 'all' || (f.res === 'ok') === !!r.ok)
+    && (!q || String(r.order_id || '').toLowerCase().includes(q) || String(r.claim_code || '').toLowerCase().includes(q) || (r.items || []).some(x => String(x.product_name || '').toLowerCase().includes(q)) || String(r.by_name || '').toLowerCase().includes(q)));
+  return { inDays, shown };
+}
+function cxlLogAmountCell(r) {
+  const k = cxlLogKindOf(r), won = v => fmt(v) + '원';
+  if (k === 'npay') return '<span style="color:#d1d5db;">—</span>';
+  const amt = r.refund_amount != null ? r.refund_amount : r.expected_amount;
+  if (amt == null) return '<span style="color:#d1d5db;">—</span>';
+  const label = k === 'ret' ? (r.ok ? '환불 예정' : '예정') : (r.ok && r.stage !== 'moved' ? '환불' : r.ok ? '환불전 · 예정' : '예정');
+  const col = !r.ok ? '#9ca3af' : k === 'ret' ? '#7c3aed' : r.stage === 'moved' ? '#2563eb' : '#111827';
+  const bits = [];
+  if (k === 'ret' && Number(r.fee) > 0) bits.push(`배송비 −${fmt(Number(r.fee))}`);
+  if (k === 'ret' && Number(r.coupon_cancel) > 0) bits.push(`쿠폰 −${fmt(Number(r.coupon_cancel))}`);
+  if (Number(r.points) > 0) bits.push(`적립금 ${fmt(Number(r.points))}`);
+  return `<div style="white-space:nowrap;"><span style="font-size:.66rem;color:#9ca3af;">${label}</span> <b style="color:${col};">${won(amt)}</b></div>${bits.length ? `<div style="font-size:.66rem;color:#6b7280;white-space:nowrap;">${bits.join(' · ')}</div>` : ''}`;
+}
+function cxlLogResultCell(r) {
+  const k = cxlLogKindOf(r), txt = String(r.result || '');
+  if (!r.ok) return `<span style="color:#b91c1c;font-weight:800;white-space:nowrap;"><i class="fa-solid fa-circle-xmark"></i> ${k === 'ret' ? '넘기지 않음' : k === 'self' ? '처리 안 됨' : '접수 안 됨'}</span><div style="color:#b91c1c;font-size:.7rem;line-height:1.45;">${escHtml(txt)}</div>`;
+  const warn = /⚠|대기|다름/.test(txt);
+  const short = k === 'ret' ? '반품처리중으로 넘김' : k === 'self' ? (r.stage === 'moved' ? '환불전으로 넘김' : '환불 완료') : '취소접수';
+  return `<span style="color:${warn ? '#b45309' : '#15803d'};font-weight:800;white-space:nowrap;" title="${escHtml(txt)}"><i class="fa-solid ${warn ? 'fa-triangle-exclamation' : 'fa-circle-check'}"></i> ${short}</span>${warn ? `<div style="color:#b45309;font-size:.7rem;line-height:1.45;">${escHtml(txt)}</div>` : ''}`;
+}
 function cxlLogRender() {
-  const rows = cxlState.log || [];
-  if (!rows.length) { $('cxl-log').innerHTML = '<div class="empty-state"><p>최근 30일 동안 접수한 기록이 없어요</p></div>'; return; }
-  const when = v => v ? new Date(v).toLocaleString('ko-KR', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '';
-  const okN = rows.filter(r => r.ok).length;
-  $('cxl-log').innerHTML = `<div style="font-size:.76rem;color:#6b7280;margin-bottom:8px;">최근 30일 · 처리 ${fmt(okN)}건${rows.length - okN ? ` · 처리 안 됨 ${fmt(rows.length - okN)}건` : ''}</div>
-    <div class="table-wrap"><table class="cxl-tbl" style="width:100%;font-size:.8rem;"><thead><tr><th style="text-align:left;">처리 시각</th><th style="text-align:left;">처리자</th><th style="text-align:left;">종류</th><th style="text-align:left;">주문</th><th style="text-align:left;">취소 구분 · 사유</th><th style="text-align:left;">상품</th><th>환불액</th><th style="text-align:left;">결과</th></tr></thead><tbody>
-    ${rows.map(r => `<tr>
-      <td style="text-align:left;vertical-align:top;white-space:nowrap;font-size:.76rem;">${escHtml(when(r.created_at))}</td>
-      <td style="text-align:left;vertical-align:top;white-space:nowrap;">${escHtml(r.by_name || '')}</td>
-      <td style="text-align:left;vertical-align:top;white-space:nowrap;font-size:.74rem;">${r.kind === 'ret' ? '<span style="color:#7c3aed;font-weight:700;">자사몰 반품 넘김</span>' : r.kind === 'self' ? `<span style="color:#4338ca;font-weight:700;">${r.stage === 'moved' ? '자사몰 환불전 넘김' : '자사몰 환불'}</span>` : '<span style="color:#03a54f;font-weight:700;">네이버페이 접수</span>'}</td>
-      <td style="text-align:left;vertical-align:top;white-space:nowrap;"><b style="font-family:monospace;">${escHtml(r.order_id)}</b>${r.claim_code ? `<div style="font-size:.68rem;color:#9ca3af;">${escHtml(r.claim_code)}</div>` : ''}</td>
-      <td style="text-align:left;vertical-align:top;font-size:.78rem;max-width:260px;"><b>${escHtml(r.reason_label || (r.kind === 'self' ? (CXS_REASON[r.reason_type] || '') : ''))}</b><div style="color:#6b7280;white-space:pre-wrap;">${escHtml(r.reason || '')}</div>${(r.flags || []).length ? `<div style="color:#92400e;font-size:.7rem;">직접 확인 뒤 접수: ${escHtml(r.flags.map(f => f.text).join(' / '))}</div>` : ''}</td>
-      <td style="text-align:left;vertical-align:top;font-size:.78rem;">${(r.items || []).map(x => `<div>${escHtml(x.product_name || '')} <span style="color:#6b7280;">${escHtml(x.option || '')}</span> ${x.qty || ''}개</div>`).join('')}</td>
-      <td style="text-align:right;vertical-align:top;white-space:nowrap;font-size:.78rem;">${r.kind === 'ret' ? `<span style="color:${r.ok ? '#7c3aed' : '#9ca3af'};">${r.ok ? '환불 예정' : '예정'} ${fmt(r.refund_amount != null ? r.refund_amount : r.expected_amount)}원</span>` + (r.points ? `<div style="font-size:.68rem;color:#6b7280;">적립금 ${fmt(r.points)}</div>` : '') : r.kind === 'self' ? (r.ok && r.refund_amount != null && r.stage !== 'moved' ? `<b>${fmt(r.refund_amount)}원</b>` : r.ok && r.stage === 'moved' ? `<span style="color:#2563eb;">환불전 · 예정 ${fmt(r.refund_amount != null ? r.refund_amount : r.expected_amount)}원</span>` : r.expected_amount != null ? `<span style="color:#9ca3af;">예정 ${fmt(r.expected_amount)}원</span>` : '') + (r.points ? `<div style="font-size:.68rem;color:#6b7280;">적립금 ${fmt(r.points)}</div>` : '') : ''}</td>
-      <td style="text-align:left;vertical-align:top;font-size:.76rem;max-width:260px;">${r.ok ? `<span style="color:#15803d;font-weight:800;"><i class="fa-solid fa-circle-check"></i> ${escHtml(r.result || '접수됨')}</span>` : `<span style="color:#b91c1c;font-weight:800;"><i class="fa-solid fa-circle-xmark"></i> ${r.kind === 'ret' ? '넘기지 않음' : r.kind === 'self' ? '처리 안 됨' : '접수 안 됨'}</span><div style="color:#b91c1c;font-size:.7rem;">${escHtml(r.result || '')}</div>`}</td></tr>`).join('')}</tbody></table></div>`;
+  const box = $('cxl-log'); if (!box) return;
+  const all = cxlState.log || [], f = cxlState.logF;
+  if (!all.length) { box.innerHTML = '<div class="empty-state"><p>최근 30일 동안 처리한 기록이 없어요</p></div>'; return; }
+  const { inDays, shown } = cxlLogRows();
+  const cnt = (list, k) => list.filter(r => cxlLogKindOf(r) === k).length, okN = inDays.filter(r => r.ok).length, badN = inDays.length - okN;
+  const tile = (label, v, sub, col) => `<div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:10px;padding:8px 14px;min-width:110px;"><div style="font-size:.7rem;color:#6b7280;">${label}</div><div style="font-size:1.15rem;font-weight:800;color:${col || '#111827'};">${v}</div>${sub ? `<div style="font-size:.68rem;color:#9ca3af;">${sub}</div>` : ''}</div>`;
+  const chip = (group, val, label, n) => { const on = f[group] === val; return `<button onclick="cxlLogSet('${group}',${typeof val === 'number' ? val : `'${val}'`})" style="border:1.5px solid ${on ? 'transparent' : '#d1d5db'};background:${on ? '#4f46e5' : '#fff'};color:${on ? '#fff' : '#374151'};border-radius:99px;padding:3px 11px;font-size:.74rem;font-weight:800;cursor:pointer;white-space:nowrap;">${label}${n != null ? ' ' + fmt(n) : ''}</button>`; };
+  const lab = t => `<span style="font-size:.72rem;font-weight:700;color:#6b7280;white-space:nowrap;">${t}</span>`;
+  const head = `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;">
+      ${tile(f.days === 1 ? '오늘 처리' : `최근 ${f.days}일 처리`, fmt(okN) + '건', '', '#15803d')}
+      ${tile('네이버페이 접수', fmt(cnt(inDays, 'npay')) + '건', '', CXL_LOG_KIND.npay[1])}${tile('자사몰 취소', fmt(cnt(inDays, 'self')) + '건', '', CXL_LOG_KIND.self[1])}${tile('자사몰 반품', fmt(cnt(inDays, 'ret')) + '건', '', CXL_LOG_KIND.ret[1])}
+      ${tile('처리 안 됨', fmt(badN) + '건', badN ? "아래 '안 됨' 칩으로 모아 보기" : '', badN ? '#b91c1c' : '#9ca3af')}
+    </div>
+    <div style="display:flex;gap:6px 14px;flex-wrap:wrap;align-items:center;margin-bottom:10px;">
+      <span style="display:inline-flex;gap:5px;align-items:center;flex-wrap:wrap;">${lab('기간')}${chip('days', 1, '오늘')}${chip('days', 7, '7일')}${chip('days', 30, '30일')}</span>
+      <span style="display:inline-flex;gap:5px;align-items:center;flex-wrap:wrap;">${lab('종류')}${chip('kind', 'all', '전체', inDays.length)}${chip('kind', 'npay', '네이버페이', cnt(inDays, 'npay'))}${chip('kind', 'self', '자사몰 취소', cnt(inDays, 'self'))}${chip('kind', 'ret', '자사몰 반품', cnt(inDays, 'ret'))}</span>
+      <span style="display:inline-flex;gap:5px;align-items:center;flex-wrap:wrap;">${lab('결과')}${chip('res', 'all', '전체')}${chip('res', 'ok', '처리됨', okN)}${chip('res', 'bad', '안 됨', badN)}</span>
+      <input id="cxl-log-q" type="search" value="${escHtml(f.q || '')}" placeholder="주문번호·상품명·처리자 찾기" oninput="cxlState.logF.q=this.value;renderSoon('cxlLogList')" style="padding:5px 10px;border:1px solid #d1d5db;border-radius:8px;font-size:.78rem;min-width:190px;" />
+    </div><div id="cxl-log-list"></div>`;
+  const keep = document.activeElement && document.activeElement.id === 'cxl-log-q';
+  box.innerHTML = head;
+  if (keep) { const el = $('cxl-log-q'); el.focus(); el.setSelectionRange(el.value.length, el.value.length); }
+  cxlLogList();
+}
+function cxlLogList() {
+  const box = $('cxl-log-list'); if (!box) return;
+  const { shown } = cxlLogRows();
+  if (!shown.length) { box.innerHTML = '<div class="empty-state"><p>조건에 맞는 기록이 없어요</p></div>'; return; }
+  const time = v => new Date(v).toLocaleTimeString('ko-KR', { timeZone: 'Asia/Seoul', hour: '2-digit', minute: '2-digit', hour12: false });
+  const dayLabel = d => new Date(d + 'T00:00:00+09:00').toLocaleDateString('ko-KR', { timeZone: 'Asia/Seoul', month: 'long', day: 'numeric', weekday: 'short' });
+  const byDay = new Map(); shown.forEach(r => { const d = cxlLogDay(r.created_at); byDay.set(d, [...(byDay.get(d) || []), r]); });
+  const one = 'white-space:nowrap;overflow:hidden;text-overflow:ellipsis;';
+  let html = `<div class="table-wrap"><table class="cxl-tbl" style="width:100%;font-size:.8rem;table-layout:fixed;"><colgroup><col style="width:86px;"><col style="width:112px;"><col style="width:158px;"><col><col style="width:22%;"><col style="width:150px;"><col style="width:19%;"></colgroup>
+    <thead><tr><th style="text-align:left;">시각</th><th style="text-align:left;">종류</th><th style="text-align:left;">주문</th><th style="text-align:left;">상품</th><th style="text-align:left;">사유</th><th style="text-align:right;">금액</th><th style="text-align:left;">결과</th></tr></thead><tbody>`;
+  for (const [d, list] of byDay) {
+    const bad = list.filter(r => !r.ok).length;
+    html += `<tr><td colspan="7" style="background:#f3f4f6;text-align:left;font-weight:800;font-size:.78rem;color:#374151;padding:6px 10px;">${escHtml(dayLabel(d))} <span style="font-weight:600;color:#6b7280;">· ${fmt(list.length)}건${bad ? ` · <span style="color:#b91c1c;">안 됨 ${fmt(bad)}</span>` : ''}</span></td></tr>`;
+    for (const r of list) {
+      const k = cxlLogKindOf(r), K = CXL_LOG_KIND[k], items = r.items || [], it = items[0];
+      const itemsTip = items.map(x => `${x.product_name || ''} ${x.option || ''} ${x.qty || ''}개`).join('\n');
+      const reasonLabel = r.reason_label || (k === 'self' ? (CXS_REASON[r.reason_type] || '') : '');
+      const flagTip = (r.flags || []).length ? '직접 확인 뒤 접수: ' + r.flags.map(x => x.text).join(' / ') : '';
+      html += `<tr style="${r.ok ? '' : 'background:#fef2f2;'}">
+        <td class="nw" style="text-align:left;vertical-align:top;"><b>${escHtml(time(r.created_at))}</b><div style="font-size:.66rem;color:#9ca3af;${one}">${escHtml(r.by_name || '')}</div></td>
+        <td style="text-align:left;vertical-align:top;"><span style="display:inline-block;background:${K[2]};color:${K[1]};border-radius:6px;padding:2px 7px;font-size:.7rem;font-weight:800;white-space:nowrap;">${K[0]}</span></td>
+        <td class="nw" style="text-align:left;vertical-align:top;"><b style="font-family:monospace;font-size:.78rem;">${escHtml(r.order_id)}</b>${r.claim_code ? `<div style="font-size:.64rem;color:#9ca3af;">${escHtml(r.claim_code)}</div>` : ''}</td>
+        <td style="text-align:left;vertical-align:top;" title="${escHtml(itemsTip)}">${it ? `<div style="${one}font-weight:600;">${escHtml(it.product_name || '')}</div><div style="font-size:.7rem;color:#6b7280;${one}">${escHtml(it.option || '')} ${it.qty ? it.qty + '개' : ''}${items.length > 1 ? ` <b style="color:#4f46e5;">외 ${items.length - 1}개</b>` : ''}</div>` : '<span style="color:#d1d5db;">—</span>'}</td>
+        <td style="text-align:left;vertical-align:top;" title="${escHtml([reasonLabel, r.reason || '', flagTip].filter(Boolean).join('\n'))}"><div style="${one}"><b>${escHtml(reasonLabel)}</b>${flagTip ? ' <span style="font-size:.64rem;color:#92400e;background:#fde68a;border-radius:5px;padding:0 5px;">직접 확인 뒤</span>' : ''}</div><div style="font-size:.72rem;color:#6b7280;${one}">${escHtml(String(r.reason || '').replace(/\s+/g, ' '))}</div></td>
+        <td style="text-align:right;vertical-align:top;">${cxlLogAmountCell(r)}</td>
+        <td style="text-align:left;vertical-align:top;font-size:.76rem;">${cxlLogResultCell(r)}</td></tr>`;
+    }
+  }
+  box.innerHTML = html + '</tbody></table></div>';
 }
 
 /* ══ 미발송 관리 (#unship, 2026-09-28 사용자 요청 — 물류팀) ══
@@ -4466,7 +4538,7 @@ const unshipOverdue = (m, today) => !!(m && m.arrival_date && String(m.arrival_d
    서버 cafe24-analytics cn_list / cn_upload / cn_check / cn_ship. 단가·비용은 관리자만(2026-10-02 — 서버가 MD·물류팀 응답에서 뺀다). CS팀은 메뉴 자체가 없음. 엑셀 올리기·입고 건 수정·삭제도 관리자·MD. */
 const CN_TABS = [['check', '입고 검수', null, 'fa-solid fa-clipboard-check'], ['prod', '상품별 현황', null, 'fa-solid fa-layer-group'], ['cost', '입고 비용', null, 'fa-solid fa-coins']];
 const cnTabs = () => CN_TABS.filter(t => t[0] !== 'cost' || !cnState.data || cnState.data.can_price);   // 입고 비용 = 관리자만
-const cnState = { data: null, loading: false, tab: 'check', shipId: null, filter: 'all', prodFilter: 'all', pending: null, sales: null, salesLoading: false, open: { check: new Set(), prod: new Set() }, thumbs: {}, thumbAsked: new Set(), thumbWant: [], thumbT: null, thumbScroll: false };
+const cnState = { data: null, loading: false, tab: 'check', shipId: 'all', costShipId: null, filter: 'all', prodFilter: 'all', pending: null, sales: null, salesLoading: false, open: { check: new Set(), prod: new Set() }, thumbs: {}, thumbAsked: new Set(), thumbWant: [], thumbT: null, thumbScroll: false };
 function cnTabRender() { const k = cnState.tab; if (k === 'check') cnCheckRender(); else if (k === 'cost') cnCostRender(); else { cnProdRender(); cnSalesLoad(); } }
 function cnInit() { cnSetTab(cnState.tab); if (!cnState.data && !cnState.loading) cnLoad(false); }
 function cnSetTab(k) {
@@ -4483,7 +4555,8 @@ async function cnLoad(force) {
   try {
     cnState.data = await anGet(Object.assign({ action: 'cn_list' }, force ? { nocache: 1 } : {}));
     const ships = cnState.data.ships || [];
-    if (!ships.some(x => x.id === cnState.shipId)) cnState.shipId = ships.length ? ships[0].id : null;
+    // 입고 검수의 기본 보기 = '전체'(입고가 2건 이상일 때 — 2026-10-07 사용자 요청). 입고가 하나뿐이면 그 입고.
+    if (ships.length < 2 || (cnState.shipId !== 'all' && !ships.some(x => x.id === cnState.shipId))) cnState.shipId = ships.length > 1 ? 'all' : (ships.length ? ships[0].id : null);
     $('cn-upload-btn').style.display = cnState.data.can_edit ? '' : 'none';
     const pn = $('cn-prod-price-note'); if (pn) pn.style.display = cnState.data.can_price ? '' : 'none';   // 단가 설명은 단가를 보는 사람(관리자)에게만
     cnSetTab(cnState.tab);   // 탭 줄(입고 비용은 관리자만)도 권한에 맞게 다시
@@ -4605,7 +4678,8 @@ function cnDiffHtml(l) {
   return d === 0 ? '<span style="color:#15803d;font-weight:700;">일치</span>' : d < 0 ? `<b style="color:#b91c1c;">부족 ${fmt(-d)}</b>` : `<b style="color:#1d4ed8;">초과 +${fmt(d)}</b>`;
 }
 function cnWhoHtml(l) { return l.checked_by_name ? `${escHtml(l.checked_by_name)} · ${escHtml(unshipKst(l.checked_at))}` : ''; }
-function cnShipLines() { return ((cnState.data || {}).lines || []).filter(l => l.shipment_id === cnState.shipId); }
+const cnIsAll = () => cnState.shipId === 'all' && (((cnState.data || {}).ships || []).length > 1);   // 입고 검수 '전체' 보기
+function cnShipLines() { const all = (cnState.data || {}).lines || []; return cnIsAll() ? all : all.filter(l => l.shipment_id === cnState.shipId); }
 function cnGroups(lines) {   // 사입상품명별 묶음(엑셀에 나온 순서)
   const m = new Map();
   for (const l of lines) { const g = m.get(l.sname) || { sname: l.sname, rows: [] }; g.rows.push(l); m.set(l.sname, g); }
@@ -4676,6 +4750,21 @@ function cnGroupPriceCells(g) {
   return td(cnYuan(yuan) + tag) + td(cnKrw(yuan)) + td(cnRealHtml(yuan, g.rows[0].shipment_id))
     + `<td class="m-hide" style="text-align:right;color:#6b7280;font-weight:700;">${cnYuan(priced.reduce((t, l) => t + l.qty_sent * Number(l.unit_price), 0))}</td>`;
 }
+// '전체' 보기의 단가 칸(2026-10-07 사용자 요청 — 차수마다 실질 단가가 달라, 전체에서는 들어온 모든 차수를 반영한 값):
+//   줄(옵션 × 입고)마다 그 입고의 비용 비율로 실질 단가를 구한 뒤 입고(전달) 수량으로 가중 평균(cnRealAvg — 상품별 현황과 같은 계산).
+function cnLineParts(rows) {
+  const shipById = new Map((((cnState.data || {}).ships) || []).map(x => [x.id, x]));
+  return rows.filter(l => l.unit_price != null && l.qty_sent > 0).map(l => { const rw = cnRealWon(l.unit_price, l.shipment_id); return { ship: l.shipment_id, title: (shipById.get(l.shipment_id) || {}).title || '', qty: l.qty_sent, yuan: Number(l.unit_price), won: rw.won, hasCost: !!rw.r }; });
+}
+function cnGroupPriceCellsAll(g) {
+  const priced = g.rows.filter(l => l.unit_price != null), r = cnRealAvg(cnLineParts(g.rows));
+  if (!priced.length || !r) return cnGroupPriceCells(g);
+  const mixed = new Set(priced.map(l => Number(l.unit_price))).size > 1;
+  const tag = mixed ? '<div style="font-size:.6rem;color:#6b7280;font-weight:500;" title="옵션·입고마다 단가가 달라 전달 수량으로 가중 평균했어요">평균</div>' : '';
+  const td = v => `<td style="text-align:right;font-weight:700;">${v}</td>`;
+  return td(cnYuan(r.yuan) + tag) + td(cnKrw(r.yuan)) + td(cnRealAvgHtml(r, true))
+    + `<td class="m-hide" style="text-align:right;color:#6b7280;font-weight:700;">${cnYuan(priced.reduce((t, l) => t + l.qty_sent * Number(l.unit_price), 0))}</td>`;
+}
 function cnCheckRender() {
   const d = cnState.data; if (!d) return;
   const ships = d.ships || [];
@@ -4685,14 +4774,16 @@ function cnCheckRender() {
     $('cn-check-list').innerHTML = `<div class="empty-state"><p>아직 올린 입고 엑셀이 없어요.${d.can_edit ? ' 위의 <b>[입고 엑셀 올리기]</b>로 중국에서 받은 엑셀을 올려 주세요.' : ' 관리자·MD가 입고 엑셀을 올리면 여기에 나와요.'}</p></div>`;
     return;
   }
-  const ship = ships.find(x => x.id === cnState.shipId) || ships[0];
-  cnState.shipId = ship.id;
+  const isAll = cnIsAll();
+  const ship = isAll ? null : (ships.find(x => x.id === cnState.shipId) || ships[0]);
+  if (!isAll) cnState.shipId = ship.id;
   const lines = cnShipLines();
+  const shipById = new Map(ships.map(x => [x.id, x]));
   bar.innerHTML = `<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
-    <select onchange="cnState.shipId=Number(this.value);cnState.filter='all';cnCheckRender()" style="border:1.5px solid #d1d5db;border-radius:8px;padding:6px 10px;font-size:.84rem;font-weight:700;max-width:100%;">
-      ${ships.map(x => `<option value="${x.id}"${x.id === ship.id ? ' selected' : ''}>${escHtml(x.title)}${x.ship_date ? ' · ' + escHtml(String(x.ship_date).slice(5)) + ' 출고' : ''}</option>`).join('')}</select>
-    <span style="font-size:.76rem;color:#6b7280;">${[ship.order_round ? '발주 <b>' + escHtml(ship.order_round) + '</b>' : '', ship.ship_date ? '출고 ' + escHtml(ship.ship_date) : '', '올린 사람 ' + escHtml(ship.created_by_name || '') + ' ' + escHtml(unshipKst(ship.created_at))].filter(Boolean).join(' · ')}${ship.note ? ' · ' + escHtml(ship.note) : ''}</span>
-    ${d.can_edit ? `<label class="toggle-btn" style="font-size:.7rem;padding:3px 9px;cursor:pointer;" title="이 입고의 엑셀을 다시 고르면 상품 사진만 작게 줄여 넣어요(수량은 그대로)"><i class="fa-regular fa-image"></i> 사진 넣기<input type="file" accept=".xlsx" style="display:none;" onchange="cnThumbFilePick(this)" /></label><button class="toggle-btn" style="font-size:.7rem;padding:3px 9px;" onclick="cnShipEdit()">정보 수정</button><button class="toggle-btn" style="font-size:.7rem;padding:3px 9px;color:#dc2626;" onclick="cnShipDelete()">삭제</button>` : ''}</div>`;
+    <select onchange="cnState.shipId=this.value==='all'?'all':Number(this.value);cnState.filter='all';cnCheckRender()" style="border:1.5px solid #d1d5db;border-radius:8px;padding:6px 10px;font-size:.84rem;font-weight:700;max-width:100%;">
+      ${ships.length > 1 ? `<option value="all"${isAll ? ' selected' : ''}>전체 (입고 ${ships.length}건)</option>` : ''}${ships.map(x => `<option value="${x.id}"${!isAll && x.id === ship.id ? ' selected' : ''}>${escHtml(x.title)}${x.ship_date ? ' · ' + escHtml(String(x.ship_date).slice(5)) + ' 출고' : ''}</option>`).join('')}</select>
+    ${isAll ? `<span style="font-size:.76rem;color:#6b7280;">입고 <b>${ships.length}건</b>을 합쳐 보여줘요${d.can_price ? " · <b>실질 단가</b> = 들어온 모든 입고를 수량으로 가중 평균" : ''} · 정보 수정·삭제·사진 넣기는 입고를 하나 골라서 해요</span>` : `<span style="font-size:.76rem;color:#6b7280;">${[ship.order_round ? '발주 <b>' + escHtml(ship.order_round) + '</b>' : '', ship.ship_date ? '출고 ' + escHtml(ship.ship_date) : '', '올린 사람 ' + escHtml(ship.created_by_name || '') + ' ' + escHtml(unshipKst(ship.created_at))].filter(Boolean).join(' · ')}${ship.note ? ' · ' + escHtml(ship.note) : ''}</span>`}
+    ${d.can_edit && !isAll ? `<label class="toggle-btn" style="font-size:.7rem;padding:3px 9px;cursor:pointer;" title="이 입고의 엑셀을 다시 고르면 상품 사진만 작게 줄여 넣어요(수량은 그대로)"><i class="fa-regular fa-image"></i> 사진 넣기<input type="file" accept=".xlsx" style="display:none;" onchange="cnThumbFilePick(this)" /></label><button class="toggle-btn" style="font-size:.7rem;padding:3px 9px;" onclick="cnShipEdit()">정보 수정</button><button class="toggle-btn" style="font-size:.7rem;padding:3px 9px;color:#dc2626;" onclick="cnShipDelete()">삭제</button>` : ''}</div>`;
   $('cn-check-summary').innerHTML = cnCheckSummaryHtml(lines);
   const q = String(($('cn-check-q') || {}).value || '').trim().toLowerCase();
   const pass = CN_CHECK_PASS;
@@ -4704,7 +4795,10 @@ function cnCheckRender() {
   const forceOpen = cnState.filter !== 'all' || !!q;   // 골라 보거나 찾는 중이면 옵션을 바로 보여준다
   if (!groups.length) { $('cn-check-list').innerHTML = '<div class="empty-state"><p>조건에 맞는 옵션이 없어요.</p></div>'; return; }
   const num = (v, id) => `<td style="text-align:right;"${id ? ` id="${id}"` : ''}>${v}</td>`;
-  let html = `<div style="display:flex;gap:6px;margin-bottom:6px;">${cnFoldAllHtml('check')}</div><div class="table-wrap"><table style="width:100%;font-size:.8rem;"><thead><tr><th style="text-align:left;">사입상품명 / 옵션</th><th>전달 수량</th><th>실제 수량</th><th>차이</th><th>미출고 잔여</th>${canPrice ? `<th>단가(CHN)</th><th title="단가(CHN) × 환율 ${CN_FX}원" style="cursor:help;">단가(KRW)</th><th title="환율 ${CN_FX}원으로 계산&#10;100원당 추가비용 포함 · 부가세는 제외 (입고 비용 기준)" style="cursor:help;">실질 단가</th><th class="m-hide">금액</th>` : ''}<th class="m-hide" style="text-align:left;">확인</th><th style="text-align:left;">메모</th></tr></thead><tbody>`;
+  const optKey = l => l.sname + '\u0001' + cnOpt(l), optReal = new Map();   // 전체 보기: 같은 옵션의 모든 입고 줄을 합친 실질 단가
+  if (isAll && canPrice) { const by = new Map(); for (const l of lines) { const k = optKey(l); by.set(k, [...(by.get(k) || []), l]); } for (const [k, rows] of by) optReal.set(k, cnRealAvg(cnLineParts(rows))); }
+  const shipTag = l => { const x = shipById.get(l.shipment_id) || {}; return ` <span style="font-size:.64rem;color:#6366f1;background:#eef2ff;border-radius:99px;padding:0 7px;white-space:nowrap;" title="${escHtml(x.title || '')}">${escHtml(x.order_round || x.title || '')}</span>`; };
+  let html = `<div style="display:flex;gap:6px;margin-bottom:6px;">${cnFoldAllHtml('check')}</div><div class="table-wrap"><table style="width:100%;font-size:.8rem;"><thead><tr><th style="text-align:left;">사입상품명 / 옵션</th><th>전달 수량</th><th>실제 수량</th><th>차이</th><th>미출고 잔여</th>${canPrice ? `<th>단가(CHN)</th><th title="단가(CHN) × 환율 ${CN_FX}원" style="cursor:help;">단가(KRW)</th><th title="환율 ${CN_FX}원으로 계산&#10;100원당 추가비용 포함 · 부가세는 제외 (입고 비용 기준)${isAll ? '&#10;전체 차수 값을 반영함' : ''}" style="cursor:help;">실질 단가${isAll ? '<div style="font-size:.62rem;font-weight:500;color:#6b7280;">전체 입고 평균</div>' : ''}</th><th class="m-hide">금액</th>` : ''}<th class="m-hide" style="text-align:left;">확인</th><th style="text-align:left;">메모</th></tr></thead><tbody>`;
   groups.forEach(g => {
     const gi = encodeURIComponent(g.sname), h = cnProdHeadCells(g), todo = g.rows.filter(l => l.qty_actual == null).length;
     const noteTxt = [...new Set(g.rows.map(l => l.line_note).filter(Boolean))].join(' · ');
@@ -4712,15 +4806,15 @@ function cnCheckRender() {
     html += `<tr style="background:#f8f9ff;" data-cn-g="${escHtml(gi)}">
       <td style="text-align:left;font-weight:800;">${cnFoldBtn('check', g.sname, open, g.show.length)}${cnThumbHtml(g.sname)}${escHtml(g.sname)} <span style="font-size:.66rem;color:#9ca3af;font-weight:500;">옵션 ${g.show.length}</span> ${cnC24Badge(g.sname)}${noteTxt ? ` <span style="font-size:.68rem;color:#6b7280;font-weight:500;">${escHtml(noteTxt)}</span>` : ''}
         ${todo ? `<button class="toggle-btn" style="font-size:.66rem;padding:1px 8px;margin-left:6px;" data-g="${escHtml(g.sname)}" onclick="cnFillSame(this)" title="아직 안 적은 옵션 ${todo}개를 전달 수량과 같게 채워요">전달 수량과 같음</button>` : ''}</td>
-      ${num(h.sent, '')}<td style="text-align:right;" data-cn-h="act">${h.act}</td><td style="text-align:right;" data-cn-h="diff">${h.diff}</td>${num(h.left, '')}${canPrice ? cnGroupPriceCells(g) : ''}<td class="m-hide"></td><td></td></tr>`;
+      ${num(h.sent, '')}<td style="text-align:right;" data-cn-h="act">${h.act}</td><td style="text-align:right;" data-cn-h="diff">${h.diff}</td>${num(h.left, '')}${canPrice ? (isAll ? cnGroupPriceCellsAll(g) : cnGroupPriceCells(g)) : ''}<td class="m-hide"></td><td></td></tr>`;
     g.show.forEach(l => {
       html += `<tr data-cn-l="${l.id}" data-cn-o="${escHtml(gi)}"${open ? '' : ' style="display:none;"'}>
-        <td style="text-align:left;padding-left:28px;">${escHtml(cnOpt(l))}</td>
+        <td style="text-align:left;padding-left:28px;">${escHtml(cnOpt(l))}${isAll ? shipTag(l) : ''}</td>
         ${num(fmt(l.qty_sent), '')}
         <td style="text-align:right;"><input type="number" class="cn-act" min="0" step="1" inputmode="numeric" value="${l.qty_actual == null ? '' : l.qty_actual}" data-id="${l.id}" data-prev="${l.qty_actual == null ? '' : l.qty_actual}" onchange="cnActSave(this)" onkeydown="cnActKey(event,this)" style="width:72px;text-align:right;border:1.5px solid ${l.qty_actual == null ? '#d1d5db' : l.qty_actual === l.qty_sent ? '#86efac' : '#fca5a5'};border-radius:7px;padding:4px 6px;font-size:.82rem;font-weight:700;" /></td>
         <td style="text-align:right;" data-cn-c="diff">${cnDiffHtml(l)}</td>
         ${num(l.qty_left == null ? '<span style="color:#9ca3af;">—</span>' : l.qty_left === 0 ? '<span style="color:#9ca3af;">출완</span>' : `<b style="color:#c2410c;">${fmt(l.qty_left)}</b>`, '')}
-        ${canPrice ? num(cnYuan(l.unit_price), '') + num(cnKrw(l.unit_price), '') + num(cnRealHtml(l.unit_price, l.shipment_id), '') + `<td class="m-hide" style="text-align:right;color:#6b7280;">${l.unit_price == null ? '—' : cnYuan(l.qty_sent * Number(l.unit_price))}</td>` : ''}
+        ${canPrice ? num(cnYuan(l.unit_price), '') + num(cnKrw(l.unit_price), '') + num(isAll ? cnRealAvgHtml(optReal.get(optKey(l)), false) : cnRealHtml(l.unit_price, l.shipment_id), '') + `<td class="m-hide" style="text-align:right;color:#6b7280;">${l.unit_price == null ? '—' : cnYuan(l.qty_sent * Number(l.unit_price))}</td>` : ''}
         <td class="m-hide" style="text-align:left;font-size:.68rem;color:#9ca3af;white-space:nowrap;" data-cn-c="who">${cnWhoHtml(l)}</td>
         <td style="text-align:left;"><input type="text" maxlength="300" value="${escHtml(l.memo || '')}" data-id="${l.id}" data-prev="${escHtml(l.memo || '')}" onchange="cnMemoSave(this)" placeholder="메모" style="width:100%;min-width:90px;border:1px solid #e5e7eb;border-radius:6px;padding:3px 6px;font-size:.74rem;" /></td></tr>`;
     });
@@ -4791,7 +4885,7 @@ async function cnShipDelete() {
   const ship = (cnState.data.ships || []).find(x => x.id === cnState.shipId); if (!ship) return;
   const n = cnShipLines().filter(l => l.qty_actual != null).length;
   if (!confirm(`"${ship.title}" 입고 건을 지울까요?\n옵션 줄과 적어 둔 실제 수량${n ? ` ${n}개` : ''}·메모가 모두 지워지고 되돌릴 수 없어요.`)) return;
-  try { await cnPost('cn_ship', { id: ship.id, delete: true }); showToast('입고 건을 지웠어요'); cnState.shipId = null; cnState.loading = false; cnLoad(false); }
+  try { await cnPost('cn_ship', { id: ship.id, delete: true }); showToast('입고 건을 지웠어요'); cnState.shipId = 'all'; cnState.costShipId = null; cnState.loading = false; cnLoad(false); }
   catch (e) { showToast('삭제 실패: ' + e.message); }
 }
 
@@ -4984,7 +5078,7 @@ function cnCostRender() {
   if (!d.can_price) { box.innerHTML = '<div class="empty-state"><p>입고 비용은 관리자만 볼 수 있어요.</p></div>'; return; }
   const ships = d.ships || [];
   if (!ships.length) { box.innerHTML = '<div class="empty-state"><p>아직 올린 입고 엑셀이 없어요.</p></div>'; return; }
-  const ship = ships.find(x => x.id === cnState.shipId) || ships[0]; cnState.shipId = ship.id;
+  const ship = ships.find(x => x.id === cnState.costShipId) || ships.find(x => x.id === cnState.shipId) || ships[0]; cnState.costShipId = ship.id;
   const qtyOf = id => (d.lines || []).filter(l => l.shipment_id === id).reduce((t, l) => t + l.qty_sent, 0);
   const yuanOf = id => (d.lines || []).filter(l => l.shipment_id === id).reduce((t, l) => t + l.qty_sent * (Number(l.unit_price) || 0), 0);
   const num = v => `<td style="text-align:right;">${v}</td>`;
@@ -4992,7 +5086,7 @@ function cnCostRender() {
   let tQty = 0, tSum = 0, tEx = 0, tPay = 0;
   const allRows = ships.slice().reverse().map(x => {
     const s = cnCostSums(x.costs), q = qtyOf(x.id); tQty += q; if (x.costs) { tSum += s.sum; tEx += s.exVat; tPay += s.paySum; }
-    return `<tr style="cursor:pointer;${x.id === ship.id ? 'background:#eef2ff;' : ''}" onclick="cnState.shipId=${x.id};cnCostRender()">
+    return `<tr style="cursor:pointer;${x.id === ship.id ? 'background:#eef2ff;' : ''}" onclick="cnState.costShipId=${x.id};cnCostRender()">
       <td style="text-align:left;font-weight:700;">${escHtml(x.title)}</td><td style="text-align:left;">${escHtml(x.order_round || '—')}</td><td style="text-align:left;">${escHtml(x.ship_date || '—')}</td>
       ${num(fmt(q) + '장')}${num(cnYuan(yuanOf(x.id)))}${num(x.costs ? cnWon(s.paySum) : '<span style="color:#9ca3af;">—</span>')}${num(x.costs ? `<b>${cnWon(s.sum)}</b>` : '<span style="color:#b45309;">비용 시트 없음</span>')}${num(x.costs ? cnWon(s.exVat) : '<span style="color:#9ca3af;">—</span>')}${num(x.costs ? `<b style="color:#4338ca;">${cnCostPct(s.exVat, s.paySum)}</b>` : '<span style="color:#9ca3af;">—</span>')}</tr>`;
   }).join('');
@@ -5031,7 +5125,7 @@ function cnCostRender() {
 }
 async function cnCostFilePick(input) {   // 이미 올린 입고 건에 비용 시트만 다시 넣는다(옵션 줄·실제 수량은 그대로)
   const file = input.files[0]; input.value = ''; if (!file) return;
-  const ship = (cnState.data.ships || []).find(x => x.id === cnState.shipId); if (!ship) return;
+  const ship = (cnState.data.ships || []).find(x => x.id === cnState.costShipId); if (!ship) return;
   try {
     const XLSX = await loadSheetJS();
     const costs = cnCostSheet(XLSX.read(await file.arrayBuffer(), { type: 'array' }), XLSX);
@@ -5043,7 +5137,7 @@ async function cnCostFilePick(input) {   // 이미 올린 입고 건에 비용 �
   } catch (e) { showToast('비용 저장 실패: ' + e.message); }
 }
 async function cnCostClear() {
-  const ship = (cnState.data.ships || []).find(x => x.id === cnState.shipId); if (!ship || !ship.costs) return;
+  const ship = (cnState.data.ships || []).find(x => x.id === cnState.costShipId); if (!ship || !ship.costs) return;
   if (!confirm(`"${ship.title}"의 비용 내용을 지울까요? (옵션 줄과 실제 수량은 그대로예요)`)) return;
   try { const r = await cnPost('cn_ship', { id: ship.id, costs: null }); Object.assign(ship, r.shipment); cnCostRender(); showToast('비용을 지웠어요'); }
   catch (e) { showToast('지우기 실패: ' + e.message); }
