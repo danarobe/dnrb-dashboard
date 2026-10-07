@@ -1520,7 +1520,7 @@
         <div style="font-size:.8rem;color:#6b7280;margin-bottom:10px;line-height:1.7;">
           · 고객이 <b>자사몰에서 넣은 반품</b>(카페24 '반품접수')을 모았어요. 버튼을 누르면 체크된 접수가 카페24에서 <b>'반품처리중(수거전)'</b>으로 넘어가면서 환불 금액이 정해져요 — <b>돈은 아직 나가지 않아요.</b><br>
           · <b>반품 배송비</b>: 배송비를 낸 주문 3,000원 / 무료배송 주문은 전체 반품이거나 남는 금액이 7만 원 미만이면 6,000원, 7만 원 이상이면 3,000원을 환불액에서 빼요.<br>
-          · <b>쿠폰</b>은 남는 금액이 그 쿠폰의 최소 구매 금액보다 적어지면(전체 반품 포함) 할인을 취소하고, <b>적립금</b>은 전체 반품이거나 남는 금액이 3만 원 미만일 때만 돌려줘요.<br>
+          · <b>쿠폰</b>은 남는 금액이 그 쿠폰의 최소 구매 금액(조건 없는 쿠폰은 3만 원)보다 적어지면(전체 반품 포함) 할인을 취소하고, <b>적립금</b>은 전체 반품이거나 남는 금액이 3만 원 미만일 때만 돌려줘요.<br>
           · 처리는 <b>이 PC 엣지에 로그인된 카페24 관리자의 '반품 처리' 창</b>에서 해요. 카페24 창이 계산한 환불액이 여기의 '환불 예정액'과 <b>1원이라도 다르면 보내지 않고 멈춰요.</b> 먼저 <b>[검사만 하기]</b>로 확인해 볼 수 있어요.<br>
           · <b style="color:#b45309;">직접 확인 권장</b>(불량·오배송, 1+1·10% 이상 할인 상품, 조건을 못 읽은 쿠폰, 다른 취소·교환·반품이 섞인 주문, 수거 신청이 아닌 접수 등)은 지금처럼 카페24에서 처리해주세요.
         </div>
@@ -4097,14 +4097,22 @@ function cxrCalcHtml(g) {
 function cxrPlanHtml(g) {
   const p = g.plan, chip = (bg, col, t, title) => `<span title="${escHtml(title || '')}" style="display:inline-block;background:${bg};color:${col};border-radius:6px;padding:1px 7px;font-size:.7rem;font-weight:700;margin:1px 3px 1px 0;white-space:nowrap;">${t}</span>`;
   const out = [chip('#e0e7ff', '#3730a3', `배송비 ${fmt(p.fee)} 차감`, g.calc.ship_paid ? '배송비를 낸 주문 — 반품 배송비 3,000원' : p.fee === 6000 ? (g.full ? '무료배송 주문 전체 반품 — 왕복 6,000원' : '무료배송 주문 · 남는 금액 7만 원 미만 — 왕복 6,000원') : '무료배송 주문 · 남는 금액 7만 원 이상 — 3,000원')];
-  if (p.coupon === 'cancel') out.push(chip('#fee2e2', '#b91c1c', `쿠폰 ${fmt(p.coupon_amount)} 취소`, `${p.coupon_name} — ${g.full ? '전체 반품' : `남는 금액이 최소 ${fmt(p.coupon_min)}원 미만`}`));
-  else if (p.coupon === 'keep') out.push(chip('#dcfce7', '#166534', `쿠폰 ${fmt(p.coupon_amount)} 유지`, `${p.coupon_name} — ${p.coupon_min ? `남는 금액이 최소 ${fmt(p.coupon_min)}원 이상` : '금액 조건 없는 쿠폰'}`));
+  if (p.coupon === 'cancel') out.push(chip('#fee2e2', '#b91c1c', `쿠폰 ${fmt(p.coupon_amount)} 취소`, `${p.coupon_name} — ${g.full ? '전체 반품' : `남는 금액이 ${fmt(p.coupon_min)}원 미만`}${!g.full && !p.coupon_own_min ? ' (쿠폰 자체에는 금액 조건이 없지만 3만 원 미만이면 취소)' : ''}`));
+  else if (p.coupon === 'keep') out.push(chip('#dcfce7', '#166534', `쿠폰 ${fmt(p.coupon_amount)} 유지`, `${p.coupon_name} — 남는 금액이 ${fmt(p.coupon_min)}원 이상${p.coupon_own_min ? '(쿠폰 최소 구매 금액)' : '(금액 조건 없는 쿠폰은 3만 원 기준)'}`));
   if (p.points_used) out.push(p.points_return ? chip('#fef3c7', '#92400e', `적립금 ${fmt(p.points_return)} 반환`, g.full ? '전체 반품 — 쓴 적립금을 돌려줘요' : '남는 금액 3만 원 미만 — 쓴 적립금을 돌려줘요') : chip('#f3f4f6', '#4b5563', `적립금 ${fmt(p.points_used)} 유지`, '남는 금액 3만 원 이상 — 적립금은 쓴 그대로 둬요'));
   // 상품별추가할인 취소 — 할인이 없어도(0원) 늘 표시하고, 있으면 창에서 무엇을 골라 얼마를 취소하는지 보여 준다(2026-10-07 사용자 요청)
   if (p.add_sale === 'none') out.push(chip('#f3f4f6', '#6b7280', '상품별추가할인 취소 0', g.calc.rest_disc ? `반품 상품에는 상품별 할인이 없어요 — 남는 상품의 할인 ${fmt(g.calc.rest_disc)}원은 그대로 둬요` : '이 주문에는 상품별 할인이 없어요 — 취소할 금액 0원'));
   else out.push(chip('#ffedd5', '#9a3412', `상품별추가할인 ${p.add_sale === 'T' ? '전체취소' : '품목별 취소'} ${fmt(p.add_sale_amount)}`,
     `반품 상품에 적용됐던 할인(${g.items.filter(x => x.disc > 0).map(x => `${x.product_name} ${fmt(x.disc)}원`).join(' + ')})을 환불에서 빼요 — 카페24 창에서 '${p.add_sale === 'T' ? '상품별추가할인 전체취소' : '품목별 할인취소'}'${g.calc.rest_disc ? ` · 남는 상품의 할인 ${fmt(g.calc.rest_disc)}원은 그대로` : ''}`));
   return out.join('');
+}
+// 직접 확인 권장 접수의 '예상 환불액(참고)' — 변심 규칙으로 계산한 값 + 이 접수에서 달라질 수 있는 점(2026-10-07 사용자 요청: 카페24 창 금액과 견줘 보는 더블 체크)
+function cxrEstCell(g) {
+  const e = g.est;
+  if (!e || !e.ok) return '<span style="color:#9ca3af;font-size:.76rem;">계산하지 못했어요</span>';
+  return `<div class="nw"><b style="color:#92400e;font-size:.9rem;">${cxsWon(g.expect.amount)}</b>${g.expect.points ? ` <span style="font-size:.7rem;color:#6b7280;">+ 적립금 반환 ${cxsWon(g.expect.points)}</span>` : ''}</div>${cxrCalcHtml(g)}`
+    + (e.alt ? `<div style="font-size:.72rem;color:#1d4ed8;font-weight:700;margin-top:3px;">${escHtml(e.alt.label)} ${cxsWon(e.alt.amount)}</div>` : '')
+    + (e.notes || []).map(t => `<div style="font-size:.68rem;color:#92400e;line-height:1.45;margin-top:2px;">· ${escHtml(t)}</div>`).join('');
 }
 function cxrStatusCell(g) {
   const s = cxrState.status.get(cxrKey(g));
@@ -4169,15 +4177,16 @@ function cxrRender() {
         <b style="font-size:.95rem;color:#92400e;"><i class="fa-solid fa-triangle-exclamation"></i> 직접 확인 권장</b>
         <span style="background:#fde68a;color:#92400e;border-radius:99px;padding:2px 10px;font-size:.74rem;font-weight:800;">${b.manual.length}건 · 상품 ${cnt(b.manual)}개</span>
       </div>
-      <div style="font-size:.74rem;color:#92400e;margin-bottom:8px;">환불액을 따져 봐야 하는 접수라 여기서는 처리하지 않아요. 맨 앞 칸의 '확인할 점'을 보고 [카페24]를 눌러 지금처럼 직접 처리해주세요.</div>
+      <div style="font-size:.74rem;color:#92400e;margin-bottom:8px;">환불액을 따져 봐야 하는 접수라 여기서는 처리하지 않아요. 맨 앞 칸의 '확인할 점'을 보고 [카페24]를 눌러 지금처럼 직접 처리해주세요. <b>'예상 환불액(참고)'</b>은 변심 기준으로 계산한 값이에요 — 카페24 창의 금액과 견줘 보는 용도이고, 아래 작은 글씨가 이 접수에서 달라질 수 있는 점이에요.</div>
       ${cxlTagFilterHtml(b.manual, g => g.manual, cxrState.tag || '', 'cxrSetTag')}
-      <div class="table-wrap"><table class="cxl-tbl" style="width:100%;font-size:.8rem;"><thead><tr><th style="text-align:left;min-width:230px;">확인할 점</th><th style="text-align:left;">주문</th><th style="text-align:left;">반품 상품 · 옵션 · 수량</th><th style="text-align:left;">사유</th><th style="text-align:left;">결제</th><th style="text-align:left;">처리</th></tr></thead><tbody>
+      <div class="table-wrap"><table class="cxl-tbl" style="width:100%;font-size:.8rem;"><thead><tr><th style="text-align:left;min-width:230px;">확인할 점</th><th style="text-align:left;">주문</th><th style="text-align:left;">반품 상품 · 옵션 · 수량</th><th style="text-align:left;">사유</th><th style="text-align:left;">결제</th><th style="text-align:left;min-width:200px;">예상 환불액 (참고)</th><th style="text-align:left;">처리</th></tr></thead><tbody>
       ${manualShown.map(g => `<tr>
         <td style="text-align:left;vertical-align:top;min-width:230px;">${cxlFlagCell(g.manual, () => false)}</td>
         <td class="nw" style="text-align:left;vertical-align:top;">${cxrOrderCell(g)}</td>
         <td style="text-align:left;vertical-align:top;font-size:.78rem;">${cxrItemsHtml(g)}</td>
         <td style="text-align:left;vertical-align:top;font-size:.78rem;max-width:200px;">${cxrReasonCell(g)}</td>
         <td class="nw" style="text-align:left;vertical-align:top;font-size:.76rem;">${escHtml(g.pay_label)}</td>
+        <td style="text-align:left;vertical-align:top;min-width:200px;">${cxrEstCell(g)}</td>
         <td class="nw" style="text-align:left;vertical-align:top;">${cafeBtn(g)}</td></tr>`).join('')}</tbody></table></div></div>` : '';
   $('cxr-list').innerHTML = autoHtml + manualHtml;
 }

@@ -742,7 +742,7 @@ function selfGroupsOf(o: Record<string, any>, nrSets: NrSets): Record<string, an
 // 사용자 규칙(2026-10-06 — 지난 60일 반품 1,326건과 실제 '반품 처리' 창 51건으로 대조):
 //  · 자동 = 사유가 변심·사이즈·상품불만족(코드 A·O·P)뿐. 불량·오배송·그 밖의 사유는 직접 확인.
 //  · 반품 배송비('환불액에서 차감'): 배송비를 낸 주문 3,000 / 무료배송 주문은 전체 반품이거나 남는 상품 금액이 7만 원 미만이면 6,000, 7만 원 이상이면 3,000.
-//  · 쿠폰: 조건이 읽히는 정액 주문서 쿠폰 1장만 자동 — 전체 반품이거나 남는 상품 금액이 쿠폰 최소 구매 금액보다 적으면 쿠폰할인 취소, 아니면 그대로.
+//  · 쿠폰: 조건이 읽히는 정액 주문서 쿠폰 1장만 자동 — 전체 반품이거나 남는 상품 금액이 기준(쿠폰 최소 구매 금액과 3만 원 중 큰 값)보다 적으면 쿠폰할인 취소, 아니면 그대로.
 //  · 적립금(3만 원 이상 주문에만 사용 가능): 전체 반품이거나 남는 상품 금액이 3만 원 미만이면 쓴 적립금 전액 반환(그만큼 결제 수단 환불이 줄어듦), 3만 원 이상이면 그대로.
 //  · 상품별 할인: 반품 상품에 적용된 할인액은 환불에서 뺀다. 반품 상품이 10% 이상 할인·1+1이면 직접 확인(반품하는 상품만 본다).
 //  · 직접 확인: 같은 주문의 다른 취소·교환·반품 / 수거 신청이 아닌 접수 / 반품 불가 품목 / 카드·계좌이체·선불금 밖의 결제 / 예치금 / 그 밖의 할인 / 기준 금액이 경계에 걸린 주문.
@@ -752,6 +752,9 @@ const RET_DEFECT_REASON = new Set(["V", "K", "W", "J", "D", "F"]);
 const RET_REASON_LABEL: Record<string, string> = { A: "고객변심", O: "고객변심", P: "상품불만족", V: "상품불량", K: "상품불량", W: "배송오류", J: "배송오류", B: "배송지연", C: "배송불가지역", D: "포장불량", E: "상품불만족", F: "상품정보상이", G: "서비스불만족", H: "품절", I: "기타" };
 const RET_DEFECT_WORDS = /불량|오배송|하자|오염|얼룩|찢|구멍|잘못\s*(왔|옴|배송|보내)|다른\s*(상품|색|사이즈|옷)|누락/;
 const RET_FREE_SHIP = 70000, RET_POINT_MIN = 30000, RET_FEE = 3000;
+// 쿠폰은 쿠폰 자체에 금액 조건이 없어도 남는 상품 금액이 3만 원 미만이면 취소한다(2026-10-07 사용자 지적 — 조건 없는 1,000원 쿠폰이 '유지'로 나옴.
+// 과거 기록도 조건 없는 쿠폰 + 남는 금액 3만 원 미만 2건이 모두 취소였다). 쿠폰 최소 금액이 3만 원보다 크면 그 금액이 기준.
+const RET_COUPON_FLOOR = 30000;
 const RET_MOVED = new Set(["R30", "R31", "R34", "R36", "R40"]);   // 반품처리중(수거전·수거완료·환불전·환불보류)·반품완료
 async function retCouponInfo(orders: Record<string, any>[], token: string): Promise<RetCoupons> {
   const n = (v: unknown) => Math.round(Number(v ?? 0) || 0);
@@ -837,7 +840,7 @@ function retGroupsOf(o: Record<string, any>, nrSets: NrSets, cp: RetCoupons): Re
     if (beforeBad.length) M("배송 전 상태", `반품 접수 전 상태가 배송중·배송완료가 아니에요(${beforeBad.map((b) => b || "알 수 없음").join(", ")})`);
     // 쿠폰 — 조건이 읽히는 정액 주문서 쿠폰 1장만 자동
     const cpn = n(init.coupon_discount_price), list = cp.byOrder[orderId];
-    const coupon = { mode: "none" as "none" | "keep" | "cancel", amount: 0, name: "", min: 0 };
+    const coupon = { mode: "none" as "none" | "keep" | "cancel", amount: 0, name: "", min: 0, own: 0 };   // min = 판단 기준(쿠폰 최소 금액과 3만 원 중 큰 값), own = 쿠폰 자체의 최소 금액
     if (cpn > 0 || (list && list.length) || pay.includes("coupon")) {
       if (!list) M("쿠폰 확인", "이 주문에 쓰인 쿠폰을 읽지 못했어요");
       else if (list.length !== 1) { if (list.length > 1 || cpn > 0) M("쿠폰 확인", list.length > 1 ? `쿠폰이 ${list.length}장 쓰인 주문이에요` : "쿠폰 할인이 있는데 쿠폰 정보가 없어요"); }
@@ -847,7 +850,7 @@ function retGroupsOf(o: Record<string, any>, nrSets: NrSets, cp: RetCoupons): Re
         else if (p.benefit_type !== "A") M("쿠폰 확인", `정액 할인 쿠폰이 아니에요 — '${c.name}'`);
         else if (p.scope !== "O" || !(p.price_type === "U" || (p.price_type === "O" && p.order_price_type === "U"))) M("쿠폰 확인", `사용 조건이 특수한 쿠폰이에요 — '${c.name}'`);
         else if (n(p.benefit_price) !== cpn || cpn <= 0) M("쿠폰 확인", `쿠폰 할인액이 쿠폰 금액과 달라요 — '${c.name}'`);
-        else { coupon.mode = "keep"; coupon.amount = cpn; coupon.name = c.name; coupon.min = p.price_type === "O" ? n(p.min) : 0; }
+        else { coupon.mode = "keep"; coupon.amount = cpn; coupon.name = c.name; coupon.own = p.price_type === "O" ? n(p.min) : 0; coupon.min = Math.max(coupon.own, RET_COUPON_FLOOR); }
       }
     }
     // 예정 계산 — 기준 금액 = 남는 상품의 판매가 합계. 남는 상품에 할인이 있어 '할인 전/후'가 기준선을 사이에 두고 갈리면 직접 확인으로.
@@ -864,9 +867,33 @@ function retGroupsOf(o: Record<string, any>, nrSets: NrSets, cp: RetCoupons): Re
     const pointsReturn = pts > 0 && (full || remain < RET_POINT_MIN) ? pts : 0;
     if (pts > 0 && straddle(RET_POINT_MIN)) M("경계 금액", "남는 금액이 할인 전후로 적립금 기준 3만 원에 걸려요");
     const goods = sum(its, price), goodsDisc = sum(its, disc);
-    const couponCancel = coupon.mode === "cancel" ? coupon.amount : 0;
+    // 자동으로 다루지 않는 쿠폰(직접 확인으로 빠진 것)도 전체 반품이면 쿠폰할인 전액 취소로 계산한다(전체 반품은 과거 기록상 늘 전액 취소) — 예상 환불액(참고)용
+    const couponUnknown = coupon.mode === "none" && cpn > 0;
+    const couponCancel = coupon.mode === "cancel" ? coupon.amount : (couponUnknown && full ? cpn : 0);
     const total = goods - goodsDisc - fee - couponCancel, cash = total - pointsReturn;
     if (cash <= 0 || n(init.payment_amount) <= 0) M("금액 확인", "환불 예정액을 계산하지 못했어요");
+    // 직접 확인 권장 접수에도 '예상 환불액(참고)'을 보여 준다(2026-10-07 사용자 요청 — 카페24 창의 금액과 견줘 보는 더블 체크용).
+    // 계산은 위의 변심 규칙 그대로라, 직접 확인으로 빠진 이유마다 '이 숫자에서 무엇이 달라질 수 있는지'를 함께 적는다.
+    const tags = new Set(manual.map((m) => m.tag)), estNotes: string[] = [];
+    const defect = tags.has("불량·오배송") || tags.has("사유 글 확인");
+    const defectAdd = fee + (full && ship > 0 ? ship : 0);   // 불량·오배송으로 인정하면: 반품 배송비 차감 없음 + (배송비를 낸 주문의 전체 반품이면) 낸 배송비도 환불
+    if (defect) estNotes.push(`변심 기준(배송비 ${won(fee)} 차감)으로 계산했어요 — 불량·오배송으로 인정하면 차감이 없어${full && ship > 0 ? `지고 낸 배송비 ${won(ship)}도 돌려줘서` : "져서"} ${won(defectAdd)} 늘어요`);
+    if (tags.has("그 밖의 사유")) estNotes.push("변심 기준으로 계산했어요 — 사유에 따라 배송비 차감이 달라질 수 있어요");
+    if (couponUnknown) estNotes.push(full ? `쿠폰할인 ${won(cpn)}은 전체 반품이라 취소하는 것으로 계산했어요` : `쿠폰할인 ${won(cpn)}을 취소할지는 넣지 않았어요 — 취소하면 그만큼 줄어요`);
+    else if (tags.has("쿠폰 확인")) estNotes.push("쿠폰 정보를 읽지 못해 쿠폰할인 취소는 넣지 않았어요");
+    if (tags.has("1+1 상품") || tags.has("10% 이상 할인") || tags.has("할인 상품 수량")) estNotes.push(goodsDisc > 0 ? `반품 상품의 할인 ${won(goodsDisc)}을 그대로 뺐어요 — 1+1·세일 상품은 카페24 창의 할인 취소 금액과 견줘 보세요` : "1+1·세일 상품이라 할인 취소 금액이 달라질 수 있어요");
+    if (tags.has("다른 취소·교환·반품")) estNotes.push("같은 주문의 다른 취소·교환·반품은 넣지 않았어요 — 남는 금액 기준(배송비·쿠폰·적립금)이 달라질 수 있어요");
+    if (tags.has("수거 신청 아님")) estNotes.push("고객이 직접 보낸 반품이면 배송비 차감이 달라질 수 있어요");
+    if (tags.has("그 밖의 할인")) {
+      const rest = extra.filter((x) => x !== "배송비 쿠폰");
+      if (extra.includes("배송비 쿠폰")) estNotes.push("무료배송 쿠폰을 쓴 주문이에요 — 카페24 창에서는 그 배송비가 쿠폰할인에 들어 있어요. 배송비 차감이 기준에 맞는지 봐주세요");
+      if (rest.length) estNotes.push(`${rest.join("·")}은 넣지 않았어요`);
+    }
+    if (tags.has("배송비 확인") || tags.has("배송 묶음")) estNotes.push("배송비 조건이 보통과 달라 차감액이 다를 수 있어요");
+    if (tags.has("경계 금액")) estNotes.push("남는 금액이 기준선에 걸려 배송비·쿠폰·적립금 처리가 달라질 수 있어요");
+    if (tags.has("예치금")) estNotes.push("예치금 반환은 넣지 않았어요");
+    if (tags.has("수량 일부") || tags.has("미결제") || tags.has("배송 전 상태")) estNotes.push("접수 상태가 보통과 달라 금액이 다를 수 있어요");
+    const est = manual.length ? { ok: cash > 0 && n(init.payment_amount) > 0, notes: estNotes, alt: defect ? { label: "불량·오배송으로 인정하면", amount: cash + defectAdd } : null } : null;
     const items = its.map((it) => ({ code: String(it.order_item_code ?? ""), no: n(it.item_no), product_name: String(it.product_name ?? ""), option: String(it.option_value ?? ""), qty: qty(it), price: price(it), disc: disc(it) }))
       .sort((a, b) => a.code.localeCompare(b.code));
     groups.push({
@@ -874,10 +901,10 @@ function retGroupsOf(o: Record<string, any>, nrSets: NrSets, cp: RetCoupons): Re
       requested_at: its.map((it) => String(it.return_request_date ?? it.return_confirmed_date ?? "").slice(0, 16).replace("T", " ")).sort().pop() ?? "",
       reason_type: reasonType, reason_label: RET_REASON_LABEL[reasonType] ?? "", reason, items, other_items: others.length, full, remain,
       pay, pay_label: pay.map((m) => SELF_PAY_LABEL[m] ?? m).join(" + "), main: main[0] ?? "",
-      plan: { fee, coupon: coupon.mode, coupon_amount: coupon.amount, coupon_name: coupon.name, coupon_min: coupon.min, points_used: pts, points_return: pointsReturn,
+      plan: { fee, coupon: coupon.mode, coupon_amount: coupon.amount, coupon_name: coupon.name, coupon_min: coupon.min, coupon_own_min: coupon.own, points_used: pts, points_return: pointsReturn,
         add_sale: goodsDisc > 0 ? (full ? "T" : "M") : "none", add_sale_amount: goodsDisc, refund_type: SELF_REFUND_CODE[main[0] ?? ""] ?? "" },
       calc: { goods, disc: goodsDisc, rest_disc: sum(others, disc), fee, coupon_cancel: couponCancel, ship_paid: ship },
-      expect: { total, amount: cash, points: pointsReturn }, manual,
+      expect: { total, amount: cash, points: pointsReturn }, manual, est,
     });
   }
   return groups;
