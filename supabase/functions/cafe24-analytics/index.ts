@@ -876,7 +876,7 @@ function retGroupsOf(o: Record<string, any>, nrSets: NrSets, cp: RetCoupons): Re
       pay, pay_label: pay.map((m) => SELF_PAY_LABEL[m] ?? m).join(" + "), main: main[0] ?? "",
       plan: { fee, coupon: coupon.mode, coupon_amount: coupon.amount, coupon_name: coupon.name, coupon_min: coupon.min, points_used: pts, points_return: pointsReturn,
         add_sale: goodsDisc > 0 ? (full ? "T" : "M") : "none", add_sale_amount: goodsDisc, refund_type: SELF_REFUND_CODE[main[0] ?? ""] ?? "" },
-      calc: { goods, disc: goodsDisc, fee, coupon_cancel: couponCancel, ship_paid: ship },
+      calc: { goods, disc: goodsDisc, rest_disc: sum(others, disc), fee, coupon_cancel: couponCancel, ship_paid: ship },
       expect: { total, amount: cash, points: pointsReturn }, manual,
     });
   }

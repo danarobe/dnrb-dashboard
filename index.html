@@ -4085,7 +4085,7 @@ function cxrReasonCell(g) {
 // 환불 예정 계산 풀이 — 반품 상품 − 상품 할인 − 반품 배송비 − 쿠폰 취소 (− 적립금 반환)
 function cxrCalcHtml(g) {
   const c = g.calc, parts = [`상품 ${fmt(c.goods)}`];
-  if (c.disc) parts.push(`− 상품 할인 ${fmt(c.disc)}`); parts.push(`− 반품 배송비 ${fmt(c.fee)}`); if (c.coupon_cancel) parts.push(`− 쿠폰 취소 ${fmt(c.coupon_cancel)}`); if (g.expect.points) parts.push(`− 적립금 ${fmt(g.expect.points)}`);
+  if (c.disc) parts.push(`− 상품별 할인 취소 ${fmt(c.disc)}`); parts.push(`− 반품 배송비 ${fmt(c.fee)}`); if (c.coupon_cancel) parts.push(`− 쿠폰 취소 ${fmt(c.coupon_cancel)}`); if (g.expect.points) parts.push(`− 적립금 ${fmt(g.expect.points)}`);
   return `<div style="font-size:.66rem;color:#9ca3af;">${parts.join(' ')}</div>`;
 }
 // 창에 넣을 내용(배송비·쿠폰·적립금)을 칩으로
@@ -4095,7 +4095,10 @@ function cxrPlanHtml(g) {
   if (p.coupon === 'cancel') out.push(chip('#fee2e2', '#b91c1c', `쿠폰 ${fmt(p.coupon_amount)} 취소`, `${p.coupon_name} — ${g.full ? '전체 반품' : `남는 금액이 최소 ${fmt(p.coupon_min)}원 미만`}`));
   else if (p.coupon === 'keep') out.push(chip('#dcfce7', '#166534', `쿠폰 ${fmt(p.coupon_amount)} 유지`, `${p.coupon_name} — ${p.coupon_min ? `남는 금액이 최소 ${fmt(p.coupon_min)}원 이상` : '금액 조건 없는 쿠폰'}`));
   if (p.points_used) out.push(p.points_return ? chip('#fef3c7', '#92400e', `적립금 ${fmt(p.points_return)} 반환`, g.full ? '전체 반품 — 쓴 적립금을 돌려줘요' : '남는 금액 3만 원 미만 — 쓴 적립금을 돌려줘요') : chip('#f3f4f6', '#4b5563', `적립금 ${fmt(p.points_used)} 유지`, '남는 금액 3만 원 이상 — 적립금은 쓴 그대로 둬요'));
-  if (p.add_sale !== 'none') out.push(chip('#ffedd5', '#9a3412', `상품 할인 ${fmt(p.add_sale_amount)} 차감`, '반품 상품에 적용됐던 할인액을 환불에서 빼요'));
+  // 상품별추가할인 취소 — 할인이 없어도(0원) 늘 표시하고, 있으면 창에서 무엇을 골라 얼마를 취소하는지 보여 준다(2026-10-07 사용자 요청)
+  if (p.add_sale === 'none') out.push(chip('#f3f4f6', '#6b7280', '상품별추가할인 취소 0', g.calc.rest_disc ? `반품 상품에는 상품별 할인이 없어요 — 남는 상품의 할인 ${fmt(g.calc.rest_disc)}원은 그대로 둬요` : '이 주문에는 상품별 할인이 없어요 — 취소할 금액 0원'));
+  else out.push(chip('#ffedd5', '#9a3412', `상품별추가할인 ${p.add_sale === 'T' ? '전체취소' : '품목별 취소'} ${fmt(p.add_sale_amount)}`,
+    `반품 상품에 적용됐던 할인(${g.items.filter(x => x.disc > 0).map(x => `${x.product_name} ${fmt(x.disc)}원`).join(' + ')})을 환불에서 빼요 — 카페24 창에서 '${p.add_sale === 'T' ? '상품별추가할인 전체취소' : '품목별 할인취소'}'${g.calc.rest_disc ? ` · 남는 상품의 할인 ${fmt(g.calc.rest_disc)}원은 그대로` : ''}`));
   return out.join('');
 }
 function cxrStatusCell(g) {
