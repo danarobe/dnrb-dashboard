@@ -1482,7 +1482,7 @@
   </div>
 
   <!-- ══ 취소·반품 접수 (#cxl, 2026-10-05 사용자 요청 — 관리자) — 고객이 넣은 취소신청을 사유별로 나눠 한 번에 접수한다.
-       탭: 네이버페이 취소신청 / 자사몰 취소접수 / 자사몰 반품접수(2026-10-06) / 처리 내역. ══ -->
+       탭: 네이버페이 취소신청 / 자사몰 취소접수 / 자사몰 반품접수(2026-10-06) / 처리 내역 / 취소·반품 규칙(2026-10-07). ══ -->
   <div class="section-card page-sec" id="sec-cxl">
     <div class="section-header" style="cursor:default;">
       <h2><span><i class="fa-solid fa-ban" style="color:#4f46e5;font-size:.9em;"></i></span> 취소·반품 접수</h2>
@@ -1530,6 +1530,125 @@
       </div>
       <div id="cxl-pane-log" class="cxl-pane" style="display:none;">
         <div id="cxl-log"></div>
+      </div>
+      <!-- 취소·반품 규칙 (2026-10-07 사용자 요청 — "지금까지 파악한 규정을 한눈에"). 여기 적힌 기준은 서버(cafe24-analytics의 RET_*·retGroupsOf·selfGroupsOf·cxlGroupsOf)와
+           같은 내용이어야 한다. 규칙을 바꾸면 이 칸도 같이 고칠 것(금액은 글자로 적혀 있음: 3,000 · 6,000 · 7만 · 3만). -->
+      <div id="cxl-pane-rules" class="cxl-pane" style="display:none;">
+        <style>
+          .cxu-card { border:1px solid #e5e7eb; border-radius:14px; padding:14px 16px; background:#fff; margin-bottom:14px; }
+          .cxu-h { font-size:1rem; font-weight:800; color:#111827; margin-bottom:8px; display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+          .cxu-n { display:inline-flex; align-items:center; justify-content:center; width:22px; height:22px; border-radius:50%; background:#4f46e5; color:#fff; font-size:.74rem; font-weight:800; }
+          .cxu-sub { font-size:.78rem; color:#6b7280; line-height:1.7; }
+          .cxu-tbl { width:100%; font-size:.82rem; border-collapse:collapse; margin-top:6px; }
+          .cxu-tbl th { text-align:left; background:#f9fafb; color:#374151; font-weight:700; padding:7px 10px; border-bottom:1px solid #e5e7eb; white-space:nowrap; }
+          .cxu-tbl td { padding:7px 10px; border-bottom:1px solid #f3f4f6; vertical-align:top; line-height:1.55; text-align:left; white-space:normal; word-break:keep-all; }
+          .cxu-tbl tr:last-child td { border-bottom:0; }
+          .cxu-amt { font-weight:800; white-space:nowrap; }
+          .cxu-chip { display:inline-block; border-radius:6px; padding:2px 8px; font-size:.72rem; font-weight:800; white-space:nowrap; margin:0 4px 4px 0; }
+          .cxu-ex { background:#f8fafc; border:1px dashed #cbd5e1; border-radius:10px; padding:9px 12px; font-size:.8rem; line-height:1.7; margin-top:8px; }
+          .cxu-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(250px,1fr)); gap:10px; }
+          .cxu-box { border:1px solid #e5e7eb; border-radius:12px; padding:11px 13px; background:#f9fafb; font-size:.8rem; line-height:1.65; }
+        </style>
+        <div style="font-size:.8rem;color:#6b7280;margin-bottom:12px;line-height:1.7;">이 메뉴가 주문을 <b>어떤 기준으로 나누고, 환불 금액을 어떻게 계산하는지</b> 모아 둔 곳이에요. 여기 적힌 기준에 맞는 건만 자동으로 처리하고, 하나라도 벗어나면 <b style="color:#b45309;">직접 확인 권장</b>으로 빼요. <span style="color:#9ca3af;">(2026-10-07 기준 — 기준이 바뀌면 이 화면도 함께 고쳐요)</span></div>
+
+        <div class="cxu-card" style="background:#f5f3ff;border-color:#ddd6fe;">
+          <div class="cxu-h"><i class="fa-solid fa-map" style="color:#7c3aed;"></i> 한눈에 보기 — 이 메뉴가 하는 세 가지 일</div>
+          <div class="cxu-grid">
+            <div class="cxu-box" style="background:#fff;"><b style="color:#03a54f;">① 네이버페이 취소신청 → 취소접수</b><br>고객이 고른 취소 구분·사유 <b>그대로</b> 접수해요.<br><span style="color:#b91c1c;">접수하면 네이버페이에서 취소·환불이 진행돼요.</span></div>
+            <div class="cxu-box" style="background:#fff;"><b style="color:#4338ca;">② 자사몰 취소접수 → 환불전(또는 환불)</b><br><b>주문 전체 취소</b>만 자동. 결제한 금액 그대로 환불해요.<br>기본은 '환불전'까지만 — 체크했을 때만 환불까지.</div>
+            <div class="cxu-box" style="background:#fff;"><b style="color:#7c3aed;">③ 자사몰 반품접수 → 반품처리중</b><br><b>변심·사이즈·상품불만족</b>만 자동. 반품 배송비·쿠폰·적립금을 아래 기준으로 넣어요.<br>돈은 아직 안 나가요(환불은 수거 뒤).</div>
+          </div>
+        </div>
+
+        <div class="cxu-card">
+          <div class="cxu-h"><i class="fa-solid fa-truck-ramp-box" style="color:#7c3aed;"></i> 자사몰 반품 — 환불 금액 계산 기준</div>
+          <div class="cxu-ex" style="margin-top:0;background:#eef2ff;border-color:#c7d2fe;border-style:solid;"><b>환불 예정액 = 반품 상품 금액 − 상품별 할인 − 반품 배송비 − 쿠폰할인 취소</b><br>그 가운데 <b>적립금 반환</b>이 있으면 그만큼은 적립금으로 돌려주고, 나머지를 카드·계좌·선불금으로 환불해요.<br><span style="color:#6b7280;">'남는 금액' = 반품하지 않고 남는 상품의 판매가 합계</span></div>
+
+          <div class="cxu-h" style="margin-top:16px;"><span class="cxu-n">1</span> 반품 배송비 <span class="cxu-sub">— 환불액에서 빼요</span></div>
+          <table class="cxu-tbl"><thead><tr><th>주문</th><th>반품 범위</th><th>차감</th><th>이유</th></tr></thead><tbody>
+            <tr><td>배송비를 <b>낸</b> 주문</td><td>전체·부분 모두</td><td class="cxu-amt" style="color:#4338ca;">3,000원</td><td>처음 낸 배송비는 돌려주지 않고, 반품 배송비 3,000원을 빼요</td></tr>
+            <tr><td rowspan="3"><b>무료배송</b> 주문<br><span class="cxu-sub">(7만 원 이상 구매)</span></td><td>전체 반품</td><td class="cxu-amt" style="color:#b91c1c;">6,000원</td><td>무료배송 조건이 깨져서 왕복 배송비</td></tr>
+            <tr><td>부분 반품 · 남는 금액 <b>7만 원 미만</b></td><td class="cxu-amt" style="color:#b91c1c;">6,000원</td><td>남은 주문이 무료배송 조건에 못 미쳐서 왕복 배송비</td></tr>
+            <tr><td>부분 반품 · 남는 금액 <b>7만 원 이상</b></td><td class="cxu-amt" style="color:#4338ca;">3,000원</td><td>무료배송 조건이 유지돼서 반품 배송비만</td></tr>
+          </tbody></table>
+
+          <div class="cxu-h" style="margin-top:16px;"><span class="cxu-n">2</span> 쿠폰할인 <span class="cxu-sub">— 남는 금액이 쿠폰을 쓸 수 있는 금액에 못 미치면 할인을 취소해요</span></div>
+          <table class="cxu-tbl"><thead><tr><th>경우</th><th>처리</th><th>환불액</th></tr></thead><tbody>
+            <tr><td>전체 반품</td><td><span class="cxu-chip" style="background:#fee2e2;color:#b91c1c;">쿠폰 취소</span></td><td>쿠폰할인만큼 줄어요</td></tr>
+            <tr><td>부분 반품 · 남는 금액이 <b>기준 금액 미만</b></td><td><span class="cxu-chip" style="background:#fee2e2;color:#b91c1c;">쿠폰 취소</span></td><td>쿠폰할인만큼 줄어요</td></tr>
+            <tr><td>부분 반품 · 남는 금액이 <b>기준 금액 이상</b></td><td><span class="cxu-chip" style="background:#dcfce7;color:#166534;">쿠폰 유지</span></td><td>그대로</td></tr>
+          </tbody></table>
+          <div class="cxu-sub" style="margin-top:6px;"><b>기준 금액</b> = 그 쿠폰의 최소 구매 금액. <b>금액 조건이 없는 쿠폰도 3만 원</b>을 기준으로 봐요. 쿠폰 조건은 처리할 때마다 카페24에서 새로 읽어요.</div>
+          <table class="cxu-tbl" style="max-width:640px;"><thead><tr><th>지금 쓰이는 쿠폰(예)</th><th>할인</th><th>기준 금액</th></tr></thead><tbody>
+            <tr><td>앱 신규설치 기념쿠폰 · 깜짝 할인 쿠폰</td><td>5,000원 · 3,000원</td><td class="cxu-amt">3만 원</td></tr>
+            <tr><td>럭키 찬스 쿠폰 · 쇼핑 응원 쿠폰 <span class="cxu-sub">(조건 없는 쿠폰)</span></td><td>1,000원</td><td class="cxu-amt">3만 원</td></tr>
+            <tr><td>생일 쿠폰</td><td>10,000원</td><td class="cxu-amt">5만 원</td></tr>
+            <tr><td>10만원 이상 · 20만원 이상 구매 할인 쿠폰</td><td>2,000원 · 3,000원</td><td class="cxu-amt">10만 원 · 20만 원</td></tr>
+          </tbody></table>
+          <div class="cxu-sub" style="margin-top:6px;color:#b45309;"><b>직접 확인으로 빠지는 쿠폰</b>: 10% 같은 할인율 쿠폰 · 무료배송 쿠폰 · 조건을 읽지 못한 쿠폰 · 쿠폰을 2장 이상 쓴 주문</div>
+
+          <div class="cxu-h" style="margin-top:16px;"><span class="cxu-n">3</span> 쓴 적립금 <span class="cxu-sub">— 적립금은 3만 원 이상 주문에만 쓸 수 있어요</span></div>
+          <table class="cxu-tbl"><thead><tr><th>경우</th><th>처리</th><th>환불액</th></tr></thead><tbody>
+            <tr><td>전체 반품</td><td><span class="cxu-chip" style="background:#fef3c7;color:#92400e;">적립금 전액 반환</span></td><td>쓴 적립금은 적립금으로 돌려주고, 카드 환불은 그만큼 줄어요</td></tr>
+            <tr><td>부분 반품 · 남는 금액 <b>3만 원 미만</b></td><td><span class="cxu-chip" style="background:#fef3c7;color:#92400e;">적립금 전액 반환</span></td><td>위와 같아요</td></tr>
+            <tr><td>부분 반품 · 남는 금액 <b>3만 원 이상</b></td><td><span class="cxu-chip" style="background:#f3f4f6;color:#4b5563;">적립금 유지</span></td><td>적립금은 쓴 그대로 두고 전액 카드로 환불</td></tr>
+          </tbody></table>
+
+          <div class="cxu-h" style="margin-top:16px;"><span class="cxu-n">4</span> 상품별 할인 <span class="cxu-sub">— 반품하는 상품에 적용됐던 할인은 환불에서 빼요</span></div>
+          <table class="cxu-tbl"><thead><tr><th>경우</th><th>처리</th></tr></thead><tbody>
+            <tr><td>반품 상품에 할인 없음</td><td><span class="cxu-chip" style="background:#f3f4f6;color:#6b7280;">상품별추가할인 취소 0</span> 남는 상품의 할인은 건드리지 않아요</td></tr>
+            <tr><td>반품 상품이 <b>10% 미만</b> 할인 <span class="cxu-sub">(신상 7% 등)</span></td><td><span class="cxu-chip" style="background:#ffedd5;color:#9a3412;">할인액만큼 차감</span> 전체 반품은 '전체취소', 부분 반품은 '품목별 취소'</td></tr>
+            <tr><td>반품 상품이 <b>10% 이상</b> 할인 · <b>1+1</b> 상품</td><td><span class="cxu-chip" style="background:#fde68a;color:#92400e;">직접 확인</span> 반품하는 상품만 봐요(남는 상품은 안 봄)</td></tr>
+          </tbody></table>
+
+          <div class="cxu-h" style="margin-top:16px;"><i class="fa-solid fa-calculator" style="color:#818cf8;"></i> 계산 예</div>
+          <div class="cxu-ex"><b>예 1 · 배송비 낸 주문의 부분 반품 + 조건 없는 쿠폰</b><br>16,000원 + 19,000원 주문(배송비 3,000원 결제, 1,000원 쿠폰) 중 16,000원 상품 반품 → 남는 금액 19,000원<br>배송비 3,000원 차감 · 남는 금액이 3만 원 미만이라 <b>쿠폰 취소</b> → 16,000 − 3,000 − 1,000 = <b style="color:#4338ca;">12,000원</b></div>
+          <div class="cxu-ex"><b>예 2 · 무료배송 주문의 부분 반품 + 쿠폰 유지</b><br>46,000원 × 2개 주문(무료배송, 5,000원 쿠폰·기준 3만 원) 중 1개 반품 → 남는 금액 46,000원<br>남는 금액 7만 원 미만이라 6,000원 차감 · 3만 원 이상이라 <b>쿠폰 유지</b> → 46,000 − 6,000 = <b style="color:#4338ca;">40,000원</b></div>
+          <div class="cxu-ex"><b>예 3 · 전체 반품 + 적립금</b><br>54,000원 주문(배송비 3,000원 결제, 적립금 2,000원 사용) 전체 반품<br>배송비 3,000원 차감 → 51,000원 가운데 <b>적립금 2,000원 반환</b> + 카드 환불 <b style="color:#4338ca;">49,000원</b></div>
+
+          <div class="cxu-h" style="margin-top:16px;"><i class="fa-solid fa-triangle-exclamation" style="color:#d97706;"></i> 자동으로 넘기지 않는 반품 <span class="cxu-sub">— '직접 확인 권장'에 예상 환불액(참고)과 함께 나와요</span></div>
+          <div class="cxu-grid">
+            <div class="cxu-box"><span class="cxu-chip" style="background:#fde68a;color:#92400e;">불량·오배송</span><span class="cxu-chip" style="background:#fde68a;color:#92400e;">그 밖의 사유</span><span class="cxu-chip" style="background:#fde68a;color:#92400e;">사유 글 확인</span><br>물건을 본 뒤 정해야 해요. 불량·오배송으로 인정하면 <b>배송비 차감 없음</b>, 배송비를 낸 주문의 전체 반품이면 <b>낸 배송비 3,000원도 환불</b>해요. 사유는 변심인데 글에 '불량·오배송'이 적혀 있어도 여기로 와요.</div>
+            <div class="cxu-box"><span class="cxu-chip" style="background:#fde68a;color:#92400e;">1+1 상품</span><span class="cxu-chip" style="background:#fde68a;color:#92400e;">10% 이상 할인</span><span class="cxu-chip" style="background:#fde68a;color:#92400e;">반품 불가 품목</span><br>반품 상품이 1+1·세일 상품이거나, 수영복·주얼리·양말·모자처럼 반품이 안 되는 품목일 때.</div>
+            <div class="cxu-box"><span class="cxu-chip" style="background:#fde68a;color:#92400e;">다른 취소·교환·반품</span><span class="cxu-chip" style="background:#fde68a;color:#92400e;">수거 신청 아님</span><br>같은 주문에 다른 취소·교환·반품이 섞여 있어 남는 금액을 따져야 하거나, 고객이 직접 보낸 반품(수거 신청이 아님)일 때.</div>
+            <div class="cxu-box"><span class="cxu-chip" style="background:#fde68a;color:#92400e;">쿠폰 확인</span><span class="cxu-chip" style="background:#fde68a;color:#92400e;">무통장입금 결제</span><span class="cxu-chip" style="background:#fde68a;color:#92400e;">예치금</span><span class="cxu-chip" style="background:#fde68a;color:#92400e;">그 밖의 할인</span><span class="cxu-chip" style="background:#fde68a;color:#92400e;">경계 금액</span><br>할인율·무료배송 쿠폰, 카드·계좌이체·선불금이 아닌 결제, 회원등급·세트 할인, 남는 금액이 할인 전후로 기준선(7만·3만 원)에 걸리는 주문.</div>
+          </div>
+        </div>
+
+        <div class="cxu-card">
+          <div class="cxu-h"><i class="fa-solid fa-rotate-left" style="color:#4338ca;"></i> 자사몰 취소 — 환불 기준</div>
+          <table class="cxu-tbl"><thead><tr><th>경우</th><th>처리</th><th>환불액</th></tr></thead><tbody>
+            <tr><td><b>주문 전체 취소</b><br><span class="cxu-sub">카드·계좌이체·선불금 결제 · 아직 보내지 않은 주문</span></td><td><span class="cxu-chip" style="background:#e0e7ff;color:#3730a3;">자동</span> 기본은 '환불전으로 넘기기', '최종 환불까지 한 번에 진행'을 체크하면 환불까지</td><td><b>결제한 금액 그대로</b>(배송비 포함) · 쓴 적립금은 전액 반환</td></tr>
+            <tr><td>부분 취소 · 사유가 <b>품절</b> · 상품별 할인·1+1 상품이 든 주문 · 무통장·예치금 결제 · 접수가 여러 건</td><td><span class="cxu-chip" style="background:#fde68a;color:#92400e;">직접 확인</span> 카페24에서 처리</td><td>—</td></tr>
+          </tbody></table>
+          <div class="cxu-sub" style="margin-top:8px;">넘긴 뒤 카페24가 계산한 환불액이 화면의 환불 예정액과 1원이라도 다르면 환불을 보내지 않고 멈춰요.</div>
+          <div class="cxu-ex"><b>부분 취소를 직접 처리할 때의 기준</b> <span class="cxu-sub">(아직 자동 처리하지 않아요 — 카페24에서 직접)</span><br>
+            · <b>변심</b>: 남는 금액이 7만 원 미만이면 배송비 3,000원 차감, 그 밖은 차감 없음<br>
+            · <b>배송지연·품절</b>(우리 쪽 사유): 차감 없음<br>
+            · <b>쿠폰</b>: 남는 금액이 쿠폰 최소 구매 금액에 못 미치면 쿠폰할인 취소<br>
+            · <b>적립금</b>: 남는 금액이 3만 원 미만이면 쓴 적립금 회수<br>
+            · 회원등급적립·쿠폰적립·제휴할인·회원등급할인 취소는 늘 '취소'로 선택</div>
+        </div>
+
+        <div class="cxu-card">
+          <div class="cxu-h"><i class="fa-solid fa-ban" style="color:#03a54f;"></i> 네이버페이 취소신청 — 접수 기준</div>
+          <table class="cxu-tbl"><thead><tr><th>경우</th><th>처리</th></tr></thead><tbody>
+            <tr><td>고객이 넣은 취소신청 <span class="cxu-sub">(아직 보내지 않은 주문)</span></td><td><span class="cxu-chip" style="background:#e0e7ff;color:#3730a3;">자동</span> 취소 구분과 사유를 <b>고객이 고른 그대로</b> 넣어 취소접수</td></tr>
+            <tr><td>주문의 일부만 취소 · 사유에 요청·문의 글 · 송장이 이미 있음 · 같은 주문에 교환·반품 진행 중</td><td><span class="cxu-chip" style="background:#fde68a;color:#92400e;">직접 확인</span> 읽어 본 뒤 한 건씩 접수할 수 있어요</td></tr>
+            <tr><td>수량 일부만 취소 · 한 주문에 사유가 여러 가지 · 취소 구분을 못 읽음</td><td><span class="cxu-chip" style="background:#fee2e2;color:#b91c1c;">여기서 접수 불가</span> 카페24에서 직접</td></tr>
+          </tbody></table>
+        </div>
+
+        <div class="cxu-card" style="background:#f0fdf4;border-color:#bbf7d0;">
+          <div class="cxu-h"><i class="fa-solid fa-shield-halved" style="color:#15803d;"></i> 공통 안전장치</div>
+          <div style="font-size:.82rem;line-height:1.8;color:#14532d;">
+            · 처리 직전에 주문을 <b>다시 읽어</b> 화면에서 본 금액과 같은지 확인해요. 그 사이 바뀌었으면 처리하지 않아요.<br>
+            · 반품·취소 모두 <b>카페24가 계산한 금액이 예정액과 1원이라도 다르면</b> 보내지 않고 멈춰요.<br>
+            · 한 건이라도 막히면 <b>나머지는 보내지 않고 멈춰요.</b> 원인을 본 뒤 다시 누르면 이어서 처리해요.<br>
+            · 처리한 뒤 주문을 한 번 더 읽어 상태와 금액을 확인하고, 모든 결과를 <b>처리 내역</b>에 남겨요.<br>
+            · 자동 기준에서 하나라도 벗어나면 처리하지 않고 <b>직접 확인 권장</b>으로 빼요.
+          </div>
+        </div>
       </div>
     </div>
   </div>
@@ -3612,7 +3731,7 @@ function soldoutLogRender() {
       한 건마다 cancelreq_prepare(서버가 최신 주문으로 취소 구분·사유 확정) → 연결 스크립트 accept → cancelreq_record(서버가 다시 읽어 확인·기록).
       애매한 주문은 '직접 확인 권장'(flags)으로 빼고 한 건씩만 접수. 처리 기록은 cancel_accept_log(처리 내역 탭).
    자사몰 취소접수·반품은 다음 단계(사용자: 이게 잘 되면 진행). */
-const CXL_TABS = [['npay', '네이버페이 취소신청', null, 'fa-solid fa-ban'], ['self', '자사몰 취소접수', null, 'fa-solid fa-rotate-left'], ['ret', '자사몰 반품접수', null, 'fa-solid fa-truck-ramp-box'], ['log', '처리 내역', null, 'fa-solid fa-clock-rotate-left']];
+const CXL_TABS = [['npay', '네이버페이 취소신청', null, 'fa-solid fa-ban'], ['self', '자사몰 취소접수', null, 'fa-solid fa-rotate-left'], ['ret', '자사몰 반품접수', null, 'fa-solid fa-truck-ramp-box'], ['log', '처리 내역', null, 'fa-solid fa-clock-rotate-left'], ['rules', '취소·반품 규칙', null, 'fa-solid fa-book-open']];
 const cxlState = { data: null, loading: false, tab: 'npay', off: new Set(), status: new Map(), running: false, lastRun: null, log: null, logLoading: false };
 const cxlKey = g => g.order_id + '|' + g.key;
 const CXL_BRIDGE_MIN = '1.0.0';
@@ -3658,7 +3777,7 @@ function cxlSetTab(k) {
   if (k === 'self') { if (!cxsState.data && !cxsState.loading) cxsLoad(); else cxsRender(); }
   if (k === 'ret') { if (!cxrState.data && !cxrState.loading) cxrLoad(); else cxrRender(); }
 }
-function cxlReload() { if (cxlState.running || cxsState.running || cxrState.running) { showToast('처리 중이에요 — 끝난 뒤 눌러주세요'); return; } if (cxlState.tab === 'log') cxlLogLoad(); else if (cxlState.tab === 'ret') { cxrState.lastRun = null; cxrState.status = new Map(); cxrLoad(); } else if (cxlState.tab === 'self') { cxsState.lastRun = null; cxsState.status = new Map(); cxsLoad(); } else { cxlState.lastRun = null; cxlState.status = new Map(); cxlLoad(); } }
+function cxlReload() { if (cxlState.running || cxsState.running || cxrState.running) { showToast('처리 중이에요 — 끝난 뒤 눌러주세요'); return; } if (cxlState.tab === 'rules') { showToast('규칙 화면은 새로 불러올 내용이 없어요'); return; } if (cxlState.tab === 'log') cxlLogLoad(); else if (cxlState.tab === 'ret') { cxrState.lastRun = null; cxrState.status = new Map(); cxrLoad(); } else if (cxlState.tab === 'self') { cxsState.lastRun = null; cxsState.status = new Map(); cxsLoad(); } else { cxlState.lastRun = null; cxlState.status = new Map(); cxlLoad(); } }
 async function cxlLoad() {
   if (cxlState.loading) return;
   cxlState.loading = true;
