@@ -1,6 +1,7 @@
 // ═══════════════════════════════════════════════
 // 마이페이지 — 직원 본인 전용 (2026-08-27)
 //   GET  ?action=me            → 내 근무 정보(입사일·역할·연차 현황) + 올해 내 휴가 내역
+//   GET  ?action=team_leaves   → 이번 주 월 ~ 다음 주 금의 팀 휴가(이름·종류·상태 — 사유 없음)·공휴일. 홈 대시보드용(2026-10-07), 승인 대기는 관리자에게만
 //   POST ?action=leave_request { date, end_date?, type(annual|half), reason?, skip_offdays? } → 휴가 신청(pending)
 //   POST ?action=leave_cancel  { id } → 내 '대기' 신청 취소
 //   GET  ?action=payslip_list      → 관리자가 업로드한 내 급여 명세서 파일 목록 (2026-09-10 사용자 요청 — 계산값이 아니라 업로드 파일)
@@ -93,6 +94,28 @@ Deno.serve(async (req) => {
   const action = url.searchParams.get("action") ?? "me";
 
   try {
+    // ── 홈 대시보드 '이번 주·다음 주 휴가 현황' (2026-10-07 사용자 요청) — 로그인한 누구나(키오스크의 week_leaves와 같은 수준의 정보).
+    //    이번 주 월요일 ~ 다음 주 금요일의 휴가 + 공휴일. **사유(reason)는 내보내지 않는다.** 승인 대기 신청은 관리자에게만,
+    //    병가는 관리자에게만 '병가'로(그 밖의 사람에게는 '휴가'). 직원 연결이 없는 계정(대표)도 볼 수 있어야 해서 본인 행 조회보다 앞에 둔다.
+    if (action === "team_leaves") {
+      const today = seoulToday(), isAdmin = me.role === "admin";
+      const t = new Date(today + "T00:00:00Z");
+      const mon = new Date(t); mon.setUTCDate(t.getUTCDate() - ((t.getUTCDay() + 6) % 7));
+      const fri = new Date(mon); fri.setUTCDate(mon.getUTCDate() + 11);
+      const f = (d: Date) => d.toISOString().slice(0, 10);
+      const [emps, rows, holidays] = await Promise.all([
+        rest("wm_employees?select=id,name&limit=300"),
+        rest(`wm_leaves?status=in.(${isAdmin ? "approved,pending" : "approved"})&date=gte.${f(mon)}&date=lte.${f(fri)}&select=employee_id,date,type,status&order=date&limit=500`),
+        rest(`wm_holidays?date=gte.${f(mon)}&date=lte.${f(fri)}&select=date,name&order=date&limit=50`),
+      ]);
+      const nameOf = Object.fromEntries((emps as any[]).map((e) => [e.id, e.name]));
+      return json({
+        today, this_monday: f(mon), can_pending: isAdmin,
+        leaves: (rows as any[]).map((r) => ({ date: r.date, name: nameOf[r.employee_id] ?? "(이름 없음)", type: r.type === "sick" && !isAdmin ? "leave" : r.type, status: r.status })),
+        holidays: (holidays as any[]).map((h) => ({ date: h.date, name: h.name })),
+      });
+    }
+
     // 본인 직원 행 — 이것이 유일한 신원. 이후 모든 쿼리는 emp.id로 고정한다.
     const [emp] = await rest(
       `wm_employees?app_user_id=eq.${encodeURIComponent(me.id)}` +

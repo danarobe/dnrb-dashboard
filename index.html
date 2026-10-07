@@ -383,6 +383,7 @@
     tbody td { padding:9px 13px; text-align:center; border-bottom:1px solid #f3f4f6; color:#374151; white-space:nowrap; }
     tbody td.name-cell { text-align:left; white-space:normal; max-width:220px; }
     /* 취소·반품 접수(#cxl) 표: 긴 글이 표를 옆으로 밀어 '확인할 점'·'결과' 칸이 잘리던 문제 — 줄바꿈을 켜고 꼭 필요한 칸만 한 줄(.nw) (2026-10-05) */
+    @media (max-width: 900px) { .home-lv-cell { min-height:0 !important; } }   /* 홈 휴가 달력: 좁은 화면에서는 요일이 세로로 쌓이므로 빈 칸 높이를 줄인다 */
     .cxl-tbl { table-layout:auto; }
     .cxl-tbl tbody td { white-space:normal; word-break:keep-all; overflow-wrap:anywhere; padding:8px 10px; }
     .cxl-tbl thead th { padding:9px 10px; }
@@ -705,9 +706,11 @@
   <div class="section-card page-sec" id="sec-home">
     <div class="section-header" style="cursor:default;">
       <h2><span><i class="fa-solid fa-house" style="color:#4f46e5;font-size:.9em;"></i></span> 대시보드</h2>
-      <button class="toggle-btn" onclick="loadHome(true)"><i class="fa-solid fa-rotate"></i> 새로고침</button>
+      <button class="toggle-btn" onclick="homeLeavesLoad(true);loadHome(true)"><i class="fa-solid fa-rotate"></i> 새로고침</button>
     </div>
     <div class="section-body">
+      <!-- 이번 주·다음 주 휴가 현황 (2026-10-07 사용자 요청 — 홈 맨 위, 월~금 달력 두 줄) -->
+      <div id="home-leaves"></div>
       <!-- 기간 선택 + 카페24 연동 -->
       <div class="control-bar">
         <label><i class="fa-regular fa-calendar"></i> 기준 기간</label>
@@ -13924,6 +13927,56 @@ const CERT_COMPANY = {   // 재직증명서에 찍히는 회사 정보 — 바�
 const myState = { data: null, tab: 'work', doc: 'cert', pay: null, payLoading: false, payErr: '' };
 const MY_TABS = [['work', '내 근무 현황', 'fa-regular fa-calendar-check'], ['cert', '서류 발급', 'fa-regular fa-file-lines'], ['pay', '급여 명세서', 'fa-regular fa-money-bill-1'], ['pw', '비밀번호 변경', 'fa-solid fa-key']];
 
+/* ── 홈 맨 위: 이번 주·다음 주 휴가 현황 (2026-10-07 사용자 요청) ──
+   서버 wm-me team_leaves — 이번 주 월요일 ~ 다음 주 금요일의 휴가(승인된 것, 관리자에게는 승인 대기도)와 공휴일. 사유는 내려오지 않는다.
+   주마다 월~금 달력 한 줄. 5분 동안은 다시 묻지 않고(홈을 드나들 때마다 부르지 않게), 홈의 [새로고침]은 새로 읽는다. */
+const homeLv = { data: null, at: 0, loading: false, err: '' };
+const HOME_LV_TYPE = { annual: ['연차', '#3730a3', '#e0e7ff'], half: ['반차', '#0369a1', '#e0f2fe'], summer: ['여름휴가', '#9a3412', '#ffedd5'], sick: ['병가', '#9f1239', '#ffe4e6'], leave: ['휴가', '#374151', '#f3f4f6'] };
+async function homeLeavesLoad(force) {
+  const box = $('home-leaves'); if (!box || !SESSION) return;
+  if (homeLv.loading) return;
+  if (!force && homeLv.data && Date.now() - homeLv.at < 5 * 60 * 1000) { homeLeavesRender(); return; }
+  homeLv.loading = true; if (!homeLv.data) homeLeavesRender();
+  try { homeLv.data = await myApi({ action: 'team_leaves' }); homeLv.at = Date.now(); homeLv.err = ''; }
+  catch (e) { homeLv.err = e.message || String(e); }
+  finally { homeLv.loading = false; homeLeavesRender(); }
+}
+function homeLeavesRender() {
+  const box = $('home-leaves'); if (!box) return;
+  const d = homeLv.data;
+  if (!d) { box.innerHTML = `<div style="border:1px solid #e5e7eb;border-radius:14px;padding:12px 16px;margin-bottom:14px;font-size:.8rem;color:${homeLv.err ? '#b91c1c' : '#9ca3af'};">${homeLv.err ? '휴가 현황을 불러오지 못했어요 — ' + escHtml(homeLv.err) : '<i class="fa-solid fa-spinner fa-spin"></i> 휴가 현황을 불러오는 중…'}</div>`; return; }
+  const addDays = (ymd, n) => { const t = new Date(ymd + 'T00:00:00Z'); t.setUTCDate(t.getUTCDate() + n); return t.toISOString().slice(0, 10); };
+  const DOW = ['월', '화', '수', '목', '금'];
+  const byDate = new Map(); (d.leaves || []).forEach(l => byDate.set(l.date, [...(byDate.get(l.date) || []), l]));
+  const holi = new Map(); (d.holidays || []).forEach(h => holi.set(h.date, holi.has(h.date) ? holi.get(h.date) + ' · ' + h.name : h.name));
+  const md = ymd => Number(ymd.slice(5, 7)) + '/' + Number(ymd.slice(8, 10));
+  const week = (title, mon, isThis) => {
+    const days = DOW.map((w, i) => ({ w, date: addDays(mon, i) }));
+    const all = days.flatMap(x => (byDate.get(x.date) || []));
+    const ok = all.filter(l => l.status === 'approved'), wait = all.length - ok.length;
+    const people = new Set(ok.map(l => l.name)).size;
+    const cells = days.map(x => {
+      const list = (byDate.get(x.date) || []).slice().sort((a, b) => (a.status === b.status ? String(a.name).localeCompare(String(b.name), 'ko') : a.status === 'approved' ? -1 : 1));
+      const today = x.date === d.today, past = x.date < d.today, h = holi.get(x.date);
+      const chips = list.map(l => { const T = HOME_LV_TYPE[l.type] || HOME_LV_TYPE.leave, pend = l.status !== 'approved';
+        return `<div title="${escHtml(l.name)} · ${T[0]}${pend ? ' (승인 대기)' : ''}" style="display:flex;align-items:center;gap:4px;border-radius:7px;padding:3px 7px;margin-top:4px;font-size:.76rem;line-height:1.3;background:${pend ? '#fff' : T[2]};color:${T[1]};${pend ? 'border:1.5px dashed #f59e0b;' : ''}"><b style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escHtml(l.name)}</b><span style="font-size:.66rem;white-space:nowrap;opacity:.85;">${T[0]}</span>${pend ? '<span style="font-size:.62rem;color:#b45309;font-weight:800;white-space:nowrap;">대기</span>' : ''}</div>`; }).join('');
+      return `<div class="home-lv-cell" style="border:1.5px solid ${today ? '#6366f1' : '#e5e7eb'};border-radius:10px;padding:7px 8px;min-height:74px;background:${h ? '#fef2f2' : today ? '#eef2ff' : '#fff'};${past && !today ? 'opacity:.6;' : ''}min-width:0;">
+        <div style="display:flex;align-items:baseline;gap:5px;white-space:nowrap;"><b style="font-size:.8rem;color:${h ? '#b91c1c' : today ? '#4338ca' : '#374151'};">${x.w}</b><span style="font-size:.74rem;color:${h ? '#b91c1c' : '#6b7280'};">${md(x.date)}</span>${today ? '<span style="font-size:.6rem;font-weight:800;color:#fff;background:#6366f1;border-radius:99px;padding:0 6px;">오늘</span>' : ''}</div>
+        ${h ? `<div style="font-size:.66rem;color:#b91c1c;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="${escHtml(h)}">${escHtml(h)}</div>` : ''}
+        ${chips || (h ? '' : '<div style="font-size:.7rem;color:#d1d5db;margin-top:6px;">—</div>')}</div>`;
+    }).join('');
+    return `<div style="flex:1 1 420px;min-width:0;">
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px;">
+        <b style="font-size:.92rem;"><i class="fa-solid fa-umbrella-beach" style="color:${isThis ? '#6366f1' : '#a5b4fc'};"></i> ${title}</b>
+        <span style="font-size:.74rem;color:#6b7280;">${md(mon)} ~ ${md(addDays(mon, 4))}</span>
+        <span style="margin-left:auto;font-size:.74rem;font-weight:800;color:${ok.length ? '#4338ca' : '#9ca3af'};background:${ok.length ? '#eef2ff' : '#f3f4f6'};border-radius:99px;padding:2px 10px;white-space:nowrap;">${ok.length ? `${people}명 · ${ok.length}건` : '휴가 없음'}${wait ? ` <span style="color:#b45309;">· 대기 ${wait}</span>` : ''}</span>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:6px;">${cells}</div></div>`;
+  };
+  box.innerHTML = `<div style="border:1px solid #e0e7ff;border-radius:14px;padding:12px 14px;margin-bottom:14px;background:#fafaff;">
+    <div style="display:flex;gap:16px;flex-wrap:wrap;">${week('이번 주 휴가 현황', d.this_monday, true)}${week('다음 주 휴가 현황', addDays(d.this_monday, 7), false)}</div>
+    ${d.can_pending ? '<div style="font-size:.68rem;color:#9ca3af;margin-top:6px;">점선 = 승인 대기 중인 신청(관리자에게만 보여요) · 승인은 근무 관리 › 휴가 관리에서</div>' : ''}</div>`;
+}
 async function myApi(params, body) {
   const res = await fetch(fnUrl('wm-me', params), {
     method: body ? 'POST' : 'GET',
@@ -14751,7 +14804,7 @@ function showMenu(key) {
   menuSecSync();   // 지금 화면이 속한 묶음 펼침
   history.replaceState(null, '', '#' + key);
   notifLoad();   // 메뉴 이동 때 알림 갱신 (60초 스로틀 — 상시 폴링 없음)
-  if (key === 'home') { homeFoldsApply(); checkCafe24Status(); updateHomeSourceStatus(); updateHomeReasons(); updateHomeClaimsTile(); updateHomeTrafficTile(); renderHomeShortcuts(); homeTrendInit(); }
+  if (key === 'home') { homeLeavesLoad(false); homeFoldsApply(); checkCafe24Status(); updateHomeSourceStatus(); updateHomeReasons(); updateHomeClaimsTile(); updateHomeTrafficTile(); renderHomeShortcuts(); homeTrendInit(); }
   if (key === 'meet') {
     loadAdTopics(); loadMeetNotes();
     if (!$('note-date').value) $('note-date').value = new Date().toISOString().slice(0, 10);
