@@ -243,7 +243,14 @@ Deno.serve(async (req) => {
         if (l.reason && (l.reason.includes('하계휴가') || l.reason.includes('여름휴가'))) continue;
         used[l.employee_id] = (used[l.employee_id] || 0) + (l.type === 'annual' ? 1 : 0.5);
       }
-      return json(emps.map((e: any) => ({ ...e, annual_used: used[e.id] || 0 })));
+      // 퇴사(비활성) 직원의 마지막 출근일 — 화면의 '퇴사일' 표시용(2026-10-08 사용자 요청). 마지막 근무일(last_work_date)을 안 넣은 직원은
+      // 이 날짜를 대신 보여 준다(표시만 — 급여 일할 계산은 last_work_date를 넣었을 때만).
+      const lastAttend: Record<number, string> = {};
+      await Promise.all((emps as any[]).filter((e) => e.active === false).map(async (e) => {
+        const [row] = await rest(`wm_attendance?employee_id=eq.${Number(e.id)}&select=date&order=date.desc&limit=1`).catch(() => []);
+        if (row?.date) lastAttend[e.id] = String(row.date).slice(0, 10);
+      }));
+      return json(emps.map((e: any) => ({ ...e, annual_used: used[e.id] || 0, last_attend_date: lastAttend[e.id] ?? null })));
     }
 
     if (action === 'attendance_list') {

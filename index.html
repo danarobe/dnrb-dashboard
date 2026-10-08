@@ -3089,6 +3089,20 @@ function applyRole() {
   $('btn-logout').style.display = SESSION ? '' : 'none';
 }
 
+/* 퇴사 표시 + 퇴사일 (2026-10-08 사용자 요청 — 직원 관리 두 화면 공용). 퇴사 = 근무 관리에서 비활성(active=false)인 직원.
+   퇴사일 = 마지막 근무일(last_work_date). 안 넣은 직원은 마지막 출근일(last_attend_date)을 대신 보여 주고 그 사실을 적는다. */
+function wmResignInfo(e) {
+  if (!e || e.active !== false) return null;
+  const entered = e.last_work_date ? String(e.last_work_date).slice(0, 10) : '', seen = e.last_attend_date ? String(e.last_attend_date).slice(0, 10) : '';
+  return { date: entered || seen, entered: !!entered };
+}
+function wmResignHtml(e, inline) {
+  const r = wmResignInfo(e); if (!r) return '';
+  const badge = '<span style="display:inline-block;background:#fee2e2;color:#b91c1c;border-radius:6px;padding:1px 7px;font-size:.66rem;font-weight:800;white-space:nowrap;vertical-align:middle;">퇴사</span>';
+  const when = r.date ? `<span style="font-size:.68rem;color:#6b7280;font-weight:600;white-space:nowrap;"${r.entered ? '' : ' title="마지막 근무일을 아직 안 넣어서, 마지막으로 출근한 날을 보여줘요 — 근무 관리 › 직원 관리 › 수정에서 넣을 수 있어요"'}>퇴사일 ${escHtml(r.date)}${r.entered ? '' : ' <span style="color:#b45309;font-weight:700;">(마지막 출근 기준)</span>'}</span>`
+    : '<span style="font-size:.68rem;color:#b45309;font-weight:700;white-space:nowrap;">퇴사일 미입력</span>';
+  return inline ? ` ${badge} ${when}` : ` ${badge}<div style="margin-top:2px;">${when}</div>`;
+}
 /* ── 직원 관리 (관리자 전용) ── */
 async function loadUsers() {
   if (!isAdmin()) return;
@@ -3096,10 +3110,15 @@ async function loadUsers() {
   adDashPanel();     // 광고 대시보드 접근 허용 칩 (2026-09-11)
   agentUsersPanel(); // AI 에이전트 접근 허용 칩 (2026-09-28)
   try {
-    const d = await authApi({ action: 'list_users', token: SESSION.token });
+    const [d, emps] = await Promise.all([authApi({ action: 'list_users', token: SESSION.token }), wmApi({ action: 'employee_list' }).catch(() => null)]);
+    if (emps) __udEmps = emps;   // 퇴사 표시·근무 정보 창·생일 패널이 같이 쓴다
+    const empOf = new Map((emps || []).filter(e => e.app_user_id).map(e => [e.app_user_id, e]));
+    const gone = u => !!wmResignInfo(empOf.get(u.id));
+    const users = d.users.slice().sort((a, b) => gone(a) - gone(b));   // 퇴사한 직원은 아래로(그 안의 순서는 그대로)
+    const nGone = users.filter(gone).length;
     $('users-list').innerHTML = `<div class="table-wrap"><table>
       <thead><tr><th>아이디</th><th>이름</th><th>역할</th><th class="m-hide">등록일</th><th></th></tr></thead><tbody>` +
-      d.users.map(u => {
+      users.map(u => {
         const isMe = u.id === SESSION.id;
         const roleBtn = isMe ? '<span style="font-size:.75rem;color:#6b7280;">(본인)</span>'
           : `<select onchange="setUserRole(${jsArg(u.id)}, this.value)" style="border:1px solid #d1d5db;border-radius:6px;padding:4px 8px;font-size:.82rem;cursor:pointer;font-weight:600;color:#374151;">
@@ -3114,12 +3133,13 @@ async function loadUsers() {
         const roleColor = { admin: '#4f46e5', cs: '#0891b2', marketer: '#b45309', logistics: '#15803d' }[u.role];
         const nameCell = u.role === 'admin' ? escHtml(u.name)
           : `<span onclick="userDetail(${jsArg(u.id)})" title="클릭하면 근무 정보(입사일·연봉·계좌 등)를 봅니다" style="cursor:pointer;color:#4338ca;font-weight:600;border-bottom:1px dashed #a5b4fc;">${escHtml(u.name)}</span>`;
-        return `<tr>
-        <td>${escHtml(u.id)}</td><td>${nameCell}</td>
+        return `<tr${gone(u) ? ' style="background:#fafafa;"' : ''}>
+        <td style="${gone(u) ? 'color:#9ca3af;' : ''}">${escHtml(u.id)}</td><td>${nameCell}${wmResignHtml(empOf.get(u.id), false)}</td>
         <td>${roleColor ? `<b style="color:${roleColor};">${ROLE_LABEL[u.role]}</b>` : 'MD'}</td>
         <td class="m-hide">${(u.created_at || '').slice(0, 10)}</td>
         <td style="display:flex;gap:6px;justify-content:center;">${roleBtn}${delBtn}</td>
       </tr>`; }).join('') + '</tbody></table></div>' +
+      (nGone ? `<div style="font-size:.75rem;color:#b91c1c;margin-top:8px;"><b>퇴사</b> 표시 = 근무 관리에서 비활성(퇴사) 처리한 직원이에요(${nGone}명). 계정은 아직 남아 있어 로그인할 수 있으니, 필요 없으면 [삭제]로 지워주세요.</div>` : '') +
       '<div style="font-size:.75rem;color:#6b7280;margin-top:8px;">※ 권한 변경은 해당 팀원이 <b>다시 로그인</b>해야 적용됩니다 · MD는 광고 효율의 광고비·전환값·총매출이 가려집니다 · CS팀·물류팀은 판매 성과·반품 스캔·구매요청·마이페이지만 보입니다 · 관리자 계정을 삭제하려면 먼저 MD로 변경하세요 · 이름을 클릭하면 근무 정보(입사일·연봉·계좌·연차)가 열립니다</div>';
     usersBdayRender(d.users);
   } catch (e) { $('users-list').textContent = '목록 조회 실패: ' + e.message; }
@@ -3227,7 +3247,7 @@ async function userDetail(uid) {
   const row = (label, val) => `<div style="display:flex;justify-content:space-between;gap:12px;padding:8px 2px;border-bottom:1px solid #f1f5f9;font-size:.82rem;">
     <span style="color:#6b7280;font-weight:600;white-space:nowrap;">${label}</span><span style="text-align:right;font-weight:600;color:#1e1b4b;">${val}</span></div>`;
   $('user-detail-body').innerHTML =
-    row('구분', pt ? '알바' : '직원') +
+    row('구분', (pt ? '알바' : '직원') + wmResignHtml(e, true)) +
     row('입사일', e.hire_date ? `${e.hire_date} <span style="font-size:.72rem;color:#4338ca;">(근무 ${periodTxt})</span>` : '— <span style="font-size:.68rem;color:#d97706;">근무 관리에서 입력하세요</span>') +
     row('연봉', pay) +
     row('생일', e.birthday || '—') +
@@ -13346,12 +13366,12 @@ function wmEmpRender() {
     const view = wmState.empView || 'active';
     const all = wmState.emps || [], nAct = all.filter(e => e.active !== false).length, nOff = all.length - nAct;
     const rows = all.filter(e => view === 'all' || (view === 'active') === (e.active !== false));
-    const chips = `<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px;"><span class="qp">${[['active', `활성 ${nAct}`], ['inactive', `비활성 ${nOff}`], ['all', `전체 ${all.length}`]].map(([k, l]) => `<button class="${view === k ? 'active' : ''}" onclick="wmEmpSetView('${k}')">${l}</button>`).join('')}</span>
-      <span style="font-size:.72rem;color:#6b7280;">퇴사 등으로 <b>비활성</b> 처리한 직원은 키오스크 출퇴근 화면에서 빠져요. 급여는 근무한 달까지만 계산돼요(과거 기록은 그대로). 월급제 직원은 <b>수정 › 마지막 근무일</b>을 넣으면 퇴사한 달 월급이 근무일만큼 계산돼요. <b>복구</b>로 되돌릴 수 있어요.</span></div>`;
+    const chips = `<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px;"><span class="qp">${[['active', `재직 ${nAct}`], ['inactive', `퇴사 ${nOff}`], ['all', `전체 ${all.length}`]].map(([k, l]) => `<button class="${view === k ? 'active' : ''}" onclick="wmEmpSetView('${k}')">${l}</button>`).join('')}</span>
+      <span style="font-size:.72rem;color:#6b7280;"><b>[퇴사 처리]</b>한 직원은 <b style="color:#b91c1c;">퇴사</b>로 표시되고 키오스크 출퇴근 화면에서 빠져요. 급여는 근무한 달까지만 계산돼요(과거 기록은 그대로). <b>퇴사일</b> = <b>수정 › 마지막 근무일</b>(안 넣었으면 마지막 출근일을 보여줘요) — 월급제 직원은 이 날짜를 넣어야 퇴사한 달 월급이 근무일만큼 계산돼요. <b>복구</b>로 되돌릴 수 있어요.</span></div>`;
     const body = rows.map(e => {
       const pt = e.type === 'parttime';
-      return `<tr style="${e.active === false ? 'opacity:.45;' : ''}">
-        <td style="font-weight:600;">${escHtml(e.name)}${e.active === false ? ' <span style="font-size:.65rem;color:#dc2626;">(비활성)</span>' : ''}${e.last_work_date ? `<div style="font-size:.64rem;color:#6b7280;font-weight:500;white-space:nowrap;">마지막 근무일 ${escHtml(String(e.last_work_date).slice(0, 10))}</div>` : (e.active === false && !pt ? '<div style="font-size:.64rem;color:#b45309;font-weight:600;white-space:nowrap;">마지막 근무일 미입력</div>' : '')}</td>
+      return `<tr style="${e.active === false ? 'background:#fafafa;color:#9ca3af;' : ''}">
+        <td style="font-weight:600;">${escHtml(e.name)}${e.active === false ? wmResignHtml(e, false) : (e.last_work_date ? `<div style="font-size:.64rem;color:#6b7280;font-weight:500;white-space:nowrap;">마지막 근무일 ${escHtml(String(e.last_work_date).slice(0, 10))} (예정)</div>` : '')}</td>
         <td><span class="badge badge-${pt ? 'staff' : 'admin'}" style="font-size:.68rem;">${pt ? '알바' : '직원'}</span>${!pt ? (e.app_user_id
           ? '<div style="font-size:.6rem;color:#16a34a;white-space:nowrap;"><i class="fa-solid fa-link"></i> 계정 연결됨</div>'
           : `<div style="font-size:.6rem;color:#d97706;white-space:nowrap;">미연결 <button class="toggle-btn" style="font-size:.6rem;padding:1px 6px;" onclick="wmEmpLinkPick(${e.id})">연결</button></div>`) : ''}</td>
@@ -13365,13 +13385,13 @@ function wmEmpRender() {
         <td>${e.pin_set_at ? '<span style="color:#16a34a;font-size:.7rem;">설정됨</span>' : '<span style="color:#6b7280;font-size:.7rem;">미설정</span>'}</td>
         <td style="white-space:nowrap;">
           <button class="toggle-btn" style="font-size:.68rem;padding:2px 8px;" onclick="wmEmpFormOpen(${e.id})">수정</button>
-          <button class="toggle-btn" style="font-size:.68rem;padding:2px 8px;${e.active === false ? '' : 'color:#dc2626;'}" onclick="wmEmpToggle(${e.id},${e.active === false})" title="${e.active === false ? '다시 활성화 — 키오스크에 다시 보여요' : '퇴사 등 — 키오스크에서 숨기고 급여 계산에서 빼요(기록 보존)'}">${e.active === false ? '복구' : '비활성'}</button>
+          <button class="toggle-btn" style="font-size:.68rem;padding:2px 8px;${e.active === false ? '' : 'color:#dc2626;'}" onclick="wmEmpToggle(${e.id},${e.active === false})" title="${e.active === false ? '다시 재직으로 — 키오스크에 다시 보여요' : '퇴사 등 — 키오스크에서 숨기고 급여 계산에서 빼요(기록 보존)'}">${e.active === false ? '복구' : '퇴사 처리'}</button>
         </td>
       </tr>`;
     }).join('');
     $('wm-emp-result').innerHTML = chips + (rows.length ? `<div style="overflow-x:auto;"><table style="width:100%;font-size:.8rem;">
       <thead><tr><th>이름</th><th>구분</th><th>급여</th><th>교통비</th><th>연차</th><th>출근고정</th><th>계좌</th><th>PIN</th><th></th></tr></thead>
-      <tbody>${body}</tbody></table></div>` : `<div class="empty-state"><p>${view === 'inactive' ? '비활성 직원이 없어요' : '직원이 없어요'}</p></div>`) + `
+      <tbody>${body}</tbody></table></div>` : `<div class="empty-state"><p>${view === 'inactive' ? '퇴사한 직원이 없어요' : '직원이 없어요'}</p></div>`) + `
       <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
         <button class="toggle-btn" onclick="wmEmpFormOpen(null)"><i class="fa-solid fa-plus"></i> 알바 추가</button>
         <button class="toggle-btn" onclick="wmEmpLinkNew()"><i class="fa-solid fa-link"></i> 직원 연결 추가</button>
@@ -13502,12 +13522,12 @@ async function wmEmpSave() {
 
 async function wmEmpToggle(id, activate) {
   const e = (wmState.emps || []).find(x => x.id === id);
-  const msg = activate ? `${e?.name} 님을 다시 활성화할까요?`
-    : `${e?.name} 님을 비활성 처리할까요?\n키오스크에서 빠지고, 급여는 근무한 달까지만 계산돼요. 과거 기록은 전부 보존됩니다.`;
+  const msg = activate ? `${e?.name} 님을 다시 재직으로 되돌릴까요?`
+    : `${e?.name} 님을 퇴사 처리할까요?\n'퇴사'로 표시되고 키오스크에서 빠지며, 급여는 근무한 달까지만 계산돼요. 과거 기록은 전부 보존됩니다.`;
   if (!confirm(msg)) return;
   try {
     await wmApi({ action: 'employee_active', id, active: activate });
-    showToast(activate ? '활성화 완료' : '비활성 처리 완료');
+    showToast(activate ? '재직으로 되돌렸어요' : '퇴사 처리했어요');
     // 월급제 직원 퇴사: 마지막 근무일을 넣어야 그 달 월급이 근무일만큼 계산된다 (2026-10-01)
     if (!activate && e && e.type === 'employee' && !e.last_work_date) {
       const d = (prompt(`${e.name} 님의 마지막 근무일을 입력하세요 (예: 2026-09-11)\n그 달 월급이 근무일(평일−공휴일)만큼 계산돼요. 지금 모르면 비워 두고, 나중에 '수정'에서 넣을 수 있어요.`, '') || '').trim();
