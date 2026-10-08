@@ -61,6 +61,23 @@ function otMinutes(sv: string, ev: string, meal: boolean): number {
   if (meal) mins -= 60;
   return Math.max(0, mins);
 }
+// ── 초과 근로 '수식 반영 시간' (2026-10-08 사용자 지정) — index.html otCalc와 같은 규칙으로 유지 ──
+//   근로일(토·일·공휴일이 아닌 날): 22시~익일 6시에 한 초과 근로는 15분 단위 시간 × 2배, 그 밖의 시간은 × 1.5배.
+//   금액 = (기본급 + 식대) ÷ 209 × 수식 반영 시간 — **금액은 관리자 화면에서만 계산**한다(이 함수는 시간만 저장, 급여를 건드리지 않음).
+//   나누는 법: 시작~종료를 야간(22~06시)·그 밖으로 가른다 → 식사 1시간은 야간이 아닌 쪽에서 먼저 뺀다 → 합계를 15분 올림(지금까지의 '인정 시간'과 같음)
+//   → 야간도 15분 올림, 나머지가 1.5배 시간. 주말·공휴일은 사용자 기준이 아직 없어 수식 반영 시간을 비워 둔다(w = null).
+const OT_NIGHT_WIN: [number, number][] = [[0, 360], [1320, 1800], [2760, 3240]];   // 분: 00~06시 · 22~익일 06시 · 그다음 날 22시~
+function otSplit(sv: string, ev: string, meal: boolean): { raw: number; ceil: number; day: number; night: number } {
+  if (!T_RE.test(sv) || !T_RE.test(ev)) return { raw: 0, ceil: 0, day: 0, night: 0 };
+  const [sh, sm] = sv.split(":").map(Number), [eh, em] = ev.split(":").map(Number);
+  const s = sh * 60 + sm; let e = eh * 60 + em; if (e < s) e += 24 * 60;
+  let night = OT_NIGHT_WIN.reduce((t, [a, b]) => t + Math.max(0, Math.min(e, b) - Math.max(s, a)), 0);
+  let day = (e - s) - night;
+  if (meal) { const d = Math.min(60, day); day -= d; night = Math.max(0, night - (60 - d)); }
+  const raw = day + night, ceil = Math.ceil(raw / 15) * 15;
+  const night15 = Math.min(ceil, Math.ceil(night / 15) * 15);
+  return { raw, ceil, day: ceil - night15, night: night15 };
+}
 const storageH = () => ({ apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}` });
 async function receiptPut(path: string, bytes: Uint8Array, mime: string) {
   const r = await fetch(`${SB_URL}/storage/v1/object/${RECEIPT_BUCKET}/${path}`, { method: "POST", headers: { ...storageH(), "Content-Type": mime, "x-upsert": "false" }, body: bytes });
@@ -185,7 +202,10 @@ Deno.serve(async (req) => {
     if (action === "trip_list") {
       const rows = await rest(`wm_trip_claims?employee_id=eq.${emp.id}&select=*&order=submitted_at.desc&limit=100`);
       const receipts = await rest(`wm_trip_receipts?employee_id=eq.${emp.id}&select=id,claim_id,file_name,mime,size&order=id`);
-      return json({ rows, receipts });
+      // 공휴일 날짜(작년~내년) — 신청서를 쓰는 동안 '수식 반영 시간'을 미리 보여 주는 데 쓴다(주말·공휴일은 1.5배·2배 대상이 아님)
+      const y = Number(seoulToday().slice(0, 4));
+      const holi = await rest(`wm_holidays?date=gte.${y - 1}-01-01&date=lte.${y + 1}-12-31&select=date&limit=400`).catch(() => []);
+      return json({ rows, receipts, holidays: [...new Set((holi as { date: string }[]).map((h) => String(h.date).slice(0, 10)))] });
     }
     if (action === "trip_receipt") {
       const id = Number(url.searchParams.get("id"));
@@ -267,10 +287,18 @@ Deno.serve(async (req) => {
       const nights = Math.max(0, Math.min(60, Math.floor(Number(body.nights) || 0)));
       const per = TRIP_PER[kind];
       const otIn = Array.isArray(body.ot) ? (body.ot as Record<string, unknown>[]).slice(0, 60) : [];
+      // 초과 근로일이 공휴일인지 — 수식 반영 시간(근로일만 1.5배·2배)을 정하는 데 쓴다
+      const otDates = [...new Set(otIn.map((r) => String(r.date ?? "")).filter((d) => D_RE.test(d)))];
+      const holiRows = otDates.length ? await rest(`wm_holidays?date=in.(${otDates.join(",")})&select=date`).catch(() => []) : [];
+      const holiSet = new Set((holiRows as { date: string }[]).map((h) => String(h.date).slice(0, 10)));
       const ot = otIn.map((r) => {
         const sv = String(r.s ?? ""), ev = String(r.e ?? ""), meal = !!r.meal;
-        const raw = otMinutes(sv, ev, meal);
-        return { date: D_RE.test(String(r.date ?? "")) ? String(r.date) : "", s: sv, e: ev, meal, memo: String(r.memo ?? "").slice(0, 200), raw, ceil: Math.ceil(raw / 15) * 15 };
+        const x = otSplit(sv, ev, meal);
+        const date = D_RE.test(String(r.date ?? "")) ? String(r.date) : "";
+        const dow = date ? new Date(date + "T00:00:00Z").getUTCDay() : -1;
+        const dtype = !date ? "" : holiSet.has(date) ? "holiday" : (dow === 0 || dow === 6) ? "weekend" : "work";
+        // raw·ceil은 지금까지와 같은 값(otMinutes·15분 올림). day·night = 15분 단위로 나눈 1.5배·2배 대상 시간, w = 수식 반영 시간(분, 근로일만)
+        return { date, s: sv, e: ev, meal, memo: String(r.memo ?? "").slice(0, 200), raw: x.raw, ceil: x.ceil, day: x.day, night: x.night, dtype, w: dtype === "work" ? x.day * 1.5 + x.night * 2 : null };
       }).filter((r) => r.raw > 0);
       const otTotal = ot.reduce((t, r) => t + r.ceil, 0);
       const exIn = Array.isArray(body.expenses) ? (body.expenses as Record<string, unknown>[]).slice(0, 100) : [];

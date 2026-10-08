@@ -695,7 +695,10 @@ Deno.serve(async (req) => {
       const rows = await rest(`wm_trip_claims?${parts.join('&')}`);
       const ids = rows.map((r: { id: number }) => r.id);
       const receipts = ids.length ? await rest(`wm_trip_receipts?claim_id=in.(${ids.join(',')})&select=id,claim_id,file_name,mime,size&order=id`) : [];
-      return json({ rows, receipts });
+      // 공휴일 날짜(작년~내년) — 초과 근로 '수식 반영 시간'(근로일만 1.5배·2배) 계산용. 예전에 낸 신청서는 화면이 이 날짜로 다시 계산한다(2026-10-08)
+      const y = Number(new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Seoul' }).slice(0, 4));
+      const holi = await rest(`wm_holidays?date=gte.${y - 1}-01-01&date=lte.${y + 1}-12-31&select=date&limit=400`).catch(() => []);
+      return json({ rows, receipts, holidays: [...new Set((holi as { date: string }[]).map((h) => String(h.date).slice(0, 10)))] });
     }
     if (action === 'trip_review') {
       const id = Number(body.id);

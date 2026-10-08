@@ -12857,7 +12857,7 @@ function wmTripRender() {
         <td style="text-align:left;font-weight:700;white-space:nowrap;">${escHtml(e.name)}</td>
         <td style="text-align:left;min-width:160px;"><b>${escHtml(c.place)}</b><div style="font-size:.68rem;color:#6b7280;">${c.start_date} ~ ${c.end_date} (${c.nights}박) · ${escHtml((TRIP_KINDS[c.kind] || {}).label || c.kind)}${c.purpose ? ' · ' + escHtml(c.purpose) : ''}</div></td>
         <td style="white-space:nowrap;">${fmt(c.trip_pay)}원</td>
-        <td class="m-hide" style="white-space:nowrap;">${c.ot_total_min ? hm(c.ot_total_min) : '—'}</td>
+        <td class="m-hide" style="white-space:nowrap;">${c.ot_total_min ? hm(c.ot_total_min) + (w => (w.w ? `<div style="font-size:.66rem;color:#0f766e;font-weight:700;">수식 반영 ${hmw(w.w)}</div>${otHourly(e) ? `<div style="font-size:.66rem;color:#b45309;font-weight:800;" title="(기본급+식대) ÷ 209 × 수식 반영 시간 — 관리자에게만 보여요">${fmt(otPay(e, w.w))}원</div>` : ''}` : '') + (w.offN ? `<div style="font-size:.64rem;color:#b45309;">주말·공휴일 ${w.offN}건</div>` : ''))(otSum(c.ot, wmHoliSet())) : '—'}</td>
         <td style="text-align:left;min-width:150px;">${ex.length ? `<b>${fmt(c.expense_total)}원</b> <span style="font-size:.68rem;color:#6b7280;">(${ex.length}건)</span>
           <div style="font-size:.68rem;color:#4b5563;">${ex.map(x => `${x.date ? x.date.slice(5) + ' ' : ''}${escHtml(x.item)} ${fmt(x.amount)}원${x.receipt_id ? ' ' + rcBtn(x.receipt_id) : ' <span style="color:#c2410c;">영수증 없음</span>'}`).join('<br>')}</div>` : '<span style="color:#9ca3af;">—</span>'}${extra.length ? `<div style="font-size:.66rem;">${extra.map(r => rcBtn(r.id)).join('')}</div>` : ''}</td>
         <td style="white-space:nowrap;font-weight:800;">${fmt((c.trip_pay || 0) + (c.expense_total || 0))}원</td>
@@ -12886,16 +12886,22 @@ function wmTripDetail(id) {
   const tdBase = 'padding:7px 8px;border-bottom:1px solid #f0f1f4;font-size:.8rem;vertical-align:top;';
   const td = `style="${tdBase}"`, tdL = `style="${tdBase}text-align:left;"`, tdR = `style="${tdBase}text-align:right;font-weight:700;"`;
   const ot = c.ot || [];
+  const otHoli = wmHoliSet(), otW = otSum(ot, otHoli), otRate = otHourly(e);   // 수식 반영 시간·금액(금액은 이 관리자 화면에서만)
+  let otPaySum = 0;
   const otRows = ot.map(r => {
     const [sh, sm] = String(r.s || '0:0').split(':').map(Number), [eh, em] = String(r.e || '0:0').split(':').map(Number);
     const overnight = (eh * 60 + em) < (sh * 60 + sm);
     const elapsed = r.raw + (r.meal ? 60 : 0);
+    const x = otCalc(r, otHoli), pay = x.w != null && otRate ? otPay(e, x.w) : null;
+    if (pay != null) otPaySum += pay;
     return `<tr><td ${td}>${wd(r.date)}</td>
       <td ${td}><b>${r.s}</b> ~ <b>${r.e}</b>${overnight ? ' <span style="font-size:.66rem;color:#c2410c;font-weight:700;">(다음날)</span>' : ''}</td>
       <td ${td}>${hm(elapsed)}</td>
       <td ${td}>${r.meal ? '<span style="color:#b91c1c;">−1시간</span>' : '—'}</td>
       <td ${td}>${hm(r.raw)}</td>
       <td ${td}><b style="color:#4338ca;">${hm(r.ceil)}</b>${r.ceil !== r.raw ? `<div style="font-size:.64rem;color:#9ca3af;">+${r.ceil - r.raw}분 올림</div>` : ''}</td>
+      <td ${td}>${x.w != null ? `<b style="color:#0f766e;">${hmw(x.w)}</b><div style="font-size:.64rem;color:#6b7280;white-space:nowrap;">${otSplitNote(x)}</div>` : `<span style="color:#b45309;font-weight:700;">${OT_DTYPE[x.dtype] || '날짜 없음'}</span><div style="font-size:.64rem;color:#b45309;">기준 미정</div>`}</td>
+      <td ${tdR}>${pay != null ? `<span style="color:#b45309;">${fmt(pay)}원</span>` : '<span style="color:#d1d5db;font-weight:400;">—</span>'}</td>
       <td ${tdL}>${escHtml(r.memo || '—')}</td></tr>`;
   }).join('');
   const ex = c.expenses || [];
@@ -12920,9 +12926,11 @@ function wmTripDetail(id) {
       <button onclick="wmTripDetailClose()" style="border:none;background:#f3f4f6;border-radius:8px;padding:4px 10px;font-size:.88rem;cursor:pointer;">✕</button></div>
     ${sec('출장 내역', kv('출장 구분', escHtml(k.label)) + kv('출장 기간', `${wd(c.start_date)} ~ ${wd(c.end_date)} · ${c.nights}박`) + kv('출장 목적', escHtml(c.purpose || '—')) + kv('출장비', `<b>${fmt(c.trip_pay)}원</b> <span style="color:#6b7280;">(${fmt(c.per_night)}원 × ${c.nights}박)</span>`) + (c.note ? kv('비고', escHtml(c.note)) : ''))}
     ${sec(`초과 근로 내역 <span style="font-size:.72rem;color:#6b7280;font-weight:600;">${ot.length}건 · 합계 ${hm(c.ot_total_min || 0)}</span>`, ot.length ? `<div class="table-wrap"><table style="width:100%;border-collapse:collapse;">
-      <thead><tr><th ${th}>날짜</th><th ${th}>근로 시각</th><th ${th}>경과 시간</th><th ${th}>식사 공제</th><th ${th}>실제 근로</th><th ${th}>인정 (15분 올림)</th><th ${th}>업무 내용</th></tr></thead>
-      <tbody>${otRows}<tr><td ${tdR} colspan="4">합 계</td><td ${td}><b>${hm(ot.reduce((t, r) => t + r.raw, 0))}</b></td><td ${td}><b style="color:#4338ca;">${hm(c.ot_total_min || 0)}</b></td><td ${td}></td></tr></tbody></table></div>
-      <div style="font-size:.68rem;color:#6b7280;margin-top:4px;">경과 시간 = 종료 − 시작(자정을 넘기면 다음날로 계산) · 식사시간 포함으로 체크한 날은 1시간 공제 · 실제 근로를 15분 단위로 올림해 인정합니다.</div>` : '<div style="font-size:.8rem;color:#9ca3af;">등록된 초과 근로가 없습니다.</div>')}
+      <thead><tr><th ${th}>날짜</th><th ${th}>근로 시각</th><th ${th}>경과 시간</th><th ${th}>식사 공제</th><th ${th}>실제 근로</th><th ${th}>인정 (15분 올림)</th><th ${th}>수식 반영 시간</th><th ${th} title="관리자에게만 보여요">금액</th><th ${th}>업무 내용</th></tr></thead>
+      <tbody>${otRows}<tr><td ${tdR} colspan="4">합 계</td><td ${td}><b>${hm(ot.reduce((t, r) => t + r.raw, 0))}</b></td><td ${td}><b style="color:#4338ca;">${hm(c.ot_total_min || 0)}</b></td><td ${td}><b style="color:#0f766e;">${otW.w ? hmw(otW.w) : '—'}</b></td><td ${tdR}>${otRate && otW.w ? `<span style="color:#b45309;">${fmt(otPaySum)}원</span>` : '—'}</td><td ${td}></td></tr></tbody></table></div>
+      <div style="font-size:.68rem;color:#6b7280;margin-top:4px;line-height:1.6;">경과 시간 = 종료 − 시작(자정을 넘기면 다음날로 계산) · 식사시간 포함으로 체크한 날은 1시간 공제 · 실제 근로를 15분 단위로 올림해 인정합니다.<br>
+        <b style="color:#0f766e;">수식 반영 시간</b> = 근로일(주말·공휴일 제외) 기준, 22시~익일 6시 × 2배 + 그 밖 × 1.5배(식사 1시간은 야간이 아닌 시간에서 먼저 뺌)${otW.offN ? ` · <b style="color:#b45309;">주말·공휴일 근로 ${otW.offN}건(${hm(otW.off)})은 기준이 정해지지 않아 넣지 않았어요</b>` : ''}<br>
+        <b style="color:#b45309;">금액(관리자에게만)</b> = (기본급+식대) ÷ ${OT_BASE_HOURS} × 수식 반영 시간${otRate ? ` — 근무 관리의 월급 ${fmt(Number(e.monthly_salary))}원 ÷ ${OT_BASE_HOURS} = 시간당 ${fmt(Math.round(otRate))}원` : ' — 이 직원은 월급이 등록돼 있지 않아 금액을 계산하지 못했어요'}</div>` : '<div style="font-size:.8rem;color:#9ca3af;">등록된 초과 근로가 없습니다.</div>')}
     ${sec(`개인 사비 지출 <span style="font-size:.72rem;color:#6b7280;font-weight:600;">${ex.length}건 · 합계 ${fmt(c.expense_total || 0)}원</span>`, ex.length ? `<div class="table-wrap"><table style="width:100%;border-collapse:collapse;">
       <thead><tr><th ${th}>날짜</th><th ${th}>지출 내용</th><th ${th}>금액</th><th ${th}>메모</th><th ${th}>영수증</th></tr></thead><tbody>${exRows}</tbody></table></div>` : '<div style="font-size:.8rem;color:#9ca3af;">등록된 사비 지출이 없습니다.</div>')}
     ${rc.length ? sec('영수증 미리보기', `<div id="wm-trip-rcprev" style="display:flex;gap:10px;flex-wrap:wrap;">${rc.map(r => `<div style="width:150px;border:1px solid #e5e7eb;border-radius:10px;padding:6px;text-align:center;cursor:pointer;" onclick="wmTripReceiptOpen(${r.id})" title="크게 보기">
@@ -12968,14 +12976,17 @@ async function wmTripOtExport(onlyId) {
     if (empSel) claims = claims.filter(c => c.employee_id === empSel);
   }
   const nameOf = Object.fromEntries((wmState.emps || []).map(e => [e.id, e.name]));
+  const empOf = Object.fromEntries((wmState.emps || []).map(e => [e.id, e])), otHoli = wmHoliSet();
   const lines = [];
   for (const c of claims) for (const r of (c.ot || [])) {
     const [sh, sm] = String(r.s || '0:0').split(':').map(Number), [eh, em] = String(r.e || '0:0').split(':').map(Number);
     const overnight = (eh * 60 + em) < (sh * 60 + sm);
     const elapsed = r.raw + (r.meal ? 60 : 0);
+    const x = otCalc(r, otHoli), emp = empOf[c.employee_id], rate = otHourly(emp);
     lines.push([nameOf[c.employee_id] || ('직원 ' + c.employee_id), c.place, `${c.start_date} ~ ${c.end_date}`, r.date || '',
       r.date ? WM_DAY[new Date(r.date + 'T12:00:00').getDay()] : '', r.s, r.e, overnight ? '다음날' : '',
-      hm(elapsed), r.meal ? '-1시간' : '', hm(r.raw), hm(r.ceil), r.raw, r.ceil, r.memo || '', (TRIP_STATUS[c.status] || [c.status])[0]]);
+      hm(elapsed), r.meal ? '-1시간' : '', hm(r.raw), hm(r.ceil), r.raw, r.ceil, r.memo || '', (TRIP_STATUS[c.status] || [c.status])[0],
+      x.dtype === 'work' ? '근로일' : (OT_DTYPE[x.dtype] || ''), x.w != null ? x.day : '', x.w != null ? x.night : '', x.w != null ? Math.round(x.w / 60 * 1000) / 1000 : '', rate ? Math.round(rate) : '', x.w != null && rate ? otPay(emp, x.w) : '']);
   }
   if (!lines.length) { showToast('내보낼 초과근로 내역이 없어요'); return; }
   lines.sort((a, b) => (a[0] + a[3]).localeCompare(b[0] + b[3], 'ko'));
@@ -12986,7 +12997,7 @@ async function wmTripOtExport(onlyId) {
     const single = onlyId ? claims[0] : null;
     ws.cell(1, 1).value(single ? `출장 초과근로 내역 — ${nameOf[single.employee_id] || ''} · ${single.place} (${single.start_date} ~ ${single.end_date})` : `출장 초과근로 내역 (${lines.length}건)`).style({ bold: true, fontSize: 14 });
     ws.cell(2, 1).value('경과 시간 = 종료 − 시작(자정 넘기면 다음날) · 식사 포함 체크 시 1시간 공제 · 실제 근로를 15분 단위로 올림해 인정').style({ fontColor: '6B7280', fontSize: 9 });
-    const head = ['직원', '출장지', '출장 기간', '날짜', '요일', '시작', '종료', '비고', '경과 시간', '식사 공제', '실제 근로', '인정(15분 올림)', '실제 근로(분)', '인정(분)', '업무 내용', '신청 상태'];
+    const head = ['직원', '출장지', '출장 기간', '날짜', '요일', '시작', '종료', '비고', '경과 시간', '식사 공제', '실제 근로', '인정(15분 올림)', '실제 근로(분)', '인정(분)', '업무 내용', '신청 상태', '구분', '1.5배 대상(분)', '2배 대상(분)', '수식 반영(시간)', '시간당 금액(원)', '금액(원)'];
     head.forEach((h, i) => ws.cell(4, i + 1).value(h).style({ bold: true, fill: 'EEF2FF', horizontalAlignment: 'center' }));
     lines.forEach((row, ri) => row.forEach((v, ci) => ws.cell(5 + ri, ci + 1).value(v)));
     const last = 4 + lines.length, tr = last + 1;
@@ -12996,8 +13007,13 @@ async function wmTripOtExport(onlyId) {
     ws.cell(tr, 12).value(hm(ceilSum)).style({ bold: true, fontColor: '4338CA' });
     ws.cell(tr, 13).formula(`SUM(M5:M${last})`).style({ bold: true });
     ws.cell(tr, 14).formula(`SUM(N5:N${last})`).style({ bold: true });
-    ws.range(`A${tr}:P${tr}`).style({ fill: 'F8F9FF', topBorder: true });
-    [9, 16, 24, 11, 5, 7, 7, 7, 10, 9, 10, 13, 12, 9, 30, 10].forEach((w, i) => ws.column(i + 1).width(w));
+    ws.cell(tr, 18).formula(`SUM(R5:R${last})`).style({ bold: true });
+    ws.cell(tr, 19).formula(`SUM(S5:S${last})`).style({ bold: true });
+    ws.cell(tr, 20).formula(`SUM(T5:T${last})`).style({ bold: true, fontColor: '0F766E' });
+    ws.cell(tr, 22).formula(`SUM(V5:V${last})`).style({ bold: true, fontColor: 'B45309' });
+    ws.range(`A${tr}:V${tr}`).style({ fill: 'F8F9FF', topBorder: true });
+    ws.cell(3, 1).value('수식 반영(시간) = 근로일 기준 22시~익일 6시 × 2배 + 그 밖 × 1.5배(15분 단위) · 금액 = (기본급+식대) ÷ 209 × 수식 반영 시간 · 주말·공휴일은 기준 미정이라 비워 둠').style({ fontColor: '6B7280', fontSize: 9 });
+    [9, 16, 24, 11, 5, 7, 7, 7, 10, 9, 10, 13, 12, 9, 30, 10, 8, 13, 12, 14, 14, 12].forEach((w, i) => ws.column(i + 1).width(w));
     const blob = await wb.outputAsync();
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -14263,7 +14279,7 @@ function myRenderDocs() {
       <div id="my-trip-sum" style="margin-left:auto;font-size:.82rem;font-weight:800;color:#1e1b4b;margin-bottom:6px;"></div>
     </div>
     <div style="border-top:1px solid #eceef2;padding-top:10px;">
-      <b style="font-size:.8rem;color:#1e1b4b;">초과 근로 내역 <span style="font-size:.7rem;color:#6b7280;font-weight:600;">실제 근로한 경과 시간 · 15분 단위 올림 · 식사시간 및 이동시간은 공제됩니다</span></b>
+      <b style="font-size:.8rem;color:#1e1b4b;">초과 근로 내역 <span style="font-size:.7rem;color:#6b7280;font-weight:600;">실제 근로한 경과 시간 · 15분 단위 올림 · 식사시간 및 이동시간은 공제됩니다 · <span style="color:#0f766e;">수식 반영 = 근로일 기준 22시~익일 6시 × 2배, 그 밖 × 1.5배</span></span></b>
       <div id="my-trip-ot" style="margin-top:8px;"></div>
       <button class="toggle-btn" style="font-size:.72rem;padding:3px 10px;margin-top:6px;" onclick="myTripOtAdd()"><i class="fa-solid fa-plus"></i> 날짜 추가</button>
     </div>
@@ -14310,7 +14326,7 @@ function myTripOtRender() {
     <label style="display:flex;align-items:center;gap:4px;font-size:.74rem;color:#4b5563;font-weight:600;cursor:pointer;white-space:nowrap;">
       <input type="checkbox" ${r.meal ? 'checked' : ''} onchange="myTripOtSet(${i},'meal',this.checked)" /> 식사시간 포함</label>
     <input placeholder="업무 내용 (예: 거래처 미팅 자료 정리)" value="${String(r.memo || '').replace(/"/g, '&quot;')}" oninput="myTripOtSet(${i},'memo',this.value)" style="${inp}flex:1;min-width:150px;" />
-    <span id="my-trip-ot-r${i}" style="font-size:.74rem;color:#4338ca;font-weight:700;min-width:104px;"></span>
+    <span id="my-trip-ot-r${i}" style="font-size:.74rem;color:#4338ca;font-weight:700;min-width:150px;line-height:1.45;"></span>
     <button class="toggle-btn" style="font-size:.68rem;padding:2px 8px;color:#dc2626;" onclick="myTripOtDel(${i})">삭제</button>
   </div>`).join('');
 }
@@ -14357,6 +14373,37 @@ async function myTripExpUpload(i, input) {
 }
 /* 15분 단위 올림 — 규정: "초과근로시간은 15분 단위로 올림하여 계산" */
 const ceil15 = mins => Math.ceil(mins / 15) * 15;
+/* 초과 근로 '수식 반영 시간' (2026-10-08 사용자 지정) — 서버 wm-me otSplit과 같은 규칙으로 유지.
+   근로일(토·일·공휴일이 아닌 날): 22시~익일 6시의 초과 근로 = 15분 단위 시간 × 2배, 그 밖 = × 1.5배. 금액(관리자만) = (기본급+식대) ÷ 209 × 수식 반영 시간.
+   나누는 법: 시작~종료를 야간·그 밖으로 가름 → 식사 1시간은 야간이 아닌 쪽에서 먼저 뺌 → 합계를 15분 올림(= 인정 시간) → 야간도 15분 올림, 나머지가 1.5배 시간.
+   주말·공휴일은 아직 기준을 받지 못해 수식 반영 시간이 없다(w = null). 서버가 저장한 값(day·night·dtype·w)이 있으면 그 값을 쓰고, 예전 신청서는 여기서 다시 계산한다. */
+const OT_NIGHT_WIN = [[0, 360], [1320, 1800], [2760, 3240]];
+const OT_BASE_HOURS = 209;
+const OT_DTYPE = { weekend: '주말', holiday: '공휴일' };
+function otCalc(r, holiSet) {
+  if (r && r.dtype !== undefined && r.day !== undefined) return { raw: r.raw || 0, ceil: r.ceil || 0, day: r.day || 0, night: r.night || 0, dtype: r.dtype, w: r.w };
+  const z = { raw: 0, ceil: 0, day: 0, night: 0, dtype: '', w: null };
+  if (!r || !/^\d{2}:\d{2}$/.test(r.s || '') || !/^\d{2}:\d{2}$/.test(r.e || '')) return z;
+  const [sh, sm] = r.s.split(':').map(Number), [eh, em] = r.e.split(':').map(Number);
+  const st = sh * 60 + sm; let en = eh * 60 + em; if (en < st) en += 24 * 60;
+  let night = OT_NIGHT_WIN.reduce((t, [a, b]) => t + Math.max(0, Math.min(en, b) - Math.max(st, a)), 0), day = (en - st) - night;
+  if (r.meal) { const d = Math.min(60, day); day -= d; night = Math.max(0, night - (60 - d)); }
+  const raw = day + night, ceil = ceil15(raw), n15 = Math.min(ceil, ceil15(night));
+  const dow = /^\d{4}-\d{2}-\d{2}$/.test(r.date || '') ? new Date(r.date + 'T00:00:00Z').getUTCDay() : -1;
+  const dtype = dow < 0 ? '' : (holiSet && holiSet.has(r.date)) ? 'holiday' : (dow === 0 || dow === 6) ? 'weekend' : 'work';
+  return { raw, ceil, day: ceil - n15, night: n15, dtype, w: dtype === 'work' ? (ceil - n15) * 1.5 + n15 * 2 : null };
+}
+function otSum(ot, holiSet) {   // 신청서 한 건의 합계: w = 수식 반영(근로일), off = 주말·공휴일 인정 시간(수식 기준 미정), day·night = 1.5배·2배 대상
+  const t = { w: 0, day: 0, night: 0, off: 0, offN: 0, nodate: 0 };
+  for (const r of (ot || [])) { const x = otCalc(r, holiSet); if (!x.ceil) continue; if (x.w == null) { if (x.dtype) { t.off += x.ceil; t.offN++; } else t.nodate++; } else { t.w += x.w; t.day += x.day; t.night += x.night; } }
+  return t;
+}
+const hmw = mins => { const m = Math.round(mins * 2) / 2, h = Math.floor(m / 60); return `${h}시간 ${m - h * 60}분`; };   // 수식 반영 시간은 30초 단위(15분 × 1.5 = 22.5분)까지 나온다
+const otHourly = emp => emp && Number(emp.monthly_salary) > 0 ? Number(emp.monthly_salary) / OT_BASE_HOURS : 0;   // 관리자 화면 전용: (기본급+식대) ÷ 209 — 근무 관리의 월급을 쓴다
+const otPay = (emp, wMin) => Math.round(otHourly(emp) * (wMin || 0) / 60);
+const otSplitNote = x => [x.day ? `1.5배 ${hm(x.day)}` : '', x.night ? `2배 ${hm(x.night)}` : ''].filter(Boolean).join(' + ');
+const myHoliSet = () => new Set(((myState.trip || {}).holidays) || []);
+const wmHoliSet = () => new Set(((wmState.trip || {}).holidays) || []);
 const hm = mins => `${Math.floor(mins / 60)}시간 ${mins % 60}분`;
 /* 시작~종료 시각 → 분. 종료가 시작보다 이르면 자정을 넘긴 야근으로 보고 +24시간.
    식사시간 포함이면 **규정상 실제 근로시간에서 먼저 1시간을 빼고**, 그 값을 15분 단위로 올린다. */
@@ -14381,16 +14428,20 @@ function myTripCalc() {
   const nights = Math.max(0, Number(($('my-trip-nights') || {}).value) || 0);
   const per = TRIP_KINDS[kind].per;
   const { rows, total } = myTripOtTotals();
+  const holi = myHoliSet();
   myTripOtRows.forEach((r, i) => {
     const el = $('my-trip-ot-r' + i);
     if (!el) return;
-    const raw = myTripOtMinutes(r);
-    el.textContent = raw > 0 ? `→ ${hm(ceil15(raw))}` : '';
+    const raw = myTripOtMinutes(r), x = otCalc({ date: r.date, s: r.s, e: r.e, meal: r.meal }, holi);
+    el.innerHTML = raw > 0 ? `→ ${hm(ceil15(raw))}` + (x.w != null
+      ? `<div style="font-size:.7rem;color:#0f766e;" title="근로일: 22시~익일 6시 × 2배, 그 밖 × 1.5배">수식 반영 <b>${hmw(x.w)}</b> <span style="color:#6b7280;font-weight:600;">(${otSplitNote(x)})</span></div>`
+      : x.dtype ? `<div style="font-size:.7rem;color:#b45309;">${OT_DTYPE[x.dtype]} 근로 — 수식 반영 시간은 따로 정해요</div>` : '') : '';
   });
+  const wsum = otSum(myTripOtRows.filter(r => r.s && r.e).map(r => ({ date: r.date, s: r.s, e: r.e, meal: r.meal })), holi);
   const sum = $('my-trip-sum');
   if (sum) sum.innerHTML = `출장비 <span style="color:#4f46e5;">${fmt(nights * per)}원</span>`
     + `<span style="font-size:.72rem;color:#6b7280;font-weight:600;"> (${fmt(per)}원 × ${nights}박)</span>`
-    + (total ? `<span style="font-size:.72rem;color:#6b7280;font-weight:700;"> · 초과근로 ${hm(total)}</span>` : '');
+    + (total ? `<span style="font-size:.72rem;color:#6b7280;font-weight:700;"> · 초과근로 ${hm(total)}${wsum.w ? ` <span style="color:#0f766e;">(수식 반영 ${hmw(wsum.w)})</span>` : ''}</span>` : '');
 }
 function myTripAutoNights() {
   const s = ($('my-trip-start') || {}).value, e = ($('my-trip-end') || {}).value;
@@ -14506,11 +14557,13 @@ function tripDocInner(c, d, receipts) {
   const k = TRIP_KINDS[c.kind] || { label: c.kind, per: c.per_night, note: '' };
   const ot = c.ot || [], ex = c.expenses || [];
   const rcMap = Object.fromEntries((receipts || []).map(r => [r.id, r]));
+  const otHoli = new Set([...myHoliSet(), ...wmHoliSet()]), otW = otSum(ot, otHoli);
   const otTable = ot.length
-    ? `<table class="grid"><thead><tr><th>날짜</th><th>근로 시간</th><th>식사</th><th>실제 근로</th><th>15분 올림</th><th>업무 내용</th></tr></thead>
-       <tbody>${ot.map(r => `<tr><td>${r.date || '—'}</td><td>${r.s} ~ ${r.e}</td><td>${r.meal ? '포함(-1시간)' : '—'}</td>
-         <td>${hm(r.raw)}</td><td><b>${hm(r.ceil)}</b></td><td style="text-align:left;">${escHtml(r.memo || '—')}</td></tr>`).join('')}
-       <tr><th colspan="3">합 계</th><td>${hm(ot.reduce((x, r) => x + r.raw, 0))}</td><td><b>${hm(c.ot_total_min || 0)}</b></td><td></td></tr></tbody></table>`
+    ? `<table class="grid"><thead><tr><th>날짜</th><th>근로 시간</th><th>식사</th><th>실제 근로</th><th>15분 올림</th><th>수식 반영</th><th>업무 내용</th></tr></thead>
+       <tbody>${ot.map(r => { const x = otCalc(r, otHoli); return `<tr><td>${r.date || '—'}</td><td>${r.s} ~ ${r.e}</td><td>${r.meal ? '포함(-1시간)' : '—'}</td>
+         <td>${hm(r.raw)}</td><td><b>${hm(r.ceil)}</b></td><td>${x.w != null ? `<b>${hmw(x.w)}</b><div style="font-size:10px;color:#666;">${otSplitNote(x)}</div>` : (OT_DTYPE[x.dtype] || '—')}</td><td style="text-align:left;">${escHtml(r.memo || '—')}</td></tr>`; }).join('')}
+       <tr><th colspan="3">합 계</th><td>${hm(ot.reduce((x, r) => x + r.raw, 0))}</td><td><b>${hm(c.ot_total_min || 0)}</b></td><td><b>${otW.w ? hmw(otW.w) : '—'}</b></td><td></td></tr></tbody></table>
+       <div style="font-size:11px;color:#666;margin:-10px 0 16px;">수식 반영 시간 = 근로일(주말·공휴일 제외) 기준, 22시~익일 6시의 초과 근로는 15분 단위 시간 × 2배, 그 밖은 × 1.5배${otW.offN ? ` · 주말·공휴일 근로 ${otW.offN}건(${hm(otW.off)})은 따로 정합니다` : ''}</div>`
     : '<div style="font-size:13px;color:#666;margin-bottom:16px;">해당 없음</div>';
   const exTable = ex.length
     ? `<table class="grid"><thead><tr><th>날짜</th><th>지출 내용</th><th>금액</th><th>영수증</th><th>메모</th></tr></thead>
@@ -14704,7 +14757,7 @@ async function myTripListLoad() {
           <td style="text-align:left;white-space:nowrap;color:#6b7280;">${String(c.submitted_at || '').slice(0, 10)}</td>
           <td style="text-align:left;"><b>${escHtml(c.place)}</b><div style="font-size:.68rem;color:#6b7280;">${c.start_date} ~ ${c.end_date} (${c.nights}박) · ${escHtml((TRIP_KINDS[c.kind] || {}).label || c.kind)}</div></td>
           <td style="white-space:nowrap;">${fmt(c.trip_pay)}원</td>
-          <td class="m-hide" style="white-space:nowrap;">${c.ot_total_min ? hm(c.ot_total_min) : '—'}</td>
+          <td class="m-hide" style="white-space:nowrap;">${c.ot_total_min ? hm(c.ot_total_min) + (w => w.w ? `<div style="font-size:.66rem;color:#0f766e;font-weight:700;">수식 반영 ${hmw(w.w)}</div>` : '')(otSum(c.ot, myHoliSet())) : '—'}</td>
           <td style="white-space:nowrap;">${c.expense_total ? fmt(c.expense_total) + '원' : '—'}${rc.length ? `<div style="font-size:.66rem;">${rc.map(r => `<button onclick="myTripReceiptOpen(${r.id})" style="border:none;background:none;color:#4f46e5;cursor:pointer;text-decoration:underline;font-size:.66rem;padding:0 2px;">영수증</button>`).join('')}</div>` : ''}</td>
           <td><span style="background:${sb};color:${sc};border-radius:99px;padding:2px 9px;font-size:.7rem;font-weight:700;white-space:nowrap;">${sl}</span>${c.review_note ? `<div style="font-size:.66rem;color:#b91c1c;max-width:160px;">${escHtml(c.review_note)}</div>` : ''}${c.resubmit_count ? `<div style="font-size:.64rem;color:#6b7280;">재제출 ${c.resubmit_count}회</div>` : ''}</td>
           <td style="white-space:nowrap;">
