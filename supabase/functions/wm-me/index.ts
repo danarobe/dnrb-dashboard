@@ -65,7 +65,9 @@ function otMinutes(sv: string, ev: string, meal: boolean): number {
 //   근로일(토·일·공휴일이 아닌 날): 22시~익일 6시에 한 초과 근로는 15분 단위 시간 × 2배, 그 밖의 시간은 × 1.5배.
 //   금액 = (기본급 + 식대) ÷ 209 × 수식 반영 시간 — **금액은 관리자 화면에서만 계산**한다(이 함수는 시간만 저장, 급여를 건드리지 않음).
 //   나누는 법: 시작~종료를 야간(22~06시)·그 밖으로 가른다 → 식사 1시간은 야간이 아닌 쪽에서 먼저 뺀다 → 합계를 15분 올림(지금까지의 '인정 시간'과 같음)
-//   → 야간도 15분 올림, 나머지가 1.5배 시간. 주말·공휴일은 사용자 기준이 아직 없어 수식 반영 시간을 비워 둔다(w = null).
+//   → 야간도 15분 올림, 나머지가 1.5배 시간.
+//   주말·공휴일(2026-10-08 사용자 지정): **그날의 실근로 8시간까지 1.5배, 8시간 초과분부터 2배**(야간 구분 없음). 같은 날 여러 줄이면 시작 시각 순으로 이어서 센다.
+//   자정을 넘기는 근로는 시작한 날 기준으로 본다(사용자 확인). 줄의 day = 1.5배 대상 분, night = 2배 대상 분, w = day×1.5 + night×2, v = 2(이 규칙으로 저장한 줄).
 const OT_NIGHT_WIN: [number, number][] = [[0, 360], [1320, 1800], [2760, 3240]];   // 분: 00~06시 · 22~익일 06시 · 그다음 날 22시~
 function otSplit(sv: string, ev: string, meal: boolean): { raw: number; ceil: number; day: number; night: number } {
   if (!T_RE.test(sv) || !T_RE.test(ev)) return { raw: 0, ceil: 0, day: 0, night: 0 };
@@ -297,9 +299,19 @@ Deno.serve(async (req) => {
         const date = D_RE.test(String(r.date ?? "")) ? String(r.date) : "";
         const dow = date ? new Date(date + "T00:00:00Z").getUTCDay() : -1;
         const dtype = !date ? "" : holiSet.has(date) ? "holiday" : (dow === 0 || dow === 6) ? "weekend" : "work";
-        // raw·ceil은 지금까지와 같은 값(otMinutes·15분 올림). day·night = 15분 단위로 나눈 1.5배·2배 대상 시간, w = 수식 반영 시간(분, 근로일만)
-        return { date, s: sv, e: ev, meal, memo: String(r.memo ?? "").slice(0, 200), raw: x.raw, ceil: x.ceil, day: x.day, night: x.night, dtype, w: dtype === "work" ? x.day * 1.5 + x.night * 2 : null };
+        // raw·ceil은 지금까지와 같은 값(otMinutes·15분 올림). day·night = 15분 단위로 나눈 1.5배·2배 대상 시간, w = 수식 반영 시간(분)
+        return { date, s: sv, e: ev, meal, memo: String(r.memo ?? "").slice(0, 200), raw: x.raw, ceil: x.ceil, day: x.day, night: x.night, dtype, w: (dtype === "work" ? x.day * 1.5 + x.night * 2 : null) as number | null, v: 2 };
       }).filter((r) => r.raw > 0);
+      // 주말·공휴일: 그날 실근로(인정 시간) 8시간까지 1.5배, 초과분 2배 — 같은 날의 줄을 시작 시각 순으로 이어서 센다
+      const offByDate = new Map<string, typeof ot>();
+      for (const r of ot) if (r.dtype === "weekend" || r.dtype === "holiday") offByDate.set(r.date, [...(offByDate.get(r.date) ?? []), r]);
+      for (const list of offByDate.values()) {
+        let cum = 0;
+        for (const r of list.slice().sort((a, b) => a.s.localeCompare(b.s))) {
+          const a = Math.min(r.ceil, Math.max(0, 480 - cum));
+          r.day = a; r.night = r.ceil - a; r.w = r.day * 1.5 + r.night * 2; cum += r.ceil;
+        }
+      }
       const otTotal = ot.reduce((t, r) => t + r.ceil, 0);
       const exIn = Array.isArray(body.expenses) ? (body.expenses as Record<string, unknown>[]).slice(0, 100) : [];
       const receiptIds = exIn.map((x) => Number(x.receipt_id)).filter((n) => Number.isInteger(n) && n > 0);
