@@ -444,6 +444,14 @@ async function soldoutRoleOk(authed: { id: string; role: string }): Promise<bool
   const [row] = ((await sbRest(`app_users?id=eq.${encodeURIComponent(authed.id)}&select=role`)) ?? []) as Record<string, any>[];
   return String(row?.role ?? "") === "logistics";
 }
+// ── 취소·반품 접수 권한 (2026-10-08 사용자 요청): 관리자 + 허용 목록(cxl_users)의 직원. 목록은 관리자가 직원 관리 화면에서만 고친다(db 프록시).
+//    허용된 직원도 자사몰 취소의 최종 환불(환불완료·PG 결제취소)은 못 한다 — selfcancel_run이 refund:true를 관리자에게서만 받는다.
+async function cxlRoleOk(authed: { id: string; role: string }): Promise<boolean> {
+  if (authed.role === "admin") return true;
+  if (["sales-agent", "cron", "npm-sync"].includes(authed.id)) return false;
+  const rows = ((await sbRest(`cxl_users?user_id=eq.${encodeURIComponent(authed.id)}&select=user_id`)) ?? []) as unknown[];
+  return rows.length > 0;
+}
 // ── 품절 재고 점검 — 카페24 품목 설정 점검(읽기 전용, 2026-09-29) ──
 // 처음엔 품목 설정을 고치는 쓰기(cafe24FixVariant, scope mall.write_product)까지 만들었으나 사용자 결정으로 제거:
 // '상품 쓰기' 권한은 상품 삭제까지 포함하는 넓은 권한이라 열지 않기로 함 → 점검·표시 + 카페24 상품 수정 화면 바로가기만.
@@ -988,10 +996,10 @@ Deno.serve(async (req) => {
       }
     }
 
-    // ── 취소·반품 접수 (#cxl, 2026-10-05 사용자 요청): 관리자 전용. 네이버페이 취소신청(C00) 목록·분류 / 접수(쓰기) / 처리 내역.
+    // ── 취소·반품 접수 (#cxl, 2026-10-05 사용자 요청): 관리자 + 허용 목록(cxl_users, 2026-10-08). 네이버페이 취소신청(C00) 목록·분류 / 접수(쓰기) / 처리 내역.
     //    목록은 캐시하지 않는다(접수 직전 상태가 곧 기준). 접수는 서버가 아니라 화면의 연결 스크립트가 한 건씩 한다 — 서버는 준비(prepare)·기록(record).
     if (action === "cancelreq_list" || action === "cancelreq_prepare" || action === "cancelreq_record" || action === "cancelreq_log") {
-      if (authed.role !== "admin") return json({ error: "접근 권한이 없습니다" }, 403);
+      if (!(await cxlRoleOk(authed))) return json({ error: "접근 권한이 없습니다" }, 403);   // 관리자 + 허용 목록(cxl_users)
       const CXL_RECENT_MS = 30 * 60 * 1000;   // 접수 직후 카페24 조회에 늦게 반영될 수 있어, 30분 안에 접수한 품목은 '방금 접수'로 보고 다시 보내지 않는다
       const recentOk = async () => {
         const rows = ((await sbRest(`cancel_accept_log?select=order_id,items,created_at,by_name&ok=is.true&created_at=gte.${new Date(Date.now() - CXL_RECENT_MS).toISOString()}&limit=1000`)) ?? []) as Record<string, any>[];
@@ -1071,11 +1079,11 @@ Deno.serve(async (req) => {
       return json({ ok, verified, status: stateOf(order) });
     }
 
-    // ── 취소·반품 접수 2단계 — 자사몰 취소접수(C10) → 환불 (2026-10-05 사용자 요청): 관리자 전용.
+    // ── 취소·반품 접수 2단계 — 자사몰 취소접수(C10) → 환불 (2026-10-05 사용자 요청): 관리자 + 허용 목록(최종 환불은 관리자만).
     //    selfcancel_list: 목록·분류(캐시 없음) / selfcancel_run(POST, 사람 로그인만): 한 건 처리 = ② 취소처리중으로 넘김 → 금액 확인(여기까지가 기본)
     //    → [요청에 refund:true가 있을 때만] ③ 환불완료 → 재확인·기록.
     if (action === "selfcancel_list" || action === "selfcancel_run") {
-      if (authed.role !== "admin") return json({ error: "접근 권한이 없습니다" }, 403);
+      if (!(await cxlRoleOk(authed))) return json({ error: "접근 권한이 없습니다" }, 403);   // 관리자 + 허용 목록(cxl_users) — 단 최종 환불은 아래에서 관리자만
       const nrSets = await rscanNrSets(token).catch(() => null);
       if (!nrSets) return json({ error: "상품 카테고리(1+1 여부)를 읽지 못했어요 — 잠시 뒤 다시 시도해주세요" }, 502);
       if (action === "selfcancel_list") {
@@ -1097,6 +1105,8 @@ Deno.serve(async (req) => {
       const orderId = String(url.searchParams.get("order_id") ?? ""), claimCode = String(url.searchParams.get("claim_code") ?? "");
       if (!/^\d{8}-\d{7}$/.test(orderId) || !/^C\d{8}-\d{7}$/.test(claimCode)) return json({ error: "주문번호·접수번호가 올바르지 않습니다" }, 400);
       const b = await req.json().catch(() => ({})) as Record<string, any>;
+      // 최종 환불(환불완료·PG 결제취소)은 관리자만 (2026-10-08 사용자 지정) — 허용 목록의 직원은 '환불전으로 넘기기'까지. 카페24에 아무것도 보내기 전에 거절한다.
+      if (b.refund === true && authed.role !== "admin") return json({ error: "최종 환불까지 진행은 관리자만 할 수 있어요 — '환불전으로 넘기기'까지만 할 수 있어요", blocked: true }, 403);
       const readOrder = async () => ((await apiGet(`${API_BASE}/admin/orders/${orderId}?embed=items,cancellation`, token)).order ?? {}) as Record<string, any>;
       const claimItems = (o: Record<string, any>) => ((o.items ?? []) as Record<string, any>[]).filter((it) => String(it.claim_code ?? "") === claimCode);
       const stateOf = (o: Record<string, any>) => [...new Set(claimItems(o).map((it) => String(it.status_text ?? it.order_status ?? "")))].join(", ");
@@ -1189,11 +1199,11 @@ Deno.serve(async (req) => {
       return json({ ok: true, status: after, refund_amount: finalAmt, points: expect.points, pg });
     }
 
-    // ── 취소·반품 접수 3단계 — 자사몰 반품접수(R10) → 반품처리중(수거전) (2026-10-06 사용자 요청): 관리자 전용. **서버는 카페24에 아무것도 쓰지 않는다.**
+    // ── 취소·반품 접수 3단계 — 자사몰 반품접수(R10) → 반품처리중(수거전) (2026-10-06 사용자 요청): 관리자 + 허용 목록(cxl_users). **서버는 카페24에 아무것도 쓰지 않는다.**
     //    retacc_list: 목록·분류·환불 예정액 계산(캐시 없음) / retacc_prepare(POST): 넘기기 직전 최신 주문으로 다시 계산해 연결 스크립트에 줄 작업(job)을 만든다
     //    (화면이 본 예정액과 다르면 409) / retacc_record(POST): 연결 스크립트가 끝난 뒤 주문을 다시 읽어 상태·금액을 확인하고 cancel_accept_log(kind 'ret')에 기록.
     if (action === "retacc_list" || action === "retacc_prepare" || action === "retacc_record") {
-      if (authed.role !== "admin") return json({ error: "접근 권한이 없습니다" }, 403);
+      if (!(await cxlRoleOk(authed))) return json({ error: "접근 권한이 없습니다" }, 403);   // 관리자 + 허용 목록(cxl_users)
       const nrSets = await rscanNrSets(token).catch(() => null);
       if (!nrSets) return json({ error: "상품 카테고리(1+1·ACC 여부)를 읽지 못했어요 — 잠시 뒤 다시 시도해주세요" }, 502);
       if (action === "retacc_list") {

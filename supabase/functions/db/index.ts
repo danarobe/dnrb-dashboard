@@ -34,6 +34,7 @@ const TABLE_ROLES: Record<string, string[]> = {
   rscan_memo: ["admin", "staff", "cs"],       // 반품 스캔 '불량·오배송 처리' 주문 줄 메모 (2026-10-06, 전원 읽기·쓰기 — 팀 공유)
   rscan_actions: ["admin"],                   // 수거 완료 처리 기록 (2026-09-28) — 관리자 읽기 전용(아래 규칙), 쓰기는 cafe24-analytics만
   agent_users: ["admin", "staff", "cs"],      // AI 에이전트 접근 허용 목록 (2026-09-28) — 관리자 전체 읽기·쓰기, 그 외는 본인 행 읽기만(아래 규칙)
+  cxl_users: ["admin", "staff", "cs"],        // 취소·반품 접수 접근 허용 목록 (2026-10-08) — 관리자 전체 읽기·쓰기, 그 외는 본인 행 읽기만(아래 규칙)
   stable_apply_log: ["admin"],                // 안정재고 → 셀메이트 반영 기록 (2026-09-28) — 관리자 읽기·추가만(수정·삭제 불가, 처리자는 서버가 기입)
   soldout_fix_log: ["admin", "cs"],           // 품절 재고 점검 → 셀메이트 변경 기록 (2026-09-29) — 관리자 + 물류팀(cs 중 원래 역할 logistics만, 아래 규칙) 읽기·추가만
   made_check_files: ["admin", "staff"],   // 자체제작 재고·입고 점검 — 셀메이트 CSV·이지픽 엑셀 파싱 결과 공유 저장 (2026-09-21)
@@ -91,7 +92,7 @@ Deno.serve(async (req) => {
       const raw = rr.ok ? String(((await rr.json()) as Record<string, unknown>[])[0]?.role ?? "") : "";
       if (raw !== "logistics") return json({ error: "접근 권한이 없습니다" }, 403);
     }
-    if (table === "agent_users" && me.role !== "admin") {   // 직원은 자기 행만 읽기(메뉴 표시용)
+    if ((table === "agent_users" || table === "cxl_users") && me.role !== "admin") {   // 직원은 자기 행만 읽기(메뉴 표시용)
       const own = new URLSearchParams(p.split("?")[1] ?? "").get("user_id") === `eq.${me.id}`;
       if (m !== "GET" || !own) return json({ error: "접근 권한이 없습니다" }, 403);
     }

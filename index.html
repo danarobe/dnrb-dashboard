@@ -1537,7 +1537,7 @@
           <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(215px,1fr));gap:8px;">
             <div style="border:1px solid #e5e7eb;border-radius:10px;padding:8px 11px;background:#fff;"><div style="font-size:.72rem;font-weight:800;color:#4338ca;"><i class="fa-solid fa-list-check"></i> 자동 대상</div><div style="font-size:.8rem;line-height:1.55;margin-top:3px;"><b>주문 전체 취소</b>만<br><span style="color:#6b7280;font-size:.72rem;">카드 · 계좌이체 · 선불금 결제</span></div></div>
             <div style="border:1px solid #e5e7eb;border-radius:10px;padding:8px 11px;background:#fff;"><div style="font-size:.72rem;font-weight:800;color:#4338ca;"><i class="fa-solid fa-won-sign"></i> 환불액</div><div style="font-size:.8rem;line-height:1.55;margin-top:3px;"><b>결제한 금액 그대로</b>(배송비 포함)<br><span style="color:#6b7280;font-size:.72rem;">쓴 적립금은 전액 반환</span></div></div>
-            <div style="border:1px solid #fecaca;border-radius:10px;padding:8px 11px;background:#fef2f2;"><div style="font-size:.72rem;font-weight:800;color:#b91c1c;"><i class="fa-solid fa-rotate-left"></i> 최종 환불까지</div><div style="font-size:.8rem;line-height:1.55;margin-top:3px;"><b>'최종 환불까지 한 번에 진행'</b>을 체크했을 때만<br><span style="color:#6b7280;font-size:.72rem;">체크하면 결제 취소(환불)까지 끝내고 취소완료</span></div></div>
+            <div style="border:1px solid #fecaca;border-radius:10px;padding:8px 11px;background:#fef2f2;"><div style="font-size:.72rem;font-weight:800;color:#b91c1c;"><i class="fa-solid fa-rotate-left"></i> 최종 환불까지</div><div style="font-size:.8rem;line-height:1.55;margin-top:3px;"><b>'최종 환불까지 한 번에 진행'</b>을 체크했을 때만<br><span style="color:#6b7280;font-size:.72rem;">체크하면 결제 취소(환불)까지 끝내고 취소완료 · <b>관리자만 체크할 수 있어요</b></span></div></div>
             <div style="border:1px solid #bbf7d0;border-radius:10px;padding:8px 11px;background:#f0fdf4;"><div style="font-size:.72rem;font-weight:800;color:#15803d;"><i class="fa-solid fa-shield-halved"></i> 안전장치</div><div style="font-size:.8rem;line-height:1.55;margin-top:3px;">카페24 계산과 <b>1원이라도 다르면 멈춤</b><br><span style="color:#6b7280;font-size:.72rem;">환불을 보내지 않고 알려드려요</span></div></div>
           </div>
           <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:8px;font-size:.76rem;color:#6b7280;">
@@ -1665,7 +1665,7 @@
         <div class="cxu-card">
           <div class="cxu-h"><i class="fa-solid fa-rotate-left" style="color:#4338ca;"></i> 자사몰 취소 — 환불 기준</div>
           <table class="cxu-tbl"><thead><tr><th>경우</th><th>처리</th><th>환불액</th></tr></thead><tbody>
-            <tr><td><b>주문 전체 취소</b><br><span class="cxu-sub">카드·계좌이체·선불금 결제 · 아직 보내지 않은 주문</span></td><td><span class="cxu-chip" style="background:#e0e7ff;color:#3730a3;">자동</span> 기본은 '환불전으로 넘기기', '최종 환불까지 한 번에 진행'을 체크하면 환불까지</td><td><b>결제한 금액 그대로</b>(배송비 포함) · 쓴 적립금은 전액 반환</td></tr>
+            <tr><td><b>주문 전체 취소</b><br><span class="cxu-sub">카드·계좌이체·선불금 결제 · 아직 보내지 않은 주문</span></td><td><span class="cxu-chip" style="background:#e0e7ff;color:#3730a3;">자동</span> 기본은 '환불전으로 넘기기', '최종 환불까지 한 번에 진행'을 체크하면 환불까지<span class="cxu-sub"> (최종 환불은 관리자만 — 허용받은 직원은 넘기기까지)</span></td><td><b>결제한 금액 그대로</b>(배송비 포함) · 쓴 적립금은 전액 반환</td></tr>
             <tr><td>부분 취소 · 사유가 <b>품절</b> · 상품별 할인·1+1 상품이 든 주문 · 무통장·예치금 결제 · 접수가 여러 건</td><td><span class="cxu-chip" style="background:#fde68a;color:#92400e;">직접 확인</span> 카페24에서 처리</td><td>—</td></tr>
           </tbody></table>
           <div class="cxu-sub" style="margin-top:8px;">넘긴 뒤 카페24가 계산한 환불액이 화면의 환불 예정액과 1원이라도 다르면 환불을 보내지 않고 멈춰요.</div>
@@ -2584,6 +2584,7 @@
       <div id="users-bday" style="display:none;margin-bottom:16px;"></div>
       <div id="users-addash" style="display:none;margin-bottom:16px;"></div>
       <div id="users-agents" style="display:none;margin-bottom:16px;"></div>
+      <div id="users-cxl" style="display:none;margin-bottom:16px;"></div>
       <div id="users-list" style="font-size:.82rem;color:#6b7280;">불러오는 중…</div>
       <!-- 직원 근무 정보 모달 (2026-08-27) — 근무 관리(wm_employees) 연동 데이터 -->
       <div id="user-detail-modal" onclick="if(event.target===this)this.style.display='none'"
@@ -2914,6 +2915,46 @@ async function agentUserNotify(uid, on) {
   try { await dbProxy(`agent_users?user_id=eq.${encodeURIComponent(uid)}`, { method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: JSON.stringify({ notify: !!on }) }); showToast(on ? '리포트 알림을 켰어요' : '리포트 알림을 껐어요'); agentUsersPanel(); }
   catch (e) { showToast('저장 실패: ' + e.message); }
 }
+/* 취소·반품 접수 접근 허용 (2026-10-08 사용자 요청) — 관리자는 항상, 그 외 직원은 cxl_users 목록에 있을 때만 메뉴가 보인다.
+   서버가 같은 목록으로 강제(cafe24-analytics cxlRoleOk + db 프록시). 허용된 직원도 자사몰 취소의 '최종 환불까지 한 번에 진행'은 못 한다(서버가 관리자만 받음). */
+const cxlAccessState = { me: false, loaded: false, pending: false, rows: null, users: null };
+const cxlAllowed = () => !!SESSION && (isAdmin() || cxlAccessState.me);
+async function cxlAccessLoad() {
+  if (!SESSION || isAdmin()) return;
+  try {
+    const rows = await dbProxy(`cxl_users?user_id=eq.${encodeURIComponent(SESSION.id)}&select=user_id`);
+    cxlAccessState.me = !!(rows && rows.length);
+  } catch { /* 조회 실패 시 숨김 유지 */ }
+  cxlAccessState.loaded = true;
+  $('menu-cxl').style.display = cxlAllowed() ? '' : 'none';
+  if (cxlAccessState.pending && cxlAllowed()) showMenu('cxl');   // #cxl 주소로 바로 들어온 경우 — 확인이 끝난 뒤 연다
+  cxlAccessState.pending = false;
+}
+async function cxlUsersPanel() {
+  const box = $('users-cxl');
+  if (!box || !isAdmin()) return;
+  box.style.display = '';
+  try {
+    const [rows, d] = await Promise.all([dbProxy('cxl_users?select=user_id'), authApi({ action: 'list_users', token: SESSION.token })]);
+    cxlAccessState.users = (d.users || []).filter(u => u.role !== 'admin');
+    cxlAccessState.rows = new Set((rows || []).map(r => r.user_id));
+  } catch (e) { box.innerHTML = `<div style="font-size:.76rem;color:#b91c1c;">취소·반품 접수 허용 목록을 불러오지 못했어요 — ${escHtml(e.message)}</div>`; return; }
+  const chips = cxlAccessState.users.map(u => {
+    const on = cxlAccessState.rows.has(u.id);
+    return `<button data-uid="${escHtml(u.id)}" onclick="cxlUserToggle(this.dataset.uid)" aria-pressed="${on}" style="border:1.5px solid ${on ? 'transparent' : '#d1d5db'};background:${on ? '#4f46e5' : '#fff'};color:${on ? '#fff' : '#4b5563'};border-radius:99px;padding:4px 12px;font-size:.76rem;font-weight:600;cursor:pointer;">${on ? '<i class="fa-solid fa-check" style="font-size:.66rem;"></i> ' : ''}${escHtml(u.name)}</button>`;
+  }).join(' ');
+  box.innerHTML = `<div style="background:#f8f9ff;border:1.5px solid #e0e7ff;border-radius:12px;padding:12px 14px;">
+    <div style="font-size:.82rem;font-weight:800;color:#4338ca;margin-bottom:4px;"><i class="fa-solid fa-ban"></i> 취소·반품 접수 접근 허용</div>
+    <div style="font-size:.74rem;color:#6b7280;margin-bottom:8px;line-height:1.6;">관리자는 항상 쓸 수 있어요. 이름을 누르면 그 직원에게 <b>취소·반품 접수</b> 메뉴가 열려요(다시 누르면 해제). 허용된 직원은 네이버페이 취소 접수·자사몰 반품 접수·자사몰 취소의 <b>'환불전으로 넘기기'</b>까지 할 수 있고, <b style="color:#b91c1c;">'최종 환불까지 한 번에 진행'은 관리자만</b> 할 수 있어요.<br>그 직원 PC의 엣지에도 카페24 연결 스크립트(취소·반품)와 카페24 관리자 로그인이 있어야 접수가 돼요.</div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap;">${chips || '<span style="font-size:.76rem;color:#9ca3af;">관리자가 아닌 계정이 없어요</span>'}</div></div>`;
+}
+async function cxlUserToggle(uid) {
+  try {
+    if (cxlAccessState.rows.has(uid)) { await dbProxy(`cxl_users?user_id=eq.${encodeURIComponent(uid)}`, { method: 'DELETE' }); showToast('취소·반품 접수 접근을 해제했어요'); }
+    else { await dbProxy('cxl_users?on_conflict=user_id', { method: 'POST', headers: { Prefer: 'resolution=merge-duplicates,return=minimal' }, body: JSON.stringify({ user_id: uid, added_by: SESSION.name }) }); showToast('취소·반품 접수 접근을 허용했어요 (최종 환불은 관리자만)'); }
+    cxlUsersPanel();
+  } catch (e) { showToast('저장 실패: ' + e.message); }
+}
 const adDashState = { allowed: null, users: null, perms: {} };
 async function adDashAccessLoad() {
   if (!SESSION || isAdmin()) return;
@@ -3072,7 +3113,7 @@ function applyRole() {
   $('menu-adv').style.display = (isAdmin() || isStaff()) && !isCS() ? '' : 'none';   // MD도 광고 효율 접근
   $('menu-admgr').style.display = admgrLegacyAllowed() ? '' : 'none';
   $('menu-cnbuy').style.display = cnAllowed() ? '' : 'none';
-  $('menu-cxl').style.display = isAdmin() ? '' : 'none';   // 취소·반품 접수 = 관리자 전용 (2026-10-05 — 카페24에 취소접수를 보내는 기능)
+  $('menu-cxl').style.display = cxlAllowed() ? '' : 'none';   // 취소·반품 접수 = 관리자 + 허용 목록(cxl_users — cxlAccessLoad()가 확인해 켬, 2026-10-08 사용자 요청)
   $('menu-soldout').style.display = soldoutAllowed() ? '' : 'none';   // 품절 재고 점검 = 관리자 + 물류팀 (2026-09-29 사용자 요청, CS팀 제외)   // 광고관리자(기존) = 내장 광고관리자 — 2026-09-13 사용자 요청: 본인 계정(ADMGR_LEGACY_USERS)에게만 노출. 코드·데이터·서버 액션은 그대로
   $('menu-addash').style.display = isAdmin() ? '' : 'none';   // 광고관리자(친구 광고 대시보드 SSO) = 관리자 + 허용 목록(ad_dashboard_users) — 목록은 adDashAccessLoad()가 확인해 켬 (2026-09-11 사용자 지정)
   $('menu-rwatch').style.display = (isAdmin() || isStaff()) && !isCS() ? '' : 'none'; // 반품 관리 = 관리자 + MD
@@ -3109,6 +3150,7 @@ async function loadUsers() {
   __udEmps = null;   // 근무 정보 캐시 무효화 (메뉴 재진입 시 새로)
   adDashPanel();     // 광고 대시보드 접근 허용 칩 (2026-09-11)
   agentUsersPanel(); // AI 에이전트 접근 허용 칩 (2026-09-28)
+  cxlUsersPanel();   // 취소·반품 접수 접근 허용 칩 (2026-10-08)
   try {
     const [d, emps] = await Promise.all([authApi({ action: 'list_users', token: SESSION.token }), wmApi({ action: 'employee_list' }).catch(() => null)]);
     if (emps) __udEmps = emps;   // 퇴사 표시·근무 정보 창·생일 패널이 같이 쓴다
@@ -4129,7 +4171,8 @@ function cxsRender() {
     <div style="font-size:.72rem;color:#6b7280;margin-top:6px;">카페24 조회 ${escHtml(bt)} · 최근 90일 주문 가운데 '취소접수' 상태 · <b>건</b> = 취소 접수 한 번(환불 한 번), <b>상품 개수</b> = 카페24 홈 '오늘의 할 일'의 '접수' 숫자와 같은 기준</div>
     ${b.auto.length ? `<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:12px;padding:10px 12px;background:#eef2ff;border:1px solid #c7d2fe;border-radius:12px;">
       <button class="btn-analyze" style="background:${cxsState.full ? '#b91c1c' : '#4f46e5'};" onclick="cxsRunAll()" ${cxsState.running || !picked.length ? 'disabled' : ''}>${cxsState.running ? '<i class="fa-solid fa-spinner fa-spin"></i> 처리하는 중…' : cxsState.full ? `<i class="fa-solid fa-rotate-left"></i> 환불까지 처리하기 (${picked.length}건)` : `<i class="fa-solid fa-arrow-right"></i> 환불전으로 넘기기 (${picked.length}건)`}</button>
-      <label style="display:inline-flex;align-items:center;gap:6px;font-size:.8rem;font-weight:700;color:${cxsState.full ? '#b91c1c' : '#374151'};cursor:pointer;background:#fff;border:1.5px solid ${cxsState.full ? '#fca5a5' : '#d1d5db'};border-radius:8px;padding:5px 10px;white-space:nowrap;"><input type="checkbox" ${cxsState.full ? 'checked' : ''} ${cxsState.running ? 'disabled' : ''} onchange="cxsSetFull(this.checked)" style="width:16px;height:16px;" /> 최종 환불까지 한 번에 진행</label>
+      ${isAdmin() ? `<label style="display:inline-flex;align-items:center;gap:6px;font-size:.8rem;font-weight:700;color:${cxsState.full ? '#b91c1c' : '#374151'};cursor:pointer;background:#fff;border:1.5px solid ${cxsState.full ? '#fca5a5' : '#d1d5db'};border-radius:8px;padding:5px 10px;white-space:nowrap;"><input type="checkbox" ${cxsState.full ? 'checked' : ''} ${cxsState.running ? 'disabled' : ''} onchange="cxsSetFull(this.checked)" style="width:16px;height:16px;" /> 최종 환불까지 한 번에 진행</label>`
+        : `<span title="최종 환불(결제 취소)은 관리자 계정에서만 할 수 있어요" style="display:inline-flex;align-items:center;gap:6px;font-size:.76rem;font-weight:700;color:#6b7280;background:#f3f4f6;border:1.5px solid #e5e7eb;border-radius:8px;padding:5px 10px;white-space:nowrap;"><i class="fa-solid fa-lock"></i> 최종 환불은 관리자만</span>`}
       <span style="font-size:.78rem;color:#3730a3;flex:1;min-width:260px;">체크된 주문 <b>${picked.length}건</b>(상품 ${cnt(picked)}개) · 환불 예정 합계 <b>${cxsWon(sum(picked))}</b>. ${cxsState.full
         ? `<b style="color:#b91c1c;">결제 취소(환불)까지 바로 나가요.</b> 카페24가 계산한 환불액이 '환불 예정액'과 1원이라도 다르면 그 주문은 환불을 보내지 않아요.`
         : `카페24에서 <b>'취소처리중(환불전)'</b>으로만 넘겨요 — 돈은 아직 나가지 않고, 환불은 카페24 환불 관리에서 마무리해요.`}</span></div>` : ''}`;
@@ -4177,12 +4220,12 @@ function cxsRender() {
         <td class="nw" style="text-align:left;vertical-align:top;"><button class="toggle-btn" style="font-size:.7rem;padding:2px 9px;" data-site="cafe24" data-oid="${escHtml(g.order_id)}" onclick="cxlOpenSide(this)"><i class="fa-solid fa-arrow-up-right-from-square"></i> 카페24</button></td></tr>`).join('')}</tbody></table></div></div>` : '';
   $('cxs-list').innerHTML = autoHtml + manualHtml;
 }
-function cxsSetFull(on) { if (cxsState.running) return; cxsState.full = !!on; cxsRender(); }
+function cxsSetFull(on) { if (cxsState.running) return; cxsState.full = !!on && isAdmin(); cxsRender(); }   // 최종 환불은 관리자만(2026-10-08) — 서버도 같은 기준으로 거절
 function cxsToggle(cb) { if (cxsState.running) return; const k = cb.dataset.k; if (cb.checked) cxsState.off.delete(k); else cxsState.off.add(k); cxsRender(); }
 function cxsToggleAll(btn) { if (cxsState.running) return; for (const g of cxsBuckets().auto) { if (btn.dataset.on === '1') cxsState.off.delete(cxsKey(g)); else cxsState.off.add(cxsKey(g)); } cxsRender(); }
 async function cxsRunOne(g) {
   try {
-    const res = await fetch(fnUrl('cafe24-analytics', { action: 'selfcancel_run', order_id: g.order_id, claim_code: g.claim_code }), { method: 'POST', headers: sbHeaders(), body: JSON.stringify({ expect_amount: g.expect.amount, expect_points: g.expect.points, refund: cxsState.full === true }) });
+    const res = await fetch(fnUrl('cafe24-analytics', { action: 'selfcancel_run', order_id: g.order_id, claim_code: g.claim_code }), { method: 'POST', headers: sbHeaders(), body: JSON.stringify({ expect_amount: g.expect.amount, expect_points: g.expect.points, refund: cxsState.full === true && isAdmin() }) });
     const r = await res.json().catch(() => ({}));
     if (!res.ok || r.error) return Object.assign({}, r, { ok: false, error: r.error || ('오류 ' + res.status) });
     return r;
@@ -4193,6 +4236,7 @@ async function cxsRunAll() {
   const targets = cxsBuckets().auto.filter(g => !cxsState.off.has(cxsKey(g)));
   if (!targets.length) { showToast('환불 처리할 주문이 없어요'); return; }
   const total = targets.reduce((t, g) => t + g.expect.amount, 0), pts = targets.reduce((t, g) => t + g.expect.points, 0);
+  if (!isAdmin()) cxsState.full = false;   // 허용받은 직원은 '환불전으로 넘기기'까지만 (2026-10-08)
   const full = cxsState.full === true;
   if (!confirm(full
     ? `자사몰 취소접수 ${targets.length}건을 환불까지 처리할까요?\n\n환불 예정 합계 ${cxsWon(total)}${pts ? ` · 적립금 반환 ${cxsWon(pts)}` : ''}\n\n· 결제 수단(카드·계좌이체·네이버페이 선불금)으로 바로 환불(결제 취소)돼요.\n· 카페24가 계산한 환불액이 화면의 환불 예정액과 다르면 그 주문은 환불을 보내지 않고 멈춰요.\n· 환불된 뒤에는 되돌릴 수 없어요.`
@@ -14869,13 +14913,15 @@ function showMenu(key) {
   if (window.innerWidth <= 900) menuDrawer(false);   // 메뉴를 고르면 서랍은 닫는다
 
   if (!MENU_KEYS.includes(key)) key = 'home';
-  if (isCS() && !['my', 'purch', 'rscan', 'unship', 'soldout', 'cnbuy'].includes(key)) key = 'perf';   // soldout은 물류팀만(아래 soldoutAllowed에서 CS팀은 홈으로)   // 미발송 관리(2026-09-28) 추가 — 위 applyRole 목록과 함께 고칠 것.   // CS팀·물류팀은 판매 성과 + 마이페이지 + 구매요청 + 반품 스캔(2026-09-22 — 메뉴는 보였는데 여기서 되돌려 보내던 버그 수정)
+  if (key === 'cxl' && !isAdmin() && !cxlAccessState.loaded) { cxlAccessState.pending = true; key = 'home'; }   // 허용 목록 확인 전 — 확인되면 cxlAccessLoad가 다시 연다
+  if (isCS() && !['my', 'purch', 'rscan', 'unship', 'soldout', 'cnbuy'].includes(key) && !(key === 'cxl' && cxlAllowed())) key = 'perf';   // soldout은 물류팀만(아래 soldoutAllowed에서 CS팀은 홈으로)   // 미발송 관리(2026-09-28) 추가 — 위 applyRole 목록과 함께 고칠 것.   // CS팀·물류팀은 판매 성과 + 마이페이지 + 구매요청 + 반품 스캔(2026-09-22 — 메뉴는 보였는데 여기서 되돌려 보내던 버그 수정)
   // 권한 없는 메뉴는 홈으로 되돌린다 — 여기서 return하면 URL에 #disp 등을 달고 들어온
   // 권한 없는 사용자에게 아무 섹션도 표시되지 않아 화면이 비어버림
   const denied = (key === 'cr' && isStaff())
     || (key === 'rwatch' && isCS())                      // 반품 관리 = 관리자 + MD
     || (key === 'madechk' && isCS())                     // 자체제작 주문 점검 = 관리자 + MD (2026-09-03)
-    || (['users', 'disp', 'stable', 'profit', 'board', 'proj', 'wm', 'cxl'].includes(key) && !isAdmin());   // admgr은 MD·마케터도 진입(테스트 소재 탭만, 2026-08-27), wm = 근무 관리 (급여·계좌 포함)
+    || (key === 'cxl' && !cxlAllowed())                   // 취소·반품 접수 = 관리자 + 허용 목록 (2026-10-08)
+    || (['users', 'disp', 'stable', 'profit', 'board', 'proj', 'wm'].includes(key) && !isAdmin());   // admgr은 MD·마케터도 진입(테스트 소재 탭만, 2026-08-27), wm = 근무 관리 (급여·계좌 포함)
   if (denied) { showToast('접근 권한이 없습니다'); key = 'home'; }
   document.querySelectorAll('.page-sec').forEach(el => { el.style.display = 'none'; });
   const target = $('sec-' + key);
@@ -17355,6 +17401,7 @@ function bootApp() {
   applyRole();
   adDashAccessLoad();   // 광고 대시보드 허용 목록 확인 → 메뉴 표시 (관리자 외)
   agentAccessLoad();    // AI 에이전트 허용 목록 확인 → 메뉴 표시 (관리자 외, 2026-09-28)
+  cxlAccessLoad();      // 취소·반품 접수 허용 목록 확인 → 메뉴 표시 (관리자 외, 2026-10-08)
   notifLoad(true);   // @멘션 알림 배지
   if (isAdmin()) loadCrArchive();    // 취소·반품 기록은 관리자만
   if (!isCS()) loadPerfArchive();    // 판매 성과 기록(순매출·마진 집계 포함) — CS팀 제외

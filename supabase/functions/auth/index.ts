@@ -284,6 +284,8 @@ Deno.serve(async (req) => {
         method: "DELETE", headers: { Prefer: "return=minimal" },
       });
       if (!res.ok) throw new Error("직원 삭제 실패 " + res.status);
+      // 취소·반품 접수 허용도 같이 지운다 (2026-10-08) — 같은 아이디로 계정을 다시 만들었을 때 허용이 따라붙지 않게
+      await usersRest(`cxl_users?user_id=eq.${encodeURIComponent(id)}`, { method: "DELETE", headers: { Prefer: "return=minimal" } }).catch(() => null);
       return json({ ok: true });
     }
 
