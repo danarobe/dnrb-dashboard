@@ -90,6 +90,14 @@ async function getUser(id: string): Promise<Record<string, unknown> | null> {
   return (await res.json())[0] ?? null;
 }
 
+// 퇴사 처리한 직원의 계정(app_users.login_blocked — 근무 관리 비활성, DB 트리거가 맞춰 둠)은 로그인·토큰 발급·확인에서 없는 계정처럼 다룬다 (2026-10-11).
+// 관리자 계정은 잠그지 않는다. 계정 관리(목록·역할 변경·삭제)는 getUser를 그대로 써서 차단된 계정도 다룰 수 있다.
+const isBlocked = (u: Record<string, unknown> | null) => !!u && u.login_blocked === true && String(u.role) !== "admin";
+async function getActiveUser(id: string): Promise<Record<string, unknown> | null> {
+  const u = await getUser(id);
+  return isBlocked(u) ? null : u;
+}
+
 Deno.serve(async (req) => {
   const opt = handleOptions(req);
   if (opt) return opt;
@@ -115,6 +123,8 @@ Deno.serve(async (req) => {
         await Promise.all([cacheSet(kId, { n: nId + 1 }), cacheSet(kIp, { n: nIp + 1 })]);
         return json({ error: "아이디 또는 비밀번호가 올바르지 않습니다" }, 401);
       }
+      // 비밀번호가 맞을 때만 알려 준다(아이디만으로 퇴사 여부를 알 수 없게)
+      if (isBlocked(user)) return json({ error: "퇴사 처리된 계정이라 로그인할 수 없어요 — 관리자에게 문의해주세요", blocked: true }, 403);
       const payload = {
         id: String(user.id), name: String(user.name),
         role: String(user.role), exp: Date.now() + TOKEN_TTL, iat: Date.now(),
@@ -128,7 +138,7 @@ Deno.serve(async (req) => {
     if (action === "issue_for") {
       const secret = Deno.env.get("NPM_SYNC_SECRET") ?? "";
       if (!secret || !safeEqual(req.headers.get("x-sync-secret") ?? "", secret)) return json({ error: "접근 권한이 없습니다" }, 403);
-      const user = await getUser(String(body.id ?? "").trim());
+      const user = await getActiveUser(String(body.id ?? "").trim());
       if (!user) return json({ error: "대시보드에 없는 계정" }, 404);
       const payload = { id: String(user.id), name: String(user.name), role: String(user.role), exp: Date.now() + TOKEN_TTL, iat: Date.now() };
       return json({ token: await signAuthToken(payload), ...payload });
@@ -146,7 +156,7 @@ Deno.serve(async (req) => {
       if (row) await usersRest(`api_cache?cache_key=eq.${encodeURIComponent("sso:" + code)}`, { method: "DELETE", headers: { Prefer: "return=minimal" } });
       if (!row || Date.now() - new Date(row.created_at).getTime() > 60 * 1000) return json({ error: "코드가 만료됐거나 이미 사용됐습니다" }, 401);
       const rp = (row.payload ?? {}) as Record<string, unknown>;
-      const user = await getUser(String(rp.id ?? ""));
+      const user = await getActiveUser(String(rp.id ?? ""));
       if (!user) return json({ error: "로그인이 필요합니다" }, 401);
       const aud = String(rp.aud ?? "");
       if (aud) {   // 외부 앱 전용 토큰 — 우리 함수에서는 못 쓰는 파생 키 서명 (2026-09-11)
@@ -163,7 +173,7 @@ Deno.serve(async (req) => {
     if (action === "verify") {
       const u = await verifyAudToken(String(body.token ?? ""));
       if (!u) return json({ error: "유효하지 않은 토큰" }, 401);
-      const user = await getUser(u.id);
+      const user = await getActiveUser(u.id);
       if (!user) return json({ error: "유효하지 않은 토큰" }, 401);
       const perms = await audAllowed(u.aud, String(user.id), String(user.role));
       if (!perms) return json({ error: "이 앱에 대한 접근 권한이 없습니다" }, 403);
@@ -174,7 +184,7 @@ Deno.serve(async (req) => {
     // 서명 검증 후 DB에서 계정 존재·현재 역할 재확인 (삭제된 계정 토큰 즉시 무효화)
     const me = await verifyAuthTokenString(String(body.token ?? ""));
     if (!me) return json({ error: "로그인이 필요합니다" }, 401);
-    const meRow = await getUser(me.id);
+    const meRow = await getActiveUser(me.id);
     if (!meRow) return json({ error: "로그인이 필요합니다" }, 401);
     me.role = String(meRow.role);
 
@@ -237,7 +247,7 @@ Deno.serve(async (req) => {
     if (me.role !== "admin") return json({ error: "접근 권한이 없습니다" }, 403);
 
     if (action === "list_users") {
-      const res = await usersRest(`app_users?select=id,name,role,created_at,birthday&order=created_at.asc`);
+      const res = await usersRest(`app_users?select=id,name,role,created_at,birthday,login_blocked&order=created_at.asc`);
       if (!res.ok) throw new Error("목록 조회 실패 " + res.status);
       return json({ users: await res.json() });
     }

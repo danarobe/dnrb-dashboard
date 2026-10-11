@@ -63,10 +63,13 @@ export async function verifyAuthToken(req: Request): Promise<AuthUser | null> {
   const token = req.headers.get("x-auth-token") ?? "";
   const u = token ? await verifyAuthTokenString(token) : null;
   if (!u) return null;
-  const res = await rest(`app_users?id=eq.${encodeURIComponent(u.id)}&select=id,name,role`);
+  const res = await rest(`app_users?id=eq.${encodeURIComponent(u.id)}&select=id,name,role,login_blocked`);
   if (!res.ok) return null;
   const row = (await res.json())[0];
   if (!row) return null;
+  // 퇴사 처리한 직원(근무 관리에서 비활성 — app_users.login_blocked, DB 트리거가 맞춰 둠)은 계정이 남아 있어도 로그인 무효 (2026-10-11 사용자 요청).
+  // 관리자 계정은 잠그지 않는다. 이미 발급된 토큰도 여기서 바로 막힌다.
+  if (row.login_blocked === true && String(row.role) !== 'admin') return null;
   // 마케터(marketer)는 권한상 MD(staff)와 동일, 물류팀(logistics)은 CS와 동일 — 표시용 역할만 다름
   // (2026-08-24 마케터, 2026-08-27 물류팀 — 둘 다 사용자 결정).
   // 여기서 정규화하면 모든 함수의 권한 검사가 자동으로 같아진다. ⚠ util 수정 = 전 함수 재배포(wm-kiosk 제외)!

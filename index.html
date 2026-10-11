@@ -3176,12 +3176,12 @@ async function loadUsers() {
         const nameCell = u.role === 'admin' ? escHtml(u.name)
           : `<span onclick="userDetail(${jsArg(u.id)})" title="클릭하면 근무 정보(입사일·연봉·계좌 등)를 봅니다" style="cursor:pointer;color:#4338ca;font-weight:600;border-bottom:1px dashed #a5b4fc;">${escHtml(u.name)}</span>`;
         return `<tr${gone(u) ? ' style="background:#fafafa;"' : ''}>
-        <td style="${gone(u) ? 'color:#9ca3af;' : ''}">${escHtml(u.id)}</td><td>${nameCell}${wmResignHtml(empOf.get(u.id), false)}</td>
+        <td style="${gone(u) ? 'color:#9ca3af;' : ''}">${escHtml(u.id)}</td><td>${nameCell}${wmResignHtml(empOf.get(u.id), false)}${u.login_blocked && u.role !== 'admin' ? '<div style="margin-top:2px;"><span title="근무 관리에서 퇴사 처리해서 워크스페이스에 로그인할 수 없어요 — 근무 관리에서 [복구]하면 다시 로그인돼요" style="display:inline-block;background:#f3f4f6;color:#4b5563;border-radius:6px;padding:1px 7px;font-size:.66rem;font-weight:800;white-space:nowrap;"><i class="fa-solid fa-lock" style="font-size:.6rem;"></i> 로그인 막힘</span></div>' : ''}</td>
         <td>${roleColor ? `<b style="color:${roleColor};">${ROLE_LABEL[u.role]}</b>` : 'MD'}</td>
         <td class="m-hide">${(u.created_at || '').slice(0, 10)}</td>
         <td style="display:flex;gap:6px;justify-content:center;">${roleBtn}${delBtn}</td>
       </tr>`; }).join('') + '</tbody></table></div>' +
-      (nGone ? `<div style="font-size:.75rem;color:#b91c1c;margin-top:8px;"><b>퇴사</b> 표시 = 근무 관리에서 비활성(퇴사) 처리한 직원이에요(${nGone}명). 계정은 아직 남아 있어 로그인할 수 있으니, 필요 없으면 [삭제]로 지워주세요.</div>` : '') +
+      (nGone ? `<div style="font-size:.75rem;color:#b91c1c;margin-top:8px;"><b>퇴사</b> 표시 = 근무 관리에서 비활성(퇴사) 처리한 직원이에요(${nGone}명). <b>퇴사 처리한 계정은 지우지 않아도 워크스페이스에 로그인할 수 없어요</b>(관리자 계정은 예외). 근무 관리에서 [복구]하면 다시 로그인돼요.</div>` : '') +
       '<div style="font-size:.75rem;color:#6b7280;margin-top:8px;">※ 권한 변경은 해당 팀원이 <b>다시 로그인</b>해야 적용됩니다 · MD는 광고 효율의 광고비·전환값·총매출이 가려집니다 · CS팀·물류팀은 판매 성과·반품 스캔·구매요청·마이페이지만 보입니다 · 관리자 계정을 삭제하려면 먼저 MD로 변경하세요 · 이름을 클릭하면 근무 정보(입사일·연봉·계좌·연차)가 열립니다</div>';
     usersBdayRender(d.users);
   } catch (e) { $('users-list').textContent = '목록 조회 실패: ' + e.message; }
@@ -13429,7 +13429,7 @@ function wmEmpRender() {
     const all = wmState.emps || [], nAct = all.filter(e => e.active !== false).length, nOff = all.length - nAct;
     const rows = all.filter(e => view === 'all' || (view === 'active') === (e.active !== false));
     const chips = `<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px;"><span class="qp">${[['active', `재직 ${nAct}`], ['inactive', `퇴사 ${nOff}`], ['all', `전체 ${all.length}`]].map(([k, l]) => `<button class="${view === k ? 'active' : ''}" onclick="wmEmpSetView('${k}')">${l}</button>`).join('')}</span>
-      <span style="font-size:.72rem;color:#6b7280;"><b>[퇴사 처리]</b>한 직원은 <b style="color:#b91c1c;">퇴사</b>로 표시되고 키오스크 출퇴근 화면에서 빠져요. 급여는 근무한 달까지만 계산돼요(과거 기록은 그대로). <b>퇴사일</b> = <b>수정 › 마지막 근무일</b>(안 넣었으면 마지막 출근일을 보여줘요) — 월급제 직원은 이 날짜를 넣어야 퇴사한 달 월급이 근무일만큼 계산돼요. <b>복구</b>로 되돌릴 수 있어요.</span></div>`;
+      <span style="font-size:.72rem;color:#6b7280;"><b>[퇴사 처리]</b>한 직원은 <b style="color:#b91c1c;">퇴사</b>로 표시되고 키오스크 출퇴근 화면에서 빠져요. <b>워크스페이스 계정이 있으면 로그인도 바로 막혀요</b>(계정을 지울 필요 없음, 관리자 계정은 예외). 급여는 근무한 달까지만 계산돼요(과거 기록은 그대로). <b>퇴사일</b> = <b>수정 › 마지막 근무일</b>(안 넣었으면 마지막 출근일을 보여줘요) — 월급제 직원은 이 날짜를 넣어야 퇴사한 달 월급이 근무일만큼 계산돼요. <b>복구</b>로 되돌릴 수 있어요(로그인도 다시 돼요).</span></div>`;
     const body = rows.map(e => {
       const pt = e.type === 'parttime';
       return `<tr style="${e.active === false ? 'background:#fafafa;color:#9ca3af;' : ''}">
@@ -13585,11 +13585,11 @@ async function wmEmpSave() {
 async function wmEmpToggle(id, activate) {
   const e = (wmState.emps || []).find(x => x.id === id);
   const msg = activate ? `${e?.name} 님을 다시 재직으로 되돌릴까요?`
-    : `${e?.name} 님을 퇴사 처리할까요?\n'퇴사'로 표시되고 키오스크에서 빠지며, 급여는 근무한 달까지만 계산돼요. 과거 기록은 전부 보존됩니다.`;
+    : `${e?.name} 님을 퇴사 처리할까요?\n'퇴사'로 표시되고 키오스크에서 빠지며, 급여는 근무한 달까지만 계산돼요. 과거 기록은 전부 보존됩니다.${e?.app_user_id ? '\n\n이 직원의 워크스페이스 계정은 바로 로그인이 막혀요(지금 로그인돼 있어도 끊겨요). [복구]하면 다시 로그인돼요.' : ''}`;
   if (!confirm(msg)) return;
   try {
     await wmApi({ action: 'employee_active', id, active: activate });
-    showToast(activate ? '재직으로 되돌렸어요' : '퇴사 처리했어요');
+    showToast(activate ? (e?.app_user_id ? '재직으로 되돌렸어요 — 워크스페이스 로그인도 다시 돼요' : '재직으로 되돌렸어요') : (e?.app_user_id ? '퇴사 처리했어요 — 워크스페이스 로그인도 막혔어요' : '퇴사 처리했어요'));
     // 월급제 직원 퇴사: 마지막 근무일을 넣어야 그 달 월급이 근무일만큼 계산된다 (2026-10-01)
     if (!activate && e && e.type === 'employee' && !e.last_work_date) {
       const d = (prompt(`${e.name} 님의 마지막 근무일을 입력하세요 (예: 2026-09-11)\n그 달 월급이 근무일(평일−공휴일)만큼 계산돼요. 지금 모르면 비워 두고, 나중에 '수정'에서 넣을 수 있어요.`, '') || '').trim();
