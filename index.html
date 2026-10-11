@@ -4051,6 +4051,8 @@ async function cxlAcceptOne(g, ack, token) {
     try { r = JSON.parse(await B.accept(JSON.stringify(p.job), token)); } catch (e) { r = { ok: false, error: String(e && e.message || e) }; }
     // 카페24에 아무것도 보내지 못한 경우(로그인 안 됨 등)는 기록하지 않고 바로 알린다
     if (!r.ok && !r.sent && r.code === 'login') return { ok: false, error: r.error, fatal: true };
+    // 연결 스크립트 1.0.0은 카페24 로그인이 풀렸을 때 '구조가 바뀌었습니다(frm 없음)'이라고 알린다(2026-10-11 실측: 로그인 안 된 상태의 카페24는 403 안내 화면을 줌) — 같은 뜻으로 바꿔 알리고 기록하지 않는다
+    if (!r.ok && !r.sent && /frm 없음\)$/.test(String(r.error || ''))) return { ok: false, fatal: true, error: '카페24 관리자 로그인이 풀려 있는 것 같아요 — 이 엣지에서 카페24 관리자에 로그인한 뒤 다시 [접수하기]를 눌러주세요. 카페24에는 아무것도 보내지 않았어요. (로그인돼 있는데도 계속 이러면 알려주세요)' };
     const rec = await cxlPost('cancelreq_record', g, { ok: !!r.ok, message: r.error || '', job: p.job, flags: g.flags || [], items: g.items.map(x => ({ code: x.code, product_name: x.product_name, option: x.option, qty: x.qty })) });
     if (rec.ok) return { ok: true, status: rec.status };
     return { ok: false, error: r.error || rec.error || '접수되지 않았어요', gone: r.code === 'gone' || r.code === 'stale' };
