@@ -561,6 +561,11 @@
     #sec-hire .hr-sum { grid-column:1/-1;background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:10px 14px;font-size:.85rem;line-height:1.7; }
     #sec-hire .hr-sum b { float:right; }
     @media (max-width:600px) { #sec-hire .hr-dlg-b { grid-template-columns:1fr; } }
+    /* 중국 사입 관리 — 혼용률 '라벨' 체크(라벨 제작 대상, 2026-10-12) */
+    .cn-label { display: inline-flex; align-items: center; gap: 4px; font-size: .7rem; font-weight: 700; color: #6b7280; border: 1.5px solid #d1d5db; border-radius: 99px; padding: 2px 9px 2px 6px; cursor: pointer; background: #fff; user-select: none; }
+    .cn-label input { width: 13px; height: 13px; margin: 0; cursor: pointer; accent-color: #b45309; }
+    .cn-label.on { background: #fffbeb; border-color: #f59e0b; color: #b45309; }
+    .cn-label-badge { display: inline-block; background: #fffbeb; color: #b45309; border: 1px solid #fcd34d; border-radius: 99px; padding: 0 8px; font-size: .66rem; font-weight: 700; }
     .cn-line-badge { display: inline-block; vertical-align: middle; margin-left: 6px; border-radius: 99px; padding: 1px 9px; font-size: .66rem; font-weight: 700; white-space: nowrap; }
     /* 불량·오배송 처리 표 사유 칸 — 한 줄로 줄이고(…), 마우스를 올리면 툴팁, 클릭하면 펼침 (2026-09-23 사용자 요청) */
     .rscan-issues-tbl th, .rscan-issues-tbl td { padding: 6px 7px; }
@@ -4927,8 +4932,9 @@ const cnFabricOf = sname => ((((cnState.data || {}).prods || {})[sname]) || {}).
 function cnFabricCell(sname) {
   const d = cnState.data || {}, info = (d.prods || {})[sname] || {}, v = info.fabric || '';
   const tip = v && info.fabric_by ? `${info.fabric_by} · ${unshipKst(info.fabric_at)}` : '';
-  if (!d.can_edit) return `<td style="text-align:left;font-size:.76rem;min-width:110px;color:${v ? '#374151' : '#9ca3af'};" title="${escHtml(tip)}">${v ? escHtml(v) : '—'}</td>`;
-  return `<td style="text-align:left;"><input type="text" class="cn-fabric" maxlength="200" value="${escHtml(v)}" data-s="${escHtml(sname)}" data-prev="${escHtml(v)}" onchange="cnFabricSave(this)" onkeydown="if(event.key==='Enter')this.blur()" placeholder="예: 면 60% 폴리 40%" aria-label="${escHtml(sname)} 혼용률" title="${escHtml(tip)}" style="width:150px;border:1px ${v ? 'solid #e5e7eb' : 'dashed #f59e0b'};border-radius:6px;padding:3px 6px;font-size:.74rem;" /></td>`;
+  const lab = info.label === true, labTip = lab && info.label_by ? `라벨 제작 대상 — ${info.label_by} · ${unshipKst(info.label_at)}` : '혼용률 라벨을 만들어야 하는 상품이면 체크(아우터 등)';
+  if (!d.can_edit) return `<td style="text-align:left;font-size:.76rem;min-width:110px;color:${v ? '#374151' : '#9ca3af'};white-space:nowrap;" title="${escHtml(tip)}">${v ? escHtml(v) : '—'}${lab ? ` <span class="cn-label-badge" title="${escHtml(labTip)}">라벨</span>` : ''}</td>`;
+  return `<td style="text-align:left;"><div style="display:flex;align-items:center;gap:6px;white-space:nowrap;"><input type="text" class="cn-fabric" maxlength="200" value="${escHtml(v)}" data-s="${escHtml(sname)}" data-prev="${escHtml(v)}" onchange="cnFabricSave(this)" onkeydown="if(event.key==='Enter')this.blur()" placeholder="예: 면 60% 폴리 40%" aria-label="${escHtml(sname)} 혼용률" title="${escHtml(tip)}" style="width:150px;border:1px ${v ? 'solid #e5e7eb' : 'dashed #f59e0b'};border-radius:6px;padding:3px 6px;font-size:.74rem;" /><label class="cn-label${lab ? ' on' : ''}" title="${escHtml(labTip)}"><input type="checkbox" data-s="${escHtml(sname)}"${lab ? ' checked' : ''} onchange="cnLabelSet(this)" />라벨</label></div></td>`;
 }
 async function cnFabricSave(el) {
   const sname = el.dataset.s, v = el.value.replace(/\s+/g, ' ').trim();
@@ -4942,6 +4948,23 @@ async function cnFabricSave(el) {
     if (chip) chip.textContent = '혼용률 미입력 ' + fmt([...new Set((d.lines || []).map(l => l.sname))].filter(n => cnLinePass(n) && !cnFabricOf(n)).length);
     showToast(r.fabric ? '혼용률 저장' : '혼용률을 지웠어요');
   } catch (e) { showToast('혼용률 저장 실패: ' + e.message); el.value = el.dataset.prev; }
+}
+/* 혼용률 '라벨' 체크 (2026-10-12 사용자 요청: 아우터는 혼용률이 라벨에 들어가야 해서, 라벨을 제작해야 하는 상품을 따로 파악) — 상품마다 하나(cn_products.label).
+   혼용률 칸 옆 체크(관리자·MD, 물류팀은 '라벨' 배지만), 상품별 현황의 '라벨 제작' 칩으로 모아 본다. */
+const cnLabelOf = sname => ((((cnState.data || {}).prods || {})[sname]) || {}).label === true;
+async function cnLabelSet(cb) {
+  const sname = cb.dataset.s, want = cb.checked;
+  cb.disabled = true;
+  try {
+    const r = await cnPost('cn_label', { sname, label: want });
+    const d = cnState.data; d.prods = d.prods || {};
+    d.prods[sname] = Object.assign({}, d.prods[sname], { label: r.label, label_by: r.label_by, label_at: r.label_at });
+    const box = cb.closest('label'); box.classList.toggle('on', r.label === true); box.title = r.label ? `라벨 제작 대상 — ${r.label_by} · ${unshipKst(r.label_at)}` : '혼용률 라벨을 만들어야 하는 상품이면 체크(아우터 등)';
+    const chip = $('cn-chip-label');   // 건수만 바꾼다(표를 다시 그리지 않음 — 이어서 체크하기 편하게)
+    if (chip) chip.textContent = '라벨 제작 ' + fmt([...new Set((d.lines || []).map(l => l.sname))].filter(n => cnLinePass(n) && cnLabelOf(n)).length);
+    showToast(r.label ? `${sname} — 라벨 제작 대상으로 표시` : `${sname} — 라벨 표시를 껐어요`);
+  } catch (e) { cb.checked = !want; showToast('저장 실패: ' + e.message); }
+  finally { cb.disabled = false; }
 }
 // 옵션 줄 접기·펼치기 (2026-10-01 사용자 요청 — 옵션이 다 펼쳐져 있어 스크롤이 김): 기본은 접힘(상품 줄만), 상품 줄을 누르면 그 상품 옵션만 펼침.
 //   칩으로 고르거나(미확인·차이 등) 검색 중이면 찾은 옵션이 바로 보이게 모두 펼친다. 펼친 상태는 탭별로 기억(cnState.open).
@@ -5477,8 +5500,8 @@ function cnProdRender() {
     + admgrTile(admgrDot('#f97316') + '미출고 잔여', fmt(prods.reduce((t, p) => t + p.left, 0)) + '장', false)
     + admgrTile(admgrDot('#22c55e') + '카페24 등록', `${fmt(reg)} / ${fmt(prods.length)}개`, false)}</div>
     ${d.c24_error ? `<div style="font-size:.74rem;color:#b91c1c;margin-top:6px;">${escHtml(d.c24_error)}</div>` : ''}`;
-  const pass = { all: () => true, left: p => p.left > 0, diff: p => p.act !== p.actSent, todo: p => p.unchecked > 0, unreg: p => !p.c24.length, reg: p => p.c24.length > 0, nofabric: p => !cnFabricOf(p.sname) };
-  $('cn-prod-chips').innerHTML = [['all', '전체'], ['left', '미출고 잔여'], ['diff', '수량 차이'], ['todo', '미확인 있음'], ['unreg', '카페24 미등록'], ['reg', '등록됨'], ['nofabric', '혼용률 미입력']].map(([k, label]) => `<button id="cn-chip-${k}" class="${cnState.prodFilter === k ? 'active' : ''}" onclick="cnState.prodFilter='${k}';cnProdRender()">${label} ${fmt(prods.filter(pass[k]).length)}</button>`).join('');
+  const pass = { all: () => true, left: p => p.left > 0, diff: p => p.act !== p.actSent, todo: p => p.unchecked > 0, unreg: p => !p.c24.length, reg: p => p.c24.length > 0, nofabric: p => !cnFabricOf(p.sname), label: p => cnLabelOf(p.sname) };
+  $('cn-prod-chips').innerHTML = [['all', '전체'], ['left', '미출고 잔여'], ['diff', '수량 차이'], ['todo', '미확인 있음'], ['unreg', '카페24 미등록'], ['reg', '등록됨'], ['nofabric', '혼용률 미입력'], ['label', '라벨 제작']].map(([k, label]) => `<button id="cn-chip-${k}" class="${cnState.prodFilter === k ? 'active' : ''}" onclick="cnState.prodFilter='${k}';cnProdRender()">${label} ${fmt(prods.filter(pass[k]).length)}</button>`).join('');
   const q = String(($('cn-prod-q') || {}).value || '').trim().toLowerCase();
   let list = prods.filter(pass[cnState.prodFilter] || pass.all);
   if (q) list = list.filter(p => p.sname.toLowerCase().includes(q) || p.opts.some(o => o.opt.toLowerCase().includes(q)) || p.c24.some(h => String(h.product_name || '').toLowerCase().includes(q)));
