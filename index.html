@@ -537,6 +537,30 @@
     .cn-line button:disabled { opacity: .5; cursor: default; }
     .cn-line button[aria-pressed="true"][data-v="made"] { background: #7c3aed; color: #fff; }
     .cn-line button[aria-pressed="true"][data-v="normal"] { background: #0f766e; color: #fff; }
+    /* 알바 채용·면접비 (#hire, 2026-10-12 이식 — 친구가 만든 메뉴) */
+    #sec-hire .hr-in { display:block;margin-top:3px;border:1.5px solid #d1d5db;border-radius:8px;padding:7px 10px;font-size:.85rem;outline:none;width:100%;box-sizing:border-box;font-family:inherit; }
+    #sec-hire .hr-in:focus { border-color:#4f46e5; }
+    #sec-hire label.hr-l { font-size:.78rem;color:#4b5563;font-weight:600; }
+    #sec-hire table { width:100%;border-collapse:collapse;font-size:.82rem; }
+    #sec-hire th { text-align:left;color:#6b7280;font-weight:600;padding:8px;border-bottom:1.5px solid #e5e7eb;white-space:nowrap; }
+    #sec-hire td { padding:8px;border-bottom:1px solid #f1f5f9;vertical-align:middle;white-space:nowrap; }
+    #sec-hire .hr-badge { display:inline-block;font-size:.7rem;font-weight:700;padding:2px 8px;border-radius:999px; }
+    #sec-hire .hr-chip { border:1.5px solid #d1d5db;background:#fff;border-radius:999px;padding:5px 12px;font-size:.78rem;cursor:pointer;font-family:inherit; }
+    #sec-hire .hr-chip.on { background:#4f46e5;border-color:#4f46e5;color:#fff; }
+    #sec-hire .hr-tab { background:none;border:none;border-bottom:2.5px solid transparent;margin-bottom:-2px;padding:8px 16px;font-size:.88rem;font-weight:600;color:#6b7280;cursor:pointer;font-family:inherit; }
+    #sec-hire .hr-tab.on { color:#4f46e5;border-bottom-color:#4f46e5; }
+    #sec-hire .hr-month { background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;padding:12px 14px;margin-bottom:14px; }
+    #sec-hire tr.hr-total td { font-weight:700;background:#eef2ff;border-top:1.5px solid #c7d2fe; }
+    #sec-hire td.num, #sec-hire th.num { text-align:right; }
+    #sec-hire dialog { margin:auto;max-height:calc(100vh - 32px);border:none;border-radius:16px;padding:0;width:min(560px,calc(100vw - 32px));box-shadow:0 20px 60px rgba(0,0,0,.25); }
+    #sec-hire dialog::backdrop { background:rgba(15,23,42,.45); }
+    #sec-hire .hr-dlg-h { display:flex;justify-content:space-between;align-items:center;padding:16px 20px;border-bottom:1px solid #e5e7eb;font-weight:700; }
+    #sec-hire .hr-dlg-b { padding:16px 20px;display:grid;grid-template-columns:1fr 1fr;gap:12px; }
+    #sec-hire .hr-dlg-b .full { grid-column:1/-1; }
+    #sec-hire .hr-dlg-f { display:flex;justify-content:flex-end;gap:8px;padding:12px 20px;border-top:1px solid #e5e7eb; }
+    #sec-hire .hr-sum { grid-column:1/-1;background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:10px 14px;font-size:.85rem;line-height:1.7; }
+    #sec-hire .hr-sum b { float:right; }
+    @media (max-width:600px) { #sec-hire .hr-dlg-b { grid-template-columns:1fr; } }
     .cn-line-badge { display: inline-block; vertical-align: middle; margin-left: 6px; border-radius: 99px; padding: 1px 9px; font-size: .66rem; font-weight: 700; white-space: nowrap; }
     /* 불량·오배송 처리 표 사유 칸 — 한 줄로 줄이고(…), 마우스를 올리면 툴팁, 클릭하면 펼침 (2026-09-23 사용자 요청) */
     .rscan-issues-tbl th, .rscan-issues-tbl td { padding: 6px 7px; }
@@ -700,6 +724,7 @@
     <button type="button" class="menu-sec-head" onclick="menuSecToggle('hr')"><i class="fa-solid fa-user-group" style="width:18px;text-align:center;"></i><span>HR</span><i class="fa-solid fa-chevron-down menu-sec-caret"></i></button>
     <div class="menu-sec-body">
       <button class="menu-item" data-menu="wm" id="menu-wm" style="display:none;" onclick="showMenu('wm')"><i class="fa-solid fa-user-clock" style="width:18px;text-align:center;color:#818cf8;"></i>근무 관리</button>
+      <button class="menu-item" data-menu="hire" id="menu-hire" style="display:none;" onclick="showMenu('hire')"><i class="fa-solid fa-user-plus" style="width:18px;text-align:center;color:#818cf8;"></i>알바 채용·면접비</button>
       <button class="menu-item" data-menu="users" id="menu-users" style="display:none;" onclick="showMenu('users')"><i class="fa-solid fa-users" style="width:18px;text-align:center;color:#818cf8;"></i>직원 관리</button>
       <button class="menu-item" data-menu="purch" id="menu-purch" onclick="showMenu('purch')"><i class="fa-solid fa-cart-shopping" style="width:18px;text-align:center;color:#818cf8;"></i>직원 구매요청</button>
     </div>
@@ -2575,6 +2600,80 @@
     </div>
   </div>
 
+  <!-- 알바 채용·면접비 (#hire, 2026-10-12 이식) — 관리자 + 물류팀. 로직은 스크립트의 '알바 채용·면접비 (#hire)' 블록, 서버는 wm-hire 함수 -->
+  <div class="section-card page-sec" id="sec-hire" style="display:none;">
+    <div class="section-header" style="cursor:default;">
+      <h2><span><i class="fa-solid fa-user-plus" style="color:#4f46e5;font-size:.9em;"></i></span> 알바 채용·면접비</h2>
+      <div style="display:flex;gap:8px;">
+        <button class="toggle-btn" onclick="hireOpenPerson(null)"><i class="fa-solid fa-plus"></i> 사람 등록</button>
+        <button class="toggle-btn" onclick="hireLoad()"><i class="fa-solid fa-rotate"></i> 새로고침</button>
+      </div>
+    </div>
+    <div class="section-body">
+      <div style="font-size:.78rem;color:#92400e;background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:9px 12px;margin-bottom:12px;line-height:1.6;">
+        주민번호·계좌는 서버에서 암호화해 저장돼요. 목록에는 가린 값만 보이고, <b>전체 보기·엑셀 내보내기는 기록이 남아요.</b>
+        지급액은 <b>3.3% 공제</b>예요 — 사업소득세 = 세전×3%, 지방소득세 = 세전×0.3%(둘 다 10원 미만 버림). 채용하면 <b>근무 관리 알바로 연결</b>되고 그 뒤 급여는 근무 관리에서 계산돼요.
+      </div>
+      <div id="hire-kinds" style="display:flex;gap:2px;border-bottom:2px solid #e5e7eb;margin-bottom:12px;"></div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:12px;">
+        <span id="hire-chips" style="display:flex;gap:6px;flex-wrap:wrap;"></span>
+        <input id="hire-q" class="hr-in" placeholder="이름·전화 검색" oninput="hireRender()" style="width:160px;display:inline-block;margin:0;" />
+        <span style="margin-left:auto;display:flex;gap:6px;align-items:center;">
+          <input type="month" id="hire-ym" class="hr-in" onchange="hireRender()" style="width:auto;display:inline-block;margin:0;" />
+          <button class="toggle-btn" onclick="hireExport()" title="그 달(근무일 기준) 지급 내역 — 사람별 합계 + 근무일별 상세 두 시트. 주민번호 전체가 들어가요"><i class="fa-solid fa-file-excel"></i> 월별 리스트 엑셀</button>
+        </span>
+      </div>
+      <div id="hire-month"></div>
+      <div style="overflow-x:auto;" id="hire-result"><div class="empty-state"><p>불러오는 중...</p></div></div>
+    </div>
+
+    <!-- 사람 등록·수정 -->
+    <dialog id="hire-dlg-person">
+      <div class="hr-dlg-h"><span id="hire-p-title">사람 등록</span><button class="toggle-btn" onclick="this.closest('dialog').close()">닫기</button></div>
+      <div class="hr-dlg-b">
+        <input type="hidden" id="hire-p-id" />
+        <label class="hr-l full">구분<select id="hire-p-kind" class="hr-in" onchange="hireKindFields()">
+          <option value="applicant">채용 지원자 (면접)</option><option value="daily">일일알바</option></select></label>
+        <label class="hr-l">이름 *<input id="hire-p-name" class="hr-in" maxlength="40" /></label>
+        <label class="hr-l">휴대폰 *<input id="hire-p-phone" class="hr-in" inputmode="tel" placeholder="010-1234-5678" /></label>
+        <label class="hr-l full">주민등록번호 <span id="hire-p-rrn-note" style="font-weight:400;color:#6b7280;"></span>
+          <input id="hire-p-rrn" class="hr-in" inputmode="numeric" placeholder="900101-1234567" autocomplete="off" oninput="hireAgeHint()" /></label>
+        <div id="hire-p-age" class="full" style="display:none;font-size:.78rem;color:#b91c1c;background:#fef2f2;border-radius:8px;padding:8px 10px;"></div>
+        <label class="hr-l">은행<input id="hire-p-bank" class="hr-in" placeholder="국민" /></label>
+        <label class="hr-l">예금주<input id="hire-p-holder" class="hr-in" placeholder="본인이면 비워도 돼요" /></label>
+        <label class="hr-l full">계좌번호 <span id="hire-p-acct-note" style="font-weight:400;color:#6b7280;"></span>
+          <input id="hire-p-acct" class="hr-in" inputmode="numeric" autocomplete="off" /></label>
+        <label class="hr-l hr-app">상태<select id="hire-p-status" class="hr-in">
+          <option value="interview">면접</option><option value="hired">채용</option><option value="rejected">불채용</option></select></label>
+        <label class="hr-l hr-app">면접일<input type="date" id="hire-p-date" class="hr-in" /></label>
+        <label class="hr-l full">메모<input id="hire-p-memo" class="hr-in" maxlength="500" /></label>
+      </div>
+      <div class="hr-dlg-f">
+        <button class="toggle-btn" id="hire-p-reveal" onclick="hireReveal()" style="margin-right:auto;"><i class="fa-solid fa-eye"></i> 주민번호·계좌 전체 보기</button>
+        <button class="toggle-btn" onclick="hireSavePerson()" style="background:#4f46e5;color:#fff;border-color:#4f46e5;">저장</button>
+      </div>
+    </dialog>
+
+    <!-- 지급 (면접비·시범근무·일당) -->
+    <dialog id="hire-dlg-pay">
+      <div class="hr-dlg-h"><span id="hire-pay-title">면접비 지급</span><button class="toggle-btn" onclick="this.closest('dialog').close()">닫기</button></div>
+      <div id="hire-pay-list" style="padding:12px 20px 0;overflow-x:auto;"></div>
+      <div class="hr-dlg-b">
+        <input type="hidden" id="hire-pay-hire" />
+        <label class="hr-l">근무일 *<input type="date" id="hire-pay-date" class="hr-in" /></label>
+        <label class="hr-l">시급<input type="number" id="hire-pay-rate" class="hr-in" min="0" step="10" oninput="hirePayPreview()" /></label>
+        <label class="hr-l">시작<input type="time" id="hire-pay-start" class="hr-in" oninput="hirePayPreview()" /></label>
+        <label class="hr-l">종료<input type="time" id="hire-pay-end" class="hr-in" oninput="hirePayPreview()" /></label>
+        <label class="hr-l">휴게(분)<input type="number" id="hire-pay-break" class="hr-in" min="0" step="10" value="0" oninput="hirePayPreview()" /></label>
+        <label class="hr-l">정액 금액 <span style="font-weight:400;color:#6b7280;">(있으면 시급 대신)</span><input type="number" id="hire-pay-fixed" class="hr-in" min="0" step="1000" oninput="hirePayPreview()" /></label>
+        <label class="hr-l full" style="display:flex;gap:6px;align-items:center;"><input type="checkbox" id="hire-pay-ins" onchange="hirePayPreview()" /> 고용보험 0.9% 공제</label>
+        <label class="hr-l full">메모<input id="hire-pay-note" class="hr-in" maxlength="500" placeholder="예: 실무면접 (포장)" /></label>
+        <div class="hr-sum" id="hire-pay-sum"></div>
+      </div>
+      <div class="hr-dlg-f"><button class="toggle-btn" onclick="hireSavePay()" style="background:#4f46e5;color:#fff;border-color:#4f46e5;">지급 기록 저장</button></div>
+    </dialog>
+  </div>
+
   <div class="section-card page-sec" id="sec-users">
     <div class="section-header" style="cursor:default;">
       <h2><span><i class="fa-solid fa-users" style="color:#4f46e5;font-size:.9em;"></i></span> 직원 관리</h2>
@@ -3113,7 +3212,7 @@ function applyRole() {
   document.body.classList.toggle('role-cs', isCS());
   // CS팀은 판매 성과 메뉴만 노출
   document.querySelectorAll('.menu-item').forEach(b => {
-    b.style.display = isCS() && !['perf', 'my', 'purch', 'rscan', 'unship', 'soldout', 'cnbuy'].includes(b.dataset.menu) ? 'none' : '';   // CS팀·물류팀 = 판매 성과 + 마이페이지 + 구매요청 + 반품 스캔(2026-09-22) + 미발송 관리(2026-09-28)
+    b.style.display = isCS() && !['perf', 'my', 'purch', 'rscan', 'unship', 'soldout', 'cnbuy', 'hire'].includes(b.dataset.menu) ? 'none' : '';   // CS팀·물류팀 = 판매 성과 + 마이페이지 + 구매요청 + 반품 스캔(2026-09-22) + 미발송 관리(2026-09-28)
   });
   // 관리자 전용 메뉴는 버튼 자체를 숨김
   $('menu-users').style.display = isAdmin() ? '' : 'none';
@@ -3126,6 +3225,7 @@ function applyRole() {
   $('menu-admgr').style.display = admgrLegacyAllowed() ? '' : 'none';
   $('menu-cnbuy').style.display = cnAllowed() ? '' : 'none';
   $('menu-cxl').style.display = cxlAllowed() ? '' : 'none';   // 취소·반품 접수 = 관리자 + 허용 목록(cxl_users — cxlAccessLoad()가 확인해 켬, 2026-10-08 사용자 요청)
+  $('menu-hire').style.display = hireAllowed() ? '' : 'none';   // 알바 채용·면접비 = 관리자 + 물류팀 (2026-10-12 이식, CS팀·MD 제외 — 서버 wm-hire도 같은 기준)
   $('menu-soldout').style.display = soldoutAllowed() ? '' : 'none';   // 품절 재고 점검 = 관리자 + 물류팀 (2026-09-29 사용자 요청, CS팀 제외)   // 광고관리자(기존) = 내장 광고관리자 — 2026-09-13 사용자 요청: 본인 계정(ADMGR_LEGACY_USERS)에게만 노출. 코드·데이터·서버 액션은 그대로
   $('menu-addash').style.display = isAdmin() ? '' : 'none';   // 광고관리자(친구 광고 대시보드 SSO) = 관리자 + 허용 목록(ad_dashboard_users) — 목록은 adDashAccessLoad()가 확인해 켬 (2026-09-11 사용자 지정)
   $('menu-rwatch').style.display = (isAdmin() || isStaff()) && !isCS() ? '' : 'none'; // 반품 관리 = 관리자 + MD
@@ -5403,6 +5503,351 @@ function cnProdRender() {
   $('cn-prod-list').innerHTML = html + '</tbody></table></div>';
   cnThumbsApply();
 }
+
+/* ══════════════════════════════════════════════════════════════
+   알바 채용·면접비 (#hire) — 관리자 + 물류팀
+   워크스페이스 공용 헬퍼를 그대로 쓴다: $ · fnUrl · sbHeaders · showToast · escHtml · SESSION · isAdmin
+   서버: wm-hire 함수. 금액은 서버가 다시 계산해 저장 — 여기 hireCalc는 입력 중 미리보기용.
+══════════════════════════════════════════════════════════════ */
+const HIRE_MIN_WAGE = 10320;   // 2026년 최저시급 — 서버 calc.ts MIN_WAGE와 같이 올릴 것
+const HIRE_STATUS = { interview: ['면접', '#1d4ed8', '#dbeafe'], hired: ['채용', '#166534', '#dcfce7'], rejected: ['불채용', '#6b7280', '#f3f4f6'] };
+const HIRE_KIND = { applicant: '채용 지원자', daily: '일일알바' };
+const hireState = { rows: [], kind: 'applicant', filter: 'all', canDeletePaid: false };
+const hireAllowed = () => isAdmin() || SESSION?.role === 'logistics';
+
+/** 서버 calc.ts calcPay와 같은 식 (dev/dev-server.mjs --test가 일치 확인) */
+function hireCalc(minutes, rate, fixed, empIns) {
+  const gross = fixed != null ? fixed : Math.round(rate * minutes / 60);
+  const income_tax = Math.floor(gross * 3 / 1000) * 10;    // 엑셀 ROUNDDOWN(세전*3%,-1)
+  const local_tax = Math.floor(gross * 3 / 10000) * 10;    // 엑셀 ROUNDDOWN(세전*0.3%,-1)
+  const emp_ins_amt = empIns ? Math.floor(gross * 9 / 1000) : 0;
+  return { gross, income_tax, local_tax, emp_ins_amt, net: gross - income_tax - local_tax - emp_ins_amt };
+}
+const hireWon = n => (n ?? 0).toLocaleString('ko-KR') + '원';
+const hireHm = m => `${Math.floor(m / 60)}시간${m % 60 ? ' ' + (m % 60) + '분' : ''}`;
+/** 지급 기록 합계 */
+function hireSum(pays) {
+  const t = { days: new Set(pays.map(p => p.work_date)).size, minutes: 0, gross: 0, income_tax: 0, local_tax: 0, emp_ins_amt: 0, net: 0, unpaid: 0 };
+  for (const p of pays) {
+    if (p.fixed_amount == null) t.minutes += p.minutes;
+    for (const k of ['gross', 'income_tax', 'local_tax', 'emp_ins_amt', 'net']) t[k] += p[k];
+    if (!p.paid_on) t.unpaid++;
+  }
+  return t;
+}
+const hireToday = () => new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Seoul' }).format(new Date());
+
+/** 만 나이 (생일 'YYYY-MM-DD', 기준일 'YYYY-MM-DD') */
+function hireAge(birth, on) {
+  if (!birth) return null;
+  const [by, bm, bd] = birth.split('-').map(Number), [y, m, d] = on.split('-').map(Number);
+  return y - by - (m < bm || (m === bm && d < bd) ? 1 : 0);
+}
+/** 연소자 고용 요건 (근로기준법 §64·66·67) */
+function hireMinorNote(age) {
+  if (age == null || age >= 18) return '';
+  if (age < 15) return `만 ${age}세 — 15세 미만은 고용노동부 취직인허증이 있어야 고용할 수 있어요.`;
+  return `만 ${age}세 연소자 — 가족관계증명서·친권자 동의서를 받아 두고, 근로계약서를 서면으로 주셔야 해요. 하루 7시간·주 35시간을 넘길 수 없어요.`;
+}
+
+async function hireApi(body) {
+  const res = await fetch(fnUrl('wm-hire', {}), { method: 'POST', headers: sbHeaders(), body: JSON.stringify(body) });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || data.error) throw new Error(data.error || `서버 오류 ${res.status}`);
+  return data;
+}
+
+function hireInit() {
+  if (!$('hire-ym').value) $('hire-ym').value = hireToday().slice(0, 7);
+  hireLoad();
+}
+
+async function hireLoad() {
+  try {
+    const d = await hireApi({ action: 'list' });
+    hireState.rows = d.hires; hireState.canDeletePaid = d.can_delete_paid;
+    hireRender();
+  } catch (e) {
+    $('hire-result').innerHTML = `<div class="empty-state"><p>${escHtml(e.message)}</p></div>`;
+  }
+}
+
+function hireSetFilter(k) { hireState.filter = k; hireRender(); }
+function hireSetKind(k) { hireState.kind = k; hireState.filter = 'all'; hireRender(); }
+
+function hireRender() {
+  const kinds = { applicant: 0, daily: 0 };
+  for (const r of hireState.rows) kinds[r.kind]++;
+  $('hire-kinds').innerHTML = Object.entries(HIRE_KIND)
+    .map(([k, l]) => `<button class="hr-tab${hireState.kind === k ? ' on' : ''}" onclick="hireSetKind('${k}')">${l} ${kinds[k]}</button>`).join('');
+  const daily = hireState.kind === 'daily';
+  const mine = hireState.rows.filter(r => r.kind === hireState.kind);
+  hireRenderMonth(mine);
+  const counts = { all: mine.length };
+  for (const r of mine) counts[r.status] = (counts[r.status] || 0) + 1;
+  $('hire-chips').style.display = daily ? 'none' : 'flex';
+  $('hire-chips').innerHTML = [['all', '전체'], ['interview', '면접'], ['hired', '채용'], ['rejected', '불채용']]
+    .map(([k, l]) => `<button class="hr-chip${hireState.filter === k ? ' on' : ''}" onclick="hireSetFilter('${k}')">${l} ${counts[k] || 0}</button>`).join('');
+  const q = $('hire-q').value.trim().replace(/-/g, '');
+  const rows = mine.filter(r => (daily || hireState.filter === 'all' || r.status === hireState.filter)
+    && (!q || r.name.includes(q) || r.phone.replace(/-/g, '').includes(q)));
+  if (!rows.length) { $('hire-result').innerHTML = `<div class="empty-state"><p>${mine.length ? '조건에 맞는 사람이 없어요' : `등록된 ${HIRE_KIND[hireState.kind]}가 없어요 — [사람 등록]으로 시작하세요`}</p></div>`; return; }
+  const today = hireToday();
+  $('hire-result').innerHTML = `${daily ? '<div style="font-size:.85rem;font-weight:700;margin:4px 0 8px;">등록된 일일알바</div>' : ''}<table><thead><tr><th>이름</th>${daily ? '' : '<th>상태</th>'}<th>휴대폰</th><th>주민번호</th><th>계좌</th><th>${daily ? '최근 근무일' : '면접일'}</th><th>지급 (전체)</th><th></th></tr></thead><tbody>${rows.map(r => {
+    const [sl, sc, sb] = HIRE_STATUS[r.status];
+    const age = hireAge(r.birth, today);
+    const unpaid = r.pays.filter(p => !p.paid_on);
+    const total = r.pays.reduce((s, p) => s + p.net, 0);
+    return `<tr>
+      <td><b>${escHtml(r.name)}</b>${age != null && age < 18 ? ` <span class="hr-badge" style="color:#b91c1c;background:#fee2e2;" title="${escHtml(hireMinorNote(age))}">만 ${age}세</span>` : ''}${r.memo ? `<div style="font-size:.72rem;color:#6b7280;">${escHtml(r.memo)}</div>` : ''}</td>
+      ${daily ? '' : `<td><span class="hr-badge" style="color:${sc};background:${sb};">${sl}</span>${r.employee_id ? '<div style="font-size:.7rem;color:#166534;">근무 관리 연결됨</div>' : ''}</td>`}
+      <td>${escHtml(r.phone)}</td>
+      <td>${r.rrn_mask ? escHtml(r.rrn_mask) : '<span style="color:#b45309;">미입력</span>'}</td>
+      <td>${r.account_mask ? escHtml((r.bank_name || '') + ' ' + r.account_mask) : '<span style="color:#b45309;">미입력</span>'}</td>
+      <td>${(daily ? r.pays[0]?.work_date : r.interview_date) || ''}</td>
+      <td>${r.pays.length ? `${hireWon(total)}${unpaid.length ? ` <span class="hr-badge" style="color:#b45309;background:#fef3c7;">미지급 ${unpaid.length}</span>` : ' <span style="color:#16a34a;font-size:.75rem;">완료</span>'}` : '<span style="color:#9ca3af;">-</span>'}</td>
+      <td><div style="display:flex;gap:2px;justify-content:flex-end;">
+        <button class="toggle-btn" style="font-size:.72rem;padding:3px 8px;color:#4f46e5;font-weight:600;" onclick="hireOpenPay(${r.id})"><i class="fa-solid fa-won-sign"></i> 지급</button>
+        <button class="toggle-btn" style="font-size:.72rem;padding:3px 8px;" onclick="hireOpenPerson(${r.id})">수정</button>
+        ${r.employee_id ? '' : `<button class="toggle-btn" style="font-size:.72rem;padding:3px 8px;" onclick="hireDoHire(${r.id})" title="근무 관리 알바로 등록 — 출퇴근·급여는 그쪽에서">채용 처리</button>`}
+        ${(!r.pays.length || hireState.canDeletePaid) ? `<button class="toggle-btn" style="font-size:.72rem;padding:3px 8px;color:#dc2626;" onclick="hireDelete(${r.id})" title="개인정보 파기"><i class="fa-solid fa-trash"></i></button>` : ''}
+      </div></td></tr>`;
+  }).join('')}</tbody></table>`;
+}
+
+/** 선택한 달(근무일 기준)의 사람별 지급 합계 — 매월 보내는 리스트를 화면에서 먼저 확인 */
+function hireRenderMonth(mine) {
+  const ym = $('hire-ym').value;
+  const people = mine.map(r => ({ r, pays: r.pays.filter(p => p.work_date.startsWith(ym)) })).filter(x => x.pays.length);
+  const [y, m] = ym.split('-').map(Number);
+  const title = `${y}년 ${m}월 ${HIRE_KIND[hireState.kind]} 지급 리스트`;
+  if (!people.length) { $('hire-month').innerHTML = `<div class="hr-month" style="color:#9ca3af;font-size:.82rem;"><b style="color:#374151;">${title}</b> — 이 달 지급 기록이 없어요</div>`; return; }
+  const tot = hireSum(people.flatMap(x => x.pays));
+  const cells = t => `<td class="num">${t.days}일</td><td class="num">${t.minutes ? hireHm(t.minutes) : '-'}</td><td class="num">${hireWon(t.gross)}</td><td class="num">${hireWon(t.income_tax)}</td><td class="num">${hireWon(t.local_tax)}</td><td class="num">${t.emp_ins_amt ? hireWon(t.emp_ins_amt) : '-'}</td><td class="num"><b>${hireWon(t.net)}</b></td>`;
+  $('hire-month').innerHTML = `<div class="hr-month"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;flex-wrap:wrap;gap:6px;">
+      <b style="font-size:.9rem;">${title}</b><span style="font-size:.75rem;color:#6b7280;">${people.length}명 · 근무일 기준 · [월별 리스트 엑셀]로 내려받아 보내세요</span></div>
+    <div style="overflow-x:auto;"><table><thead><tr><th>이름</th><th class="num">근무일수</th><th class="num">근무시간</th><th class="num">세전금액</th><th class="num">사업소득세</th><th class="num">지방소득세</th><th class="num">고용보험</th><th class="num">실 지급액</th><th>입금</th></tr></thead><tbody>
+    ${people.map(({ r, pays }) => { const t = hireSum(pays); return `<tr><td><b>${escHtml(r.name)}</b></td>${cells(t)}<td>${t.unpaid ? `<span class="hr-badge" style="color:#b45309;background:#fef3c7;">미지급 ${t.unpaid}</span>` : '<span style="color:#16a34a;font-size:.75rem;">완료</span>'}</td></tr>`; }).join('')}
+    <tr class="hr-total"><td>합계</td>${cells(tot)}<td>${tot.unpaid ? `미지급 ${tot.unpaid}건` : ''}</td></tr></tbody></table></div></div>`;
+}
+
+/* ── 사람 등록·수정 ── */
+function hireOpenPerson(id) {
+  const r = hireState.rows.find(x => x.id === id);
+  $('hire-p-title').textContent = r ? `${r.name} 수정` : '사람 등록';
+  $('hire-p-id').value = r?.id ?? '';
+  $('hire-p-kind').value = r?.kind ?? hireState.kind;
+  hireKindFields();
+  $('hire-p-name').value = r?.name ?? '';
+  $('hire-p-phone').value = r?.phone ?? '';
+  $('hire-p-rrn').value = ''; $('hire-p-acct').value = '';
+  $('hire-p-rrn').placeholder = r?.rrn_mask ? `${r.rrn_mask} (바꿀 때만 입력)` : '900101-1234567';
+  $('hire-p-acct').placeholder = r?.account_mask ? `${r.account_mask} (바꿀 때만 입력)` : '숫자만 입력해도 돼요';
+  $('hire-p-rrn-note').textContent = r?.rrn_mask ? '저장됨' : '';
+  $('hire-p-acct-note').textContent = r?.account_mask ? '저장됨' : '';
+  $('hire-p-bank').value = r?.bank_name ?? '';
+  $('hire-p-holder').value = r?.bank_holder ?? '';
+  $('hire-p-status').value = r?.status ?? 'interview';
+  $('hire-p-date').value = r?.interview_date ?? hireToday();
+  $('hire-p-memo').value = r?.memo ?? '';
+  $('hire-p-reveal').style.display = r && (r.rrn_mask || r.account_mask) ? '' : 'none';
+  hireAgeHint(r?.birth);
+  $('hire-dlg-person').showModal();
+}
+
+function hireKindFields() {
+  document.querySelectorAll('#hire-dlg-person .hr-app').forEach(el => { el.style.display = $('hire-p-kind').value === 'daily' ? 'none' : ''; });
+}
+
+/** 주민번호 입력 중 만 나이 안내 (저장된 사람은 birth로) */
+function hireAgeHint(birth) {
+  const d = $('hire-p-rrn').value.replace(/\D/g, '');
+  if (typeof birth !== 'string' && d.length >= 7) {
+    const c = '1256'.includes(d[6]) ? 1900 : '3478'.includes(d[6]) ? 2000 : 0;
+    if (c) birth = `${c + Number(d.slice(0, 2))}-${d.slice(2, 4)}-${d.slice(4, 6)}`;
+  }
+  const note = typeof birth === 'string' ? hireMinorNote(hireAge(birth, $('hire-p-date').value || hireToday())) : '';
+  $('hire-p-age').textContent = note;
+  $('hire-p-age').style.display = note ? '' : 'none';
+}
+
+async function hireSavePerson() {
+  const body = {
+    action: 'upsert', kind: $('hire-p-kind').value, name: $('hire-p-name').value, phone: $('hire-p-phone').value,
+    bank_name: $('hire-p-bank').value, bank_holder: $('hire-p-holder').value || $('hire-p-name').value,
+    status: $('hire-p-status').value, interview_date: $('hire-p-date').value, memo: $('hire-p-memo').value,
+  };
+  if ($('hire-p-id').value) body.id = Number($('hire-p-id').value);
+  if ($('hire-p-rrn').value.trim()) body.rrn = $('hire-p-rrn').value;     // 비워 두면 기존 값 유지
+  if ($('hire-p-acct').value.trim()) body.account = $('hire-p-acct').value;
+  try {
+    await hireApi(body);
+    $('hire-dlg-person').close();
+    showToast('저장했어요');
+    hireLoad();
+  } catch (e) { showToast(e.message); }
+}
+
+async function hireReveal() {
+  try {
+    const d = await hireApi({ action: 'reveal', id: Number($('hire-p-id').value) });
+    $('hire-p-rrn-note').textContent = d.rrn ? `전체: ${d.rrn}` : '';
+    $('hire-p-acct-note').textContent = d.account ? `전체: ${d.account}` : '';
+  } catch (e) { showToast(e.message); }
+}
+
+async function hireDelete(id) {
+  const r = hireState.rows.find(x => x.id === id);
+  const msg = r.pays.length
+    ? `${r.name}님의 개인정보와 지급 기록 ${r.pays.length}건을 모두 삭제할까요?\n지급 기록은 원천징수 증빙이라 보통 5년 보관해요. 되돌릴 수 없어요.`
+    : `${r.name}님의 개인정보를 삭제(파기)할까요? 되돌릴 수 없어요.`;
+  if (!confirm(msg)) return;
+  try { await hireApi({ action: 'delete', id }); showToast('삭제했어요'); hireLoad(); } catch (e) { showToast(e.message); }
+}
+
+async function hireDoHire(id) {
+  const r = hireState.rows.find(x => x.id === id);
+  const v = prompt(`${r.name}님을 채용 처리해 근무 관리 알바로 등록해요.\n시급을 입력하세요 (2026년 최저시급 ${HIRE_MIN_WAGE.toLocaleString()}원)`, String(HIRE_MIN_WAGE));
+  if (v == null) return;
+  const rate = Number(v.replace(/[^\d]/g, ''));
+  if (rate < HIRE_MIN_WAGE && !confirm(`시급 ${rate.toLocaleString()}원은 최저시급보다 낮아요. 그래도 등록할까요?`)) return;
+  try {
+    await hireApi({ action: 'hire', id, hourly_rate: rate });
+    showToast('근무 관리에 알바로 등록했어요 — 키오스크 PIN은 근무 관리에서 설정하세요');
+    hireLoad();
+  } catch (e) { showToast(e.message); }
+}
+
+/* ── 지급 ── */
+function hireOpenPay(id) {
+  const r = hireState.rows.find(x => x.id === id);
+  $('hire-pay-title').textContent = `${r.name} — ${r.kind === 'daily' ? '일일알바 일당' : '면접비·시범근무'} 지급`;
+  $('hire-pay-hire').value = id;
+  $('hire-pay-date').value = (r.kind === 'daily' ? '' : r.interview_date) || hireToday();
+  $('hire-pay-rate').value = HIRE_MIN_WAGE;
+  $('hire-pay-start').value = ''; $('hire-pay-end').value = ''; $('hire-pay-break').value = 0;
+  $('hire-pay-fixed').value = ''; $('hire-pay-ins').checked = false; $('hire-pay-note').value = '';
+  hireRenderPays(r);
+  hirePayPreview();
+  $('hire-dlg-pay').showModal();
+}
+
+function hireRenderPays(r) {
+  $('hire-pay-list').innerHTML = !r.pays.length ? '<div style="font-size:.8rem;color:#9ca3af;">아직 지급 기록이 없어요</div>'
+    : `<table><thead><tr><th>근무일</th><th>내용</th><th>지급액</th><th>공제</th><th>실지급</th><th>입금</th><th></th></tr></thead><tbody>${r.pays.map(p => `<tr>
+        <td>${p.work_date}</td>
+        <td>${p.fixed_amount != null ? '정액' : `${hireHm(p.minutes)} × ${p.hourly_rate.toLocaleString()}`}${p.note ? `<div style="font-size:.72rem;color:#6b7280;">${escHtml(p.note)}</div>` : ''}</td>
+        <td>${hireWon(p.gross)}</td>
+        <td title="소득세 ${hireWon(p.income_tax)} · 지방세 ${hireWon(p.local_tax)} · 고용보험 ${hireWon(p.emp_ins_amt)}">${hireWon(p.gross - p.net)}</td>
+        <td><b>${hireWon(p.net)}</b></td>
+        <td><label style="display:flex;gap:4px;align-items:center;font-size:.75rem;"><input type="checkbox" ${p.paid_on ? 'checked' : ''} onchange="hirePayPaid(${p.id}, this.checked)" />${p.paid_on || '미지급'}</label></td>
+        <td><button class="toggle-btn" onclick="hirePayDel(${p.id})" style="color:#dc2626;"><i class="fa-solid fa-trash"></i></button></td></tr>`).join('')}</tbody></table>`;
+}
+
+/** 입력값 → { minutes, rate, fixed, ins } (근무 시간 못 구하면 minutes null) */
+function hirePayInput() {
+  const s = $('hire-pay-start').value, e = $('hire-pay-end').value;
+  const toMin = t => Number(t.slice(0, 2)) * 60 + Number(t.slice(3));
+  const m = s && e ? toMin(e) - toMin(s) - (Number($('hire-pay-break').value) || 0) : null;
+  const f = $('hire-pay-fixed').value;
+  return { minutes: m != null && m >= 0 ? m : null, rate: Number($('hire-pay-rate').value) || 0, fixed: f === '' ? null : Number(f), ins: $('hire-pay-ins').checked, bad: m != null && m < 0 };
+}
+
+function hirePayPreview() {
+  const p = hirePayInput();
+  if (p.fixed == null && !p.minutes) {
+    $('hire-pay-sum').innerHTML = `<span style="color:#9ca3af;">${p.bad ? '종료 시간이 시작보다 빨라요' : '시작·종료 시간 또는 정액 금액을 넣으면 바로 계산돼요'}</span>`;
+    return;
+  }
+  const c = hireCalc(p.minutes ?? 0, p.rate, p.fixed, p.ins);
+  const low = p.fixed == null && p.rate < HIRE_MIN_WAGE;
+  $('hire-pay-sum').innerHTML = `
+    ${p.fixed == null ? `근무 ${hireHm(p.minutes)} × ${p.rate.toLocaleString()}원` : '정액'} <b>${hireWon(c.gross)}</b><br>
+    사업소득세 3% <b>−${hireWon(c.income_tax)}</b><br>
+    지방소득세 0.3% <b>−${hireWon(c.local_tax)}</b><br>
+    ${p.ins ? `고용보험 0.9% <b>−${hireWon(c.emp_ins_amt)}</b><br>` : ''}
+    <span style="font-size:.95rem;">실지급액 <b style="color:#4f46e5;">${hireWon(c.net)}</b></span>
+    ${low ? `<div style="font-size:.75rem;color:#b91c1c;clear:both;">시급이 2026년 최저시급(${HIRE_MIN_WAGE.toLocaleString()}원)보다 낮아요</div>` : ''}`;
+}
+
+async function hireSavePay() {
+  const p = hirePayInput();
+  if (p.fixed == null && !p.minutes) { showToast('시작·종료 시간 또는 정액 금액을 넣어 주세요'); return; }
+  if (p.fixed == null && p.rate < HIRE_MIN_WAGE && !confirm('시급이 최저시급보다 낮아요. 그래도 저장할까요?')) return;
+  const hireId = Number($('hire-pay-hire').value);
+  try {
+    await hireApi({
+      action: 'pay_upsert', hire_id: hireId, work_date: $('hire-pay-date').value,
+      start_time: $('hire-pay-start').value, end_time: $('hire-pay-end').value,
+      minutes: p.minutes ?? 0, hourly_rate: p.rate, fixed_amount: p.fixed, emp_ins: p.ins, note: $('hire-pay-note').value,
+    });
+    showToast('지급 기록을 저장했어요');
+    await hireLoad();
+    hireOpenPay(hireId);
+  } catch (e) { showToast(e.message); }
+}
+
+async function hirePayPaid(pid, on) {
+  try { await hireApi({ action: 'pay_paid', id: pid, paid_on: on ? hireToday() : null }); await hireLoad(); hireOpenPay(Number($('hire-pay-hire').value)); }
+  catch (e) { showToast(e.message); }
+}
+
+async function hirePayDel(pid) {
+  if (!confirm('이 지급 기록을 삭제할까요?')) return;
+  try { await hireApi({ action: 'pay_delete', id: pid }); await hireLoad(); hireOpenPay(Number($('hire-pay-hire').value)); }
+  catch (e) { showToast(e.message); }
+}
+
+/* ── 월별 리스트 엑셀 — 시트1 사람별 합계, 시트2 근무일별 상세 (세무사 전달·간이지급명세서용). 현재 탭의 구분만 ── */
+async function hireExport() {
+  const ym = $('hire-ym').value;
+  if (!ym) { showToast('연월을 고르세요'); return; }
+  const kind = hireState.kind, label = HIRE_KIND[kind];
+  if (!confirm(`${ym} ${label} 지급 리스트를 내려받아요.\n주민번호·계좌 전체가 들어간 파일이에요 — 전달 후 PC에서 지워 주세요.`)) return;
+  try {
+    const { rows } = await hireApi({ action: 'export', ym, kind });
+    if (!rows.length) { showToast(`그 달 ${label} 지급 기록이 없어요`); return; }
+    rows.sort((a, b) => a.work_date.localeCompare(b.work_date) || a.name.localeCompare(b.name, 'ko'));
+    await loadXlsxPopulate();
+    const [y, m] = ym.split('-').map(Number);
+    const wb = await XlsxPopulate.fromBlankAsync();
+    const sheet = (ws, title, head, data, widths, numFrom) => {
+      ws.cell(1, 1).value(`${y}년 ${m}월 ${label} ${title}`).style({ bold: true, fontSize: 14 });
+      head.forEach((h, i) => ws.cell(3, i + 1).value(h).style({ bold: true, fill: 'EEF2FF', horizontalAlignment: 'center' }));
+      data.forEach((row, ri) => row.forEach((v, ci) => {
+        if (v === '' || v == null) return;
+        const c = ws.cell(ri + 4, ci + 1).value(v);
+        if (ci >= numFrom && typeof v === 'number') c.style('numberFormat', '#,##0');
+        if (ri === data.length - 1) c.style({ bold: true, fill: 'F1F5F9' });
+      }));
+      widths.forEach((w, i) => ws.column(i + 1).width(w));
+    };
+    // 시트1: 사람별 합계 (그 달 여러 번 일했으면 더함 — 세금은 지급 건별로 뗀 금액의 합)
+    const byHire = new Map();
+    for (const r of rows) { if (!byHire.has(r.hire_id)) byHire.set(r.hire_id, []); byHire.get(r.hire_id).push(r); }
+    const people = [...byHire.values()].sort((a, b) => a[0].name.localeCompare(b[0].name, 'ko'));
+    const S = ['gross', 'income_tax', 'local_tax', 'emp_ins_amt', 'net'];
+    const sumRow = list => { const t = hireSum(list); return S.map(k => t[k]); };
+    sheet(wb.sheet(0).name('사람별 합계'), '지급 리스트',
+      ['이름', '주민등록번호', '휴대폰', '은행', '계좌번호', '예금주', '근무일수', '세전금액', '사업소득세', '지방소득세', '고용보험', '실 지급액'],
+      [...people.map(ps => { const p = ps[0]; return [p.name, p.rrn, p.phone, p.bank_name, p.account, p.bank_holder, hireSum(ps).days, ...sumRow(ps)]; }),
+       ['합계', '', '', '', '', '', `${people.length}명`, ...sumRow(rows)]],
+      [10, 16, 15, 10, 18, 10, 9, 12, 12, 12, 10, 12], 6);
+    // 시트2: 근무일별 상세
+    sheet(wb.addSheet('근무일별 상세'), '근무일별 상세',
+      ['근무일', '이름', '주민등록번호', '시작', '종료', '근무시간', '시급', '세전금액', '사업소득세', '지방소득세', '고용보험', '실 지급액', '입금일', '메모'],
+      [...rows.map(r => [r.work_date, r.name, r.rrn, r.start_time, r.end_time, r.fixed_amount != null ? '정액' : hireHm(r.minutes), r.fixed_amount != null ? '' : r.hourly_rate, ...S.map(k => r[k]), r.paid_on || '미지급', r.note]),
+       ['합계', `${rows.length}건`, '', '', '', '', '', ...sumRow(rows), '', '']],
+      [12, 10, 16, 7, 7, 11, 9, 12, 12, 12, 10, 12, 12, 20], 6);
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(await wb.outputAsync());
+    a.download = `${y}년_${m}월_${label}_지급리스트.xlsx`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+    showToast(`${label} ${people.length}명 · ${rows.length}건을 엑셀로 내려받았어요`);
+  } catch (e) { showToast('엑셀 생성 실패: ' + e.message); }
+}
+/* ══ 알바 채용·면접비 끝 ══ */
 
 function unshipInit() {
   uiTabs('unship-tabs', UNSHIP_TABS, unshipState.tab, 'unshipSetTab');
@@ -14930,7 +15375,7 @@ async function myChangePw() {
   } catch (e) { showToast('변경 실패 — ' + e.message); }
 }
 
-const MENU_KEYS = ['home', 'cr', 'an', 'perf', 'rwatch', 'rscan', 'unship', 'soldout', 'disp', 'stable', 'adv', 'admgr', 'profit', 'wm', 'meet', 'board', 'proj', 'users', 'my', 'purch', 'madechk', 'cnbuy', 'cxl'];
+const MENU_KEYS = ['home', 'cr', 'an', 'perf', 'rwatch', 'rscan', 'unship', 'soldout', 'disp', 'stable', 'adv', 'admgr', 'profit', 'wm', 'meet', 'board', 'proj', 'users', 'my', 'purch', 'madechk', 'cnbuy', 'cxl', 'hire'];
 
 /* 모바일 메뉴 서랍 (2026-08-27) — 열기/닫기. 데스크톱에선 ☰ 버튼이 숨겨져 호출되지 않는다. */
 /* ── 홈 접기 (2026-08-27 UI 정리) ──
@@ -15001,7 +15446,7 @@ function showMenu(key) {
 
   if (!MENU_KEYS.includes(key)) key = 'home';
   if (key === 'cxl' && !isAdmin() && !cxlAccessState.loaded) { cxlAccessState.pending = true; key = 'home'; }   // 허용 목록 확인 전 — 확인되면 cxlAccessLoad가 다시 연다
-  if (isCS() && !['my', 'purch', 'rscan', 'unship', 'soldout', 'cnbuy'].includes(key) && !(key === 'cxl' && cxlAllowed())) key = 'perf';   // soldout은 물류팀만(아래 soldoutAllowed에서 CS팀은 홈으로)   // 미발송 관리(2026-09-28) 추가 — 위 applyRole 목록과 함께 고칠 것.   // CS팀·물류팀은 판매 성과 + 마이페이지 + 구매요청 + 반품 스캔(2026-09-22 — 메뉴는 보였는데 여기서 되돌려 보내던 버그 수정)
+  if (isCS() && !['my', 'purch', 'rscan', 'unship', 'soldout', 'cnbuy', 'hire'].includes(key) && !(key === 'cxl' && cxlAllowed())) key = 'perf';   // soldout은 물류팀만(아래 soldoutAllowed에서 CS팀은 홈으로)   // 미발송 관리(2026-09-28) 추가 — 위 applyRole 목록과 함께 고칠 것.   // CS팀·물류팀은 판매 성과 + 마이페이지 + 구매요청 + 반품 스캔(2026-09-22 — 메뉴는 보였는데 여기서 되돌려 보내던 버그 수정)
   // 권한 없는 메뉴는 홈으로 되돌린다 — 여기서 return하면 URL에 #disp 등을 달고 들어온
   // 권한 없는 사용자에게 아무 섹션도 표시되지 않아 화면이 비어버림
   const denied = (key === 'cr' && isStaff())
@@ -15038,6 +15483,7 @@ function showMenu(key) {
   if (key === 'proj') projLoad();
   if (key === 'admgr' && !admgrLegacyAllowed()) { showMenu('home'); return; }
   if (key === 'soldout' && !soldoutAllowed()) { showMenu('home'); return; }
+  if (key === 'hire' && !hireAllowed()) { showMenu('home'); return; }   // 알바 채용·면접비 = 관리자 + 물류팀
   if (key === 'cnbuy' && !cnAllowed()) { showMenu('home'); return; }
   if (key === 'soldout') soldoutInit();   // 광고관리자(기존)은 지정 계정만 (2026-09-13)
   if (key === 'admgr') {
@@ -15051,6 +15497,7 @@ function showMenu(key) {
   if (key === 'unship') unshipInit();
   if (key === 'cnbuy') cnInit();
   if (key === 'cxl') cxlInit();
+  if (key === 'hire') hireInit();
   if (key === 'an' && anState.renderPending) renderAnalytics();   // 시작 시 미뤄 둔 상품 분석 표
   if (key === 'perf') perfTrendInit();
 }

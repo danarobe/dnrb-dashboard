@@ -33,3 +33,7 @@ verify_jwt = true
 # 근무관리 키오스크 — 기기 토큰 + PIN 세션 (anon key는 인증 아님)
 [functions.wm-kiosk]
 verify_jwt = true
+
+# 알바 채용·면접비 — 관리자 + 물류팀 (주민번호·계좌 암호화 저장, 2026-10-12 이식)
+[functions.wm-hire]
+verify_jwt = true
