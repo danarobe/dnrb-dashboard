@@ -1432,7 +1432,10 @@ Deno.serve(async (req) => {
         const outLines = canPrice ? lines : lines.map((l) => { const { unit_price: _u, ...rest } = l; return rest; });
         const outShips = ships.map(hideCosts);   // 비용(2번째 시트)도 관리자만
         // 카페24 등록 여부: 전 상품의 공급사 상품명(supply_product_name)을 30분 캐시로 받아 사입상품명과 맞춘다.
-        //   같은 이름(공백·대소문자 무시)이거나, 공급사 상품명이 '사입상품명 + 구분 문자(공백·괄호 등)'로 시작하면 같은 상품으로 본다.
+        //   같은 이름(공백·대소문자 무시)이거나, 공급사 상품명이 사입상품명으로 시작하고 **바로 뒤가 영문·숫자가 아니면** 같은 상품으로 본다
+        //   (2026-10-12 수정 — 예전엔 바로 뒤가 한글이어도 제외해서 "26K07가디건(네이비,아이보리) 79위안"처럼 품번 뒤에 띄어쓰기 없이 한글을 붙여 적은 상품을 못 찾았다.
+        //    영문·숫자만 제외하는 이유: 품번 '6800'이 '68001…'·'6800A…' 같은 다른 품번에 걸리지 않게).
+        //   한 카페24 상품이 여러 사입상품명에 걸리면 **가장 긴 이름 하나에만** 붙인다('6800短款…'은 '6800'이 아니라 '6800短款'에).
         const c24: Record<string, unknown[]> = {};
         let c24_error: string | null = null;
         try {
@@ -1450,10 +1453,10 @@ Deno.serve(async (req) => {
           const norm = (v: unknown) => String(v ?? "").toLowerCase().replace(/\s+/g, "");
           const names = [...new Set(lines.map((l) => String(l.sname ?? "")).filter(Boolean))];
           const withNorm = prods.map((x) => ({ x, n: norm(x.supply_product_name) })).filter((y) => y.n);
-          for (const name of names) {
-            const k = norm(name); if (!k) continue;
-            const hits = withNorm.filter((y) => y.n === k || (y.n.startsWith(k) && /[^0-9a-z가-힣]/.test(y.n.charAt(k.length)))).map((y) => y.x);
-            if (hits.length) c24[name] = hits.slice(0, 5);
+          const keys = names.map((name) => ({ name, k: norm(name) })).filter((x) => x.k).sort((a, b) => b.k.length - a.k.length);   // 긴 이름부터
+          for (const y of withNorm) {
+            const hit = keys.find(({ k }) => y.n === k || (y.n.startsWith(k) && !/[0-9a-z]/.test(y.n.charAt(k.length))));
+            if (hit && (c24[hit.name] ??= []).length < 5) c24[hit.name].push(y.x);
           }
         } catch (e) { c24_error = "카페24 상품 목록을 읽지 못했어요 — " + String(e).slice(0, 150); }
         return json({ ships: outShips, lines: outLines, prods, c24, c24_error, can_price: canPrice, can_edit: canEdit });
