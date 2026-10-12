@@ -4920,10 +4920,9 @@ function cnCheckRender() {
   let html = `<div style="display:flex;gap:6px;margin-bottom:6px;">${cnFoldAllHtml('check')}</div><div class="table-wrap"><table style="width:100%;font-size:.8rem;"><thead><tr><th style="text-align:left;">사입상품명 / 옵션</th><th>전달 수량</th><th>실제 수량</th><th>차이</th><th>미출고 잔여</th>${canPrice ? `<th>단가(CHN)</th><th title="단가(CHN) × 환율 ${CN_FX}원" style="cursor:help;">단가(KRW)</th><th title="환율 ${CN_FX}원으로 계산&#10;100원당 추가비용 포함 · 부가세는 제외 (입고 비용 기준)${isAll ? '&#10;전체 차수 값을 반영함' : ''}" style="cursor:help;">실질 단가${isAll ? '<div style="font-size:.62rem;font-weight:500;color:#6b7280;">전체 입고 기준</div>' : ''}</th><th class="m-hide">금액</th>` : ''}<th class="m-hide" style="text-align:left;">확인</th><th style="text-align:left;">메모</th></tr></thead><tbody>`;
   groups.forEach(g => {
     const gi = encodeURIComponent(g.sname), h = cnProdHeadCells(g), todo = g.rows.filter(l => l.qty_actual == null).length;
-    const noteTxt = [...new Set(g.rows.map(l => l.line_note).filter(Boolean))].join(' · ');
     const open = forceOpen || cnState.open.check.has(g.sname);
     html += `<tr style="background:#f8f9ff;" data-cn-g="${escHtml(gi)}">
-      <td style="text-align:left;font-weight:800;">${cnFoldBtn('check', g.sname, open, g.show.length)}${cnThumbHtml(g.sname)}${escHtml(g.sname)} <span style="font-size:.66rem;color:#9ca3af;font-weight:500;">옵션 ${g.show.length}</span> ${cnC24Badge(g.sname)}${cnLineHtml(g.sname)}${noteTxt ? ` <span style="font-size:.68rem;color:#6b7280;font-weight:500;">${escHtml(noteTxt)}</span>` : ''}
+      <td style="text-align:left;font-weight:800;">${cnFoldBtn('check', g.sname, open, g.show.length)}${cnThumbHtml(g.sname)}${escHtml(g.sname)} <span style="font-size:.66rem;color:#9ca3af;font-weight:500;">옵션 ${g.show.length}</span> ${cnC24Badge(g.sname)}${cnLineHtml(g.sname)}
         ${todo ? `<button class="toggle-btn" style="font-size:.66rem;padding:1px 8px;margin-left:6px;" data-g="${escHtml(g.sname)}" onclick="cnFillSame(this)" title="아직 안 적은 옵션 ${todo}개를 전달 수량과 같게 채워요">전달 수량과 같음</button>` : ''}</td>
       ${num(h.sent, '')}<td style="text-align:right;" data-cn-h="act">${h.act}</td><td style="text-align:right;" data-cn-h="diff">${h.diff}</td>${num(h.left, '')}${canPrice ? (isAll ? cnGroupPriceCellsAll(g) : cnGroupPriceCells(g)) : ''}<td class="m-hide"></td><td></td></tr>`;
     g.show.forEach(l => {
