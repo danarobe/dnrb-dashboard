@@ -528,6 +528,16 @@
     }
     .qp button:hover { background: rgba(99,102,241,.12); }
     .qp button.active { background: #4f46e5; color: #fff; border-color: #4f46e5; }
+    /* 중국 사입 관리 — 상품 줄의 라인 구분(made / 일반) 버튼 (2026-10-12) */
+    .cn-line { display: inline-flex; vertical-align: middle; margin-left: 6px; border: 1.5px solid #d1d5db; border-radius: 99px; overflow: hidden; }
+    .cn-line.unset { border-style: dashed; border-color: #f59e0b; }
+    .cn-line button { border: 0; background: #fff; color: #6b7280; font-size: .66rem; font-weight: 700; padding: 3px 10px; line-height: 1.5; cursor: pointer; white-space: nowrap; }
+    .cn-line button + button { border-left: 1.5px solid #e5e7eb; }
+    .cn-line button:hover { background: #f3f4f6; }
+    .cn-line button:disabled { opacity: .5; cursor: default; }
+    .cn-line button[aria-pressed="true"][data-v="made"] { background: #7c3aed; color: #fff; }
+    .cn-line button[aria-pressed="true"][data-v="normal"] { background: #0f766e; color: #fff; }
+    .cn-line-badge { display: inline-block; vertical-align: middle; margin-left: 6px; border-radius: 99px; padding: 1px 9px; font-size: .66rem; font-weight: 700; white-space: nowrap; }
     /* 불량·오배송 처리 표 사유 칸 — 한 줄로 줄이고(…), 마우스를 올리면 툴팁, 클릭하면 펼침 (2026-09-23 사용자 요청) */
     .rscan-issues-tbl th, .rscan-issues-tbl td { padding: 6px 7px; }
     .rscan-issues-tbl .toggle-btn { padding: 2px 7px; font-size: .68rem; }
@@ -1428,6 +1438,7 @@
         <div id="cn-check-summary" style="margin-bottom:10px;"></div>
         <div id="cn-check-controls" style="display:none;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px;">
           <span id="cn-check-chips" class="qp"></span>
+          <span id="cn-check-line" class="qp"></span>
           <input id="cn-check-q" type="search" placeholder="사입상품명·색상 찾기" oninput="renderSoon('cnCheckRender')" style="padding:6px 10px;border:1px solid #d1d5db;border-radius:8px;font-size:.8rem;min-width:170px;" />
         </div>
         <div id="cn-check-list"><div class="empty-state"><p>불러오는 중…</p></div></div>
@@ -1448,6 +1459,7 @@
         <div id="cn-prod-summary" style="margin-bottom:10px;"></div>
         <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px;">
           <span id="cn-prod-chips" class="qp"></span>
+          <span id="cn-prod-line" class="qp"></span>
           <input id="cn-prod-q" type="search" placeholder="사입상품명·색상 찾기" oninput="renderSoon('cnProdRender')" style="padding:6px 10px;border:1px solid #d1d5db;border-radius:8px;font-size:.8rem;min-width:170px;" />
         </div>
         <div id="cn-prod-list"></div>
@@ -4607,7 +4619,7 @@ const unshipOverdue = (m, today) => !!(m && m.arrival_date && String(m.arrival_d
    서버 cafe24-analytics cn_list / cn_upload / cn_check / cn_ship. 단가·비용은 관리자만(2026-10-02 — 서버가 MD·물류팀 응답에서 뺀다). CS팀은 메뉴 자체가 없음. 엑셀 올리기·입고 건 수정·삭제도 관리자·MD. */
 const CN_TABS = [['check', '입고 검수', null, 'fa-solid fa-clipboard-check'], ['prod', '상품별 현황', null, 'fa-solid fa-layer-group'], ['cost', '입고 비용', null, 'fa-solid fa-coins']];
 const cnTabs = () => CN_TABS.filter(t => t[0] !== 'cost' || !cnState.data || cnState.data.can_price);   // 입고 비용 = 관리자만
-const cnState = { data: null, loading: false, tab: 'check', shipId: 'all', costShipId: null, filter: 'all', prodFilter: 'all', pending: null, sales: null, salesLoading: false, open: { check: new Set(), prod: new Set() }, thumbs: {}, thumbAsked: new Set(), thumbWant: [], thumbT: null, thumbScroll: false };
+const cnState = { data: null, loading: false, tab: 'check', shipId: 'all', costShipId: null, filter: 'all', prodFilter: 'all', lineFilter: 'all', pending: null, sales: null, salesLoading: false, open: { check: new Set(), prod: new Set() }, thumbs: {}, thumbAsked: new Set(), thumbWant: [], thumbT: null, thumbScroll: false };
 function cnTabRender() { const k = cnState.tab; if (k === 'check') cnCheckRender(); else if (k === 'cost') cnCostRender(); else { cnProdRender(); cnSalesLoad(); } }
 function cnInit() { cnSetTab(cnState.tab); if (!cnState.data && !cnState.loading) cnLoad(false); }
 function cnSetTab(k) {
@@ -4759,6 +4771,43 @@ function cnC24Badge(sname) {
   if (!hits || !hits.length) return (cnState.data || {}).c24_error ? '' : '<span style="background:#f3f4f6;color:#6b7280;border-radius:99px;padding:1px 8px;font-size:.66rem;font-weight:700;white-space:nowrap;">카페24 미등록</span>';
   return hits.map(h => `<span style="background:#dcfce7;color:#166534;border-radius:99px;padding:1px 8px;font-size:.66rem;font-weight:700;white-space:nowrap;" title="${escHtml(h.product_name)} (#${h.product_no})${h.display !== 'T' ? ' · 진열안함' : ''}${h.selling !== 'T' ? ' · 판매안함' : ''}">카페24 등록됨</span>`).join(' ');
 }
+/* 라인 구분 — made 라인 / 일반 상품 (2026-10-12 사용자 요청: "각 상품별로 made 라인으로 갈지, 일반 상품으로 갈지 나누고, 분류해서도 볼 수 있게").
+   상품(사입상품명)마다 하나 — 한 번 정하면 그 상품이 나오는 모든 입고에 같이 적용된다(서버 cn_line → cn_products.line, 관리자·MD만 바꿈, 물류팀은 보기만).
+   보기: 두 탭의 '라인' 칩(전체·made·일반·미분류, cnState.lineFilter — 두 탭이 같이 씀) → 요약 타일·건수 칩·표가 모두 그 라인만으로 다시 계산된다. */
+const CN_LINE_LABEL = { made: 'made', normal: '일반' };
+const cnLineOf = sname => ((((cnState.data || {}).prods || {})[sname]) || {}).line || '';
+const cnLinePass = sname => cnState.lineFilter === 'all' || (cnState.lineFilter === 'none' ? !cnLineOf(sname) : cnLineOf(sname) === cnState.lineFilter);
+function cnViewLines() { const ls = cnShipLines(); return cnState.lineFilter === 'all' ? ls : ls.filter(l => cnLinePass(l.sname)); }   // 입고 검수가 보여 주는 줄(입고 선택 + 라인 칩)
+function cnLineHtml(sname) {
+  const d = cnState.data || {}, cur = cnLineOf(sname), info = (d.prods || {})[sname] || {};
+  const who = cur && info.line_by ? ` — ${info.line_by} · ${unshipKst(info.line_at)}` : '';
+  if (!d.can_edit) return cur
+    ? `<span class="cn-line-badge" data-cn-line="${escHtml(encodeURIComponent(sname))}" style="background:${cur === 'made' ? '#f5f3ff' : '#f0fdfa'};color:${cur === 'made' ? '#6d28d9' : '#0f766e'};" title="${escHtml(CN_LINE_LABEL[cur] + who)}">${CN_LINE_LABEL[cur]}</span>`
+    : `<span class="cn-line-badge" data-cn-line="${escHtml(encodeURIComponent(sname))}" style="background:#fffbeb;color:#b45309;" title="아직 made / 일반을 나누지 않았어요(관리자·MD가 정해요)">라인 미정</span>`;
+  const btn = (v, tip) => `<button type="button" data-s="${escHtml(sname)}" data-v="${v}" aria-pressed="${cur === v}" onclick="cnLineSet(this)" title="${escHtml(cur === v ? CN_LINE_LABEL[v] + who + ' · 다시 누르면 구분을 지워요' : tip)}">${CN_LINE_LABEL[v]}</button>`;
+  return `<span class="cn-line${cur ? '' : ' unset'}" data-cn-line="${escHtml(encodeURIComponent(sname))}" role="group" aria-label="라인 구분">${btn('made', 'made 라인으로 진행')}${btn('normal', '일반 상품으로 진행')}</span>`;
+}
+async function cnLineSet(btn) {
+  const sname = btn.dataset.s, v = btn.dataset.v, next = cnLineOf(sname) === v ? null : v;
+  const box = btn.closest('.cn-line'); box.querySelectorAll('button').forEach(b => { b.disabled = true; });
+  try {
+    const r = await cnPost('cn_line', { sname, line: next });
+    const d = cnState.data; d.prods = d.prods || {};
+    d.prods[sname] = Object.assign({}, d.prods[sname], { line: r.line, line_by: r.line_by, line_at: r.line_at });
+    showToast(r.line ? `${sname} → ${CN_LINE_LABEL[r.line]}` : `${sname} — 라인 구분을 지웠어요`);
+    if (cnState.lineFilter !== 'all') { cnTabRender(); return; }   // 라인을 골라 보는 중이면 목록에서 빠지거나 들어와야 하니 다시 그린다
+    // 전체 보기에서는 그 상품의 버튼과 칩 건수만 바꾼다(적던 수량·펼친 상태 유지)
+    document.querySelectorAll(`[data-cn-line="${CSS.escape(encodeURIComponent(sname))}"]`).forEach(el => { el.outerHTML = cnLineHtml(sname); });
+    cnLineChipsRender('cn-check-line', [...new Set(cnShipLines().map(l => l.sname))]);
+    cnLineChipsRender('cn-prod-line', [...new Set(((d.lines) || []).map(l => l.sname))]);
+  } catch (e) { showToast('저장 실패: ' + e.message); box.querySelectorAll('button').forEach(b => { b.disabled = false; }); }
+}
+function cnLineChipsRender(id, snames) {   // '라인' 칩 — 건수는 상품 개수
+  const el = $(id); if (!el) return;
+  const n = { all: snames.length, made: 0, normal: 0, none: 0 };
+  snames.forEach(sn => { n[cnLineOf(sn) || 'none']++; });
+  el.innerHTML = '<span style="font-size:.72rem;color:#6b7280;font-weight:700;margin:0 2px 0 6px;align-self:center;">라인</span>' + [['all', '전체'], ['made', 'made'], ['normal', '일반'], ['none', '미분류']].map(([k, label]) => `<button class="${cnState.lineFilter === k ? 'active' : ''}" onclick="cnState.lineFilter='${k}';cnTabRender()" title="${k === 'all' ? '라인 구분 없이 모두' : k === 'none' ? '아직 made / 일반을 나누지 않은 상품' : label + '로 나눈 상품만 — 요약 숫자도 이 상품들만으로 계산돼요'}">${label} ${fmt(n[k])}</button>`).join('');
+}
 // 옵션 줄 접기·펼치기 (2026-10-01 사용자 요청 — 옵션이 다 펼쳐져 있어 스크롤이 김): 기본은 접힘(상품 줄만), 상품 줄을 누르면 그 상품 옵션만 펼침.
 //   칩으로 고르거나(미확인·차이 등) 검색 중이면 찾은 옵션이 바로 보이게 모두 펼친다. 펼친 상태는 탭별로 기억(cnState.open).
 function cnFoldBtn(tab, sname, open, n) {
@@ -4846,7 +4895,7 @@ function cnCheckRender() {
   const isAll = cnIsAll();
   const ship = isAll ? null : (ships.find(x => x.id === cnState.shipId) || ships[0]);
   if (!isAll) cnState.shipId = ship.id;
-  const lines = cnShipLines();
+  const lines = cnViewLines();   // 입고 선택 + 라인 칩(made / 일반 / 미분류) — 요약·건수·표가 모두 이 줄로 계산된다
   const shipById = new Map(ships.map(x => [x.id, x]));
   bar.innerHTML = `<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
     <select onchange="cnState.shipId=this.value==='all'?'all':Number(this.value);cnState.filter='all';cnCheckRender()" style="border:1.5px solid #d1d5db;border-radius:8px;padding:6px 10px;font-size:.84rem;font-weight:700;max-width:100%;">
@@ -4858,6 +4907,7 @@ function cnCheckRender() {
   const pass = CN_CHECK_PASS;
   $('cn-check-controls').style.display = 'flex';
   cnCheckChipsRender(lines);
+  cnLineChipsRender('cn-check-line', [...new Set(cnShipLines().map(l => l.sname))]);
   const canPrice = d.can_price;
   let groups = cnGroups(lines).map(g => ({ ...g, show: g.rows.filter(pass[cnState.filter] || pass.all) })).filter(g => g.show.length);
   if (q) groups = groups.map(g => g.sname.toLowerCase().includes(q) ? g : { ...g, show: g.show.filter(l => cnOpt(l).toLowerCase().includes(q)) }).filter(g => g.show.length);
@@ -4873,7 +4923,7 @@ function cnCheckRender() {
     const noteTxt = [...new Set(g.rows.map(l => l.line_note).filter(Boolean))].join(' · ');
     const open = forceOpen || cnState.open.check.has(g.sname);
     html += `<tr style="background:#f8f9ff;" data-cn-g="${escHtml(gi)}">
-      <td style="text-align:left;font-weight:800;">${cnFoldBtn('check', g.sname, open, g.show.length)}${cnThumbHtml(g.sname)}${escHtml(g.sname)} <span style="font-size:.66rem;color:#9ca3af;font-weight:500;">옵션 ${g.show.length}</span> ${cnC24Badge(g.sname)}${noteTxt ? ` <span style="font-size:.68rem;color:#6b7280;font-weight:500;">${escHtml(noteTxt)}</span>` : ''}
+      <td style="text-align:left;font-weight:800;">${cnFoldBtn('check', g.sname, open, g.show.length)}${cnThumbHtml(g.sname)}${escHtml(g.sname)} <span style="font-size:.66rem;color:#9ca3af;font-weight:500;">옵션 ${g.show.length}</span> ${cnC24Badge(g.sname)}${cnLineHtml(g.sname)}${noteTxt ? ` <span style="font-size:.68rem;color:#6b7280;font-weight:500;">${escHtml(noteTxt)}</span>` : ''}
         ${todo ? `<button class="toggle-btn" style="font-size:.66rem;padding:1px 8px;margin-left:6px;" data-g="${escHtml(g.sname)}" onclick="cnFillSame(this)" title="아직 안 적은 옵션 ${todo}개를 전달 수량과 같게 채워요">전달 수량과 같음</button>` : ''}</td>
       ${num(h.sent, '')}<td style="text-align:right;" data-cn-h="act">${h.act}</td><td style="text-align:right;" data-cn-h="diff">${h.diff}</td>${num(h.left, '')}${canPrice ? (isAll ? cnGroupPriceCellsAll(g) : cnGroupPriceCells(g)) : ''}<td class="m-hide"></td><td></td></tr>`;
     g.show.forEach(l => {
@@ -4910,7 +4960,7 @@ function cnApplyLines(rows) {   // 서버가 돌려준 줄을 상태에 반영�
       if (inp) { inp.dataset.prev = l.qty_actual == null ? '' : l.qty_actual; if (document.activeElement !== inp) inp.value = l.qty_actual == null ? '' : l.qty_actual; inp.style.borderColor = l.qty_actual == null ? '#d1d5db' : l.qty_actual === l.qty_sent ? '#86efac' : '#fca5a5'; }
     }
   }
-  const lines = cnShipLines();
+  const lines = cnViewLines();
   $('cn-check-summary').innerHTML = cnCheckSummaryHtml(lines);
   cnCheckChipsRender(lines);
   for (const g of cnGroups(lines)) {
@@ -5283,8 +5333,9 @@ function cnSalesOf(p) {
 }
 function cnProdRender() {
   const d = cnState.data; if (!d) return;
-  const prods = cnProducts(), canPrice = d.can_price, showSales = !isCS();
-  if (!prods.length) { $('cn-prod-summary').innerHTML = ''; $('cn-prod-chips').innerHTML = ''; $('cn-prod-list').innerHTML = '<div class="empty-state"><p>아직 올린 입고 엑셀이 없어요.</p></div>'; return; }
+  const allProds = cnProducts(), prods = allProds.filter(p => cnLinePass(p.sname)), canPrice = d.can_price, showSales = !isCS();   // 라인 칩에 맞는 상품만 — 요약·건수·표 모두
+  cnLineChipsRender('cn-prod-line', allProds.map(p => p.sname));
+  if (!allProds.length) { $('cn-prod-summary').innerHTML = ''; $('cn-prod-chips').innerHTML = ''; $('cn-prod-list').innerHTML = '<div class="empty-state"><p>아직 올린 입고 엑셀이 없어요.</p></div>'; return; }
   const reg = prods.filter(p => p.c24.length).length;
   $('cn-prod-summary').innerHTML = `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(118px,1fr));gap:8px;">${
     admgrTile('사입상품', fmt(prods.length) + '개', false) + admgrTile('주문 수량', fmt(prods.reduce((t, p) => t + p.ordered, 0)) + '장', false)
@@ -5308,7 +5359,7 @@ function cnProdRender() {
     const c24Html = p.c24.length ? p.c24.map(h => `<div><span style="background:#dcfce7;color:#166534;border-radius:99px;padding:1px 8px;font-size:.66rem;font-weight:700;white-space:nowrap;">등록됨</span> <span style="font-size:.72rem;">${escHtml(h.product_name)}</span>${h.display !== 'T' || h.selling !== 'T' ? ` <span style="font-size:.64rem;color:#b45309;">${[h.display !== 'T' ? '진열안함' : '', h.selling !== 'T' ? '판매안함' : ''].filter(Boolean).join('·')}</span>` : ''}</div>`).join('') : (d.c24_error ? '<span style="color:#9ca3af;">확인 불가</span>' : '<span style="background:#f3f4f6;color:#6b7280;border-radius:99px;padding:1px 8px;font-size:.66rem;font-weight:700;">미등록</span>');
     const meta = [[...p.rounds].length ? '발주 ' + [...p.rounds].join(', ') : '', `입고 ${p.ships.size}건`].filter(Boolean).join(' · ');
     const open = !!q && p.opts.some(o => o.opt.toLowerCase().includes(q)) || cnState.open.prod.has(p.sname), gi = encodeURIComponent(p.sname);
-    html += `<tr style="background:#f8f9ff;"><td style="text-align:left;font-weight:800;">${cnFoldBtn('prod', p.sname, open, p.opts.length)}${cnThumbHtml(p.sname)}${escHtml(p.sname)} <span style="font-size:.66rem;color:#9ca3af;font-weight:500;">옵션 ${p.opts.length}</span> <span style="font-size:.66rem;color:#6b7280;font-weight:500;">${escHtml(meta)}</span></td>
+    html += `<tr style="background:#f8f9ff;"><td style="text-align:left;font-weight:800;">${cnFoldBtn('prod', p.sname, open, p.opts.length)}${cnThumbHtml(p.sname)}${escHtml(p.sname)} <span style="font-size:.66rem;color:#9ca3af;font-weight:500;">옵션 ${p.opts.length}</span> <span style="font-size:.66rem;color:#6b7280;font-weight:500;">${escHtml(meta)}</span>${cnLineHtml(p.sname)}</td>
       ${num(`<b>${fmt(p.ordered)}</b>`)}${num(`<b>${fmt(p.sent)}</b>`)}${num(p.act || p.actSent ? `<b>${fmt(p.act)}</b>` : '<span style="color:#9ca3af;">—</span>')}${num(diffHtml(p.act, p.actSent, p.unchecked))}${num(p.left ? `<b style="color:#c2410c;">${fmt(p.left)}</b>` : '<span style="color:#9ca3af;">출완</span>')}${canPrice ? num(p.real ? cnYuan(p.real.yuan) : '') + num(p.real ? cnKrw(p.real.yuan) : '') + num(cnRealAvgHtml(p.real, true)) : ''}
       <td style="text-align:left;">${c24Html}</td>${showSales ? num(salesHtml) : ''}</tr>`;
     for (const o of p.opts) {

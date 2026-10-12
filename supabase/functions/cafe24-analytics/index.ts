@@ -1409,7 +1409,7 @@ Deno.serve(async (req) => {
     //   cn_vendor POST — 사입상품명별 거래처명 수동 입력 (관리자·MD, 2026-10-01 — 입고 건 단위가 아니라 상품마다)
     //   cn_thumbs POST {get:[사입상품명…]} — 그 상품들의 작은 사진(전원, 한 번에 200개 — 화면에 보이는 것만 받게)
     //             POST {thumbs:{사입상품명:dataURL}} — 사진 저장(관리자·MD, 상품당 1장 — 같은 이름은 덮어씀). 목록과 따로 불러 표를 늦추지 않는다 (2026-10-02)
-    if (action === "cn_list" || action === "cn_upload" || action === "cn_check" || action === "cn_ship" || action === "cn_vendor" || action === "cn_thumbs") {
+    if (action === "cn_list" || action === "cn_upload" || action === "cn_check" || action === "cn_ship" || action === "cn_vendor" || action === "cn_line" || action === "cn_thumbs") {
       // 관리자 + MD + 물류팀. **CS팀은 볼 필요 없음(2026-10-02 사용자 지정)** — 서버 역할은 logistics→cs로 합쳐져 있어 원래 역할을 다시 본다(soldoutRoleOk와 같은 방식)
       if (!(authed.role === "staff" || await soldoutRoleOk(authed))) return json({ error: "접근 권한이 없습니다" }, 403);
       const canPrice = authed.role === "admin";   // 단가·비용 = **관리자만** (2026-10-02 사용자 지정 — MD도 안 보이게. 물류팀은 원래 수량만)
@@ -1425,10 +1425,10 @@ Deno.serve(async (req) => {
         const [ships, lines, prodRows] = await Promise.all([
           sbRest("cn_shipments?select=*&order=id.desc&limit=500"),
           sbRest("cn_lines?select=*&order=shipment_id.desc,seq.asc&limit=20000"),
-          sbRest("cn_products?select=sname,vendor,updated_by_name,updated_at&limit=5000"),
+          sbRest("cn_products?select=sname,vendor,updated_by_name,updated_at,line,line_by_name,line_at&limit=5000"),
         ]) as [Record<string, any>[], Record<string, any>[], Record<string, any>[]];
         const prods: Record<string, unknown> = {};
-        for (const r of prodRows) prods[String(r.sname)] = { vendor: r.vendor ?? null, by: r.updated_by_name ?? null, at: r.updated_at ?? null };
+        for (const r of prodRows) prods[String(r.sname)] = { vendor: r.vendor ?? null, by: r.updated_by_name ?? null, at: r.updated_at ?? null, line: r.line ?? null, line_by: r.line_by_name ?? null, line_at: r.line_at ?? null };
         const outLines = canPrice ? lines : lines.map((l) => { const { unit_price: _u, ...rest } = l; return rest; });
         const outShips = ships.map(hideCosts);   // 비용(2번째 시트)도 관리자만
         // 카페24 등록 여부: 전 상품의 공급사 상품명(supply_product_name)을 30분 캐시로 받아 사입상품명과 맞춘다.
@@ -1512,6 +1512,19 @@ Deno.serve(async (req) => {
         const row = { sname, vendor: txt(b.vendor, 80), updated_by: authed.id, updated_by_name: authed.name, updated_at: now };
         await sbRest("cn_products?on_conflict=sname", { method: "POST", headers: { Prefer: "resolution=merge-duplicates,return=minimal" }, body: JSON.stringify(row) });
         return json({ ok: true, sname, vendor: row.vendor, by: authed.name, at: now });
+      }
+      // 상품(사입상품명)별 라인 구분 — made 라인 / 일반 상품 (2026-10-12 사용자 요청). null = 구분 지움. 관리자·MD만, 물류팀은 보기만.
+      if (action === "cn_line") {
+        if (!canEdit) return json({ error: "라인 구분은 관리자·MD만 바꿀 수 있어요" }, 403);
+        const sname = txt(b.sname, 100);
+        if (!sname) return json({ error: "사입상품명이 없어요" }, 400);
+        const line = b.line === null || b.line === "" || b.line === undefined ? null : String(b.line);
+        if (line !== null && line !== "made" && line !== "normal") return json({ error: "라인은 made 또는 일반만 고를 수 있어요" }, 400);
+        const known = ((await sbRest(`cn_lines?sname=eq.${encodeURIComponent(sname)}&select=id&limit=1`)) ?? []) as unknown[];
+        if (!known.length) return json({ error: "입고 내역에 없는 사입상품명이에요 — 새로고침한 뒤 다시 시도해주세요" }, 404);
+        // 이 표의 다른 칸(거래처명 등)은 건드리지 않는다 — 보낸 칸만 합쳐진다
+        await sbRest("cn_products?on_conflict=sname", { method: "POST", headers: { Prefer: "resolution=merge-duplicates,return=minimal" }, body: JSON.stringify({ sname, line, line_by_name: authed.name, line_at: now }) });
+        return json({ ok: true, sname, line, line_by: authed.name, line_at: now });
       }
       if (action === "cn_upload") {
         if (!canEdit) return json({ error: "엑셀 올리기는 관리자·MD만 할 수 있어요" }, 403);
