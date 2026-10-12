@@ -572,6 +572,16 @@
     .cn-tbl thead .cn-sub { font-size: .62rem; }
     .cn-tbl .cn-name .cn-line, .cn-tbl .cn-name .cn-line-badge { margin-left: 0; }
     .cn-tbl .cn-c24 { display: inline-block; max-width: clamp(90px, 12vw, 210px); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom; font-size: .72rem; }
+    /* 카페24 연결 표시·직접 연결(2026-10-12) */
+    .cn-c24-on { display: inline-block; background: #dcfce7; color: #166534; border-radius: 99px; padding: 1px 8px; font-size: .66rem; font-weight: 700; white-space: nowrap; }
+    .cn-c24-off { display: inline-block; background: #f3f4f6; color: #6b7280; border-radius: 99px; padding: 1px 8px; font-size: .66rem; font-weight: 700; white-space: nowrap; }
+    .cn-c24-warn { display: inline-flex; align-items: center; gap: 4px; background: #fffbeb; color: #b45309; border: 1.5px solid #f59e0b; border-radius: 99px; padding: 1px 9px; font-size: .68rem; font-weight: 800; white-space: nowrap; font-family: inherit; }
+    button.cn-c24-warn { cursor: pointer; } button.cn-c24-warn:hover { background: #fef3c7; }
+    .cn-c24-edit { border: 1px solid #e5e7eb; background: #fff; color: #6b7280; border-radius: 6px; width: 22px; height: 22px; font-size: .6rem; cursor: pointer; padding: 0; flex: none; }
+    .cn-c24-edit:hover { background: #eef2ff; color: #4f46e5; border-color: #c7d2fe; }
+    .cn-c24dlg-row { display: flex; align-items: flex-start; gap: 9px; padding: 8px 10px; border: 1px solid #e5e7eb; border-radius: 10px; margin-bottom: 6px; cursor: pointer; text-align: left; }
+    .cn-c24dlg-row.on { border-color: #818cf8; background: #f5f7ff; }
+    .cn-c24dlg-row input { margin-top: 3px; width: 15px; height: 15px; flex: none; }
     @media (max-width: 1250px) { .cn-tbl .cn-wide { display: none; } .cn-tbl thead th { padding: 9px 6px; } .cn-tbl tbody td { padding: 7px 6px; } }   /* 좁은 창: 금액 열·확인한 사람은 숨김(금액은 단가 칸 말풍선에도 있음) */
     /* 중국 사입 관리 — 혼용률 '라벨' 체크(라벨 제작 대상, 2026-10-12) */
     .cn-label { display: inline-flex; align-items: center; gap: 4px; font-size: .7rem; font-weight: 700; color: #6b7280; border: 1.5px solid #d1d5db; border-radius: 99px; padding: 2px 9px 2px 6px; cursor: pointer; background: #fff; user-select: none; }
@@ -4896,10 +4906,97 @@ function cnGroups(lines) {   // 사입상품명별 묶음(엑셀에 나온 순�
   for (const l of lines) { const g = m.get(l.sname) || { sname: l.sname, rows: [] }; g.rows.push(l); m.set(l.sname, g); }
   return [...m.values()];
 }
-function cnC24Badge(sname) {
-  const hits = ((cnState.data || {}).c24 || {})[sname];
-  if (!hits || !hits.length) return (cnState.data || {}).c24_error ? '' : '<span style="background:#f3f4f6;color:#6b7280;border-radius:99px;padding:1px 8px;font-size:.66rem;font-weight:700;white-space:nowrap;">카페24 미등록</span>';
-  return hits.map(h => `<span style="background:#dcfce7;color:#166534;border-radius:99px;padding:1px 8px;font-size:.66rem;font-weight:700;white-space:nowrap;" title="${escHtml(h.product_name)} (#${h.product_no})${h.display !== 'T' ? ' · 진열안함' : ''}${h.selling !== 'T' ? ' · 판매안함' : ''}">카페24 등록됨</span>`).join(' ');
+/* 카페24 연결 표시 (2026-10-12 사용자 요청 3가지): ① 등록된 상품은 '카페24 등록됨'과 함께 카페24 **판매 상품명**을 보여 준다
+   ② 품번이 비슷해 자동으로 맞추기 힘든 상품(서버 c24_warn — '6800' ↔ '68001…')은 **주의 표시** ③ 주의든 아니든 연필 버튼으로 **직접 연결**(cnC24Open → 서버 cn_c24set).
+   맞추는 규칙은 서버 cn_list 주석 참고(같은 이름 / 품번으로 시작 / 꼬리 붙은 품번은 몸통이 같으면 — '6800'·'6800短款'은 카페24 상품 하나). */
+const cnC24Hits = sname => (((cnState.data || {}).c24 || {})[sname]) || [];
+const cnC24Warn = sname => (((cnState.data || {}).c24_warn || {})[sname]) || [];
+const cnC24Manual = sname => Array.isArray(((((cnState.data || {}).prods || {})[sname]) || {}).c24_nos);
+const cnC24HowTip = h => h.how === 'manual' ? '직접 연결한 상품' : h.how === 'base' ? '공급사 상품명의 품번 몸통이 같아 같은 상품으로 봤어요' : '공급사 상품명이 이 품번으로 시작해요';
+function cnC24EditBtn(sname) {
+  if (!(cnState.data || {}).can_edit) return '';
+  return `<button type="button" class="cn-c24-edit" data-s="${escHtml(sname)}" onclick="cnC24Open(this.dataset.s)" title="카페24 상품을 직접 연결하거나 바꿔요" aria-label="${escHtml(sname)} 카페24 상품 연결"><i class="fa-solid fa-pen"></i></button>`;
+}
+function cnC24WarnHtml(sname) {   // 주의 표시 — 누르면 직접 연결 창(관리자·MD), 물류팀은 글자만
+  const warn = cnC24Warn(sname); if (!warn.length) return '';
+  const tip = '품번이 비슷한 카페24 상품이 있어 자동으로 연결하지 않았어요 — 맞는 상품을 직접 골라 주세요&#10;' + warn.map(h => '· ' + escHtml(h.supply_product_name) + ' → ' + escHtml(h.product_name)).join('&#10;');
+  return (cnState.data || {}).can_edit
+    ? `<button type="button" class="cn-c24-warn" data-s="${escHtml(sname)}" onclick="cnC24Open(this.dataset.s)" title="${tip}"><i class="fa-solid fa-triangle-exclamation"></i> 카페24 확인 필요</button>`
+    : `<span class="cn-c24-warn" title="${tip}"><i class="fa-solid fa-triangle-exclamation"></i> 카페24 확인 필요</span>`;
+}
+function cnC24Badge(sname) {   // 상품 줄 첫 줄에 들어가는 상태(등록됨 / 확인 필요 / 미등록) + 연결 버튼
+  const hits = cnC24Hits(sname);
+  if (hits.length) return `<span class="cn-c24-on" title="${escHtml(hits.map(h => h.product_name + ' (#' + h.product_no + ') — ' + cnC24HowTip(h)).join(' / '))}">카페24 등록됨${hits.length > 1 ? ' ' + hits.length + '개' : ''}${hits.some(h => h.how === 'manual') ? ' · 직접' : ''}</span>${cnC24EditBtn(sname)}`;
+  if (cnC24Warn(sname).length) return cnC24WarnHtml(sname);
+  if ((cnState.data || {}).c24_error) return '';
+  return `<span class="cn-c24-off"${cnC24Manual(sname) ? ' title="직접 \'해당 없음\'으로 확정했어요"' : ''}>카페24 미등록${cnC24Manual(sname) ? ' · 확정' : ''}</span>${cnC24EditBtn(sname)}`;
+}
+function cnC24NamesHtml(sname, withBadge) {   // 등록된 카페24 판매 상품명(여러 개면 줄마다). withBadge = 상품별 현황의 카페24 칸(배지를 줄마다)
+  return cnC24Hits(sname).map(h => `<div style="white-space:nowrap;display:flex;align-items:center;gap:5px;">${withBadge ? `<span class="cn-c24-on" title="${escHtml(cnC24HowTip(h))}">등록됨${h.how === 'manual' ? ' · 직접' : ''}</span>` : '<i class="fa-solid fa-store" style="font-size:.6rem;color:#16a34a;" title="카페24 판매 상품명"></i>'}<span class="cn-c24"${withBadge ? '' : ' style="max-width:min(300px,100%);"'} title="${escHtml(h.product_name)} (#${h.product_no})&#10;공급사 상품명: ${escHtml(h.supply_product_name || '')}">${escHtml(h.product_name)}</span>${h.display !== 'T' || h.selling !== 'T' ? `<span style="font-size:.64rem;color:#b45309;">${[h.display !== 'T' ? '진열안함' : '', h.selling !== 'T' ? '판매안함' : ''].filter(Boolean).join('·')}</span>` : ''}</div>`).join('');
+}
+/* 카페24 상품 직접 연결 창 */
+const cnC24Dlg = { sname: '', items: new Map(), sel: new Set(), busy: false, q: '' };
+function cnC24Open(sname) {
+  cnC24Dlg.sname = sname; cnC24Dlg.items = new Map(); cnC24Dlg.sel = new Set(); cnC24Dlg.q = ''; cnC24Dlg.busy = false;
+  for (const h of cnC24Hits(sname)) { cnC24Dlg.items.set(Number(h.product_no), h); cnC24Dlg.sel.add(Number(h.product_no)); }
+  for (const h of cnC24Warn(sname)) if (!cnC24Dlg.items.has(Number(h.product_no))) cnC24Dlg.items.set(Number(h.product_no), h);
+  let box = $('cn-c24-modal');
+  if (!box) {
+    box = document.createElement('div'); box.id = 'cn-c24-modal';
+    box.style.cssText = 'display:none;position:fixed;inset:0;background:rgba(15,23,42,.55);z-index:210;align-items:center;justify-content:center;padding:20px;';
+    box.onclick = ev => { if (ev.target === box) cnC24Close(); };
+    document.body.appendChild(box);
+  }
+  cnC24Render(); box.style.display = 'flex';
+  const q = $('cn-c24-q'); if (q) q.focus();
+}
+function cnC24Close() { const box = $('cn-c24-modal'); if (box) box.style.display = 'none'; }
+document.addEventListener('keydown', ev => { if (ev.key === 'Escape' && $('cn-c24-modal') && $('cn-c24-modal').style.display === 'flex') cnC24Close(); });
+function cnC24Render() {
+  const g = cnC24Dlg, d = cnState.data || {}, info = (d.prods || {})[g.sname] || {}, manual = Array.isArray(info.c24_nos);
+  const TAG = { exact: ['자동', '#166534', '#dcfce7'], base: ['자동', '#166534', '#dcfce7'], manual: ['직접 연결', '#3730a3', '#e0e7ff'], maybe: ['품번 비슷', '#b45309', '#fef3c7'], find: ['찾음', '#4b5563', '#f3f4f6'] };
+  const rows = [...g.items.values()].map(h => { const no = Number(h.product_no), on = g.sel.has(no), [tl, tc, tb] = TAG[h.how] || TAG.find;
+    return `<label class="cn-c24dlg-row${on ? ' on' : ''}"><input type="checkbox" data-no="${no}"${on ? ' checked' : ''} onchange="cnC24Toggle(this)" />
+      <div style="min-width:0;flex:1;"><div style="font-size:.84rem;font-weight:700;color:#111827;overflow-wrap:anywhere;">${escHtml(h.product_name)}</div>
+        <div style="font-size:.72rem;color:#6b7280;overflow-wrap:anywhere;">공급사 상품명: <b style="color:#374151;">${escHtml(h.supply_product_name || '(없음)')}</b> · #${no}${h.display !== 'T' ? ' · 진열안함' : ''}${h.selling !== 'T' ? ' · 판매안함' : ''}</div></div>
+      <span style="background:${tb};color:${tc};border-radius:99px;padding:1px 8px;font-size:.66rem;font-weight:700;white-space:nowrap;">${tl}</span></label>`; }).join('');
+  $('cn-c24-modal').innerHTML = `<div role="dialog" aria-modal="true" aria-label="카페24 상품 연결" style="background:#fff;border-radius:16px;max-width:620px;width:100%;max-height:88vh;overflow:auto;padding:20px 22px;">
+    <div style="display:flex;align-items:flex-start;gap:10px;"><div style="flex:1;"><div style="font-size:1rem;font-weight:800;color:#1e1b4b;">카페24 상품 연결 — ${escHtml(g.sname)}</div>
+      <div style="font-size:.76rem;color:#6b7280;margin-top:4px;line-height:1.6;">카페24 상품의 <b>공급사 상품명</b>이 이 품번으로 시작하면 자동으로 연결돼요. 자동으로 못 찾았거나 품번이 비슷해 헷갈리는 상품은 여기서 직접 골라 주세요.<br>지금: <b style="color:${manual ? '#3730a3' : '#166534'};">${manual ? `직접 정함${info.c24_by ? ' — ' + escHtml(info.c24_by) + ' · ' + escHtml(unshipKst(info.c24_at)) : ''}` : '자동'}</b></div></div>
+      <button onclick="cnC24Close()" aria-label="닫기" style="border:none;background:#f3f4f6;border-radius:8px;padding:4px 10px;font-size:.88rem;cursor:pointer;">✕</button></div>
+    <div style="display:flex;gap:6px;margin:14px 0 10px;"><input id="cn-c24-q" type="search" value="${escHtml(g.q)}" placeholder="카페24 판매 상품명·공급사 상품명·상품 번호로 찾기" onkeydown="if(event.key==='Enter')cnC24Find()" style="flex:1;border:1.5px solid #d1d5db;border-radius:8px;padding:7px 10px;font-size:.84rem;" /><button class="toggle-btn" onclick="cnC24Find()" ${g.busy ? 'disabled' : ''}><i class="fa-solid fa-magnifying-glass"></i> 찾기</button></div>
+    <div>${rows || '<div style="font-size:.8rem;color:#9ca3af;padding:10px 2px;">아직 고를 상품이 없어요 — 위에서 카페24 상품을 찾아 주세요.</div>'}</div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;margin-top:14px;padding-top:12px;border-top:1px solid #eceef2;">
+      ${manual ? `<button class="toggle-btn" onclick="cnC24Save('auto')" ${g.busy ? 'disabled' : ''} title="직접 정한 것을 지우고 공급사 상품명으로 자동 연결해요">자동으로 되돌리기</button>` : ''}
+      <button class="toggle-btn" onclick="cnC24Save('none')" ${g.busy ? 'disabled' : ''} title="맞는 카페24 상품이 없다고 확정해요(주의 표시가 꺼져요)">해당 없음으로 확정</button>
+      <button class="toggle-btn" style="background:#4f46e5;color:#fff;border-color:#4f46e5;" onclick="cnC24Save('set')" ${g.busy || !g.sel.size ? 'disabled' : ''}>선택한 ${g.sel.size}개로 연결</button></div></div>`;
+}
+function cnC24Toggle(cb) {
+  const no = Number(cb.dataset.no);
+  if (cb.checked) { if (cnC24Dlg.sel.size >= 5) { cb.checked = false; showToast('카페24 상품은 5개까지 연결할 수 있어요'); return; } cnC24Dlg.sel.add(no); } else cnC24Dlg.sel.delete(no);
+  cnC24Dlg.q = ($('cn-c24-q') || {}).value || ''; cnC24Render();
+}
+async function cnC24Find() {
+  const q = String(($('cn-c24-q') || {}).value || '').trim(); cnC24Dlg.q = q;
+  if (q.length < 2) { showToast('두 글자 이상으로 찾아 주세요'); return; }
+  cnC24Dlg.busy = true; cnC24Render();
+  try {
+    const r = await cnPost('cn_c24find', { q });
+    for (const h of (r.products || [])) if (!cnC24Dlg.items.has(Number(h.product_no))) cnC24Dlg.items.set(Number(h.product_no), h);
+    if (!(r.products || []).length) showToast('찾은 카페24 상품이 없어요');
+  } catch (e) { showToast('찾기 실패: ' + e.message); }
+  finally { cnC24Dlg.busy = false; cnC24Render(); const el = $('cn-c24-q'); if (el) el.focus(); }
+}
+async function cnC24Save(mode) {
+  const g = cnC24Dlg, nos = mode === 'set' ? [...g.sel] : mode === 'none' ? [] : null;
+  if (mode === 'set' && !nos.length) { showToast('연결할 상품을 골라 주세요'); return; }
+  g.busy = true; g.q = ($('cn-c24-q') || {}).value || ''; cnC24Render();
+  try {
+    await cnPost('cn_c24set', { sname: g.sname, product_nos: nos });
+    cnC24Close();
+    showToast(mode === 'set' ? `${g.sname} — 카페24 상품 ${nos.length}개 연결` : mode === 'none' ? `${g.sname} — 해당 없음으로 확정` : `${g.sname} — 자동 연결로 되돌렸어요`);
+    await cnLoad(false);
+  } catch (e) { g.busy = false; cnC24Render(); showToast('저장 실패: ' + e.message); }
 }
 /* 라인 구분 — made 라인 / 일반 상품 (2026-10-12 사용자 요청: "각 상품별로 made 라인으로 갈지, 일반 상품으로 갈지 나누고, 분류해서도 볼 수 있게").
    상품(사입상품명)마다 하나 — 한 번 정하면 그 상품이 나오는 모든 입고에 같이 적용된다(서버 cn_line → cn_products.line, 관리자·MD만 바꿈, 물류팀은 보기만).
@@ -4949,10 +5046,10 @@ function cnFabricHtml(sname) {   // 상품 줄 이름 아래 둘째 줄에 들�
   return `<span class="cn-sub">혼용률</span><input type="text" class="cn-fabric" maxlength="200" value="${escHtml(v)}" data-s="${escHtml(sname)}" data-prev="${escHtml(v)}" onchange="cnFabricSave(this)" onkeydown="if(event.key==='Enter')this.blur()" placeholder="예: 면 60% 폴리 40%" aria-label="${escHtml(sname)} 혼용률" title="${escHtml(tip)}" style="border:1px ${v ? 'solid #e5e7eb' : 'dashed #f59e0b'};border-radius:6px;padding:3px 6px;font-size:.74rem;" /><label class="cn-label${lab ? ' on' : ''}" title="${escHtml(labTip)}"><input type="checkbox" data-s="${escHtml(sname)}"${lab ? ' checked' : ''} onchange="cnLabelSet(this)" />라벨</label>`;
 }
 // 상품 줄의 첫 칸 — 두 줄: ① 이름 · 옵션 수 · (탭마다 다른 배지) · made/일반 ② 혼용률 · 라벨  (입고 검수의 [전달 수량과 같음] 버튼은 상품 줄의 메모 칸에)
-function cnNameCell(tab, sname, open, nOpt, line1, line2) {
+function cnNameCell(tab, sname, open, nOpt, line1, line2, line3) {
   return `<td class="cn-name"><div style="display:flex;align-items:center;">${cnFoldBtn(tab, sname, open, nOpt)}${cnThumbHtml(sname)}<div style="min-width:0;flex:1;">
       <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;"><b style="font-weight:800;">${escHtml(sname)}</b><span class="cn-sub">옵션 ${nOpt}</span>${line1 || ''}${cnLineHtml(sname)}</div>
-      <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-top:4px;">${cnFabricHtml(sname)}${line2 || ''}</div></div></div></td>`;
+      <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-top:4px;">${cnFabricHtml(sname)}${line2 || ''}</div>${line3 ? `<div style="margin-top:4px;min-width:0;">${line3}</div>` : ''}</div></div></td>`;
 }
 // 단가 칸 하나: 위안(굵게) + 아래 작은 글씨로 원(× 환율) — 예전의 단가(CHN)·단가(KRW) 두 열을 합침
 const cnPriceTd = (yuan, tag, tip) => `<td style="text-align:right;"${tip ? ` title="${escHtml(tip)}"` : ''}>${yuan == null ? '<span style="color:#9ca3af;">—</span>' : `<b>${cnYuan(yuan)}</b>${tag || ''}<div class="cn-sub">${fmt(Math.round(Number(yuan) * CN_FX))}원</div>`}</td>`;
@@ -5103,7 +5200,7 @@ function cnCheckRender() {
     const leftN = g.rows.reduce((t, l) => t + (l.qty_left || 0), 0);
     const open = forceOpen || cnState.open.check.has(g.sname);
     html += `<tr style="background:#f8f9ff;" data-cn-g="${escHtml(gi)}">
-      ${cnNameCell('check', g.sname, open, g.show.length, cnC24Badge(g.sname), '')}
+      ${cnNameCell('check', g.sname, open, g.show.length, cnC24Badge(g.sname), '', cnC24NamesHtml(g.sname, false))}
       <td style="text-align:right;">${h.sent}${cnLeftSub(leftN)}</td><td style="text-align:right;" data-cn-h="act">${h.act}</td><td style="text-align:right;" data-cn-h="diff">${h.diff}</td>${canPrice ? (isAll ? cnGroupPriceCellsAll(g) : cnGroupPriceCells(g)) : ''}<td style="text-align:left;">${todo ? `<button class="toggle-btn" style="font-size:.68rem;padding:2px 9px;white-space:nowrap;" data-g="${escHtml(g.sname)}" onclick="cnFillSame(this)" title="아직 안 적은 옵션 ${todo}개를 전달 수량과 같게 채워요">전달 수량과 같음</button>` : ''}</td></tr>`;
     g.show.forEach(l => {
       html += `<tr data-cn-l="${l.id}" data-cn-o="${escHtml(gi)}"${open ? '' : ' style="display:none;"'}>
@@ -5520,8 +5617,8 @@ function cnProdRender() {
     + admgrTile(admgrDot('#f97316') + '미출고 잔여', fmt(prods.reduce((t, p) => t + p.left, 0)) + '장', false)
     + admgrTile(admgrDot('#22c55e') + '카페24 등록', `${fmt(reg)} / ${fmt(prods.length)}개`, false)}</div>
     ${d.c24_error ? `<div style="font-size:.74rem;color:#b91c1c;margin-top:6px;">${escHtml(d.c24_error)}</div>` : ''}`;
-  const pass = { all: () => true, left: p => p.left > 0, diff: p => p.act !== p.actSent, todo: p => p.unchecked > 0, unreg: p => !p.c24.length, reg: p => p.c24.length > 0, nofabric: p => !cnFabricOf(p.sname), label: p => cnLabelOf(p.sname) };
-  $('cn-prod-chips').innerHTML = [['all', '전체'], ['left', '미출고 잔여'], ['diff', '수량 차이'], ['todo', '미확인 있음'], ['unreg', '카페24 미등록'], ['reg', '등록됨'], ['nofabric', '혼용률 미입력'], ['label', '라벨 제작']].map(([k, label]) => `<button id="cn-chip-${k}" class="${cnState.prodFilter === k ? 'active' : ''}" onclick="cnState.prodFilter='${k}';cnProdRender()">${label} ${fmt(prods.filter(pass[k]).length)}</button>`).join('');
+  const pass = { all: () => true, left: p => p.left > 0, diff: p => p.act !== p.actSent, todo: p => p.unchecked > 0, unreg: p => !p.c24.length, reg: p => p.c24.length > 0, nofabric: p => !cnFabricOf(p.sname), label: p => cnLabelOf(p.sname), c24warn: p => !p.c24.length && cnC24Warn(p.sname).length > 0 };
+  $('cn-prod-chips').innerHTML = [['all', '전체'], ['left', '미출고 잔여'], ['diff', '수량 차이'], ['todo', '미확인 있음'], ['unreg', '카페24 미등록'], ['reg', '등록됨'], ['c24warn', '카페24 확인 필요'], ['nofabric', '혼용률 미입력'], ['label', '라벨 제작']].map(([k, label]) => `<button id="cn-chip-${k}" class="${cnState.prodFilter === k ? 'active' : ''}" onclick="cnState.prodFilter='${k}';cnProdRender()">${label} ${fmt(prods.filter(pass[k]).length)}</button>`).join('');
   const q = String(($('cn-prod-q') || {}).value || '').trim().toLowerCase();
   let list = prods.filter(pass[cnState.prodFilter] || pass.all);
   if (q) list = list.filter(p => p.sname.toLowerCase().includes(q) || p.opts.some(o => o.opt.toLowerCase().includes(q)) || p.c24.some(h => String(h.product_name || '').toLowerCase().includes(q)));
@@ -5534,7 +5631,9 @@ function cnProdRender() {
   for (const p of list) {
     const sales = cnSalesOf(p);
     const salesHtml = sales === null ? '' : sales === undefined ? (cnState.salesLoading ? '<span style="color:#9ca3af;">…</span>' : `<span style="color:#9ca3af;" title="${escHtml(cnState.salesErr || '')}">—</span>`) : `<b style="color:${sales.avg7 > 0 ? '#4338ca' : '#9ca3af'};">${madeAvgFmt(sales.avg7)}</b> · ${fmt(sales.net30)}장`;
-    const c24Html = p.c24.length ? p.c24.map(h => `<div style="white-space:nowrap;"><span style="background:#dcfce7;color:#166534;border-radius:99px;padding:1px 8px;font-size:.66rem;font-weight:700;">등록됨</span> <span class="cn-c24" title="${escHtml(h.product_name)} (#${h.product_no})">${escHtml(h.product_name)}</span>${h.display !== 'T' || h.selling !== 'T' ? ` <span style="font-size:.64rem;color:#b45309;">${[h.display !== 'T' ? '진열안함' : '', h.selling !== 'T' ? '판매안함' : ''].filter(Boolean).join('·')}</span>` : ''}</div>`).join('') : (d.c24_error ? '<span style="color:#9ca3af;">확인 불가</span>' : '<span style="background:#f3f4f6;color:#6b7280;border-radius:99px;padding:1px 8px;font-size:.66rem;font-weight:700;">미등록</span>');
+    const c24Html = p.c24.length ? `<div style="display:flex;align-items:flex-start;gap:5px;"><div style="min-width:0;">${cnC24NamesHtml(p.sname, true)}</div>${cnC24EditBtn(p.sname)}</div>`
+      : cnC24Warn(p.sname).length ? cnC24WarnHtml(p.sname)
+      : (d.c24_error ? '<span style="color:#9ca3af;">확인 불가</span>' : `<span style="display:inline-flex;align-items:center;gap:5px;"><span class="cn-c24-off">미등록${cnC24Manual(p.sname) ? ' · 확정' : ''}</span>${cnC24EditBtn(p.sname)}</span>`);
     const meta = [[...p.rounds].length ? '발주 ' + [...p.rounds].join(', ') : '', `입고 ${p.ships.size}건`].filter(Boolean).join(' · ');
     const open = !!q && p.opts.some(o => o.opt.toLowerCase().includes(q)) || cnState.open.prod.has(p.sname), gi = encodeURIComponent(p.sname);
     html += `<tr style="background:#f8f9ff;">${cnNameCell('prod', p.sname, open, p.opts.length, `<span class="cn-sub" title="${escHtml(meta)}" style="cursor:help;">입고 ${p.ships.size}건</span>`, '')}

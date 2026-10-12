@@ -1409,7 +1409,7 @@ Deno.serve(async (req) => {
     //   cn_vendor POST — 사입상품명별 거래처명 수동 입력 (관리자·MD, 2026-10-01 — 입고 건 단위가 아니라 상품마다)
     //   cn_thumbs POST {get:[사입상품명…]} — 그 상품들의 작은 사진(전원, 한 번에 200개 — 화면에 보이는 것만 받게)
     //             POST {thumbs:{사입상품명:dataURL}} — 사진 저장(관리자·MD, 상품당 1장 — 같은 이름은 덮어씀). 목록과 따로 불러 표를 늦추지 않는다 (2026-10-02)
-    if (action === "cn_list" || action === "cn_upload" || action === "cn_check" || action === "cn_ship" || action === "cn_vendor" || action === "cn_line" || action === "cn_fabric" || action === "cn_label" || action === "cn_thumbs") {
+    if (action === "cn_list" || action === "cn_upload" || action === "cn_check" || action === "cn_ship" || action === "cn_vendor" || action === "cn_line" || action === "cn_fabric" || action === "cn_label" || action === "cn_c24find" || action === "cn_c24set" || action === "cn_thumbs") {
       // 관리자 + MD + 물류팀. **CS팀은 볼 필요 없음(2026-10-02 사용자 지정)** — 서버 역할은 logistics→cs로 합쳐져 있어 원래 역할을 다시 본다(soldoutRoleOk와 같은 방식)
       if (!(authed.role === "staff" || await soldoutRoleOk(authed))) return json({ error: "접근 권한이 없습니다" }, 403);
       const canPrice = authed.role === "admin";   // 단가·비용 = **관리자만** (2026-10-02 사용자 지정 — MD도 안 보이게. 물류팀은 원래 수량만)
@@ -1421,45 +1421,65 @@ Deno.serve(async (req) => {
         const n = Number(v);
         return Number.isInteger(n) && n >= 0 && n <= max ? n : NaN;
       };
+      // 카페24 전 상품의 공급사 상품명(30분 캐시) — 등록 여부 맞추기(cn_list)·직접 연결할 상품 찾기(cn_c24find)·직접 연결 저장(cn_c24set)이 같이 쓴다
+      const cnNorm = (v: unknown) => String(v ?? "").toLowerCase().replace(/\s+/g, "");
+      const cnHead = (n: string) => (n.match(/^[0-9a-z]+/) ?? [""])[0];   // 앞머리의 영문·숫자 묶음(품번 몸통)
+      const cnC24Load = async (): Promise<Record<string, any>[]> => {
+        let cps = (await cacheGet("cn:c24products", 30 * 60 * 1000)) as Record<string, any>[] | null;
+        if (!cps || noCache) {
+          cps = [];
+          for (let offset = 0; offset < 10000; offset += 100) {
+            const body = await apiGet(`${API_BASE}/admin/products?shop_no=1&limit=100&offset=${offset}&fields=product_no,product_name,supply_product_name,display,selling`, token);
+            const page = (body.products ?? []) as Record<string, any>[];
+            cps.push(...page.map((x) => ({ product_no: x.product_no, product_name: x.product_name, supply_product_name: x.supply_product_name ?? "", display: x.display, selling: x.selling })));
+            if (page.length < 100) break;
+          }
+          await cacheSet("cn:c24products", cps);
+        }
+        return cps;
+      };
+      const cnC24Pub = (x: Record<string, any>, how: string) => ({ product_no: x.product_no, product_name: x.product_name, supply_product_name: x.supply_product_name ?? "", display: x.display, selling: x.selling, how });
       if (action === "cn_list") {
         const [ships, lines, prodRows] = await Promise.all([
           sbRest("cn_shipments?select=*&order=id.desc&limit=500"),
           sbRest("cn_lines?select=*&order=shipment_id.desc,seq.asc&limit=20000"),
-          sbRest("cn_products?select=sname,vendor,updated_by_name,updated_at,line,line_by_name,line_at,fabric,fabric_by_name,fabric_at,label,label_by_name,label_at&limit=5000"),
+          sbRest("cn_products?select=sname,vendor,updated_by_name,updated_at,line,line_by_name,line_at,fabric,fabric_by_name,fabric_at,label,label_by_name,label_at,c24_nos,c24_by_name,c24_at&limit=5000"),
         ]) as [Record<string, any>[], Record<string, any>[], Record<string, any>[]];
         const prods: Record<string, unknown> = {};
-        for (const r of prodRows) prods[String(r.sname)] = { vendor: r.vendor ?? null, by: r.updated_by_name ?? null, at: r.updated_at ?? null, line: r.line ?? null, line_by: r.line_by_name ?? null, line_at: r.line_at ?? null, fabric: r.fabric ?? null, fabric_by: r.fabric_by_name ?? null, fabric_at: r.fabric_at ?? null, label: r.label === true, label_by: r.label_by_name ?? null, label_at: r.label_at ?? null };
+        for (const r of prodRows) prods[String(r.sname)] = { vendor: r.vendor ?? null, by: r.updated_by_name ?? null, at: r.updated_at ?? null, line: r.line ?? null, line_by: r.line_by_name ?? null, line_at: r.line_at ?? null, fabric: r.fabric ?? null, fabric_by: r.fabric_by_name ?? null, fabric_at: r.fabric_at ?? null, label: r.label === true, label_by: r.label_by_name ?? null, label_at: r.label_at ?? null, c24_nos: Array.isArray(r.c24_nos) ? r.c24_nos : null, c24_by: r.c24_by_name ?? null, c24_at: r.c24_at ?? null };
         const outLines = canPrice ? lines : lines.map((l) => { const { unit_price: _u, ...rest } = l; return rest; });
         const outShips = ships.map(hideCosts);   // 비용(2번째 시트)도 관리자만
-        // 카페24 등록 여부: 전 상품의 공급사 상품명(supply_product_name)을 30분 캐시로 받아 사입상품명과 맞춘다.
-        //   같은 이름(공백·대소문자 무시)이거나, 공급사 상품명이 사입상품명으로 시작하고 **바로 뒤가 영문·숫자가 아니면** 같은 상품으로 본다
-        //   (2026-10-12 수정 — 예전엔 바로 뒤가 한글이어도 제외해서 "26K07가디건(네이비,아이보리) 79위안"처럼 품번 뒤에 띄어쓰기 없이 한글을 붙여 적은 상품을 못 찾았다.
-        //    영문·숫자만 제외하는 이유: 품번 '6800'이 '68001…'·'6800A…' 같은 다른 품번에 걸리지 않게).
-        //   한 카페24 상품이 여러 사입상품명에 걸리면 **가장 긴 이름 하나에만** 붙인다('6800短款…'은 '6800'이 아니라 '6800短款'에).
+        // 카페24 등록 여부 (2026-10-12 규칙 — 사용자 지정 반영): 카페24 상품의 '공급사 상품명'(공백·대소문자 무시)과 사입상품명(품번)을 맞춘다.
+        //   ① 직접 연결(cn_products.c24_nos 배열)이 있으면 그것만 쓴다([] = '해당 없음'으로 확정).
+        //   ② 확실(exact): 같은 이름이거나, 공급사 상품명이 품번으로 시작하고 바로 뒤가 영문·숫자가 아님 ("26K07가디건(네이비) 79위안" ↔ 26K07).
+        //   ③ 몸통 일치(base): 품번에 꼬리가 붙은 것('6800短款'·'26833-1短'·'801#')은, 공급사 상품명의 앞머리 영문·숫자가 품번 몸통('6800'·'26833'·'801')과 같으면 같은 상품
+        //      — 사용자 지정: "6800과 6800短款은 카페24에 상품 1개로 등록하고 옵션으로 나눈다, 공급사 상품명은 6800". 그래서 한 카페24 상품이 여러 사입상품명에 붙을 수 있다.
+        //   ④ 헷갈림(maybe → c24_warn): 위에 안 걸렸는데 앞머리가 서로 앞부분만 같은 상품이 있으면('6800' ↔ '68001…', 짧은 쪽 4자 이상) 등록으로 치지 않고 **주의 후보**로만 내려 준다 — 화면에서 직접 연결.
         const c24: Record<string, unknown[]> = {};
+        const c24_warn: Record<string, unknown[]> = {};
         let c24_error: string | null = null;
         try {
-          let prods = (await cacheGet("cn:c24products", 30 * 60 * 1000)) as Record<string, any>[] | null;
-          if (!prods || noCache) {
-            prods = [];
-            for (let offset = 0; offset < 10000; offset += 100) {
-              const body = await apiGet(`${API_BASE}/admin/products?shop_no=1&limit=100&offset=${offset}&fields=product_no,product_name,supply_product_name,display,selling`, token);
-              const page = (body.products ?? []) as Record<string, any>[];
-              prods.push(...page.map((x) => ({ product_no: x.product_no, product_name: x.product_name, supply_product_name: x.supply_product_name ?? "", display: x.display, selling: x.selling })));
-              if (page.length < 100) break;
-            }
-            await cacheSet("cn:c24products", prods);
-          }
-          const norm = (v: unknown) => String(v ?? "").toLowerCase().replace(/\s+/g, "");
+          const cps = await cnC24Load();
+          const byNo = new Map(cps.map((x) => [Number(x.product_no), x]));
           const names = [...new Set(lines.map((l) => String(l.sname ?? "")).filter(Boolean))];
-          const withNorm = prods.map((x) => ({ x, n: norm(x.supply_product_name) })).filter((y) => y.n);
-          const keys = names.map((name) => ({ name, k: norm(name) })).filter((x) => x.k).sort((a, b) => b.k.length - a.k.length);   // 긴 이름부터
-          for (const y of withNorm) {
-            const hit = keys.find(({ k }) => y.n === k || (y.n.startsWith(k) && !/[0-9a-z]/.test(y.n.charAt(k.length))));
-            if (hit && (c24[hit.name] ??= []).length < 5) c24[hit.name].push(y.x);
+          const withNorm = cps.map((x) => ({ x, n: cnNorm(x.supply_product_name) })).filter((y) => y.n).map((y) => ({ ...y, h: cnHead(y.n) }));
+          for (const name of names) {
+            const k = cnNorm(name); if (!k) continue;
+            const manual = (prods[name] as Record<string, any> | undefined)?.c24_nos;
+            if (Array.isArray(manual)) {
+              const hits = manual.map((no: unknown) => byNo.get(Number(no))).filter(Boolean).map((x) => cnC24Pub(x as Record<string, any>, "manual"));
+              if (hits.length) c24[name] = hits.slice(0, 5);
+              continue;
+            }
+            const base = cnHead(k);
+            const exact = withNorm.filter((y) => y.n === k || (y.n.startsWith(k) && !/[0-9a-z]/.test(y.n.charAt(k.length))));
+            const variant = exact.length ? [] : withNorm.filter((y) => base.length >= 3 && base !== k && y.h === base);
+            if (exact.length || variant.length) { c24[name] = (exact.length ? exact.map((y) => cnC24Pub(y.x, "exact")) : variant.map((y) => cnC24Pub(y.x, "base"))).slice(0, 5); continue; }
+            const maybe = withNorm.filter((y) => y.h !== base && Math.min(y.h.length, base.length) >= 4 && (y.h.startsWith(base) || base.startsWith(y.h)));
+            if (maybe.length) c24_warn[name] = maybe.slice(0, 8).map((y) => cnC24Pub(y.x, "maybe"));
           }
         } catch (e) { c24_error = "카페24 상품 목록을 읽지 못했어요 — " + String(e).slice(0, 150); }
-        return json({ ships: outShips, lines: outLines, prods, c24, c24_error, can_price: canPrice, can_edit: canEdit });
+        return json({ ships: outShips, lines: outLines, prods, c24, c24_warn, c24_error, can_price: canPrice, can_edit: canEdit });
       }
       if (req.method !== "POST") return json({ error: "POST로 호출해주세요" }, 405);
       const b = await req.json().catch(() => ({})) as Record<string, any>;
@@ -1538,6 +1558,32 @@ Deno.serve(async (req) => {
         const fabric = txt(b.fabric, 200);
         await sbRest("cn_products?on_conflict=sname", { method: "POST", headers: { Prefer: "resolution=merge-duplicates,return=minimal" }, body: JSON.stringify({ sname, fabric, fabric_by_name: authed.name, fabric_at: now }) });
         return json({ ok: true, sname, fabric, fabric_by: authed.name, fabric_at: now });
+      }
+      // 카페24 상품 직접 연결 (2026-10-12 사용자 요청 — 자동으로 맞추기 힘든 상품은 직접 고른다)
+      //   cn_c24find { q }: 카페24 상품을 판매 상품명·공급사 상품명으로 찾는다(읽기, 30개까지). cn_c24set { sname, product_nos: [번호…] | [] | null }: 직접 연결 / 해당 없음 / 자동으로 되돌림.
+      if (action === "cn_c24find") {
+        const q = cnNorm(txt(b.q, 60) ?? "");
+        if (q.length < 2) return json({ error: "두 글자 이상으로 찾아 주세요" }, 400);
+        const cps = await cnC24Load();
+        const out = cps.filter((x) => cnNorm(x.product_name).includes(q) || cnNorm(x.supply_product_name).includes(q) || String(x.product_no) === q).slice(0, 30).map((x) => cnC24Pub(x, "find"));
+        return json({ products: out });
+      }
+      if (action === "cn_c24set") {
+        if (!canEdit) return json({ error: "카페24 상품 연결은 관리자·MD만 바꿀 수 있어요" }, 403);
+        const sname = txt(b.sname, 100);
+        if (!sname) return json({ error: "사입상품명이 없어요" }, 400);
+        const known = ((await sbRest(`cn_lines?sname=eq.${encodeURIComponent(sname)}&select=id&limit=1`)) ?? []) as unknown[];
+        if (!known.length) return json({ error: "입고 내역에 없는 사입상품명이에요 — 새로고침한 뒤 다시 시도해주세요" }, 404);
+        let nos: number[] | null = null;
+        if (b.product_nos !== null && b.product_nos !== undefined) {
+          if (!Array.isArray(b.product_nos) || b.product_nos.length > 5) return json({ error: "카페24 상품은 5개까지 연결할 수 있어요" }, 400);
+          nos = [...new Set((b.product_nos as unknown[]).map(Number))];
+          if (nos.some((n) => !Number.isInteger(n) || n <= 0)) return json({ error: "상품 번호가 올바르지 않아요" }, 400);
+          const have = new Set((await cnC24Load()).map((x) => Number(x.product_no)));
+          if (nos.some((n) => !have.has(n))) return json({ error: "카페24에 없는 상품 번호가 있어요 — 새로고침한 뒤 다시 골라 주세요" }, 400);
+        }
+        await sbRest("cn_products?on_conflict=sname", { method: "POST", headers: { Prefer: "resolution=merge-duplicates,return=minimal" }, body: JSON.stringify({ sname, c24_nos: nos, c24_by_name: authed.name, c24_at: now }) });
+        return json({ ok: true, sname, c24_nos: nos, c24_by: authed.name, c24_at: now });
       }
       // 혼용률 라벨 제작 대상 표시 (2026-10-12 사용자 요청 — 아우터는 혼용률이 라벨에 들어가야 해서 라벨을 만들어야 하는 상품을 따로 파악). 관리자·MD만, 물류팀은 보기만.
       if (action === "cn_label") {
