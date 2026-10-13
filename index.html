@@ -5653,6 +5653,7 @@ function cnProdRender() {
    서버: wm-hire 함수. 금액은 서버가 다시 계산해 저장 — 여기 hireCalc는 입력 중 미리보기용.
 ══════════════════════════════════════════════════════════════ */
 const HIRE_MIN_WAGE = 10320;   // 2026년 최저시급 — 서버 calc.ts MIN_WAGE와 같이 올릴 것
+const HIRE_PAY_RATE = 10500;   // 지급 창을 열 때 시급 칸에 미리 넣는 값 (2026-10-13 사용자 지정 — 옛 10,320). 최저시급 경고 기준은 HIRE_MIN_WAGE 그대로
 const HIRE_STATUS = { interview: ['면접', '#1d4ed8', '#dbeafe'], hired: ['채용', '#166534', '#dcfce7'], rejected: ['불채용', '#6b7280', '#f3f4f6'] };
 const HIRE_KIND = { applicant: '채용 지원자', daily: '일일알바' };
 const hireState = { rows: [], kind: 'applicant', filter: 'all', canDeletePaid: false };
@@ -5867,7 +5868,7 @@ function hireOpenPay(id) {
   $('hire-pay-title').textContent = `${r.name} — ${r.kind === 'daily' ? '일일알바 일당' : '면접비·시범근무'} 지급`;
   $('hire-pay-hire').value = id;
   $('hire-pay-date').value = (r.kind === 'daily' ? '' : r.interview_date) || hireToday();
-  $('hire-pay-rate').value = HIRE_MIN_WAGE;
+  $('hire-pay-rate').value = HIRE_PAY_RATE;
   $('hire-pay-start').value = ''; $('hire-pay-end').value = ''; $('hire-pay-break').value = 0;
   $('hire-pay-fixed').value = ''; $('hire-pay-ins').checked = false; $('hire-pay-note').value = '';
   hireRenderPays(r);
