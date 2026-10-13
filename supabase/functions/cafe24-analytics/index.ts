@@ -930,7 +930,7 @@ Deno.serve(async (req) => {
     // 예외: madeavg만 상품관리 시스템(newproduct-manager) 서버가 NPM_SYNC_SECRET으로 호출 가능
     // (2026-09-03 사용자 요청 — 자체제작 주문 점검을 상품관리에도. syncexport와 동일 키)
     const syncSecret = Deno.env.get("NPM_SYNC_SECRET") ?? "";
-    const viaSecret = action === "madeavg" && !!syncSecret && safeEqual(req.headers.get("x-sync-secret") ?? "", syncSecret);
+    const viaSecret = (action === "madeavg" || action === "cn_export") && !!syncSecret && safeEqual(req.headers.get("x-sync-secret") ?? "", syncSecret);
     // 매출 분석 에이전트(sales-agent 함수)는 AGENT_SECRET으로 admin 권한 호출 (2026-09-10) — 서버 간 전용, 브라우저엔 노출 안 됨
     const agentSecret = Deno.env.get("AGENT_SECRET") ?? "";
     const viaAgent = !!agentSecret && safeEqual(req.headers.get("x-agent-secret") ?? "", agentSecret);
@@ -1409,7 +1409,7 @@ Deno.serve(async (req) => {
     //   cn_vendor POST — 사입상품명별 거래처명 수동 입력 (관리자·MD, 2026-10-01 — 입고 건 단위가 아니라 상품마다)
     //   cn_thumbs POST {get:[사입상품명…]} — 그 상품들의 작은 사진(전원, 한 번에 200개 — 화면에 보이는 것만 받게)
     //             POST {thumbs:{사입상품명:dataURL}} — 사진 저장(관리자·MD, 상품당 1장 — 같은 이름은 덮어씀). 목록과 따로 불러 표를 늦추지 않는다 (2026-10-02)
-    if (action === "cn_list" || action === "cn_upload" || action === "cn_check" || action === "cn_ship" || action === "cn_vendor" || action === "cn_line" || action === "cn_fabric" || action === "cn_label" || action === "cn_c24find" || action === "cn_c24set" || action === "cn_thumbs") {
+    if (action === "cn_list" || action === "cn_upload" || action === "cn_check" || action === "cn_ship" || action === "cn_vendor" || action === "cn_line" || action === "cn_fabric" || action === "cn_label" || action === "cn_c24find" || action === "cn_c24set" || action === "cn_export" || action === "cn_thumbs") {
       // 관리자 + MD + 물류팀. **CS팀은 볼 필요 없음(2026-10-02 사용자 지정)** — 서버 역할은 logistics→cs로 합쳐져 있어 원래 역할을 다시 본다(soldoutRoleOk와 같은 방식)
       if (!(authed.role === "staff" || await soldoutRoleOk(authed))) return json({ error: "접근 권한이 없습니다" }, 403);
       const canPrice = authed.role === "admin";   // 단가·비용 = **관리자만** (2026-10-02 사용자 지정 — MD도 안 보이게. 물류팀은 원래 수량만)
@@ -1439,6 +1439,54 @@ Deno.serve(async (req) => {
         return cps;
       };
       const cnC24Pub = (x: Record<string, any>, how: string) => ({ product_no: x.product_no, product_name: x.product_name, supply_product_name: x.supply_product_name ?? "", display: x.display, selling: x.selling, how });
+      // ── 상품 관리 시스템(newproduct-manager)으로 내보내기 (2026-10-13 사용자 요청 — 중국 사입 상품을 그쪽에 자동 등록) ──
+      //   서버 간 전용: 상품관리 서버가 x-sync-secret(NPM_SYNC_SECRET)으로만 부른다(사람 로그인으로는 403 — 원가가 들어 있음).
+      //   상품(사입상품명)마다: 혼용률 · 색상(옵션의 색상에서 한자를 뺀 한글 약칭, 나온 순서) · 사이즈(옵션에 있을 때만) ·
+      //   **실질 단가**(화면 cnRealWon/cnRealAvg와 같은 계산: 줄마다 위안 × 환율 200 × (1 + 그 입고의 들여오는 비용 비율)을 원 단위로 반올림 → 입고(전달) 수량으로 가중 평균,
+      //   비용 시트가 있는 입고가 하나라도 있으면 그 줄들만으로). 품번이 묶이는 경우(6800·6800短款)를 그쪽에서 다시 합칠 수 있게 합계(sum)·수량(qty)도 같이 준다.
+      if (action === "cn_export") {
+        if (!viaSecret) return json({ error: "접근 권한이 없습니다" }, 403);
+        const [ships, lines, prodRows] = await Promise.all([
+          sbRest("cn_shipments?select=id,costs&limit=500"),
+          sbRest("cn_lines?select=shipment_id,seq,sname,color,size,qty_sent,unit_price&order=shipment_id.asc,seq.asc&limit=20000"),
+          sbRest("cn_products?select=sname,fabric,line,label&limit=5000"),
+        ]) as [Record<string, any>[], Record<string, any>[], Record<string, any>[]];
+        const CN_FX = 200;   // 화면 CN_FX와 같은 값(환율 200원 고정 — 사용자 지정)
+        const ratio = new Map<number, number | null>();
+        for (const sh of ships) {
+          const c = sh.costs as Record<string, any> | null;
+          const items = ((c?.items ?? []) as Record<string, any>[]), pays = ((c?.payments ?? []) as Record<string, any>[]);
+          const sum = items.reduce((t, x) => t + (Number(x.amount) || 0), 0), vat = items.filter((x) => /부가세/.test(String(x.name ?? ""))).reduce((t, x) => t + (Number(x.amount) || 0), 0);
+          const paySum = pays.reduce((t, x) => t + (Number(x.krw) || 0), 0);
+          ratio.set(Number(sh.id), c && paySum > 0 ? (sum - vat) / paySum : null);
+        }
+        const meta = new Map(prodRows.map((r) => [String(r.sname), r]));
+        const SIZE_ORDER = ["XS", "S", "M", "L", "XL", "XXL", "2XL", "3XL", "FREE", "F"];
+        const koOnly = (v: unknown) => { const raw = String(v ?? "").trim(); const ko = raw.replace(/\p{Script=Han}/gu, "").replace(/\s+/g, " ").trim(); return ko || raw; };   // "黑灰검회" → "검회" (한글이 없으면 원래 글자 그대로)
+        const by = new Map<string, { colors: string[]; sizes: string[]; cost: { sum: number; qty: number }; all: { sum: number; qty: number }; qty: number }>();
+        for (const l of lines) {
+          const name = String(l.sname ?? ""); if (!name) continue;
+          const g = by.get(name) ?? { colors: [], sizes: [], cost: { sum: 0, qty: 0 }, all: { sum: 0, qty: 0 }, qty: 0 };
+          const col = koOnly(l.color); if (col && !g.colors.includes(col)) g.colors.push(col);
+          const sz = String(l.size ?? "").trim(); if (sz && !g.sizes.includes(sz)) g.sizes.push(sz);
+          const q = Number(l.qty_sent) || 0; g.qty += q;
+          if (l.unit_price != null && q > 0) {
+            const r = ratio.get(Number(l.shipment_id)) ?? null, base = Number(l.unit_price) * CN_FX;
+            const won = Math.round(r != null ? base * (1 + r) : base);
+            g.all.sum += q * won; g.all.qty += q;
+            if (r != null) { g.cost.sum += q * won; g.cost.qty += q; }
+          }
+          by.set(name, g);
+        }
+        const products = [...by.entries()].map(([sname, g]) => {
+          const use = g.cost.qty > 0 ? g.cost : g.all;
+          const order = (x: string) => { const i = SIZE_ORDER.indexOf(x.toUpperCase()); return i < 0 ? 99 : i; };
+          return { sname, fabric: txt(meta.get(sname)?.fabric, 200), line: meta.get(sname)?.line ?? null, label: meta.get(sname)?.label === true,
+            colors: g.colors, sizes: [...g.sizes].sort((a, b) => order(a) - order(b)), qty: g.qty,
+            cost: use.qty > 0 ? Math.round(use.sum / use.qty) : null, cost_with: g.cost, cost_all: g.all };
+        });
+        return json({ products, generated_at: new Date().toISOString() });
+      }
       if (action === "cn_list") {
         const [ships, lines, prodRows] = await Promise.all([
           sbRest("cn_shipments?select=*&order=id.desc&limit=500"),
@@ -1644,7 +1692,9 @@ Deno.serve(async (req) => {
         try {
           const inFile = new Set(rows.map((r) => String(r.sname)));
           const src2 = b.fabrics && typeof b.fabrics === "object" && !Array.isArray(b.fabrics) ? b.fabrics as Record<string, unknown> : {};
-          fabrics_saved = await saveFabrics(Object.fromEntries(Object.entries(src2).filter(([k]) => inFile.has(String(txt(k, 100))))));
+          // 2026-10-13 사용자 지정: **이미 혼용률이 적힌 상품은 엑셀 값으로 바꾸지 않는다**(직접 적은 값 보호 — 겹쳐 적히거나 수정되지 않게). 비어 있는 상품만 엑셀 값으로 채운다.
+          const have = new Set((((await sbRest("cn_products?select=sname,fabric&fabric=not.is.null&limit=5000")) ?? []) as Record<string, any>[]).filter((r) => String(r.fabric ?? "").trim()).map((r) => String(r.sname)));
+          fabrics_saved = await saveFabrics(Object.fromEntries(Object.entries(src2).filter(([k]) => { const n = String(txt(k, 100)); return inFile.has(n) && !have.has(n); })));
         } catch { /* 혼용률 저장 실패는 입고 건 저장을 막지 않는다 */ }
         return json({ ok: true, shipment: hideCosts(ship), line_count: rows.length, thumbs_saved, fabrics_saved });
       }

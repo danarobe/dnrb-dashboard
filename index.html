@@ -4867,13 +4867,13 @@ function cnUploadPanelRender() {
       <button class="toggle-btn" onclick="cnState.pending=null;cnUploadPanelRender()">취소</button></div>
 </div>`;
 }
-function cnUploadFabricHtml(p) {   // 엑셀의 혼용률 열에서 읽은 값 — 이미 적어 둔 값과 다르면 무엇이 바뀌는지 보여 준다(엑셀 값으로 바뀜, 엑셀 빈칸은 그대로 둠)
+function cnUploadFabricHtml(p) {   // 엑셀의 혼용률 열에서 읽은 값 — **비어 있는 상품에만 들어간다**(2026-10-13 사용자 지정: 이미 적어 둔 혼용률은 엑셀에 적혀 있어도 겹쳐 적히거나 바뀌지 않게. 서버 cn_upload도 같은 기준)
   if (!p.fabricCol) return `<span style="color:#9ca3af;">엑셀에 '혼용률' 머리글이 든 열이 없어 혼용률은 읽지 않았어요 — 표의 혼용률 칸에 직접 적을 수 있어요.</span>`;
-  const fab = p.fabrics || {}, names = Object.keys(fab), all = [...new Set(p.lines.map(l => l.sname))];
+  const fab = p.fabrics || {}, names = Object.keys(fab);
   if (!names.length) return `<span style="color:#b45309;"><i class="fa-solid fa-triangle-exclamation"></i> '혼용률' 열은 있는데 적힌 값이 없어요.</span>`;
-  const cur = n => cnFabricOf(n), fresh = names.filter(n => !cur(n)), changed = names.filter(n => cur(n) && cur(n) !== fab[n]), none = all.filter(n => !fab[n]);
-  return `<i class="fa-solid fa-shirt" style="color:#4f46e5;"></i> 혼용률 <b>${fmt(names.length)}개</b> 상품을 엑셀에서 읽었어요 — 새로 적힘 <b>${fmt(fresh.length)}</b>${changed.length ? ` · <b style="color:#b45309;">바뀜 ${fmt(changed.length)}</b>` : ''}${none.length ? ` · 엑셀에 비어 있음 ${fmt(none.length)}(지금 값 그대로)` : ''}
-    <details style="font-size:.76rem;margin-top:4px;"><summary style="cursor:pointer;color:#4f46e5;font-weight:700;">읽은 혼용률 보기</summary>${names.map(n => `<div><b>${escHtml(n)}</b> — ${escHtml(fab[n])}${cur(n) && cur(n) !== fab[n] ? ` <span style="color:#b45309;">(지금: ${escHtml(cur(n))} → 엑셀 값으로 바뀜)</span>` : ''}</div>`).join('')}</details>`;
+  const cur = n => cnFabricOf(n), fresh = names.filter(n => !cur(n)), kept = names.filter(n => cur(n));
+  return `<i class="fa-solid fa-shirt" style="color:#4f46e5;"></i> 혼용률 <b>${fmt(names.length)}개</b> 상품을 엑셀에서 읽었어요 — 새로 적힘 <b>${fmt(fresh.length)}</b>${kept.length ? ` · 이미 적혀 있어 <b>그대로 둠 ${fmt(kept.length)}</b>` : ''}
+    <details style="font-size:.76rem;margin-top:4px;"><summary style="cursor:pointer;color:#4f46e5;font-weight:700;">읽은 혼용률 보기</summary>${names.map(n => `<div><b>${escHtml(n)}</b> — ${cur(n) ? `<span style="color:#6b7280;">${escHtml(cur(n))} <span style="color:#166534;">(이미 적혀 있어 그대로 둠${cur(n) !== fab[n] ? ` · 엑셀: ${escHtml(fab[n])}` : ''})</span></span>` : escHtml(fab[n])}</div>`).join('')}</details>`;
 }
 async function cnUploadSave() {
   const p = cnState.pending; if (!p) return;
