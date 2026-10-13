@@ -22,6 +22,7 @@
 //   employee_upsert   { id?, ...필드 }            ⚠️ 부분 수정 — 보낸 필드만 갱신 (기존 Express PUT의
 //                                                  "일부만 보내면 나머지 초기화" 함정을 의도적으로 제거)
 //   employee_active   { id, active }              소프트 삭제/복구 (하드 삭제 없음 — 급여 기록 보존)
+//   employee_hide     { id, hidden }              '삭제' = 직원 관리 목록에서만 숨김(+퇴사 처리). 기록은 그대로. hidden:false = 되살리기
 //   set_pin           { employee_id, pin }        4자리 → bcrypt 저장 (4단계 배포용)
 //   holiday_create    { date, name, hours? }
 //   holiday_delete    { id }
@@ -222,7 +223,7 @@ Deno.serve(async (req) => {
       const [emps, approved, users] = await Promise.all([
         rest('wm_employees?select=id,name,type,hourly_rate,monthly_salary,'
           + 'annual_leave_total,transport_allowance,fixed_clock_in,birthday,hire_date,last_work_date,annual_salary,'
-          + 'bank_name,bank_account,bank_holder,active,pin_set_at,app_user_id&order=type,name'),
+          + 'bank_name,bank_account,bank_holder,active,pin_set_at,app_user_id,hidden,hidden_by_name,hidden_at&order=type,name'),
         rest(`wm_leaves?status=eq.approved&date=gte.${year}-01-01&date=lte.${year}-12-31&select=employee_id,type,reason&limit=3000`),
         rest('app_users?select=id,name'),
       ]);
@@ -531,11 +532,28 @@ Deno.serve(async (req) => {
     // 지워 급여 기록을 파괴했다. 승계 금지.
     if (action === 'employee_active') {
       const [row] = await rest(`wm_employees?id=eq.${Number(body.id)}`, {
-        method: 'PATCH', body: JSON.stringify({ active: !!body.active }),
+        // 복구(재직으로)하면 '삭제(숨김)'도 같이 푼다 — 재직인데 목록에 안 보이는 직원이 생기지 않게
+        method: 'PATCH', body: JSON.stringify(body.active ? { active: true, hidden: false, hidden_by_name: null, hidden_at: null } : { active: false }),
       });
       if (!row) return json({ error: '직원 없음' }, 404);
       await auditLog(me.id, body.active ? 'employee_activate' : 'employee_deactivate', row.id, null);
       return json({ ok: true, active: row.active });
+    }
+
+    // '삭제' = 직원 관리 목록에서만 숨김 (2026-10-13 사용자 선택). 행과 출퇴근·휴가·명세서 기록은 지우지 않는다(과거 급여 불변).
+    // 숨길 때는 퇴사 처리(active=false)도 같이 — 키오스크·이후 급여에서 빠지고, 연결된 계정은 로그인 차단 트리거가 동작한다.
+    // 되살리기(hidden:false)는 숨김만 푼다(퇴사 상태로 목록에 다시 보임 — 재직으로는 employee_active).
+    if (action === 'employee_hide') {
+      const id = Number(body.id);
+      if (!Number.isInteger(id) || id <= 0) return json({ error: '직원 번호 오류' }, 400);
+      if (typeof body.hidden !== 'boolean') return json({ error: 'hidden은 true/false' }, 400);
+      const patch = body.hidden
+        ? { hidden: true, active: false, hidden_by_name: me.name, hidden_at: new Date().toISOString() }
+        : { hidden: false, hidden_by_name: null, hidden_at: null };
+      const [row] = await rest(`wm_employees?id=eq.${id}`, { method: 'PATCH', body: JSON.stringify(patch) });
+      if (!row) return json({ error: '직원 없음' }, 404);
+      await auditLog(me.id, body.hidden ? 'employee_hide' : 'employee_unhide', row.id, null);
+      return json({ ok: true, hidden: row.hidden, active: row.active });
     }
 
     if (action === 'set_pin') {

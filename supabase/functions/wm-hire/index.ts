@@ -210,6 +210,7 @@ Deno.serve(async (req) => {
         method: 'POST',
         body: JSON.stringify({
           name: h.name, type: 'parttime', hourly_rate: rate, birthday: h.birth,
+          hire_date: h.kind === 'applicant' ? (h.interview_date ?? null) : null,   // 채용 지원자는 면접일 = 입사일 (2026-10-13 사용자 요청). 일일알바는 면접일이 없어 비워 둠
           annual_leave_total: 0,   // (이식 시 추가) 근무 관리의 기존 알바 행은 모두 0 — 표 기본값 15가 들어가지 않게
           bank_name: h.bank_name, bank_account: await dec(h.account_enc), bank_holder: h.bank_holder,
         }),

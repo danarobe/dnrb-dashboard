@@ -157,6 +157,9 @@ async function call(as, body) {
   assert.equal(h.status, 200);
   assert.deepEqual(db.wm_employees[0], { ...db.wm_employees[0], name: '김알바', type: 'parttime', hourly_rate: 10500, birthday: '2005-03-15', bank_account: '123-45-678901' });
   assert.equal(db.wm_employees[0].annual_leave_total, 0);   // (이식 시 추가) 알바 연차 총량 0
+  assert.equal(db.wm_employees[0].hire_date, '2026-10-12');  // 채용 지원자: 면접일 = 입사일 (2026-10-13)
+  const hd = await call('log1', { action: 'hire', id: d.body.id, hourly_rate: 10500 });   // 일일알바를 채용 처리하면 입사일은 비워 둠
+  assert.equal(hd.status, 200); assert.equal(db.wm_employees[1].hire_date, null);
   assert.equal((await call('log1', { action: 'hire', id: a.body.id, hourly_rate: 10500 })).status, 409);
   for (const bad of [{ action: 'reveal', id: 'abc' }, { action: 'pay_delete' }, { action: 'delete', id: 1.5 }, { action: 'pay_upsert', hire_id: 'x', work_date: '2026-10-12', fixed_amount: 1000 }]) assert.equal((await call('log1', bad)).status, 400, JSON.stringify(bad));   // (이식 시 추가) id는 양의 정수만
   assert.equal((await call('admin1', { action: 'delete', id: a.body.id })).status, 200);
