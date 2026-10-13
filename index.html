@@ -13081,6 +13081,7 @@ function wmSetTab(k) {
   wmRenderTabs();
   document.querySelectorAll('.wm-pane').forEach(el => { el.style.display = 'none'; });
   $('wm-tab-' + k).style.display = 'block';
+  if (k === 'att' && Array.isArray(wmState.att)) { wmAttEmpSelect(); wmRenderAtt(); }   // 직원 탭에서 퇴사·삭제한 것이 직원 고르기에 바로 반영되게
   if (k === 'sal' && !wmState.sal.length) wmLoadSal();
   if (k === 'lv' && !wmState.lv) wmLoadLeaves();
   if (k === 'emp') { wmLoadEmps(); wmLoadDevices(); }
@@ -13121,15 +13122,34 @@ async function wmLoadAtt() {
       wmApi({ action: 'edits_pending' }),
     ]);
     wmState.att = att; wmState.pending = pending;
-    const sel = $('wm-att-emp');
-    if (sel.options.length <= 1) {
-      sel.innerHTML = '<option value="">전체</option>'
-        + emps.map(e => `<option value="${escHtml(e.id)}">${escHtml(e.name)} (${e.type === 'employee' ? '직원' : '알바'})</option>`).join('');
-    }
+    wmAttEmpSelect();
     wmRenderAtt();
   } catch (err) {
     $('wm-att-result').innerHTML = `<div class="empty-state"><p>불러오지 못했어요 — ${escHtml(err.message)}</p></div>`;
   }
+}
+
+// 출퇴근 조회의 '직원' 고르기 (2026-10-14 사용자 요청): 퇴사·삭제한 직원은 **퇴사일(없으면 삭제한 날)이 든 달까지만** 보이고 다음 달부터는 빠진다.
+// 퇴사일 = 마지막 근무일, 안 넣었으면 마지막 출근일(직원 관리의 '퇴사일' 표시와 같음). 고른 달에 출퇴근 기록이 있는 직원은 늘 보인다(기록을 못 고르는 일이 없게).
+function wmLeftDate(e) {
+  if (!e || (e.active !== false && !e.hidden)) return '';
+  const r = wmResignInfo(e);
+  if (r && r.date) return r.date;
+  return e.hidden_at ? new Date(e.hidden_at).toLocaleDateString('sv-SE', { timeZone: 'Asia/Seoul' }) : '';
+}
+function wmAttEmpShown(e, ym, hasRec) {
+  if (e.active !== false && !e.hidden) return true;
+  if (hasRec) return true;
+  const left = wmLeftDate(e);
+  return !!left && ym <= left.slice(0, 7);
+}
+function wmAttEmpSelect() {
+  const sel = $('wm-att-emp'), ym = $('wm-att-ym').value; if (!sel || !ym) return;
+  const keep = sel.value, rec = new Set((wmState.att || []).map(r => r.employee_id));
+  const list = (wmState.emps || []).filter(e => wmAttEmpShown(e, ym, rec.has(e.id)));
+  sel.innerHTML = '<option value="">전체</option>'
+    + list.map(e => `<option value="${escHtml(e.id)}">${escHtml(e.name)} (${e.type === 'employee' ? '직원' : '알바'})${e.active === false || e.hidden ? ' · 퇴사' : ''}</option>`).join('');
+  sel.value = list.some(e => String(e.id) === keep) ? keep : '';   // 고르던 직원이 이 달에 안 보이면 '전체'로
 }
 
 /* 식대 판정: wm-admin/salary.ts getMealInfo와 동일 기준 — 출근 09:00~11:59 +
