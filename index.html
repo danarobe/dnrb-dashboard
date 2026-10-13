@@ -2699,6 +2699,17 @@
       </div>
       <div class="hr-dlg-f"><button class="toggle-btn" onclick="hireSavePay()" style="background:#4f46e5;color:#fff;border-color:#4f46e5;">지급 기록 저장</button></div>
     </dialog>
+
+    <!-- 프리랜서 업무위탁계약서 (채용된 채용 지원자) -->
+    <dialog id="hire-dlg-ct">
+      <div class="hr-dlg-h"><span>프리랜서 업무위탁계약서</span><button class="toggle-btn" onclick="this.closest('dialog').close()">닫기</button></div>
+      <input type="hidden" id="hire-ct-id" />
+      <div id="hire-ct-info" style="padding:14px 20px 16px;"></div>
+      <div class="hr-dlg-f">
+        <button class="toggle-btn hire-ct-go" onclick="hireCtPrint()"><i class="fa-solid fa-print"></i> 인쇄</button>
+        <button class="toggle-btn hire-ct-go" onclick="hireCtPdf()" style="background:#4f46e5;color:#fff;border-color:#4f46e5;"><i class="fa-solid fa-file-pdf"></i> PDF 저장</button>
+      </div>
+    </dialog>
   </div>
 
   <div class="section-card page-sec" id="sec-users">
@@ -5755,6 +5766,7 @@ function hireRender() {
         <button class="toggle-btn" style="font-size:.72rem;padding:3px 8px;color:#4f46e5;font-weight:600;" onclick="hireOpenPay(${r.id})"><i class="fa-solid fa-won-sign"></i> 지급</button>
         <button class="toggle-btn" style="font-size:.72rem;padding:3px 8px;" onclick="hireOpenPerson(${r.id})">수정</button>
         ${r.employee_id ? '' : `<button class="toggle-btn" style="font-size:.72rem;padding:3px 8px;" onclick="hireDoHire(${r.id})" title="근무 관리 알바로 등록 — 출퇴근·급여는 그쪽에서">채용 처리</button>`}
+        ${!daily && (r.status === 'hired' || r.employee_id) ? `<button class="toggle-btn" style="font-size:.72rem;padding:3px 8px;white-space:nowrap;" onclick="hireCtOpen(${r.id})" title="프리랜서 업무위탁계약서 — 이름·계약기간·작성일을 채워 PDF 저장·인쇄"><i class="fa-solid fa-file-signature"></i> 계약서</button>` : ''}
         ${(!r.pays.length || hireState.canDeletePaid) ? `<button class="toggle-btn" style="font-size:.72rem;padding:3px 8px;color:#dc2626;" onclick="hireDelete(${r.id})" title="개인정보 파기"><i class="fa-solid fa-trash"></i></button>` : ''}
       </div></td></tr>`;
   }).join('')}</tbody></table>`;
@@ -5993,6 +6005,228 @@ async function hireExport() {
     showToast(`${label} ${people.length}명 · ${rows.length}건을 엑셀로 내려받았어요`);
   } catch (e) { showToast('엑셀 생성 실패: ' + e.message); }
 }
+/* ── 프리랜서 업무위탁계약서 (2026-10-13 사용자 요청 — 채용된 채용 지원자, 사용자가 준 양식 '프리랜서 업무위탁계약서_(주)디앤알비_ver1.0_2609.docx' 그대로) ──
+   채우는 곳(양식의 빨간 글자): ① 첫 문단 '(이하 ‘계약자’)' 앞 = 이름 ② 제3조 계약기간 = 면접일 ~ 면접일 + 30일 ③ 끝의 날짜 = 저장·인쇄하는 날 ④ [‘계약자’] 성명 = 이름.
+   나머지 글은 양식에서 그대로 뽑은 것(HIRE_CT_BODY) — 양식이 바뀌면 이 배열과 서명란(hireCtBlock의 'x')을 새 파일로 다시 만든다. 주소 칸·서명은 인쇄 뒤 직접.
+   블록: t 제목 · g 빈 줄 · c 가운데 · h 조 제목 · n 번호 항목 · p 문단 · s '*' 설명 · d 작성일 · x 서명란 */
+const HIRE_CT_BODY = [
+  ["t", "프리랜서 업무위탁계약서"],
+  ["g"],
+  ["c", "㈜디앤알비 (이하 ‘회사’)와 {NAME}(이하 ‘계약자’)는 다음과 같이 프리랜서 업무 위탁계약을 체결한다."],
+  ["g"],
+  ["c", "-  다         음     -"],
+  ["g"],
+  ["h", "제1조 (목적)"],
+  ["p", "본 계약은 ‘회사’가 ‘계약자’에게 위탁한 업무를 효과적으로 수행(대행)함에 있어, ‘회사’와 ‘계약자’ 상호간 권리‧의무관계 및 필요한 제반사항을 정함을 목적으로 한다."],
+  ["g"],
+  ["h", "제2조 (위탁업무의 범위)"],
+  ["p", "‘회사’가 ‘계약자’에게 위탁하는 업무의 범위는 다음과 같다."],
+  ["n", "1.", "‘계약자’의 제안 또는 ‘회사’와의 상호협의에 따라 결정(예정)된 포장&검수 및 기타 물류관련 업무"],
+  ["n", "2.", "기타 전 각호 업무와 관련되거나 부수된 업무"],
+  ["s", "* 제1항에서 열거한 과업의 유형은 ‘회사’가 그 내용을 일방적으로 정한 것이 아니라 업계에서 통용되는 종류를 예시한 것에 불과함을 확인함"],
+  ["g"],
+  ["h", "제3조 (계약기간)"],
+  ["n", "①", "본 계약기간은 {FROM}부터 {TO}까지로 한다."],
+  ["n", "②", "회사와 계약자는 상호합의로 제1항 계약기간을 연장할 수 있으며, 별도 합의가 없는 한 계약조건은 본 계약과 동일하게 정하기로 한다."],
+  ["g"],
+  ["h", "제4조 (수수료 지급)"],
+  ["n", "①", "본 계약에 따른 위탁업무의 수수료는 ‘계약자’와 ‘회사’가 상호 결정하여 확정되었음을 확인하며, 수수료 산정기준은 업무수행 시간당 10,500원으로 한다."],
+  ["s", "* 과업 단위정도별로 그 가액을 측정할 수 없는 위탁업무의 특성상 상기와 같이 수수료를 정하였음을 확인하며, 상기의 ‘수행업무 건’이란, ‘계약자’가 수탁업무를 이행하여 그 결과물의 양질을 상호간 협의하여 적용여부가 확정된 월 단위의 업무수행 결과물로서, 계약자가 본 계약에 따른 위탁업무를 완전하게 이행한 실적을 의미함"],
+  ["n", "②", "제1항 ‘계약자’의 수수료는 사업소득 원천징수 후 ‘계약자’가 지정한 계좌에 지급한다."],
+  ["n", "③", "회사는 계약자가 제공한 서비스의 전체적인 양과 질을 평가하여 기준에 부합하는 경우 제1항에 따른 수수료를 지급하며, 만약 계약자가 본 계약에 따른 위탁업무의 일부를 제공하거나, 불완전하게 이행 또는 제공하지 않는 경우 수수료의 일부 또는 전부를 지급하지 않을 수 있다."],
+  ["g"],
+  ["h", "제5조 (‘계약자’의 업무수행 방법)"],
+  ["n", "①", "‘계약자’는 그 시간᛫장소᛫수행방법 등의 결정 등 업무수행 전반적인 과정에 있어 독립적으로 수행하는 것을 원칙으로 하고, ‘회사’는 ‘계약자’에 대하여 ‘회사’의 직원에 상당하는 지휘‧감독을 하지 않는다. 다만, 업무 수행시기 내지 기한, 절차 등을 ‘계약자’의 제안 또는 ‘회사’과 ‘계약자’가 상호협의하여 정할 수 있으며, ‘회사’가 ‘계약자’에게 위탁업무의 전제가 되는 관계회사의 업무제공과 관련된 스케쥴을 공유하는 행위는 지휘감독에 해당하지 않음을 확인한다."],
+  ["n", "②", "‘회사’는 ‘계약자’에 대하여 위탁업무의 원활한 수행, 상호간의 저작권·영업비밀 등의 보호유지 등을 위하여 ‘회사’ 또는 관계회사가 제공 내지 점유하는 시설, 장소, 설비 등을 사용하게 할 수 있으며, 이는 본 계약에 부수한 사용대차계약임을 확인한다."],
+  ["n", "③", "제2항의 경우 ‘회사’는 ‘계약자’에 대하여 사업의 특수성‧업무 성질 등에 기인하여 업무수행에 임하기 전에 필요한 사항 (회사 또는 관계회사가 제공 내지 점유하는 장소에 대한 주의사항, 장비‧비품 등 취급에 있어서의 주의사항, 계약 내지 ‘회사’ 사업상 이해관계 구조에 따른 유의사항 등)을 주지시키거나 협조를 요청할 수 있으며, 이는 ‘회사’의 시설‧사업관리권에 근거한 민법상 위임인의 권리행사임을 확인하며, ‘계약자’는 신의성실의 원칙에 입각하여야 하고, 특히 사용대차물을 사용함에 있어 선량한 관리자로서의 주의의무를 다한다."],
+  ["g"],
+  ["h", "제6조 (‘회사’와 ‘계약자’의 관계)"],
+  ["n", "①", "‘계약자’는 ‘회사’와 고용관계에 있지 아니하며, ‘회사’의 취업규칙 기타 관련규정과 연차휴가, 퇴직금, 주휴수당 등 노동관계법상 근로자성이 전제되는 일체의 근로조건의 적용을 받지 않는다."],
+  ["n", "②", "‘회사’는 ‘계약자’가 본 계약을 위한 업무수행 이외에 자신 또는 타인의 계산으로 다른 업무에 종사하는 것을 금지하지 아니한다."],
+  ["g"],
+  ["h", "제7조(비밀유지)"],
+  ["n", "①", "‘계약자’는 ‘회사’와의 위탁계약기간 중에 업무상 취득한 ‘회사’의 영업비밀, ‘회사’이 거래관계를 맺고있는 제3자(고객, 관계사 등 이해관계인을 포함함)에 관한 사항 및 영업비밀사항 일체를 비밀로 유지하고, 상대방의 서면동의 없이 제3자에게 유출하거나 위임사무 처리 외의 목적으로 이용하여서는 아니 된다."],
+  ["n", "②", "제1항에 따른 비밀유지의무는 본 계약 기간이 종료된 후에도 유효하며, ‘계약자’의 비밀유지의무 위반으로 인하여 발생하는 모든 민형사상의 책임은 ‘계약자’가 부담한다."],
+  ["g"],
+  ["h", "제8조 (계약해지)"],
+  ["n", "①", "‘회사’와 ‘계약자’은 다음 각호의 1에 해당하는 사유가 발생한 경우 즉시 계약을 해지할 수 있다."],
+  ["n", "1.", "양 당사자가 상호 합의한 경우"],
+  ["n", "2.", "일방 당사자가 본 계약상 의무를 위반한 경우"],
+  ["n", "3.", "‘계약자’가 특별한 사유없이 수임사무를 상당히 지체한 경우"],
+  ["n", "4.", "제3호와 관련하여 ‘회사’에 직·간접적 손해가 발생한 경우"],
+  ["n", "5.", "상대방의 책임있는 사유로 본 계약을 이행할 수 없거나 이행이 상당기간 지체된 경우"],
+  ["n", "6.", "상대방의 명예, 신용, 유형 또는 무형의 이익을 해하거나 해할 우려가 있는 행위를 한 경우"],
+  ["n", "7.", "‘회사’가 사업의 효율성, 수익성 등을 고려하여 위임사무와 관련한 서비스를 종료하게 된 경우"],
+  ["n", "8.", "기타 전 각호에 준하는 경우"],
+  ["n", "②", "계약이 해지되면 ‘회사’는 해지 시점까지 발생한 수수료를 ‘계약자’에 대하여 즉시 정산하여 지급하고, ‘계약자’는 위임사무와 관련한 모든 자료(‘회사’이 제공한 자료와 ‘계약자’가 위임사무 수행 과정에서 생성한 자료를 모두 포함함)를 ‘회사’에 반환한다."],
+  ["g"],
+  ["h", "제9조 (배상책임)"],
+  ["p", "‘계약자’의 귀책사유로 인하여 본 계약이 불이행 또는 불완전 이행되어 ‘회사’에 손해를 끼친 경우 ‘계약자’는 이에 대한 손해배상 책임을 부담한다."],
+  ["g"],
+  ["h", "제10조 (해석)"],
+  ["p", "본 계약에 명기하지 아니한 사항 및 해석상의 이의가 있을 경우 쌍방의 협의 또는 관계법령 및 각종"],
+  ["p", "규제 및 지침, 상관습 등에 따른다."],
+  ["g"],
+  ["h", "제11조 (소송관할)"],
+  ["p", "본 계약으로 발생되는 분쟁은 ‘회사’ 소재지를 관할하는 법원으로 한다."],
+  ["g"],
+  ["h", "제12조 (상관습 및 업계관행에 대한 진술)"],
+  ["n", "①", "‘계약자’는 프리랜서 업무의 특성상 회사에 고용관계로 구속받거나 구체적이고 직접적인 업무 지휘‧감독을 받는 것을 원하지 아니하며, 본인의 자유로운 선택에 따라 본 계약업무 수행에 지장이 없는 한, 제3의 업무와 병존하여 본 계약상 업무를 수행할 수 있다."],
+  ["n", "②", "양 당사자는 상기 업계의 프리랜서 활동 관행 및 상관습과, ‘계약자’의 법적지위가 노동관계법상 근로자가 아닌 고용관계 및 업무수행에 있어 폭넓은 자율성과 독자성이 보장되는 자유소득직업, 자영업자, 프리랜서, 사업소득자 (또는 세법상 기타소득자) 등임을 충분히 이해하여 인지하였으며, 향후 이에 대한 이의를 제기하지 않기로 한다."],
+  ["g"],
+  ["p", "본 계약은 계약 체결일로부터 효력이 발생하며, 계약체결을 증명하기 위하여 본 계약서를 작성하여 ‘회사’와 ‘계약자’ 각각 서명날인한다."],
+  ["g"],
+  ["d"],
+  ["g"],
+  ["x"],
+];
+const HIRE_CT_DAYS = 30;   // 계약기간 = 면접일부터 30일 뒤까지
+const HIRE_CT_CSS = `
+  @page { size: A4; margin: 0; }
+  html, body { margin:0; padding:0; background:#fff; }
+  body { font-family:'함초롬바탕','HCR Batang','Noto Serif KR','Batang','바탕','AppleMyungjo',serif; font-size:10pt; line-height:1.6; color:#000; text-align:justify; }
+  .pg { width:210mm; height:296mm; box-sizing:border-box; padding:19.5mm; position:relative; overflow:hidden; break-after:page; page-break-after:always; }
+  .pg:last-child { break-after:auto; page-break-after:auto; }
+  .ct-hd { position:absolute; top:0; left:19.5mm; width:165.1mm; height:19.5mm; box-sizing:border-box; padding-right:2.5mm; display:flex; align-items:center; justify-content:flex-end; font-family:'한컴 말랑말랑 Regular','Malgun Gothic','맑은 고딕','Apple SD Gothic Neo',sans-serif; }
+  .ct-pn { position:absolute; top:7.35mm; right:0; width:25.3mm; height:4.8mm; box-sizing:border-box; padding-right:2.5mm; display:flex; align-items:center; justify-content:flex-end; background:#4472C4; color:#fff; font-family:'Malgun Gothic','맑은 고딕','Apple SD Gothic Neo',sans-serif; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+  .ct-body { height:100%; }
+  .ct-t { text-align:center; font-weight:700; font-size:16pt; }
+  .ct-c { text-align:center; white-space:pre-wrap; }
+  .ct-h { font-weight:700; }
+  .ct-n { padding-left:5mm; text-indent:-5mm; }
+  .ct-n > span { display:inline-block; width:5mm; text-indent:0; text-align:left; }
+  .ct-s { padding-left:2.5mm; text-indent:-2.5mm; }
+  .ct-sg { width:100%; border-collapse:collapse; table-layout:fixed; }
+  .ct-sg td { padding:0 1.9mm; height:8.6mm; vertical-align:top; text-align:left; }
+  .ct-sg td.l { text-align:center; font-weight:700; }
+  .ct-sg .nm { display:inline-block; min-width:31mm; }
+`;
+// 글꼴: 양식의 본문은 함초롬바탕(한컴) — PC에 없으면 웹 글꼴 Noto Serif KR(굵은 글씨가 있는 명조)로, 그것도 못 받으면 바탕·AppleMyungjo.
+// (맥에는 굵은 명조가 없어 조 제목이 굵게 안 나왔다 — 2026-10-13 확인)
+const HIRE_CT_FONT = '<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin /><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Serif+KR:wght@400;700&display=swap" />';
+const hireCtSleep = ms => new Promise(res => setTimeout(res, ms));
+// 문서의 글꼴이 다 들어올 때까지 기다린다(최대 약 6초 — 못 받으면 PC 글꼴로 진행). 글꼴이 바뀌면 줄 수가 달라져 쪽 나눔이 틀어지므로 재기 전에 꼭 부른다
+async function hireCtFonts(doc) {
+  const link = doc.querySelector('link[rel="stylesheet"]');
+  if (link && !link.sheet) await Promise.race([new Promise(res => { link.onload = link.onerror = res; }), hireCtSleep(4000)]);
+  if (!doc.fonts) return;
+  for (let t = 0; t < 40; t++) { void doc.body.offsetHeight; await hireCtSleep(50); if (t >= 2 && doc.fonts.status === 'loaded') break; }
+}
+// PDF는 html2canvas가 '이 화면(바깥 문서)'의 캔버스에 글자를 그린다 → 웹 글꼴이 숨은 틀에만 있으면 자리는 Noto로 재고 글자는 다른 글꼴로 그려 글자가 겹친다(2026-10-13 실측).
+// 그래서 PDF를 만들 때는 바깥 문서에도 같은 글꼴을, 계약서에 나오는 글자만큼 미리 받아 둔다.
+async function hireCtMainFont(text) {
+  if (!document.getElementById('hire-ct-font')) {
+    const l = document.createElement('link'); l.id = 'hire-ct-font'; l.rel = 'stylesheet'; l.href = 'https://fonts.googleapis.com/css2?family=Noto+Serif+KR:wght@400;700&display=swap';
+    await Promise.race([new Promise(res => { l.onload = l.onerror = res; document.head.appendChild(l); }), hireCtSleep(4000)]);
+  }
+  if (document.fonts && document.fonts.load) await Promise.race([Promise.all([document.fonts.load("400 10pt 'Noto Serif KR'", text), document.fonts.load("700 10pt 'Noto Serif KR'", text)]).catch(() => {}), hireCtSleep(6000)]);
+}
+const hireCtYmd = s => `${s.slice(0, 4)}년 ${s.slice(5, 7)}월 ${s.slice(8, 10)}일`;   // 사용자 지정 양식 xxxx년 xx월 xx일
+function hireCtAddDays(s, n) { const d = new Date(s + 'T12:00:00Z'); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); }
+// 계약서에 들어갈 값 — 면접일이 없으면 from/to가 빈 값(만들지 않는다)
+function hireCtInfo(r) {
+  const from = /^\d{4}-\d{2}-\d{2}$/.test(r.interview_date || '') ? r.interview_date : '';
+  return { name: String(r.name || '').trim(), from, to: from ? hireCtAddDays(from, HIRE_CT_DAYS) : '', today: hireToday() };
+}
+function hireCtBlock(b, v) {
+  const fill = t => escHtml(t).replace('{NAME}', escHtml(v.name)).replace('{FROM}', hireCtYmd(v.from)).replace('{TO}', hireCtYmd(v.to));
+  switch (b[0]) {
+    case 't': return `<div class="ct-t">${fill(b[1])}</div>`;
+    case 'g': return '<div>&nbsp;</div>';
+    case 'c': return `<div class="ct-c">${fill(b[1])}</div>`;
+    case 'h': return `<div class="ct-h">${fill(b[1])}</div>`;
+    case 'n': return `<div class="ct-n"><span>${escHtml(b[1])}</span>${fill(b[2])}</div>`;
+    case 's': return `<div class="ct-s">${fill(b[1])}</div>`;
+    case 'd': return `<div class="ct-c">${hireCtYmd(v.today)}</div>`;
+    case 'x': return `<table class="ct-sg"><colgroup><col style="width:11.63%"><col style="width:2.95%"><col style="width:30.64%"><col style="width:11.68%"><col style="width:3.2%"><col style="width:39.9%"></colgroup>
+      <tr><td class="l">[‘회사’]</td><td></td><td></td><td class="l">[‘계약자’]</td><td></td><td></td></tr>
+      <tr><td class="l">업체명</td><td>:</td><td>주식회사 디앤알비</td><td class="l">성 명</td><td>:</td><td><span class="nm">${escHtml(v.name)}</span>(인)</td></tr>
+      <tr><td class="l">주&nbsp;&nbsp;소</td><td>:</td><td></td><td class="l">주 소</td><td>:</td><td></td></tr>
+      <tr><td class="l">대표자</td><td>:</td><td>김다나 (인)</td><td class="l"></td><td>:</td><td></td></tr></table>`;
+    default: return `<div>${fill(b[1])}</div>`;
+  }
+}
+// 숨은 A4 틀에 그려 블록 높이를 재고 쪽을 나눈다(문단은 쪼개지 않음, 조 제목은 다음 줄과 같이, 맺음말~서명란은 한 덩어리).
+// 인쇄와 PDF가 같은 쪽 나눔을 쓰게 하려고 브라우저의 자동 쪽 나눔에 맡기지 않는다. 돌려주는 fr(틀)은 부른 쪽이 지운다.
+async function hireCtRender(r) {
+  const v = hireCtInfo(r), B = HIRE_CT_BODY, blocks = B.map(b => hireCtBlock(b, v));
+  const di = B.findIndex(b => b[0] === 'd');
+  const keep = B.map((b, i) => b[0] === 'h' || (b[0] === 'p' && /다음과 같다\.$/.test(b[1])) || (i >= di - 2 && i < B.length - 1));
+  const title = `프리랜서 업무위탁계약서 - ${v.name}`;
+  const wrap = body => `<!doctype html><html lang="ko"><head><meta charset="utf-8" /><title>${escHtml(title)}</title>${HIRE_CT_FONT}<style>${HIRE_CT_CSS}</style></head><body>${body}</body></html>`;
+  const fr = document.createElement('iframe');
+  fr.style.cssText = 'position:fixed;left:-10000px;top:0;width:794px;height:1123px;border:0;opacity:0;pointer-events:none;';
+  document.body.appendChild(fr);
+  const doc = fr.contentDocument;
+  doc.open(); doc.write(wrap(`<div class="pg"><div class="ct-body" id="ct-m">${blocks.join('')}</div></div>`)); doc.close();
+  await hireCtFonts(doc);
+  const m = doc.getElementById('ct-m'), maxH = m.getBoundingClientRect().height;
+  const hs = [...m.children].map(c => c.getBoundingClientRect().height);
+  const pages = [[]]; let used = 0;
+  for (let i = 0; i < B.length;) {
+    let j = i; while (j < B.length - 1 && keep[j]) j++;                 // i..j = 같이 다니는 한 덩어리
+    let gh = 0; for (let k = i; k <= j; k++) gh += hs[k];
+    if (used + gh > maxH + 0.5 && pages[pages.length - 1].length) {       // 안 들어가면 다음 쪽으로 — 쪽 맨 위의 빈 줄은 버린다
+      pages.push([]); used = 0;
+      while (i <= j && B[i][0] === 'g') i++;
+      if (i > j) continue;
+      gh = 0; for (let k = i; k <= j; k++) gh += hs[k];
+    }
+    for (let k = i; k <= j; k++) pages[pages.length - 1].push(k);
+    used += gh; i = j + 1;
+  }
+  const body = pages.map((p, k) => `<div class="pg"><div class="ct-hd">㈜디앤알비 프리랜서 업무위탁계약서</div><div class="ct-pn">${k + 1}</div><div class="ct-body">${p.map(i => blocks[i]).join('')}</div></div>`).join('');
+  doc.body.innerHTML = body;
+  return { fr, doc, v, title, pages: pages.length, html: wrap(body) };
+}
+function hireCtRow() { return hireState.rows.find(x => x.id === Number($('hire-ct-id').value)); }
+function hireCtOpen(id) {
+  const r = hireState.rows.find(x => x.id === id), v = hireCtInfo(r);
+  $('hire-ct-id').value = id;
+  const row = (k, t) => `<div style="display:flex;gap:10px;padding:5px 0;border-bottom:1px solid #f3f4f6;"><span style="flex:0 0 76px;color:#6b7280;font-size:.78rem;font-weight:600;">${k}</span><span style="font-size:.85rem;font-weight:600;">${t}</span></div>`;
+  $('hire-ct-info').innerHTML = row('계약자', escHtml(v.name))
+    + row('계약기간', v.from ? `${hireCtYmd(v.from)} ~ ${hireCtYmd(v.to)} <span style="font-size:.72rem;color:#6b7280;font-weight:500;">(면접일부터 ${HIRE_CT_DAYS}일 뒤까지)</span>` : '<span style="color:#b91c1c;">면접일이 비어 있어요</span>')
+    + row('작성일', `${hireCtYmd(v.today)} <span style="font-size:.72rem;color:#6b7280;font-weight:500;">(저장·인쇄하는 오늘)</span>`)
+    + (v.from ? '<div style="font-size:.75rem;color:#6b7280;margin-top:10px;line-height:1.6;">양식의 나머지 글은 그대로 들어가요(수수료 = 시간당 10,500원). <b>주소 칸과 서명</b>은 인쇄한 뒤 직접 적어요.</div>'
+      : '<div style="font-size:.78rem;color:#b91c1c;margin-top:10px;line-height:1.6;">계약기간을 정할 수 없어 계약서를 만들지 않아요 — 목록의 <b>[수정]</b>에서 면접일을 넣은 뒤 다시 눌러 주세요.</div>');
+  document.querySelectorAll('#hire-dlg-ct .hire-ct-go').forEach(b => { b.disabled = !v.from; b.style.opacity = v.from ? '' : '.45'; });
+  $('hire-dlg-ct').showModal();
+}
+async function hireCtPrint() {
+  const r = hireCtRow(); if (!r || !hireCtInfo(r).from) return;
+  const w = window.open('', '_blank');   // 누른 순간에 열어야 팝업 차단에 안 걸린다 — 내용은 쪽을 나눈 뒤 넣음
+  if (!w) { showToast('팝업이 차단됐어요 — 주소창의 팝업 허용을 켜주세요'); return; }
+  let x = null;
+  try {
+    x = await hireCtRender(r);
+    w.document.open(); w.document.write(x.html); w.document.close(); w.focus();
+    await hireCtFonts(w.document);
+    w.print();
+  } catch (e) { w.close(); showToast('계약서를 만들지 못했어요: ' + e.message); }
+  finally { if (x) x.fr.remove(); }
+}
+async function hireCtPdf() {
+  const r = hireCtRow(); if (!r || !hireCtInfo(r).from) return;
+  showToast('PDF를 만드는 중…');
+  let x = null;
+  try {
+    await loadPdfLibs();
+    x = await hireCtRender(r);
+    await hireCtFonts(x.doc);
+    await hireCtMainFont(x.doc.body.innerText);
+    const { jsPDF } = window.jspdf, pdf = new jsPDF({ unit: 'mm', format: 'a4' });
+    const pgs = [...x.doc.querySelectorAll('.pg')];
+    for (let i = 0; i < pgs.length; i++) {
+      const canvas = await html2canvas(pgs[i], { scale: 2, backgroundColor: '#ffffff', windowWidth: 794 });
+      if (i) pdf.addPage();
+      pdf.addImage(canvas.toDataURL('image/jpeg', 0.95), 'JPEG', 0, 0, 210, canvas.height * 210 / canvas.width);
+    }
+    pdf.save(`프리랜서 업무위탁계약서_${x.v.name}_${x.v.today.replace(/-/g, '')}.pdf`);
+    showToast('PDF를 저장했어요');
+  } catch (e) { showToast('PDF 저장 실패: ' + e.message); }
+  finally { if (x) x.fr.remove(); }
+}
+
 /* ══ 알바 채용·면접비 끝 ══ */
 
 function unshipInit() {
@@ -13129,7 +13363,7 @@ async function wmLoadAtt() {
   }
 }
 
-// 출퇴근 조회의 '직원' 고르기 (2026-10-14 사용자 요청): 퇴사·삭제한 직원은 **퇴사일(없으면 삭제한 날)이 든 달까지만** 보이고 다음 달부터는 빠진다.
+// 출퇴근 조회의 '직원' 고르기 (2026-10-13 사용자 요청): 퇴사·삭제한 직원은 **퇴사일(없으면 삭제한 날)이 든 달까지만** 보이고 다음 달부터는 빠진다.
 // 퇴사일 = 마지막 근무일, 안 넣었으면 마지막 출근일(직원 관리의 '퇴사일' 표시와 같음). 고른 달에 출퇴근 기록이 있는 직원은 늘 보인다(기록을 못 고르는 일이 없게).
 function wmLeftDate(e) {
   if (!e || (e.active !== false && !e.hidden)) return '';
