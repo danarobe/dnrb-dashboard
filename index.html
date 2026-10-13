@@ -1784,7 +1784,7 @@
         <label style="font-size:.82rem;">상위</label>
         <input type="number" id="rwTop" value="30" style="width:64px;border:1.5px solid #d1d5db;border-radius:8px;padding:7px;" />
         <label style="font-size:.82rem;">위험 기준(%)</label>
-        <input type="number" id="rwRisk" value="20" style="width:64px;border:1.5px solid #d1d5db;border-radius:8px;padding:7px;" />
+        <input type="number" id="rwRisk" value="15" style="width:64px;border:1.5px solid #d1d5db;border-radius:8px;padding:7px;" />
         <label style="font-size:.82rem;">최소 배송완료</label>
         <input type="number" id="rwMinQty" value="10" style="width:64px;border:1.5px solid #d1d5db;border-radius:8px;padding:7px;" />
       </div>
@@ -7827,7 +7827,7 @@ async function rwFetch() {
     if (!rwState.watch) await rwLoadWatch();
     const extra = (rwState.watch || []).map(w => w.product_no).join(',');
     const d = await anGet({ action: 'returnwatch', end_date: e,
-      top: $('rwTop').value || 30, risk: $('rwRisk').value || 20, min_qty: $('rwMinQty').value || 10,
+      top: $('rwTop').value || 30, risk: $('rwRisk').value || 15, min_qty: $('rwMinQty').value || 10,
       ...(extra ? { extra } : {}) });
     rwState.data = d;
     $('rw-minq-label').textContent = d.min_qty;
