@@ -2662,7 +2662,7 @@
       <div class="hr-dlg-b">
         <input type="hidden" id="hire-p-id" />
         <label class="hr-l full">구분<select id="hire-p-kind" class="hr-in" onchange="hireKindFields()">
-          <option value="applicant">채용 지원자 (면접)</option><option value="daily">일일알바</option></select></label>
+          <option value="daily">일일알바</option><option value="applicant">채용됨</option></select></label>
         <label class="hr-l">이름 *<input id="hire-p-name" class="hr-in" maxlength="40" /></label>
         <label class="hr-l">휴대폰 *<input id="hire-p-phone" class="hr-in" inputmode="tel" placeholder="010-1234-5678" /></label>
         <label class="hr-l full">주민등록번호 <span id="hire-p-rrn-note" style="font-weight:400;color:#6b7280;"></span>
@@ -2674,7 +2674,7 @@
           <input id="hire-p-acct" class="hr-in" inputmode="numeric" autocomplete="off" /></label>
         <label class="hr-l hr-app">상태<select id="hire-p-status" class="hr-in">
           <option value="interview">면접</option><option value="hired">채용</option><option value="rejected">불채용</option></select></label>
-        <label class="hr-l hr-app">면접일<input type="date" id="hire-p-date" class="hr-in" /></label>
+        <label class="hr-l">면접일(첫 출근일)<input type="date" id="hire-p-date" class="hr-in" title="처음 등록할 때는 오늘로 들어가요 — 바꿀 수 있어요. 채용 처리하면 이 날짜가 근무 관리의 입사일이 돼요" /></label>
         <label class="hr-l full">메모<input id="hire-p-memo" class="hr-in" maxlength="500" /></label>
       </div>
       <div class="hr-dlg-f">
@@ -5820,7 +5820,7 @@ function cnProdRender() {
 const HIRE_MIN_WAGE = 10320;   // 2026년 최저시급 — 서버 calc.ts MIN_WAGE와 같이 올릴 것
 const HIRE_PAY_RATE = 10500;   // 지급 창을 열 때 시급 칸에 미리 넣는 값 (2026-10-13 사용자 지정 — 옛 10,320). 최저시급 경고 기준은 HIRE_MIN_WAGE 그대로
 const HIRE_STATUS = { interview: ['면접', '#1d4ed8', '#dbeafe'], hired: ['채용', '#166534', '#dcfce7'], rejected: ['불채용', '#6b7280', '#f3f4f6'] };
-const HIRE_KIND = { applicant: '채용 지원자', daily: '일일알바' };
+const HIRE_KIND = { applicant: '채용됨', daily: '일일알바' };   // 2026-10-14 사용자 요청: '채용 지원자' → '채용됨'(일일알바로 등록 → 채용 처리하면 여기로 옮겨짐)
 const hireState = { rows: [], kind: 'applicant', filter: 'all', canDeletePaid: false };
 const hireAllowed = () => !!SESSION && (isAdmin() || SESSION.role === 'logistics' || hireAccessState.me);   // 관리자·물류팀 + 허용 목록(hire_users — hireAccessLoad가 확인, 2026-10-14)
 
@@ -5902,7 +5902,7 @@ function hireRender() {
     && (!q || r.name.includes(q) || r.phone.replace(/-/g, '').includes(q)));
   if (!rows.length) { $('hire-result').innerHTML = `<div class="empty-state"><p>${mine.length ? '조건에 맞는 사람이 없어요' : `등록된 ${HIRE_KIND[hireState.kind]}가 없어요 — [사람 등록]으로 시작하세요`}</p></div>`; return; }
   const today = hireToday();
-  $('hire-result').innerHTML = `${daily ? '<div style="font-size:.85rem;font-weight:700;margin:4px 0 8px;">등록된 일일알바</div>' : ''}<table><thead><tr><th>이름</th>${daily ? '' : '<th>상태</th>'}<th>휴대폰</th><th>주민번호</th><th>계좌</th><th>${daily ? '최근 근무일' : '면접일'}</th><th>지급 (전체)</th><th></th></tr></thead><tbody>${rows.map(r => {
+  $('hire-result').innerHTML = `${daily ? '<div style="font-size:.85rem;font-weight:700;margin:4px 0 8px;">등록된 일일알바</div>' : ''}<table><thead><tr><th>이름</th>${daily ? '' : '<th>상태</th>'}<th>휴대폰</th><th>주민번호</th><th>계좌</th><th>면접일(첫 출근일)</th><th>지급 (전체)</th><th></th></tr></thead><tbody>${rows.map(r => {
     const [sl, sc, sb] = HIRE_STATUS[r.status];
     const age = hireAge(r.birth, today);
     const unpaid = r.pays.filter(p => !p.paid_on);
@@ -5913,7 +5913,7 @@ function hireRender() {
       <td>${escHtml(r.phone)}</td>
       <td>${r.rrn_mask ? escHtml(r.rrn_mask) : '<span style="color:#b45309;">미입력</span>'}</td>
       <td>${r.account_mask ? escHtml((r.bank_name || '') + ' ' + r.account_mask) : '<span style="color:#b45309;">미입력</span>'}</td>
-      <td>${(daily ? r.pays[0]?.work_date : r.interview_date) || ''}</td>
+      <td>${r.interview_date || ''}${daily && r.pays[0]?.work_date ? `<div style="font-size:.7rem;color:#6b7280;">최근 근무 ${escHtml(String(r.pays[0].work_date).slice(5))}</div>` : ''}</td>
       <td>${r.pays.length ? `${hireWon(total)}${unpaid.length ? ` <span class="hr-badge" style="color:#b45309;background:#fef3c7;">미지급 ${unpaid.length}</span>` : ' <span style="color:#16a34a;font-size:.75rem;">완료</span>'}` : '<span style="color:#9ca3af;">-</span>'}</td>
       <td><div style="display:flex;gap:2px;justify-content:flex-end;">
         <button class="toggle-btn" style="font-size:.72rem;padding:3px 8px;color:#4f46e5;font-weight:600;" onclick="hireOpenPay(${r.id})"><i class="fa-solid fa-won-sign"></i> 지급</button>
@@ -5946,7 +5946,7 @@ function hireOpenPerson(id) {
   const r = hireState.rows.find(x => x.id === id);
   $('hire-p-title').textContent = r ? `${r.name} 수정` : '사람 등록';
   $('hire-p-id').value = r?.id ?? '';
-  $('hire-p-kind').value = r?.kind ?? hireState.kind;
+  $('hire-p-kind').value = r?.kind ?? 'daily';   // 새로 등록할 때는 늘 일일알바로 (2026-10-14 사용자 요청)
   hireKindFields();
   $('hire-p-name').value = r?.name ?? '';
   $('hire-p-phone').value = r?.phone ?? '';
@@ -5994,6 +5994,7 @@ async function hireSavePerson() {
     await hireApi(body);
     $('hire-dlg-person').close();
     showToast('저장했어요');
+    if (!body.id) { hireState.kind = body.kind; hireState.filter = 'all'; }   // 새로 등록한 사람이 보이는 탭으로
     hireLoad();
   } catch (e) { showToast(e.message); }
 }
@@ -6017,14 +6018,15 @@ async function hireDelete(id) {
 
 async function hireDoHire(id) {
   const r = hireState.rows.find(x => x.id === id);
-  const hd = r.kind === 'daily' ? '' : (r.interview_date ? `\n입사일은 면접일(${r.interview_date})로 들어가요.` : '\n면접일이 비어 있어 입사일은 비워 둬요(근무 관리 › 수정에서 넣을 수 있어요).');
+  const hd = (r.interview_date ? `\n입사일은 면접일(첫 출근일, ${r.interview_date})로 들어가요.` : '\n면접일(첫 출근일)이 비어 있어 입사일은 비워 둬요(근무 관리 › 수정에서 넣을 수 있어요).') + (r.kind === 'daily' ? "\n등록하면 '채용됨' 탭으로 옮겨져요." : '');
   const v = prompt(`${r.name}님을 채용 처리해 근무 관리 알바로 등록해요.${hd}\n시급을 입력하세요 (2026년 최저시급 ${HIRE_MIN_WAGE.toLocaleString()}원)`, String(HIRE_MIN_WAGE));
   if (v == null) return;
   const rate = Number(v.replace(/[^\d]/g, ''));
   if (rate < HIRE_MIN_WAGE && !confirm(`시급 ${rate.toLocaleString()}원은 최저시급보다 낮아요. 그래도 등록할까요?`)) return;
   try {
     await hireApi({ action: 'hire', id, hourly_rate: rate });
-    showToast('근무 관리에 알바로 등록했어요 — 키오스크 PIN은 근무 관리에서 설정하세요');
+    showToast("근무 관리에 알바로 등록하고 '채용됨'으로 옮겼어요 — 키오스크 PIN은 근무 관리에서 설정하세요");
+    hireState.kind = 'applicant'; hireState.filter = 'all';   // 채용 처리하면 '채용됨' 탭으로 이동 (2026-10-14 사용자 요청)
     hireLoad();
   } catch (e) { showToast(e.message); }
 }

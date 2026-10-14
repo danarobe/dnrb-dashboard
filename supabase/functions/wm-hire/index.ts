@@ -5,7 +5,7 @@
 //
 //   list        {}                         사람 목록(주민번호·계좌는 가린 값) + 지급 기록
 //   reveal      { id }                     주민번호·계좌 전체 (감사 로그 남김)
-//   upsert      { id?, kind?, name, phone, rrn?, bank_name?, account?, bank_holder?, status?, interview_date?, memo? }   kind = applicant(채용 지원자)|daily(일일알바)
+//   upsert      { id?, kind?, name, phone, rrn?, bank_name?, account?, bank_holder?, status?, interview_date?, memo? }   kind = applicant(채용됨 — 2026-10-14 이름 바꿈, 옛 채용 지원자)|daily(일일알바 — 새 등록의 기본). 채용 처리하면 applicant로 옮겨진다
 //                                          ⚠ 부분 수정 — rrn·account는 보냈을 때만 바뀜(빈 문자열 = 지우기)
 //   delete      { id }                     사람 + 지급 기록 삭제(파기). 지급 기록이 있으면 관리자만
 //   hire        { id, hourly_rate }        채용 처리 → 근무관리 알바(wm_employees, type=parttime) 생성·연결
@@ -214,12 +214,13 @@ Deno.serve(async (req) => {
         method: 'POST',
         body: JSON.stringify({
           name: h.name, type: 'parttime', hourly_rate: rate, birthday: h.birth,
-          hire_date: h.kind === 'applicant' ? (h.interview_date ?? null) : null,   // 채용 지원자는 면접일 = 입사일 (2026-10-13 사용자 요청). 일일알바는 면접일이 없어 비워 둠
+          hire_date: h.interview_date ?? null,   // 면접일(첫 출근일) = 입사일 (2026-10-13 채용 지원자 → 2026-10-14 일일알바도 첫 출근일을 적으니 둘 다)   // 채용 지원자는 면접일 = 입사일 (2026-10-13 사용자 요청). 일일알바는 면접일이 없어 비워 둠
           annual_leave_total: 0,   // (이식 시 추가) 근무 관리의 기존 알바 행은 모두 0 — 표 기본값 15가 들어가지 않게
           bank_name: h.bank_name, bank_account: await dec(h.account_enc), bank_holder: h.bank_holder,
         }),
       });
-      await rest(`wm_hires?id=eq.${id}`, { method: 'PATCH', body: JSON.stringify({ status: 'hired', employee_id: emp.id }) });
+      // 채용 처리하면 '채용됨' 탭으로 옮긴다(kind = applicant) — 2026-10-14 사용자 요청 "일일알바에서 채용 처리를 누르면 채용됨으로 이동"
+      await rest(`wm_hires?id=eq.${id}`, { method: 'PATCH', body: JSON.stringify({ status: 'hired', employee_id: emp.id, kind: 'applicant' }) });
       await audit(me, 'hire', { hire_id: id, employee_id: emp.id, name: h.name });
       return json({ employee_id: emp.id });
     }
