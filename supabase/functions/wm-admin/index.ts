@@ -292,8 +292,12 @@ Deno.serve(async (req) => {
           }),
         });
       } else {
-        const dup = await rest(`wm_attendance?employee_id=eq.${empId}&date=eq.${date}&select=id`);
-        if (dup.length) return json({ error: '해당 날짜에 이미 기록이 있습니다 (수정으로 처리하세요)' }, 400);
+        const dup = await rest(`wm_attendance?employee_id=eq.${empId}&date=eq.${date}&select=id,clock_in,clock_out`);
+        if (dup.length) {   // 누구의 어떤 기록인지 알려 준다 (2026-10-14 — 이름이 비슷한 직원을 골라 '이미 있다'고만 떠서 헷갈린 일)
+          const [e] = await rest(`wm_employees?id=eq.${empId}&select=name,type`).catch(() => []);
+          const hm = (t: unknown) => String(t ?? '').substring(11, 16) || '—';
+          return json({ error: `${e ? `${e.name}(${e.type === 'employee' ? '직원' : '알바'})` : '이 직원'}님은 ${date}에 이미 출퇴근 기록이 있어요 (출근 ${hm(dup[0].clock_in)} · 퇴근 ${dup[0].clock_out ? hm(dup[0].clock_out) : '미퇴근'}) — 직원을 맞게 골랐는지 확인하고, 고치려면 출퇴근 조회에서 그 기록의 [수정]을 눌러 주세요` }, 400);
+        }
         [row] = await rest('wm_attendance', {
           method: 'POST',
           body: JSON.stringify({

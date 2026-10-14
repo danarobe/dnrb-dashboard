@@ -2333,9 +2333,10 @@
           <b id="wm-attf-title" style="font-size:.95rem;"></b>
           <div style="display:flex;flex-direction:column;gap:10px;margin-top:12px;font-size:.8rem;">
             <label style="color:#4b5563;font-weight:600;">직원
-              <select id="wm-attf-emp" style="display:block;margin-top:3px;border:1.5px solid #d1d5db;border-radius:8px;padding:6px 10px;font-size:.8rem;width:100%;"></select></label>
+              <select id="wm-attf-emp" onchange="wmAttDupHint()" style="display:block;margin-top:3px;border:1.5px solid #d1d5db;border-radius:8px;padding:6px 10px;font-size:.8rem;width:100%;"></select></label>
             <label style="color:#4b5563;font-weight:600;">날짜
-              <input type="date" id="wm-attf-date" style="display:block;margin-top:3px;border:1.5px solid #d1d5db;border-radius:8px;padding:5px 10px;font-size:.8rem;width:100%;" /></label>
+              <input type="date" id="wm-attf-date" onchange="wmAttDupHint()" style="display:block;margin-top:3px;border:1.5px solid #d1d5db;border-radius:8px;padding:5px 10px;font-size:.8rem;width:100%;" /></label>
+            <div id="wm-attf-dup" style="display:none;font-size:.76rem;color:#b91c1c;background:#fef2f2;border-radius:8px;padding:7px 10px;line-height:1.5;"></div>
             <label style="color:#4b5563;font-weight:600;">출근
               <input type="time" id="wm-attf-in" step="60" style="display:block;margin-top:3px;border:1.5px solid #d1d5db;border-radius:8px;padding:5px 10px;font-size:.8rem;width:100%;" /></label>
             <label style="color:#4b5563;font-weight:600;">퇴근 <span style="font-weight:400;color:#6b7280;">(비우면 미퇴근)</span>
@@ -14314,20 +14315,33 @@ function wmAttFormOpen(id) {
   wmState.attEdit = id;
   $('wm-attf-title').textContent = r ? `출퇴근 수정 — ${(wmState.emps || []).find(e => e.id === r.employee_id)?.name || ''} ${r.date}` : '출퇴근 수동 등록';
   const sel = $('wm-attf-emp');
-  sel.innerHTML = (wmState.emps || []).filter(e => e.active !== false)
+  // 새로 등록할 때는 직원을 먼저 고르게 비워 둔다 — 예전엔 목록 첫 사람이 미리 골라져 있어, 이름이 비슷한 직원(조혜영 / 조혜영(알바))으로 저장되는 일이 있었다 (2026-10-14)
+  sel.innerHTML = (r ? '' : '<option value="">— 직원을 고르세요 —</option>') + (wmState.emps || []).filter(e => e.active !== false)
     .map(e => `<option value="${escHtml(e.id)}">${escHtml(e.name)} (${e.type === 'employee' ? '직원' : '알바'})</option>`).join('');
   sel.disabled = !!r;
   if (r) sel.value = r.employee_id;
+  else { const f = $('wm-att-emp') && $('wm-att-emp').value; if (f && [...sel.options].some(o => o.value === f)) sel.value = f; }   // 출퇴근 조회에서 직원을 골라 둔 상태면 그 직원으로
   $('wm-attf-date').value = r ? r.date : ($('wm-att-ym').value ? $('wm-att-ym').value + '-01' : '');
   $('wm-attf-date').disabled = !!r;
   $('wm-attf-in').value = r ? (r.clock_in || '').substring(11, 16) : '';
   $('wm-attf-out').value = r && r.clock_out ? r.clock_out.substring(11, 16) : '';
   $('wm-attf-note').value = r ? (r.note || '') : '';
   $('wm-att-modal').style.display = 'flex';
+  wmAttDupHint();
+}
+// 고른 직원·날짜에 이미 기록이 있으면 저장 전에 바로 알려 준다(지금 불러온 달의 기록 기준 — 서버도 같은 검사를 한다)
+function wmAttDupHint() {
+  const box = $('wm-attf-dup'); if (!box) return;
+  const emp = Number($('wm-attf-emp').value), date = $('wm-attf-date').value;
+  const ex = !wmState.attEdit && emp && date ? (wmState.att || []).find(x => x.employee_id === emp && x.date === date) : null;
+  const e = (wmState.emps || []).find(x => x.id === emp);
+  box.style.display = ex ? '' : 'none';
+  box.innerHTML = ex ? `<i class="fa-solid fa-triangle-exclamation"></i> <b>${escHtml(e ? e.name : '')}</b>님은 ${escHtml(date)}에 이미 기록이 있어요 (출근 ${escHtml((ex.clock_in || '').substring(11, 16))} · 퇴근 ${ex.clock_out ? escHtml(ex.clock_out.substring(11, 16)) : '미퇴근'}). 직원을 맞게 골랐는지 확인해 주세요 — 그 기록을 고치려면 출퇴근 조회에서 [수정]을 눌러요.` : '';
 }
 
 async function wmAttSave() {
   const date = $('wm-attf-date').value, tin = $('wm-attf-in').value, tout = $('wm-attf-out').value;
+  if (!wmState.attEdit && !$('wm-attf-emp').value) { showToast('직원을 먼저 골라 주세요'); return; }
   if (!date || !tin) { showToast('날짜와 출근 시각은 필수예요'); return; }
   const body = {
     action: 'attendance_upsert',
