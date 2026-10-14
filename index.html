@@ -1492,6 +1492,7 @@
           <span id="cn-check-chips" class="qp"></span>
           <span id="cn-check-line" class="qp"></span>
           <input id="cn-check-q" type="search" placeholder="사입상품명·색상 찾기" oninput="renderSoon('cnCheckRender')" style="padding:6px 10px;border:1px solid #d1d5db;border-radius:8px;font-size:.8rem;min-width:170px;" />
+          <button class="toggle-btn" style="margin-left:auto;" onclick="cnCheckXlsx(this)" title="지금 보이는 표 그대로(입고·칩·찾기 반영) 엑셀로 저장해요"><i class="fa-solid fa-file-excel"></i> 엑셀 저장</button>
         </div>
         <div id="cn-check-list"><div class="empty-state"><p>불러오는 중…</p></div></div>
       </div>
@@ -1513,6 +1514,7 @@
           <span id="cn-prod-chips" class="qp"></span>
           <span id="cn-prod-line" class="qp"></span>
           <input id="cn-prod-q" type="search" placeholder="사입상품명·색상 찾기" oninput="renderSoon('cnProdRender')" style="padding:6px 10px;border:1px solid #d1d5db;border-radius:8px;font-size:.8rem;min-width:170px;" />
+          <button class="toggle-btn" style="margin-left:auto;" onclick="cnProdXlsx(this)" title="지금 보이는 표 그대로(칩·라인·찾기 반영) 옵션별로 엑셀 저장해요"><i class="fa-solid fa-file-excel"></i> 엑셀 저장</button>
         </div>
         <div id="cn-prod-list"></div>
       </div>
@@ -5701,6 +5703,74 @@ function cnSalesOf(p) {
   for (const h of p.c24) { const r = by.get(h.product_no); if (r) { found = true; avg7 += r.avg7 || 0; net30 += r.net30 || 0; } }
   return { avg7: found ? avg7 : 0, net30: found ? net30 : 0 };
 }
+const cnProdPass = () => ({ all: () => true, diff: p => p.act !== p.actSent, todo: p => p.unchecked > 0, unreg: p => !p.c24.length, reg: p => p.c24.length > 0, nofabric: p => !cnFabricOf(p.sname), label: p => cnLabelOf(p.sname), c24warn: p => !p.c24.length && cnC24Warn(p.sname).length > 0 });   // 상품별 현황 칩 — 표와 엑셀 저장이 같이 쓴다
+/* ── 엑셀로 저장 (2026-10-14 사용자 요청) — 지금 화면에 보이는 표 그대로(입고 선택·라인·칩·검색 반영). 단가·실질 단가는 관리자에게만(서버도 다른 역할에는 단가를 안 줌) ── */
+function cnCheckRowsForXlsx() {   // 입고 검수 표가 보여 주는 옵션 줄(그리는 쪽 cnCheckRender와 같은 거르기)
+  const q = String(($('cn-check-q') || {}).value || '').trim().toLowerCase(), pass = CN_CHECK_PASS[cnState.filter] || CN_CHECK_PASS.all;
+  let groups = cnGroups(cnViewLines()).map(g => ({ ...g, show: g.rows.filter(pass) })).filter(g => g.show.length);
+  if (q) groups = groups.map(g => g.sname.toLowerCase().includes(q) ? g : { ...g, show: g.show.filter(l => cnOpt(l).toLowerCase().includes(q)) }).filter(g => g.show.length);
+  return groups.flatMap(g => g.show);
+}
+async function cnXlsxSave(name, title, sub, head, rows, widths, totals) {
+  await loadXlsxPopulate();
+  const wb = await XlsxPopulate.fromBlankAsync(), ws = wb.sheet(0).name(name.slice(0, 30));
+  ws.cell(1, 1).value(title).style({ bold: true, fontSize: 14 });
+  ws.cell(2, 1).value(sub).style({ fontColor: '6b7280' });
+  head.forEach((h, i) => ws.cell(4, i + 1).value(h).style({ bold: true, fill: 'eef2ff', border: true, horizontalAlignment: 'center', wrapText: true }));
+  rows.forEach((row, ri) => row.forEach((v, ci) => { if (v !== null && v !== undefined && v !== '') ws.cell(5 + ri, ci + 1).value(v); }));
+  if (totals) totals.forEach((v, ci) => { if (v !== null && v !== undefined && v !== '') ws.cell(5 + rows.length, ci + 1).value(v).style({ bold: true, fill: 'f3f4f6' }); });
+  widths.forEach((w, i) => ws.column(i + 1).width(w));
+  ws.freezePanes(0, 4);
+  const blob = await wb.outputAsync(), url = URL.createObjectURL(blob);
+  const a = document.createElement('a'); a.href = url; a.download = `${name}.xlsx`; document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 2000);
+}
+const cnLineLabel = sname => ({ made: 'made', normal: '일반' })[cnLineOf(sname)] || '';
+const cnXlsxDay = () => hireToday().replace(/-/g, '');
+async function cnCheckXlsx(btn) {
+  const d = cnState.data; if (!d) return;
+  const rows = cnCheckRowsForXlsx();
+  if (!rows.length) { showToast('저장할 옵션이 없어요'); return; }
+  const canPrice = !!d.can_price, ships = new Map((d.ships || []).map(x => [x.id, x]));
+  const ord = l => { const x = ships.get(l.shipment_id) || {}; return String(x.ship_date || '9999') + String(l.shipment_id).padStart(9, '0') + String(l.seq).padStart(6, '0'); };
+  rows.sort((a, b) => ord(a) < ord(b) ? -1 : 1);
+  const head = ['입고(차수)', '중국 출고일', '검수 완료', '사입상품명', '색상', '사이즈', '라인', '혼용률', '라벨', '전달(엑셀 출고)', '실제 수량', '차이(실제−전달)', '확인한 사람', '확인 시각', '메모', ...(canPrice ? ['단가(위안)', `단가(원, ×${CN_FX})`, '실질 단가(원)', '금액(위안)'] : [])];
+  const out = rows.map(l => {
+    const x = ships.get(l.shipment_id) || {}, rw = canPrice ? cnRealWon(l.unit_price, l.shipment_id) : null;
+    return [x.title || '', x.ship_date || '', cnShipDone(x) ? `완료 (${x.checked_done_by_name || ''})` : '', l.sname, l.color || '', l.size || '', cnLineLabel(l.sname), cnFabricOf(l.sname), cnLabelOf(l.sname) ? '라벨 제작' : '',
+      l.qty_sent, l.qty_actual == null ? '' : l.qty_actual, l.qty_actual == null ? '미확인' : l.qty_actual - l.qty_sent, l.checked_by_name || '', l.checked_at ? unshipKst(l.checked_at) : '', l.memo || '',
+      ...(canPrice ? [l.unit_price == null ? '' : Number(l.unit_price), l.unit_price == null ? '' : Math.round(Number(l.unit_price) * CN_FX), rw ? rw.won : '', l.unit_price == null ? '' : Math.round(l.qty_sent * Number(l.unit_price) * 100) / 100] : [])];
+  });
+  const checked = rows.filter(l => l.qty_actual != null);
+  const totals = ['합계', '', '', `옵션 ${rows.length}개`, '', '', '', '', '', rows.reduce((t, l) => t + l.qty_sent, 0), checked.reduce((t, l) => t + l.qty_actual, 0), checked.reduce((t, l) => t + l.qty_actual - l.qty_sent, 0), `미확인 ${rows.length - checked.length}개`, '', '', ...(canPrice ? ['', '', '', Math.round(rows.reduce((t, l) => t + l.qty_sent * (Number(l.unit_price) || 0), 0) * 100) / 100] : [])];
+  const which = cnIsAll() ? '검수할입고' : String(((ships.get(cnState.shipId) || {}).order_round || (ships.get(cnState.shipId) || {}).title || '입고')).replace(/[\\/:*?"<>|\s]+/g, '');
+  const viewNote = [cnIsAll() ? `검수 완료 전 입고 ${cnPendingShips().length}건` : (ships.get(cnState.shipId) || {}).title, cnState.filter !== 'all' ? `보기: ${({ todo: '미확인', diff: '차이 있음' })[cnState.filter] || cnState.filter}` : '', cnState.lineFilter !== 'all' ? `라인: ${({ made: 'made', normal: '일반', none: '미분류' })[cnState.lineFilter]}` : '', String(($('cn-check-q') || {}).value || '').trim() ? `찾기: ${$('cn-check-q').value.trim()}` : ''].filter(Boolean).join(' · ');
+  if (btn) btn.disabled = true;
+  try { await cnXlsxSave(`중국사입_입고검수_${which}_${cnXlsxDay()}`, '중국 사입 — 입고 검수', `${viewNote} · 전달 = 입고 엑셀의 출고 수량(E열) · 차이 = 실제 − 전달 · ${hireToday()} 저장`, head, out, [24, 11, 14, 14, 14, 8, 7, 22, 9, 11, 9, 11, 10, 12, 24, ...(canPrice ? [10, 11, 12, 11] : [])], totals); showToast(`엑셀로 저장했어요 — 옵션 ${rows.length}개`); }
+  catch (e) { showToast('엑셀 저장 실패: ' + e.message); }
+  finally { if (btn) btn.disabled = false; }
+}
+async function cnProdXlsx(btn) {
+  const d = cnState.data; if (!d) return;
+  const q = String(($('cn-prod-q') || {}).value || '').trim().toLowerCase(), pass = cnProdPass();
+  let list = cnProducts().filter(p => cnLinePass(p.sname)).filter(pass[cnState.prodFilter] || pass.all);
+  if (q) list = list.filter(p => p.sname.toLowerCase().includes(q) || p.opts.some(o => o.opt.toLowerCase().includes(q)) || p.c24.some(h => String(h.product_name || '').toLowerCase().includes(q)));
+  if (!list.length) { showToast('저장할 상품이 없어요'); return; }
+  const canPrice = !!d.can_price, showSales = !isCS();
+  const head = ['사입상품명', '옵션', '라인', '혼용률', '라벨', '입고 건수', '전달(엑셀 출고 합)', '실제 수량(확인분)', '차이(실제−전달, 확인분)', '미확인 옵션', '카페24 상품명', ...(showSales ? ['판매 하루 평균(7일)', '판매 30일'] : []), ...(canPrice ? ['단가(위안, 평균)', '실질 단가(원)'] : [])];
+  const out = [];
+  for (const p of list) {
+    const c24 = p.c24.map(h => h.product_name).join(' / '), sales = showSales ? cnSalesOf(p) : null;
+    for (const o of p.opts) out.push([p.sname, o.opt, cnLineLabel(p.sname), cnFabricOf(p.sname), cnLabelOf(p.sname) ? '라벨 제작' : '', p.ships.size, o.sent, o.act || o.actSent ? o.act : '', o.act || o.actSent ? o.act - o.actSent : '', o.unchecked || '', c24,
+      ...(showSales ? [sales && sales.avg7 != null ? Math.round(sales.avg7 * 10) / 10 : '', sales ? sales.net30 : ''] : []),
+      ...(canPrice ? [o.real ? o.real.yuan : (o.price == null ? '' : o.price), o.real ? o.real.won : ''] : [])]);
+  }
+  const totals = ['합계', `상품 ${list.length}개 · 옵션 ${out.length}개`, '', '', '', '', list.reduce((t, p) => t + p.sent, 0), list.reduce((t, p) => t + p.act, 0), list.reduce((t, p) => t + p.act - p.actSent, 0), list.reduce((t, p) => t + p.unchecked, 0) || ''];
+  if (btn) btn.disabled = true;
+  try { await cnXlsxSave(`중국사입_상품별현황_${cnXlsxDay()}`, '중국 사입 — 상품별 현황 (모든 차수 합계)', `입고 ${(d.ships || []).length}건을 사입상품명·옵션별로 합친 값 · 전달 = 입고 엑셀의 출고 수량(E열) 합 · ${hireToday()} 저장${showSales ? ' · 판매량은 카페24에 등록된 상품만(상품 단위)' : ''}`, head, out, [14, 18, 7, 22, 9, 8, 12, 12, 13, 9, 30, ...(showSales ? [12, 9] : []), ...(canPrice ? [12, 12] : [])], totals); showToast(`엑셀로 저장했어요 — 상품 ${list.length}개`); }
+  catch (e) { showToast('엑셀 저장 실패: ' + e.message); }
+  finally { if (btn) btn.disabled = false; }
+}
 function cnProdRender() {
   const d = cnState.data; if (!d) return;
   const allProds = cnProducts(), prods = allProds.filter(p => cnLinePass(p.sname)), canPrice = d.can_price, showSales = !isCS();   // 라인 칩에 맞는 상품만 — 요약·건수·표 모두
@@ -5712,7 +5782,7 @@ function cnProdRender() {
     + admgrTile('전달받은 수량', fmt(prods.reduce((t, p) => t + p.sent, 0)) + '장', false) + admgrTile('실제 수량(확인분)', fmt(prods.reduce((t, p) => t + p.act, 0)) + '장', false)
     + admgrTile(admgrDot('#22c55e') + '카페24 등록', `${fmt(reg)} / ${fmt(prods.length)}개`, false)}</div>
     ${d.c24_error ? `<div style="font-size:.74rem;color:#b91c1c;margin-top:6px;">${escHtml(d.c24_error)}</div>` : ''}`;
-  const pass = { all: () => true, diff: p => p.act !== p.actSent, todo: p => p.unchecked > 0, unreg: p => !p.c24.length, reg: p => p.c24.length > 0, nofabric: p => !cnFabricOf(p.sname), label: p => cnLabelOf(p.sname), c24warn: p => !p.c24.length && cnC24Warn(p.sname).length > 0 };
+  const pass = cnProdPass();
   $('cn-prod-chips').innerHTML = [['all', '전체'], ['diff', '수량 차이'], ['todo', '미확인 있음'], ['unreg', '카페24 미등록'], ['reg', '등록됨'], ['c24warn', '카페24 확인 필요'], ['nofabric', '혼용률 미입력'], ['label', '라벨 제작']].map(([k, label]) => `<button id="cn-chip-${k}" class="${cnState.prodFilter === k ? 'active' : ''}" onclick="cnState.prodFilter='${k}';cnProdRender()">${label} ${fmt(prods.filter(pass[k]).length)}</button>`).join('');
   const q = String(($('cn-prod-q') || {}).value || '').trim().toLowerCase();
   let list = prods.filter(pass[cnState.prodFilter] || pass.all);
