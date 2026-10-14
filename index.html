@@ -11321,12 +11321,35 @@ function stableApplyOpen() {
   const fresh = stableNewForApply();   // 신규 편성 필요 품목도 함께 (2026-09-28 사용자 요청 — 셀메이트에 이미 등록된 상품들)
   if (!cand.length && !fresh.length) { showToast('반영할 변경 항목이 없습니다 (필터를 확인하세요)'); return; }
   stableApply.rows = [
-    ...cand.map(r => ({ ref: r, name: r.name, option: r.option, from: r.stable, to: r.rec, avg: r.avg, isNew: false })),
-    ...fresh.map(it => ({ ref: it, name: it.product_name, option: it.option_value || '', from: null, to: it.rec, avg: it.avg, isNew: true })),
+    ...cand.map(r => ({ ref: r, name: r.name, option: r.option, from: r.stable, rec: r.rec, to: r.rec, avg: r.avg, isNew: false })),
+    ...fresh.map(it => ({ ref: it, name: it.product_name, option: it.option_value || '', from: null, rec: it.rec, to: it.rec, avg: it.avg, isNew: true })),
   ].map((r, i) => ({ ...r, i }));
   stableApply.sel = new Set(); stableApply.note = '';
   $('stable-apply-modal').style.display = 'flex';
   stableApplyRender();
+}
+/* 반영할 값 직접 바꾸기 (2026-10-14 사용자 요청 — "추천 값을 내가 직접 바꿔서 다른 값으로 적용되게"):
+   칸에는 추천 값이 들어가 있고, 바꾸면 그 값으로 반영된다(0~9999 정수 — 셀메이트 연결 스크립트도 같은 범위만 받음). 값을 바꾸면 그 줄을 자동으로 체크.
+   추천과 다르면 '직접 입력' 표시 + [추천으로]. 반영 기록(stable_apply_log)에는 실제로 보낸 값이 남는다. */
+function stableApplyToHtml(r) {
+  const edited = r.to !== r.rec;
+  return `<input type="number" min="0" max="9999" step="1" inputmode="numeric" value="${r.to}" data-ti="${r.i}" onchange="stableApplyEdit(${r.i}, this)" onkeydown="if(event.key==='Enter'){event.preventDefault();this.blur();}" style="width:64px;text-align:right;font-weight:800;border:1.5px solid ${edited ? '#a5b4fc' : '#d1d5db'};background:${edited ? '#eef2ff' : '#fff'};border-radius:7px;padding:3px 6px;font-size:.82rem;color:${r.to > (r.from ?? 0) ? '#b91c1c' : r.to < (r.from ?? 0) ? '#1d4ed8' : '#374151'};" />`
+    + `<div id="stb-ap-n${r.i}" style="font-size:.64rem;color:#4338ca;white-space:nowrap;">${edited ? `직접 입력 · 추천 ${r.rec} <a href="javascript:void(0)" onclick="stableApplyEdit(${r.i}, null)" style="color:#6b7280;">추천으로</a>` : ''}</div>`;
+}
+const stableApplyDiff = r => { const d = r.to - (r.from ?? 0); return r.from != null && d === 0 ? '<span title="셀메이트의 지금 값과 같아 반영할 때 건너뛰어요">변경 없음</span>' : `${d > 0 ? '+' : ''}${d}`; };
+function stableApplyEdit(i, el) {
+  const r = stableApply.rows.find(x => x.i === i); if (!r) return;
+  if (el) {
+    const t = String(el.value).trim();
+    if (!/^\d+$/.test(t) || Number(t) > 9999) { showToast('안정재고는 0~9999 사이의 정수로 적어 주세요'); el.value = r.to; return; }
+    r.to = Number(t);
+  } else r.to = r.rec;   // [추천으로]
+  stableApply.sel.add(i);   // 값을 바꾼 줄은 반영할 생각이니 체크해 둔다
+  const cb = document.querySelector(`#stable-apply-body input[data-i="${i}"]`); if (cb) cb.checked = true;
+  const inp = document.querySelector(`#stable-apply-body input[data-ti="${i}"]`);
+  if (inp) { const td = inp.parentElement, focus = document.activeElement === inp; td.innerHTML = stableApplyToHtml(r); if (focus) td.querySelector('input').focus(); }
+  const dd = $('stb-ap-d' + i); if (dd) dd.innerHTML = stableApplyDiff(r);
+  stableApplyCount();
 }
 function stableApplyToggle(i, on) { on ? stableApply.sel.add(i) : stableApply.sel.delete(i); stableApplyCount(); }
 function stableApplyPick(isNew) { stableApply.sel = new Set(stableApply.rows.filter(r => !!r.isNew === isNew).map(r => r.i)); document.querySelectorAll('#stable-apply-body input[data-i]').forEach(c => { c.checked = stableApply.sel.has(Number(c.dataset.i)); }); stableApplyCount(); }
@@ -11351,7 +11374,7 @@ function stableApplyRender(resultHtml) {
   const rows = stableApply.rows.map(r => `<tr>
     <td><input type="checkbox" data-i="${r.i}" ${stableApply.sel.has(r.i) ? 'checked' : ''} onchange="stableApplyToggle(${r.i}, this.checked)" style="width:17px;height:17px;" /></td>
     <td style="text-align:left;">${r.isNew ? '<span style="background:#fef3c7;color:#92400e;border-radius:99px;padding:1px 7px;font-size:.66rem;font-weight:800;margin-right:4px;">신규</span>' : ''}${escHtml(r.name)}</td><td style="text-align:left;">${escHtml(r.option || '—')}</td>
-    <td>${r.from == null ? '<span style="color:#9ca3af;" title="셀메이트 안정재고 CSV에 없던 품목 — 반영할 때 셀메이트의 현재 값을 읽어 기록해요">—</span>' : r.from}</td><td style="color:#6b7280;">→</td><td style="font-weight:800;color:${r.to > (r.from ?? 0) ? '#b91c1c' : '#1d4ed8'};">${r.to}</td><td style="color:#6b7280;">${r.to - (r.from ?? 0) > 0 ? '+' : ''}${r.to - (r.from ?? 0)}</td><td class="m-hide">${r.avg.toFixed(1)}</td></tr>`).join('');
+    <td>${r.from == null ? '<span style="color:#9ca3af;" title="셀메이트 안정재고 CSV에 없던 품목 — 반영할 때 셀메이트의 현재 값을 읽어 기록해요">—</span>' : r.from}</td><td style="color:#6b7280;">→</td><td>${stableApplyToHtml(r)}</td><td style="color:#6b7280;" id="stb-ap-d${r.i}">${stableApplyDiff(r)}</td><td class="m-hide">${r.avg.toFixed(1)}</td></tr>`).join('');
   const nNew = stableApply.rows.filter(r => r.isNew).length;
   $('stable-apply-body').innerHTML = `
     <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px;">
@@ -11359,6 +11382,7 @@ function stableApplyRender(resultHtml) {
       <button class="toggle-btn" onclick="stableApplyClose()">닫기 ✕</button></div>
     <div style="font-size:.8rem;color:#4b5563;line-height:1.7;margin-bottom:10px;">
       · 체크한 옵션의 <b>안정재고만</b> 셀메이트에서 바꿉니다. 현재재고는 바꾸지 않아요.<br>
+      · <b>반영할 값</b> 칸에는 추천 값이 들어가 있어요. 칸을 눌러 <b>다른 값으로 바꾸면 그 값으로 반영</b>되고(그 줄이 자동으로 체크돼요), '추천으로'를 누르면 추천 값으로 돌아가요.<br>
       · 셀메이트의 상품명·옵션명이 <b>정확히 같은 것만</b> 반영하고, 애매한 건 건너뜁니다. 바꾸기 전 값은 기록해 두어 되돌릴 수 있어요.<br>
       · 처음에는 <b>한두 건만</b> 골라 반영한 뒤 셀메이트에서 값을 확인해 보세요. 확인이 끝나면 전체 선택으로 한 번에 반영할 수 있어요(상품 1개당 약 9초).
       ${nNew ? `<br>· <span style="background:#fef3c7;color:#92400e;border-radius:99px;padding:1px 7px;font-size:.7rem;font-weight:800;">신규</span> = <b>신규 안정재고 편성 필요</b> 품목 ${nNew}건이에요(셀메이트 안정재고 CSV에 없던 품목). 셀메이트에서 카페24 상품명·옵션명과 같은 것을 찾아 반영하고, 못 찾으면 건너뜁니다.` : ''}</div>
@@ -11371,7 +11395,7 @@ function stableApplyRender(resultHtml) {
       <span id="stable-apply-count" style="font-size:.8rem;color:#374151;"></span>
       <button id="stable-apply-go" class="btn-analyze" style="margin-left:auto;" onclick="stableApplyRun()"><i class="fa-solid fa-paper-plane"></i> 선택 항목 셀메이트에 반영</button></div>
     <div id="stable-apply-why" style="font-size:.8rem;color:#b91c1c;font-weight:700;text-align:right;margin:-4px 0 8px;"></div>
-    <div class="table-wrap" style="max-height:46vh;overflow:auto;"><table style="width:100%;font-size:.8rem;"><thead><tr><th></th><th style="text-align:left;">상품명</th><th style="text-align:left;">옵션</th><th>기존</th><th></th><th>추천</th><th>차이</th><th class="m-hide">1일 평균</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+    <div class="table-wrap" style="max-height:46vh;overflow:auto;"><table style="width:100%;font-size:.8rem;"><thead><tr><th></th><th style="text-align:left;">상품명</th><th style="text-align:left;">옵션</th><th>기존</th><th></th><th title="추천 값이 미리 들어가 있어요 — 칸을 눌러 다른 값으로 바꾸면 그 값으로 반영돼요">반영할 값<div style="font-size:.64rem;font-weight:500;color:#6b7280;">추천 · 직접 바꿀 수 있어요</div></th><th>차이</th><th class="m-hide">1일 평균</th></tr></thead><tbody>${rows}</tbody></table></div>`;
   stableApplyCount();
 }
 function stableSameName(a, b) { return stkNorm(a) === stkNorm(b) && stkNorm(a) !== ''; }
@@ -11466,9 +11490,11 @@ async function stableApplyRun() {
     if (!plan.length) { box.innerHTML = stableResultHtml('반영할 항목이 없어요', [], skipped, ''); return; }
     say(`찾기 완료 — 상품 ${plan.length}개를 반영합니다. 확인 창이 뜨면 확인을 눌러 주세요`);
     const { done, logErr, stopped } = await stableApplyPlan(S, plan, 'apply', null, say);
-    done.filter(d => d.ok && d.row).forEach(d => { const ref = d.row.ref; ref.stable = d.to; ref.changed = false; if (typeof ref.status === 'string' && ref.rec === ref.stable) ref.status = '적정'; stableApply.sel.delete(d.row.i); });
-    stableApply.rows = stableApply.rows.filter(r => r.ref.rec !== r.ref.stable).map(r => ({ ...r, from: r.isNew ? (r.ref.stable ?? null) : r.ref.stable }));
-    stableState.newItems = (stableState.newItems || []).filter(it => it.stable !== it.rec);   // 반영 끝난 신규 품목은 '신규 편성 필요' 표에서 뺀다
+    const appliedIdx = new Set();
+    done.filter(d => d.ok && d.row).forEach(d => { const ref = d.row.ref; ref.stable = d.to; ref.changed = ref.rec !== ref.stable; if (typeof ref.status === 'string' && ref.rec === ref.stable) ref.status = '적정'; stableApply.sel.delete(d.row.i); appliedIdx.add(d.row.i); });
+    // 반영된 줄은 창에서 뺀다 — 직접 넣은 값으로 반영해 추천과 달라도(2026-10-14). 나머지 줄은 입력해 둔 값을 그대로 둔다
+    stableApply.rows = stableApply.rows.filter(r => !appliedIdx.has(r.i) && r.ref.rec !== r.ref.stable).map(r => ({ ...r, from: r.isNew ? (r.ref.stable ?? null) : r.ref.stable }));
+    stableState.newItems = (stableState.newItems || []).filter(it => it.stable == null);   // 반영 끝난 신규 품목(셀메이트에 값이 생김 — 직접 넣은 값이어도)은 '신규 편성 필요' 표에서 뺀다
     const html = (stopped ? `<div style="border:1.5px solid #fca5a5;background:#fef2f2;border-radius:12px;padding:10px 14px;font-size:.84rem;color:#b91c1c;font-weight:700;margin-bottom:8px;">${escHtml(stopped)}</div>` : '') + stableResultHtml('셀메이트 반영 결과', done, skipped, logErr);
     try { renderStableResult(); } catch (e) { console.warn(e); }
     stableApplyRender(html);
