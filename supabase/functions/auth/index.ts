@@ -296,7 +296,7 @@ Deno.serve(async (req) => {
       if (!res.ok) throw new Error("직원 삭제 실패 " + res.status);
       // 권한 부여도 같이 지운다 (2026-10-08 취소·반품 접수, 2026-10-13 AI 에이전트·구매요청 담당자 추가) — 같은 아이디로 계정을 다시 만들었을 때 허용이 따라붙지 않게.
       // 광고 대시보드 허용(ad_dashboard_users)은 계정을 지우면 DB가 같이 지운다(on delete cascade).
-      for (const t of ["cxl_users", "agent_users", "purchase_managers"]) {
+      for (const t of ["cxl_users", "agent_users", "purchase_managers", "hire_users"]) {
         await usersRest(`${t}?user_id=eq.${encodeURIComponent(id)}`, { method: "DELETE", headers: { Prefer: "return=minimal" } }).catch(() => null);
       }
       return json({ ok: true });

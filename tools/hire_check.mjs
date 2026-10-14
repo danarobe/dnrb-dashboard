@@ -24,7 +24,9 @@ const db = {
     { id: 'admin1', name: '대표', role: 'admin', login_blocked: false },
     { id: 'log1', name: '물류담당', role: 'logistics', login_blocked: false },
     { id: 'cs1', name: 'CS직원', role: 'cs', login_blocked: false },
+    { id: 'md1', name: 'MD직원', role: 'staff', login_blocked: false },
   ],
+  hire_users: [],   // 접근 허용 목록 (2026-10-14)
   wm_hires: [], wm_hire_pays: [], wm_employees: [], wm_kiosk_log: [],
 };
 const seq = {};
@@ -109,6 +111,16 @@ async function call(as, body) {
   assert.equal((await call(null, { action: 'list' })).status, 401);
   assert.equal((await call('cs1', { action: 'list' })).status, 403);
   assert.equal((await call('log1', { action: 'list' })).status, 200);
+  // 허용 목록 (2026-10-14): MD·CS팀은 목록에 있을 때만 — 넣으면 열리고 빼면 바로 막힘, 남의 허용은 내 것이 아님
+  assert.equal((await call('md1', { action: 'list' })).status, 403);
+  db.hire_users.push({ user_id: 'md1' });
+  assert.equal((await call('md1', { action: 'list' })).status, 200);
+  assert.equal((await call('cs1', { action: 'list' })).status, 403);
+  db.hire_users.push({ user_id: 'cs1' });
+  assert.equal((await call('cs1', { action: 'list' })).status, 200);
+  db.hire_users.length = 0;
+  assert.equal((await call('md1', { action: 'list' })).status, 403);
+  assert.equal((await call('cs1', { action: 'list' })).status, 403);
 
   // 3) 등록 → DB엔 암호문만, 목록엔 가린 값, reveal은 전체 + 감사 로그
   const a = await call('log1', { action: 'upsert', name: '김알바', phone: '01012345678', rrn: '0503154123456', bank_name: '국민', account: '123-45-678901', status: 'interview', interview_date: '2026-10-12' });

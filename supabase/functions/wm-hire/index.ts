@@ -1,5 +1,5 @@
 // ═══════════════════════════════════════════════════════════════
-// 알바 채용·면접비 — 관리자 + 물류팀(원래 역할 logistics) 전용
+// 알바 채용·면접비 — 관리자 + 물류팀(원래 역할 logistics) + 허용 목록(hire_users — 관리자가 직원 관리 화면에서 지정, 2026-10-14)
 //
 //   POST { action, ... }  — x-auth-token 검증 후 hireRoleOk
 //
@@ -41,9 +41,13 @@ async function rest(path: string, init: RequestInit = {}): Promise<any[]> {
 async function hireRoleOk(me: { id: string; role: string }): Promise<boolean> {
   if (['sales-agent', 'cron', 'npm-sync'].includes(me.id)) return false;
   if (me.role === 'admin') return true;
-  if (me.role !== 'cs') return false;
-  const [row] = await rest(`app_users?id=eq.${encodeURIComponent(me.id)}&select=role`);
-  return String(row?.role ?? '') === 'logistics';
+  if (me.role === 'cs') {
+    const [row] = await rest(`app_users?id=eq.${encodeURIComponent(me.id)}&select=role`);
+    if (String(row?.role ?? '') === 'logistics') return true;
+  }
+  // 그 밖의 직원(MD·마케터·CS팀)은 허용 목록에 있을 때만 (2026-10-14 사용자 요청) — 허용되면 물류팀과 같은 범위
+  const [al] = await rest(`hire_users?user_id=eq.${encodeURIComponent(me.id)}&select=user_id`);
+  return !!al;
 }
 
 // ── 암호화 (AES-256-GCM) + 중복 확인용 해시 (HMAC-SHA256, 암호화 키에서 파생한 별도 키) ──
