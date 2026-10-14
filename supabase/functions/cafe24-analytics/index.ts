@@ -1409,7 +1409,7 @@ Deno.serve(async (req) => {
     //   cn_vendor POST — 사입상품명별 거래처명 수동 입력 (관리자·MD, 2026-10-01 — 입고 건 단위가 아니라 상품마다)
     //   cn_thumbs POST {get:[사입상품명…]} — 그 상품들의 작은 사진(전원, 한 번에 200개 — 화면에 보이는 것만 받게)
     //             POST {thumbs:{사입상품명:dataURL}} — 사진 저장(관리자·MD, 상품당 1장 — 같은 이름은 덮어씀). 목록과 따로 불러 표를 늦추지 않는다 (2026-10-02)
-    if (action === "cn_list" || action === "cn_upload" || action === "cn_check" || action === "cn_ship" || action === "cn_vendor" || action === "cn_line" || action === "cn_fabric" || action === "cn_label" || action === "cn_c24find" || action === "cn_c24set" || action === "cn_export" || action === "cn_thumbs" || action === "cn_left") {
+    if (action === "cn_list" || action === "cn_upload" || action === "cn_check" || action === "cn_ship" || action === "cn_vendor" || action === "cn_line" || action === "cn_fabric" || action === "cn_label" || action === "cn_c24find" || action === "cn_c24set" || action === "cn_export" || action === "cn_thumbs" || action === "cn_left" || action === "cn_order_upload" || action === "cn_order" || action === "cn_order_close") {
       // 관리자 + MD + 물류팀. **CS팀은 볼 필요 없음(2026-10-02 사용자 지정)** — 서버 역할은 logistics→cs로 합쳐져 있어 원래 역할을 다시 본다(soldoutRoleOk와 같은 방식)
       if (!(authed.role === "staff" || await soldoutRoleOk(authed))) return json({ error: "접근 권한이 없습니다" }, 403);
       const canPrice = authed.role === "admin";   // 단가·비용 = **관리자만** (2026-10-02 사용자 지정 — MD도 안 보이게. 물류팀은 원래 수량만)
@@ -1488,11 +1488,13 @@ Deno.serve(async (req) => {
         return json({ products, generated_at: new Date().toISOString() });
       }
       if (action === "cn_list") {
-        const [ships, lines, prodRows] = await Promise.all([
+        const [ships, lines, orders, orderLines, prodRows] = await Promise.all([
           sbRest("cn_shipments?select=*&order=id.desc&limit=500"),
           sbRest("cn_lines?select=*&order=shipment_id.desc,seq.asc&limit=20000"),
+          sbRest("cn_orders?select=*&order=id.desc&limit=300"),                                   // 주문서(2026-10-14) — 단가가 없어 역할과 관계없이 그대로
+          sbRest("cn_order_lines?select=*&order=order_id.desc,seq.asc&limit=30000"),
           sbRest("cn_products?select=sname,vendor,updated_by_name,updated_at,line,line_by_name,line_at,fabric,fabric_by_name,fabric_at,label,label_by_name,label_at,c24_nos,c24_by_name,c24_at&limit=5000"),
-        ]) as [Record<string, any>[], Record<string, any>[], Record<string, any>[]];
+        ]) as [Record<string, any>[], Record<string, any>[], Record<string, any>[], Record<string, any>[], Record<string, any>[]];
         const prods: Record<string, unknown> = {};
         for (const r of prodRows) prods[String(r.sname)] = { vendor: r.vendor ?? null, by: r.updated_by_name ?? null, at: r.updated_at ?? null, line: r.line ?? null, line_by: r.line_by_name ?? null, line_at: r.line_at ?? null, fabric: r.fabric ?? null, fabric_by: r.fabric_by_name ?? null, fabric_at: r.fabric_at ?? null, label: r.label === true, label_by: r.label_by_name ?? null, label_at: r.label_at ?? null, c24_nos: Array.isArray(r.c24_nos) ? r.c24_nos : null, c24_by: r.c24_by_name ?? null, c24_at: r.c24_at ?? null };
         const outLines = canPrice ? lines : lines.map((l) => { const { unit_price: _u, ...rest } = l; return rest; });
@@ -1509,7 +1511,7 @@ Deno.serve(async (req) => {
         try {
           const cps = await cnC24Load();
           const byNo = new Map(cps.map((x) => [Number(x.product_no), x]));
-          const names = [...new Set(lines.map((l) => String(l.sname ?? "")).filter(Boolean))];
+          const names = [...new Set([...lines, ...(orderLines ?? [])].map((l) => String(l.sname ?? "")).filter(Boolean))];   // 주문서에만 있는 품번(아직 입고 없음)도 같이
           const withNorm = cps.map((x) => ({ x, n: cnNorm(x.supply_product_name) })).filter((y) => y.n).map((y) => ({ ...y, h: cnHead(y.n) }));
           for (const name of names) {
             const k = cnNorm(name); if (!k) continue;
@@ -1527,21 +1529,38 @@ Deno.serve(async (req) => {
             if (maybe.length) c24_warn[name] = maybe.slice(0, 8).map((y) => cnC24Pub(y.x, "maybe"));
           }
         } catch (e) { c24_error = "카페24 상품 목록을 읽지 못했어요 — " + String(e).slice(0, 150); }
-        return json({ ships: outShips, lines: outLines, prods, c24, c24_warn, c24_error, can_price: canPrice, can_edit: canEdit });
+        return json({ ships: outShips, lines: outLines, orders: orders ?? [], order_lines: orderLines ?? [], prods, c24, c24_warn, c24_error, can_price: canPrice, can_edit: canEdit });
       }
       if (req.method !== "POST") return json({ error: "POST로 호출해주세요" }, 405);
       const b = await req.json().catch(() => ({})) as Record<string, any>;
       const now = new Date().toISOString();
       const dateOrNull = (v: unknown) => { const d = txt(v, 10); return d && /^\d{4}-\d{2}-\d{2}$/.test(d) ? d : null; };
+      // 품번이 입고 내역이나 주문서에 있는지 — 혼용률·라벨·라인·카페24 연결 저장의 검사(주문서에만 있는 품번도 저장할 수 있게, 2026-10-14)
+      const snameKnown = async (sname: string): Promise<unknown[]> => {
+        const a = ((await sbRest(`cn_lines?sname=eq.${encodeURIComponent(sname)}&select=id&limit=1`)) ?? []) as unknown[];
+        return a.length ? a : (((await sbRest(`cn_order_lines?sname=eq.${encodeURIComponent(sname)}&select=id&limit=1`)) ?? []) as unknown[]);
+      };
+      // 주문서 번호·입고 건 번호 검사 (2026-10-14) — cn_upload·cn_ship·cn_order*가 같이 쓴다(그래서 맨 위에 둔다)
+      const orderIdOrNull = async (v: unknown): Promise<number | null> => {
+        const n = Number(v);
+        if (v === null || v === undefined || v === "" || !Number.isInteger(n) || n < 1) return null;
+        const [o] = ((await sbRest(`cn_orders?id=eq.${n}&select=id`)) ?? []) as Record<string, any>[];
+        return o ? n : null;
+      };
+      const shipIds = (v: unknown): number[] | null => {
+        if (!Array.isArray(v) || v.length > 300) return null;
+        const ids = v.map((x) => Number(x));
+        return ids.every((n) => Number.isInteger(n) && n >= 1) ? [...new Set(ids)] : null;
+      };
       // 사진 저장 — 브라우저가 줄여 보낸 JPEG data URL만(한 장 30KB 이하, 한 번에 400장). 형식이 다르면 그 장은 버린다.
-      const saveThumbs = async (v: unknown): Promise<number> => {
+      const saveThumbs = async (v: unknown, keep = false): Promise<number> => {   // keep = 이미 사진이 있는 품번은 그대로 둔다(주문서에서 올 때)
         if (!v || typeof v !== "object" || Array.isArray(v)) return 0;
         const rows = Object.entries(v as Record<string, unknown>).slice(0, 400)
           .map(([k, img]) => ({ sname: txt(k, 100), img: String(img ?? "") }))
           .filter((r) => r.sname && r.img.length <= 30000 && /^data:image\/jpeg;base64,[A-Za-z0-9+/=]+$/.test(r.img))
           .map((r) => ({ ...r, updated_by_name: authed.name, updated_at: now }));
         if (!rows.length) return 0;
-        await sbRest("cn_thumbs?on_conflict=sname", { method: "POST", headers: { Prefer: "resolution=merge-duplicates,return=minimal" }, body: JSON.stringify(rows) });
+        await sbRest("cn_thumbs?on_conflict=sname", { method: "POST", headers: { Prefer: `resolution=${keep ? "ignore" : "merge"}-duplicates,return=minimal` }, body: JSON.stringify(rows) });
         return rows.length;
       };
       if (action === "cn_thumbs" && Array.isArray(b.get)) {
@@ -1601,7 +1620,7 @@ Deno.serve(async (req) => {
         const sname = txt(b.sname, 100);
         if (!sname) return json({ error: "사입상품명이 없어요" }, 400);
         if (b.fabric != null && String(b.fabric).trim().length > 200) return json({ error: "혼용률은 200자까지 적을 수 있어요" }, 400);
-        const known = ((await sbRest(`cn_lines?sname=eq.${encodeURIComponent(sname)}&select=id&limit=1`)) ?? []) as unknown[];
+        const known = await snameKnown(sname);
         if (!known.length) return json({ error: "입고 내역에 없는 사입상품명이에요 — 새로고침한 뒤 다시 시도해주세요" }, 404);
         const fabric = txt(b.fabric, 200);
         await sbRest("cn_products?on_conflict=sname", { method: "POST", headers: { Prefer: "resolution=merge-duplicates,return=minimal" }, body: JSON.stringify({ sname, fabric, fabric_by_name: authed.name, fabric_at: now }) });
@@ -1620,7 +1639,7 @@ Deno.serve(async (req) => {
         if (!canEdit) return json({ error: "카페24 상품 연결은 관리자·MD만 바꿀 수 있어요" }, 403);
         const sname = txt(b.sname, 100);
         if (!sname) return json({ error: "사입상품명이 없어요" }, 400);
-        const known = ((await sbRest(`cn_lines?sname=eq.${encodeURIComponent(sname)}&select=id&limit=1`)) ?? []) as unknown[];
+        const known = await snameKnown(sname);
         if (!known.length) return json({ error: "입고 내역에 없는 사입상품명이에요 — 새로고침한 뒤 다시 시도해주세요" }, 404);
         let nos: number[] | null = null;
         if (b.product_nos !== null && b.product_nos !== undefined) {
@@ -1639,7 +1658,7 @@ Deno.serve(async (req) => {
         const sname = txt(b.sname, 100);
         if (!sname) return json({ error: "사입상품명이 없어요" }, 400);
         if (typeof b.label !== "boolean") return json({ error: "라벨 값이 올바르지 않아요" }, 400);
-        const known = ((await sbRest(`cn_lines?sname=eq.${encodeURIComponent(sname)}&select=id&limit=1`)) ?? []) as unknown[];
+        const known = await snameKnown(sname);
         if (!known.length) return json({ error: "입고 내역에 없는 사입상품명이에요 — 새로고침한 뒤 다시 시도해주세요" }, 404);
         await sbRest("cn_products?on_conflict=sname", { method: "POST", headers: { Prefer: "resolution=merge-duplicates,return=minimal" }, body: JSON.stringify({ sname, label: b.label, label_by_name: authed.name, label_at: now }) });
         return json({ ok: true, sname, label: b.label, label_by: authed.name, label_at: now });
@@ -1651,7 +1670,7 @@ Deno.serve(async (req) => {
         if (!sname) return json({ error: "사입상품명이 없어요" }, 400);
         const line = b.line === null || b.line === "" || b.line === undefined ? null : String(b.line);
         if (line !== null && line !== "made" && line !== "normal") return json({ error: "라인은 made 또는 일반만 고를 수 있어요" }, 400);
-        const known = ((await sbRest(`cn_lines?sname=eq.${encodeURIComponent(sname)}&select=id&limit=1`)) ?? []) as unknown[];
+        const known = await snameKnown(sname);
         if (!known.length) return json({ error: "입고 내역에 없는 사입상품명이에요 — 새로고침한 뒤 다시 시도해주세요" }, 404);
         // 이 표의 다른 칸(거래처명 등)은 건드리지 않는다 — 보낸 칸만 합쳐진다
         await sbRest("cn_products?on_conflict=sname", { method: "POST", headers: { Prefer: "resolution=merge-duplicates,return=minimal" }, body: JSON.stringify({ sname, line, line_by_name: authed.name, line_at: now }) });
@@ -1678,6 +1697,7 @@ Deno.serve(async (req) => {
           title, vendor: txt(b.vendor, 80), order_round: txt(b.order_round, 40), ship_date: dateOrNull(b.ship_date),
           file_name: txt(b.file_name, 200), note: txt(b.note, 300), created_by: authed.id, created_by_name: authed.name,
           costs: "costs" in b ? (cleanCosts(b.costs) ?? null) : null,
+          order_id: await orderIdOrNull(b.order_id),   // 어느 주문서의 입고인지(없거나 지워진 주문서면 비움)
         }) }) as Record<string, any>[];
         try {
           await sbRest("cn_lines", { method: "POST", headers: { Prefer: "return=minimal" }, body: JSON.stringify(rows.map((r) => ({ ...r, shipment_id: ship.id }))) });
@@ -1697,6 +1717,74 @@ Deno.serve(async (req) => {
           fabrics_saved = await saveFabrics(Object.fromEntries(Object.entries(src2).filter(([k]) => { const n = String(txt(k, 100)); return inFile.has(n) && !have.has(n); })));
         } catch { /* 혼용률 저장 실패는 입고 건 저장을 막지 않는다 */ }
         return json({ ok: true, shipment: hideCosts(ship), line_count: rows.length, thumbs_saved, fabrics_saved });
+      }
+      // ── 주문서 (2026-10-14 사용자 요청 — 주문서 수량과 입고를 비교). 주문서에서는 품번·색상·사이즈·수량만 쓴다(단가 저장 안 함) ──
+      // 올리기: { title, order_date?, note?, file_name?, lines:[{sname,color?,size?,qty,sheet?}], ship_ids:[이 주문서의 입고 건], thumbs? } — 관리자·MD
+      if (action === "cn_order_upload") {
+        if (!canEdit) return json({ error: "주문서 올리기는 관리자·MD만 할 수 있어요" }, 403);
+        const title = txt(b.title, 100);
+        if (!title) return json({ error: "주문서 이름을 입력해주세요" }, 400);
+        const src = Array.isArray(b.lines) ? b.lines as Record<string, any>[] : [];
+        if (!src.length || src.length > 5000) return json({ error: "옵션 줄은 1~5,000개여야 해요" }, 400);
+        const ids = shipIds(b.ship_ids ?? []);
+        if (!ids) return json({ error: "연결할 입고 건이 올바르지 않아요" }, 400);
+        const rows: Record<string, unknown>[] = [];
+        for (let i = 0; i < src.length; i++) {
+          const r = src[i], sname = txt(r.sname, 100), qty = intOrNull(r.qty, 1_000_000);
+          if (!sname || qty === null || Number.isNaN(qty)) return json({ error: `${i + 1}번째 줄 값이 올바르지 않아요 (품번·수량 확인)` }, 400);
+          rows.push({ seq: i, sheet: txt(r.sheet, 60), sname, color: txt(r.color, 60), size: txt(r.size, 40), qty });
+        }
+        const [order] = await sbRest("cn_orders", { method: "POST", body: JSON.stringify({
+          title, order_date: dateOrNull(b.order_date), file_name: txt(b.file_name, 200), note: txt(b.note, 300), created_by: authed.id, created_by_name: authed.name,
+        }) }) as Record<string, any>[];
+        try {
+          await sbRest("cn_order_lines", { method: "POST", headers: { Prefer: "return=minimal" }, body: JSON.stringify(rows.map((r) => ({ ...r, order_id: order.id }))) });
+        } catch (e) {
+          await sbRest(`cn_orders?id=eq.${order.id}`, { method: "DELETE", headers: { Prefer: "return=minimal" } }).catch(() => null);   // 줄 저장 실패 → 빈 주문서를 남기지 않는다
+          return json({ error: "저장하지 못했어요 — " + String(e).slice(0, 150) }, 500);
+        }
+        let linked = 0;
+        if (ids.length) linked = (((await sbRest(`cn_shipments?id=in.(${ids.join(",")})`, { method: "PATCH", body: JSON.stringify({ order_id: order.id }) })) ?? []) as unknown[]).length;
+        let thumbs_saved = 0;
+        try { thumbs_saved = await saveThumbs(b.thumbs, true); } catch { /* 사진 저장 실패는 주문서 저장을 막지 않는다 */ }
+        return json({ ok: true, order, line_count: rows.length, linked, thumbs_saved });
+      }
+      // 수정·삭제: { id, delete:true } | { id, title?, order_date?, note?, ship_ids?: [이 주문서의 입고 건 전체 — 빠진 입고는 연결이 끊긴다] } — 관리자·MD
+      if (action === "cn_order") {
+        if (!canEdit) return json({ error: "주문서 수정·삭제는 관리자·MD만 할 수 있어요" }, 403);
+        const oid = await orderIdOrNull(b.id);
+        if (oid === null) return json({ error: "주문서를 찾지 못했어요 — 새로고침해 주세요" }, 404);
+        if (b.delete === true) {
+          await sbRest(`cn_orders?id=eq.${oid}`, { method: "DELETE", headers: { Prefer: "return=minimal" } });   // 줄은 같이 지워지고, 입고 건의 연결은 비워진다(입고 건·수량은 그대로)
+          return json({ ok: true, deleted: 1 });
+        }
+        const patch: Record<string, unknown> = {};
+        if ("title" in b) { const t = txt(b.title, 100); if (!t) return json({ error: "주문서 이름을 입력해주세요" }, 400); patch.title = t; }
+        if ("order_date" in b) patch.order_date = dateOrNull(b.order_date);
+        if ("note" in b) patch.note = txt(b.note, 300);
+        let order: Record<string, any> | null = null;
+        if (Object.keys(patch).length) [order] = await sbRest(`cn_orders?id=eq.${oid}`, { method: "PATCH", body: JSON.stringify(patch) }) as Record<string, any>[];
+        let linked: number | null = null;
+        if ("ship_ids" in b) {
+          const ids = shipIds(b.ship_ids);
+          if (!ids) return json({ error: "연결할 입고 건이 올바르지 않아요" }, 400);
+          await sbRest(`cn_shipments?order_id=eq.${oid}${ids.length ? `&id=not.in.(${ids.join(",")})` : ""}`, { method: "PATCH", headers: { Prefer: "return=minimal" }, body: JSON.stringify({ order_id: null }) });
+          linked = ids.length ? (((await sbRest(`cn_shipments?id=in.(${ids.join(",")})`, { method: "PATCH", body: JSON.stringify({ order_id: oid }) })) ?? []) as unknown[]).length : 0;
+        } else if (!Object.keys(patch).length) return json({ error: "바꿀 내용이 없어요" }, 400);
+        return json({ ok: true, order, linked });
+      }
+      // 주문 대비 아직 안 들어온 옵션을 사람이 정리: { line_id(주문서 줄), state: 'in' | 'cancel' | null, note? } — 관리자·MD·물류팀
+      if (action === "cn_order_close") {
+        const id = Number(b.line_id);
+        if (!Number.isInteger(id) || id < 1) return json({ error: "줄 번호가 올바르지 않아요" }, 400);
+        const state = b.state === null ? null : String(b.state ?? "");
+        if (state !== null && state !== "in" && state !== "cancel") return json({ error: "처리 값이 올바르지 않아요" }, 400);
+        const patch = state
+          ? { closed: state, closed_note: txt(b.note, 200), closed_by_name: authed.name, closed_at: now }
+          : { closed: null, closed_note: null, closed_by_name: null, closed_at: null };
+        const [row] = ((await sbRest(`cn_order_lines?id=eq.${id}`, { method: "PATCH", body: JSON.stringify(patch) })) ?? []) as Record<string, any>[];
+        if (!row) return json({ error: "이미 지워진 주문서 줄이에요 — 새로고침해 주세요" }, 404);
+        return json({ ok: true, line: row });
       }
       // 미출고 잔여 직접 처리 (2026-10-14 사용자 요청) — 다음 입고 엑셀에 다시 나오지 않는 잔여를 사람이 닫는다.
       //   { line_id, state: 'in'(들어옴으로 처리) | 'cancel'(받지 않기로 함) | null(되돌리기), note? } — 관리자·MD·물류팀(실제 수량 입력과 같은 범위). 누가·언제는 서버가 적는다.
@@ -1757,6 +1845,10 @@ Deno.serve(async (req) => {
       if ("order_round" in b) patch.order_round = txt(b.order_round, 40);
       if ("ship_date" in b) patch.ship_date = dateOrNull(b.ship_date);
       if ("note" in b) patch.note = txt(b.note, 300);
+      if ("order_id" in b) {   // 이 입고가 어느 주문서의 것인지(null = 연결 끊기)
+        if (b.order_id !== null && (await orderIdOrNull(b.order_id)) === null) return json({ error: "없는 주문서예요 — 새로고침해 주세요" }, 404);
+        patch.order_id = b.order_id === null ? null : Number(b.order_id);
+      }
       if ("costs" in b) {
         if (!canPrice) return json({ error: "비용 내용은 관리자만 바꿀 수 있어요" }, 403);
         const c = cleanCosts(b.costs); if (c === undefined) return json({ error: "비용 내용이 올바르지 않아요" }, 400); patch.costs = c;
