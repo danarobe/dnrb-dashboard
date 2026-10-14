@@ -3968,7 +3968,8 @@ async function soldoutSell(target) {
   const batchId = `${new Date().toISOString().slice(0, 19).replace(/[-:T]/g, '')}-${Math.random().toString(36).slice(2, 7)}`;
   const done = []; let logErr = '', stopped = '';
   try {
-    const token = await S.beginSell({ products: items.length, options: nOpt, target, preview: items.slice(0, 8).map(x => `${x.name} — ${x.opts.map(o => o.option).join(', ')}`) });
+    await smConfirmGate(say);
+    const token = await smConfirmCall(() => S.beginSell({ products: items.length, options: nOpt, target, preview: items.slice(0, 8).map(x => `${x.name} — ${x.opts.map(o => o.option).join(', ')}`) }));
     for (let i = 0; i < items.length; i += 10) {
       const part = items.slice(i, i + 10);
       say(`셀메이트에서 ${T.label}(으)로 바꾸는 중… 상품 ${Math.min(i + part.length, items.length)} / ${items.length} — 이 탭을 닫지 마세요`);
@@ -4004,7 +4005,7 @@ async function soldoutSell(target) {
     soldoutLog.rows = null;   // 변경 내역은 다음에 열 때 새로 읽음
     if (ok.length) soldoutC24Check();   // 셀메이트를 바꿨으니 카페24 점검도 새로 (셀메이트 재고 연동이 카페24에 반영됐는지 확인)
   } catch (e) {
-    box.innerHTML = `<div style="border:1.5px solid #fca5a5;background:#fef2f2;border-radius:12px;padding:10px 14px;font-size:.82rem;color:#b91c1c;">${e.code === 'cancel' || /취소/.test(e.message) ? '변경을 취소했어요. 셀메이트는 바뀌지 않았습니다.' : '변경하지 못했어요 — ' + escHtml(e.message)}</div>`;
+    box.innerHTML = `<div style="border:1.5px solid #fca5a5;background:#fef2f2;border-radius:12px;padding:10px 14px;font-size:.82rem;color:#b91c1c;">${e.quick ? escHtml(SM_QUICK_CANCEL) : e.code === 'cancel' || /취소/.test(e.message) ? '변경을 취소했어요. 셀메이트는 바뀌지 않았습니다.' : '변경하지 못했어요 — ' + escHtml(e.message)}</div>`;
   } finally { soldoutState.busy = false; }
 }
 // 변경 내역 (2026-09-29 사용자 요청 — 소진시품절로 바꾼 목록 따로 보기): soldout_fix_log, 바꾼 상태·기간·결과·검색
@@ -11384,6 +11385,7 @@ function stableApplyRender(resultHtml) {
       · 체크한 옵션의 <b>안정재고만</b> 셀메이트에서 바꿉니다. 현재재고는 바꾸지 않아요.<br>
       · <b>반영할 값</b> 칸에는 추천 값이 들어가 있어요. 칸을 눌러 <b>다른 값으로 바꾸면 그 값으로 반영</b>되고(그 줄이 자동으로 체크돼요), '추천으로'를 누르면 추천 값으로 돌아가요.<br>
       · 셀메이트의 상품명·옵션명이 <b>정확히 같은 것만</b> 반영하고, 애매한 건 건너뜁니다. 바꾸기 전 값은 기록해 두어 되돌릴 수 있어요.<br>
+      · 반영을 누르면 셀메이트에서 상품을 찾은 뒤 <b>확인 창</b>이 떠요. 그때 <b>이 탭을 보고 있어야</b> 해요 — 다른 탭을 보고 있으면 브라우저가 확인 창을 막아요(돌아오면 그때 떠요).<br>
       · 처음에는 <b>한두 건만</b> 골라 반영한 뒤 셀메이트에서 값을 확인해 보세요. 확인이 끝나면 전체 선택으로 한 번에 반영할 수 있어요(상품 1개당 약 9초).
       ${nNew ? `<br>· <span style="background:#fef3c7;color:#92400e;border-radius:99px;padding:1px 7px;font-size:.7rem;font-weight:800;">신규</span> = <b>신규 안정재고 편성 필요</b> 품목 ${nNew}건이에요(셀메이트 안정재고 CSV에 없던 품목). 셀메이트에서 카페24 상품명·옵션명과 같은 것을 찾아 반영하고, 못 찾으면 건너뜁니다.` : ''}</div>
     ${S ? `<div style="background:#ecfdf5;border:1.5px solid #a7f3d0;border-radius:10px;padding:7px 12px;font-size:.78rem;color:#065f46;font-weight:700;margin-bottom:10px;"><i class="fa-solid fa-plug-circle-check"></i> 셀메이트 연결 스크립트 v${escHtml(String(S.version || ''))} 연결됨</div>` : stableBridgeHelp()}
@@ -11411,13 +11413,31 @@ async function stableFindProduct(S, name) {
   for (const no of cands) { const info = await S.read(no); if (stableSameName(info.name, name)) return info; }
   return null;
 }
+/* 셀메이트 연결 스크립트의 확인 창 지키기 (2026-10-14 실사례 — 안정재고 반영 중 '반영을 취소했어요'가 혼자 뜸):
+   확인 창(window.confirm)은 연결 스크립트가 띄운다. 크롬·엣지는 **보고 있지 않은 탭에서 뜬 확인 창을 바로 '취소'로 닫는다** — 상품을 찾는 동안(상품당 몇 초)
+   다른 탭(셀메이트 등)을 보고 있었으면 아무것도 안 눌렀는데 취소가 된다. 그래서 확인 창을 부르기 전에 이 탭이 보일 때까지 기다린다(탭 제목에도 알림).
+   또 창이 뜨자마자(0.4초 안) 취소로 돌아오면 사람이 누른 게 아니라 브라우저가 막은 것으로 보고 따로 안내한다(e.quick). */
+async function smConfirmGate(say) {
+  if (!document.hidden) return;
+  const title = document.title; document.title = '● 확인 필요 — ' + title;
+  say('찾기가 끝났어요 — 이 탭으로 돌아오면 셀메이트 확인 창이 떠요 (다른 탭을 보고 있으면 브라우저가 확인 창을 막아요)');
+  await new Promise(res => { const f = () => { if (!document.hidden) { document.removeEventListener('visibilitychange', f); res(); } }; document.addEventListener('visibilitychange', f); });
+  document.title = title;
+  await new Promise(r => setTimeout(r, 400));
+}
+async function smConfirmCall(fn) {   // fn = 확인 창을 띄우는 연결 스크립트 호출(begin·beginSell)
+  const t0 = Date.now();
+  try { return await fn(); }
+  catch (e) { if (e && (e.code === 'cancel' || /취소/.test(String(e.message || ''))) && Date.now() - t0 < 400) e.quick = true; throw e; }
+}
+const SM_QUICK_CANCEL = '확인 창이 뜨자마자 저절로 닫혀서 시작하지 않았어요(누르지 않았는데 취소됨). 셀메이트는 바뀌지 않았습니다. 이 탭을 보고 있는 상태에서 다시 눌러 주세요 — 그래도 같으면 이 페이지를 새로고침(F5)한 뒤 다시 해 주세요(전에 확인 창에서 \'이 페이지에서 추가 대화 상자 만들지 않기\'를 체크했으면 새로고침해야 풀려요).';
 // 계획 전체를 15개씩 나눠 반영 — 확인은 begin()으로 한 번, 묶음마다 기록 저장, 진행 상황은 say()로 알림
 async function stableApplyPlan(S, plan, kind, refBatch, say) {
   const label = kind === 'rollback' ? '워크스페이스 안정재고 되돌리기' : '워크스페이스 안정재고 편성';
   const batchId = `${new Date().toISOString().slice(0, 19).replace(/[-:T]/g, '')}-${Math.random().toString(36).slice(2, 7)}`;
   const nOpt = plan.reduce((n, p) => n + p.changes.length, 0);
   let token = null;
-  if (typeof S.begin === 'function') token = await S.begin({ products: plan.length, options: nOpt, rollback: kind === 'rollback', preview: plan.slice(0, 8).map(p => `${p.info.name} — ${p.changes.map(c => `${c.opt.name} → ${c.to}`).join(', ')}`) });
+  if (typeof S.begin === 'function') { await smConfirmGate(say); say('셀메이트 확인 창에서 [확인]을 눌러 주세요'); token = await smConfirmCall(() => S.begin({ products: plan.length, options: nOpt, rollback: kind === 'rollback', preview: plan.slice(0, 8).map(p => `${p.info.name} — ${p.changes.map(c => `${c.opt.name} → ${c.to}`).join(', ')}`) })); }
   const done = []; let logErr = '', stopped = '';
   const CH = token ? 15 : plan.length;
   for (let i = 0; i < plan.length; i += CH) {
@@ -11501,7 +11521,7 @@ async function stableApplyRun() {
     showToast(`셀메이트 반영: 성공 ${done.filter(d => d.ok).length}건${done.some(d => !d.ok) ? ' · 실패 ' + done.filter(d => !d.ok).length + '건' : ''}`);
     if ($('stable-history') && $('stable-history').style.display !== 'none') stableHistLoad();
   } catch (e) {
-    box.innerHTML = `<div style="border:1.5px solid #fca5a5;background:#fef2f2;border-radius:12px;padding:10px 14px;font-size:.82rem;color:#b91c1c;">${e.code === 'cancel' ? '반영을 취소했어요. 셀메이트는 바뀌지 않았습니다.' : '반영하지 못했어요 — ' + escHtml(e.message)}</div>`;
+    box.innerHTML = `<div style="border:1.5px solid #fca5a5;background:#fef2f2;border-radius:12px;padding:10px 14px;font-size:.82rem;color:#b91c1c;">${e.quick ? escHtml(SM_QUICK_CANCEL) : e.code === 'cancel' ? '반영을 취소했어요(확인 창에서 [취소]를 눌렀어요). 셀메이트는 바뀌지 않았습니다.' : '반영하지 못했어요 — ' + escHtml(e.message)}</div>`;
   } finally { stableApply.busy = false; }
 }
 /* ── 셀메이트 반영 내역 (2026-09-28 사용자 요청) — 옵션 단위 전체 내역: 기간·구분·결과·검색 필터, 요약, 엑셀 ── */
@@ -11684,7 +11704,7 @@ async function stableRollback(batchId) {
     const { done, logErr, stopped } = await stableApplyPlan(S, plan, 'rollback', batchId, t => { box.innerHTML = `<div class="empty-state"><p><i class="fa-solid fa-spinner fa-spin"></i> ${escHtml(t)}</p></div>`; });
     box.innerHTML = (stopped ? `<div style="color:#b91c1c;font-weight:700;font-size:.84rem;margin-bottom:6px;">${escHtml(stopped)}</div>` : '') + stableResultHtml('되돌리기 결과', done, skipped, logErr);
     showToast(`되돌리기: 성공 ${done.filter(d => d.ok).length}건`);
-  } catch (e) { box.innerHTML = `<div style="border:1.5px solid #fca5a5;background:#fef2f2;border-radius:12px;padding:10px 14px;font-size:.82rem;color:#b91c1c;">${e.code === 'cancel' ? '되돌리기를 취소했어요.' : '되돌리지 못했어요 — ' + escHtml(e.message)}</div>`; }
+  } catch (e) { box.innerHTML = `<div style="border:1.5px solid #fca5a5;background:#fef2f2;border-radius:12px;padding:10px 14px;font-size:.82rem;color:#b91c1c;">${e.quick ? escHtml(SM_QUICK_CANCEL) : e.code === 'cancel' ? '되돌리기를 취소했어요.' : '되돌리지 못했어요 — ' + escHtml(e.message)}</div>`; }
   finally { stableApply.busy = false; }
 }
 
