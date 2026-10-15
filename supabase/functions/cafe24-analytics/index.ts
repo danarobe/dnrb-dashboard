@@ -927,7 +927,7 @@ function retGroupsOf(o: Record<string, any>, nrSets: NrSets, cp: RetCoupons): Re
 //  · level: ok(규칙대로) / warn(규칙과 다름 — 계산이 확실한데 금액이 다르거나 반품 불가 품목) / note(계산이 불확실한 주문인데 금액이 다름 — 참고) / skip(교환 등 점검 안 함)
 const RF_SOFT_TAGS = new Set(["불량·오배송", "사유 글 확인", "그 밖의 사유", "쿠폰 확인", "경계 금액", "다른 취소·교환·반품", "수거 신청 아님", "그 밖의 할인", "배송비 확인", "배송 묶음",
   "1+1 상품", "10% 이상 할인", "할인 상품 수량", "예치금", "수량 일부", "배송 전 상태", "금액 확인", "미결제"]);
-function rfRuleOf(r: Record<string, any>, o: Record<string, any> | null, nrSets: NrSets, cp: RetCoupons) {
+function rfRuleOf(r: Record<string, any>, o: Record<string, any> | null, nrSets: NrSets, cp: RetCoupons, orderRefunds: Record<string, any>[] = []) {
   const n = (v: unknown) => Math.round(Number(v ?? 0) || 0);
   const won = (v: number) => v.toLocaleString("ko-KR") + "원";
   const got = { amount: n(r.actual_refund_amount), points: n(r.used_points) };
@@ -990,6 +990,43 @@ function rfRuleOf(r: Record<string, any>, o: Record<string, any> | null, nrSets:
       if (all.some((it) => n(it.additional_discount_price) > 0) && !soft.some((t) => /할인/.test(t))) soft.push("상품별 할인이 적용된 상품이 든 주문이에요 — 할인 취소 여부에 따라 금액이 달라요");
       if (cands[0].amount <= 0) soft.push("규칙대로 빼면 환불액이 0원 이하가 돼요");
       basis = `규칙 계산(부분 취소): 상품 ${won(goods)}${needFee ? ` − 배송비 ${won(fee)}(무료배송 주문 · 남는 상품 ${won(remain)})` : ""}${cpc ? ` − 쿠폰 취소 ${won(cpc)}` : ""}${pts ? ` − 적립금 반환 ${won(pts)}` : ""} = ${won(cands[0].amount)}${pts ? ` + 적립금 ${won(pts)}` : ""}`;
+    }
+  }
+  // ── 같은 주문에 반품을 따로 접수한 경우(2026-10-15 사용자 지정) ──
+  //  접수마다 따로 계산하면 남는 금액·배송비가 서로 엇갈려 '규칙과 다름'처럼 보인다 → 접수별 비교 대신, 같은 주문의 반품 접수를 한 번의 반품으로 합쳐 계산하고
+  //  그 환불들의 합과 견준다. 합배송이면 반품 배송비가 중복 차감되지 않는 게 맞고, 개별 배송이면 편도 3,000원을 추가 부과(사용자 규칙) → 둘 다 맞는 것으로 보고 어느 쪽인지 알려 준다.
+  //  어느 쪽인지는 사람이 정할 일이라 늘 '확인해 보세요'(note).
+  if (kind === "return") {
+    const sibClaims = [...new Set(all.filter((it) => !codes.has(String(it.order_item_code)) && /^R/.test(String(it.order_status ?? "")) && it.claim_code && String(it.claim_code) !== claim).map((it) => String(it.claim_code)))];
+    if (sibClaims.length) {
+      const allClaims = [claim, ...sibClaims];
+      const rets = ((o.return ?? []) as Record<string, any>[]).filter((x) => allClaims.includes(String(x.claim_code)));
+      const invoices = [...new Set(rets.map((x) => String(x.return_invoice_no ?? "").trim()).filter(Boolean))];
+      const msg = `같은 주문건에 반품 접수를 각각 따로 했어요(${allClaims.length}건). 합배송이면 반품 배송비가 중복 차감되지 않는 게 맞고, 개별 배송이면 편도 3,000원을 추가 부과해야 해요.` +
+        (invoices.length ? ` (회수 송장 ${invoices.length}개${invoices.length > 1 ? " — 서로 달라요" : " — 같아요"})` : "");
+      const sibCodes = new Set(all.filter((it) => sibClaims.includes(String(it.claim_code ?? ""))).map((it) => String(it.order_item_code)));
+      // 형제 접수의 환불 내역(환불전·환불완료) — 각 형제 접수의 상품이 전부 어떤 환불에 들어 있어야 합칠 수 있다
+      const sibRefunds = orderRefunds.filter((x) => String(x.refund_code) !== String(r.refund_code) && String(x.status ?? "F") !== "M" && ((x.order_item_code ?? []) as unknown[]).some((c) => sibCodes.has(String(c))));
+      const covered = new Set(sibRefunds.flatMap((x) => ((x.order_item_code ?? []) as unknown[]).map(String)));
+      const issuesSplit: Issue[] = [{ level: "note", tag: "반품 따로 접수", text: msg }];
+      let basis2 = "", okLine = "";
+      if ([...sibCodes].every((c) => covered.has(c))) {
+        const merged = { ...fake, items: all.map((it) => codes.has(String(it.order_item_code)) || sibCodes.has(String(it.order_item_code)) ? { ...it, order_status: "R10", claim_code: claim, order_status_before_cs: it.order_status_before_cs } : it) };
+        const g2 = retGroupsOf(merged, nrSets, cp).find((x) => x.claim_code === claim);
+        if (g2) {
+          const e2 = g2.expect as { amount: number; points: number };
+          const want = e2.amount + e2.points, extra = RET_FEE * sibClaims.length;
+          const sum = [r, ...sibRefunds].reduce((t, x) => t + n(x.actual_refund_amount) + n(x.used_points), 0);
+          basis2 = `합쳐서 계산(반품 ${allClaims.length}건 = 한 번의 반품): 상품 ${won(n(g2.calc.goods))}${n(g2.calc.disc) ? ` − 할인 ${won(n(g2.calc.disc))}` : ""} − 반품 배송비 ${won(n(g2.calc.fee))}${n(g2.calc.coupon_cancel) ? ` − 쿠폰 취소 ${won(n(g2.calc.coupon_cancel))}` : ""} = ${won(want)} · 접수된 환불 ${allClaims.length}건 합계 ${won(sum)}`;
+          const soft2 = (g2.manual as { tag: string; text: string }[]).filter((m) => RF_SOFT_TAGS.has(m.tag) && !["불량·오배송", "사유 글 확인", "그 밖의 사유"].includes(m.tag)).map((m) => m.text);
+          if (sum === want) okLine = `합치면 합배송 기준으로 규칙대로예요(반품 배송비 한 번만 차감). 개별 배송이었다면 ${won(extra)}을 더 빼야 해요.`;
+          else if (sum === want - extra) okLine = `합치면 개별 배송 기준으로 규칙대로예요(편도 ${won(RET_FEE)} 추가 부과됨). 합배송이었다면 ${won(extra)}을 더 돌려줘야 해요.`;
+          else issuesSplit.push({ level: "note", tag: "합쳐도 규칙과 다름", text: `반품 ${allClaims.length}건을 합쳐도 규칙(합배송 ${won(want)} · 개별 배송 ${won(want - extra)})과 달라요 — 접수된 합계 ${won(sum)}` + (soft2.length ? ` — 계산이 정확하지 않을 수 있어요: ${soft2.join(" / ")}` : "") });
+        }
+      } else issuesSplit.push({ level: "note", tag: "합쳐서 계산 못 함", text: "다른 반품 접수가 아직 환불전이 아니라 합쳐서 계산하지 못했어요" });
+      if (okLine) issuesSplit[0].text += " " + okLine;
+      const keepWarn = issues.filter((x) => x.level === "warn");
+      return { level: keepWarn.length ? "warn" : "note", basis: basis2 || basis, expect: null, got, ok_text: "", issues: [...keepWarn, ...issuesSplit] };
     }
   }
   const expect = { amount: cands[0].amount, points: cands[0].points };
@@ -1302,8 +1339,8 @@ Deno.serve(async (req) => {
         // 규칙 점검(2026-10-15 사용자 요청) — 접수된 금액이 우리 취소·반품 규칙과 맞는지. 못 읽으면 rule:null(목록은 그대로)
         const nrSets = await rscanNrSets(token).catch(() => null);
         const cp = nrSets ? await retCouponInfo([...orders.values()], token).catch(() => null) : null;
-        const ruleOf = (r: Record<string, any>) => { if (!nrSets || !cp) return null; try { return rfRuleOf(r, orders.get(String(r.order_id)) ?? null, nrSets, cp); } catch { return null; } };
         const oref = await rfOrderRefunds([...orders.keys()]).catch(() => null);
+        const ruleOf = (r: Record<string, any>) => { if (!nrSets || !cp) return null; try { return rfRuleOf(r, orders.get(String(r.order_id)) ?? null, nrSets, cp, oref?.get(String(r.order_id)) ?? uniq.filter((x) => String(x.order_id) === String(r.order_id))); } catch { return null; } };
         const guardOf = (r: Record<string, any>) => oref ? rfGuardOf(r, orders.get(String(r.order_id)) ?? null, oref.get(String(r.order_id)) ?? [r]) : null;
         const rows = uniq.map((r) => { const rule = ruleOf(r); return { ...rfApplyGuard(rfRow(r, orders.get(String(r.order_id)) ?? null) as Record<string, any>, rule, guardOf(r)), rule }; }).sort((a, b) => String(a.accepted_at).localeCompare(String(b.accepted_at)));
         return json({ fetched_at: new Date().toISOString(), rows });
@@ -1340,9 +1377,9 @@ Deno.serve(async (req) => {
       if (b.expect_points !== undefined && Number(b.expect_points) !== row.points) return json({ error: `화면의 적립금 반환(${Number(b.expect_points).toLocaleString("ko-KR")}원)과 카페24의 지금 값(${row.points.toLocaleString("ko-KR")}원)이 달라요 — 새로고침해 주세요`, stale: true }, 409);
       // ── 안전장치(2026-10-15 사용자 요청): 보내기 직전, 카페24에서 새로 읽은 값으로 ──
       //  ① 결제액 한도(절대 금지 — 넘길 방법 없음) ② 상품 값보다 많은 환불·규칙과 다름·규칙 계산 불가 → 화면이 사람에게 따로 확인받고 ack:true를 보낸 경우만
-      let guard: ReturnType<typeof rfGuardOf>, rule: Record<string, any> | null = null;
+      let guard: ReturnType<typeof rfGuardOf>, rule: Record<string, any> | null = null, oref: Record<string, any>[] = [];
       try {
-        const oref = (await rfOrderRefunds([orderId])).get(orderId) ?? [];
+        oref = (await rfOrderRefunds([orderId])).get(orderId) ?? [];
         if (!oref.some((x) => String(x.refund_code) === code)) oref.push(rf);
         guard = rfGuardOf(rf, order, oref);
       } catch (e) { return json({ error: "이 주문의 환불 내역을 읽지 못해 금액 한도를 확인할 수 없어요 — 보내지 않았어요 (" + String(e).slice(0, 150) + ")" }, 502); }
@@ -1350,7 +1387,7 @@ Deno.serve(async (req) => {
       try {
         const nrSets = await rscanNrSets(token);
         const cp = await retCouponInfo([order as Record<string, any>], token);
-        rule = rfRuleOf(rf, order, nrSets, cp);
+        rule = rfRuleOf(rf, order, nrSets, cp, oref);
       } catch { rule = null; }
       const ackWhy = [...guard.ack, ...(!rule ? ["규칙 점검을 하지 못했어요"] : rule.level === "warn" || rule.level === "note" ? (rule.issues as { text: string }[]).map((x) => x.text) : [])];
       // 검사만(dry): 안전장치 결과만 돌려주고 끝 — 카페24에 아무것도 보내지 않는다(점검·시험용)
