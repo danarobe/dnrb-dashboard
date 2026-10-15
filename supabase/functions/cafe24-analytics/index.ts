@@ -1013,6 +1013,33 @@ function rfRuleOf(r: Record<string, any>, o: Record<string, any> | null, nrSets:
   return out(firm ? "warn" : "note", basis, expect);
 }
 
+// ── 환불 안전장치(2026-10-15 사용자 요청 — "잘못 입력해서 주문금액보다 더 많이, 또는 거의 다 환불되는 불상사가 두렵다") ──
+// 이 탭은 금액을 넣지 않는다(카페24에 접수된 금액 그대로 완료) → 위험 = 접수 때 사람이 잘못 넣은 금액이 그대로 나가는 것. 보내기 직전 서버가 막는다.
+//  · block(절대 안 보냄, 넘길 방법 없음): 이 환불 + 이 주문에서 이미 끝난 환불 > 고객이 낸 돈(결제액 + 쓴 적립금 + 예치금)
+//    — 지난 60일 환불완료 3,235건 중 0건(정상 환불에서는 생길 수 없는 일).
+//  · ack(사람이 한 번 더 확인해야 보냄): 고객에게 남는 상품이 있는데 이 환불이 환불 상품의 판매가(상품 할인 뺀 값)보다 많음
+//    — 같은 기간 11건(상품 할인을 안 뺐거나 다른 상품 몫까지 돌려준 경우 등). 마지막 남은 상품 환불은 앞서 뺀 배송비가 돌아오므로 결제액 한도만 본다.
+function rfGuardOf(r: Record<string, any>, o: Record<string, any> | null, orderRefunds: Record<string, any>[]) {
+  const n = (v: unknown) => Math.round(Number(v ?? 0) || 0);
+  const won = (v: number) => v.toLocaleString("ko-KR") + "원";
+  const block: string[] = [], ack: string[] = [];
+  if (!o) { block.push("주문을 읽지 못해 금액 한도를 확인할 수 없어요"); return { block, ack, paid: 0, prior: 0, me: 0, items_net: 0 }; }
+  const init = (o.initial_order_amount ?? {}) as Record<string, any>;
+  const paid = n(init.payment_amount) + n(init.points_spent_amount) + n(init.credits_spent_amount);
+  const amt = (x: Record<string, any>) => n(x.actual_refund_amount) + n(x.used_points) + n(x.used_credits);
+  const me = amt(r);
+  const prior = orderRefunds.filter((x) => String(x.refund_code) !== String(r.refund_code) && String(x.status ?? "") === "T").reduce((t, x) => t + amt(x), 0);
+  const codes = new Set(((r.order_item_code ?? []) as unknown[]).map(String));
+  const all = (o.items ?? []) as Record<string, any>[];
+  const its = all.filter((it) => codes.has(String(it.order_item_code)));
+  const net = its.reduce((t, it) => t + (n(it.product_price) + n(it.option_price)) * (Number(it.quantity ?? 0) || 0) - n(it.additional_discount_price), 0);
+  const staying = all.filter((it) => !codes.has(String(it.order_item_code)) && !/^[CR]/.test(String(it.order_status ?? "")));
+  if (paid <= 0) block.push("고객이 낸 금액을 읽지 못했어요");
+  else if (prior + me > paid) block.push(`고객이 낸 돈(${won(paid)})보다 많이 환불돼요 — 이미 환불 ${won(prior)} + 이번 ${won(me)} = ${won(prior + me)}`);
+  if (staying.length && me > net) ack.push(`고객에게 남는 상품이 ${staying.length}개 있는데, 이번 환불(${won(me)})이 환불하는 상품 값(${won(net)})보다 ${won(me - net)} 많아요`);
+  return { block, ack, paid, prior, me, items_net: net };
+}
+
 Deno.serve(async (req) => {
   const opt = handleOptions(req);
   if (opt) return opt;
@@ -1229,6 +1256,36 @@ Deno.serve(async (req) => {
         }
         return m;
       };
+      const rfOrderRefunds = async (ids: string[]) => {
+        const m = new Map<string, Record<string, any>[]>();
+        if (!ids.length) return m;
+        const first = ids.map((id) => id.slice(0, 4) + "-" + id.slice(4, 6) + "-" + id.slice(6, 8)).sort()[0];
+        const today = rfDay(0), seen = new Set<string>();
+        for (let s0 = new Date(first + "T00:00:00Z"); s0.toISOString().slice(0, 10) <= today; s0.setUTCDate(s0.getUTCDate() + 89)) {
+          const e0 = new Date(s0); e0.setUTCDate(e0.getUTCDate() + 88);
+          const st = s0.toISOString().slice(0, 10), en = e0.toISOString().slice(0, 10) > today ? today : e0.toISOString().slice(0, 10);
+          for (let i = 0; i < ids.length; i += 20) {
+            for (let offset = 0; offset < 1000; offset += 100) {
+              const body = await apiGet(`${API_BASE}/admin/refunds?start_date=${st}&end_date=${en}&date_type=accepted_refund_date&order_id=${ids.slice(i, i + 20).join(",")}&limit=100&offset=${offset}`, token);
+              const rs = (body.refunds ?? []) as Record<string, any>[];
+              for (const x of rs) { const k = String(x.refund_code); if (seen.has(k)) continue; seen.add(k); const l = m.get(String(x.order_id)) ?? []; l.push(x); m.set(String(x.order_id), l); }
+              if (rs.length < 100) break;
+            }
+          }
+        }
+        return m;
+      };
+      // 안전장치를 행에 붙인다: block → '직접 확인'으로(보낼 수 없음), ack → 규칙 점검 칸에 빨간 줄 + 보낼 때 한 번 더 확인(need_ack)
+      const rfApplyGuard = (row: Record<string, any>, rule: Record<string, any> | null, guard: ReturnType<typeof rfGuardOf> | null) => {
+        if (guard) {
+          if (guard.block.length && row.group !== "cash") { row.group = "check"; row.why = [...guard.block, ...row.why]; }
+          if (guard.block.length && row.group === "cash") row.cash_block = guard.block;
+          if (rule && guard.ack.length) { rule.level = "warn"; rule.issues = [...guard.ack.map((text) => ({ level: "warn", tag: "상품 값보다 많은 환불", text })), ...rule.issues]; }
+        }
+        row.paid = guard ? guard.paid : 0;
+        row.need_ack = !guard || !rule || !!guard.ack.length || rule.level === "warn" || rule.level === "note";
+        return row;
+      };
       if (action === "refundpend_list") {
         const all: Record<string, any>[] = [];
         for (let back = 0; back < 180; back += 60) {
@@ -1246,7 +1303,9 @@ Deno.serve(async (req) => {
         const nrSets = await rscanNrSets(token).catch(() => null);
         const cp = nrSets ? await retCouponInfo([...orders.values()], token).catch(() => null) : null;
         const ruleOf = (r: Record<string, any>) => { if (!nrSets || !cp) return null; try { return rfRuleOf(r, orders.get(String(r.order_id)) ?? null, nrSets, cp); } catch { return null; } };
-        const rows = uniq.map((r) => ({ ...rfRow(r, orders.get(String(r.order_id)) ?? null), rule: ruleOf(r) })).sort((a, b) => a.accepted_at.localeCompare(b.accepted_at));
+        const oref = await rfOrderRefunds([...orders.keys()]).catch(() => null);
+        const guardOf = (r: Record<string, any>) => oref ? rfGuardOf(r, orders.get(String(r.order_id)) ?? null, oref.get(String(r.order_id)) ?? [r]) : null;
+        const rows = uniq.map((r) => { const rule = ruleOf(r); return { ...rfApplyGuard(rfRow(r, orders.get(String(r.order_id)) ?? null) as Record<string, any>, rule, guardOf(r)), rule }; }).sort((a, b) => String(a.accepted_at).localeCompare(String(b.accepted_at)));
         return json({ fetched_at: new Date().toISOString(), rows });
       }
       // ── 한 건 처리 ──
@@ -1263,7 +1322,7 @@ Deno.serve(async (req) => {
         const body = await apiGet(`${API_BASE}/admin/refunds?start_date=${from.toISOString().slice(0, 10)}&end_date=${toS}&date_type=accepted_refund_date&order_id=${orderId}&refund_status=${status}&limit=100`, token);
         return (((body.refunds ?? []) as Record<string, any>[]).find((r) => String(r.refund_code) === code)) ?? null;
       };
-      const readOrder = async () => ((await apiGet(`${API_BASE}/admin/orders/${orderId}?embed=items`, token)).order ?? null) as Record<string, any> | null;
+      const readOrder = async () => ((await apiGet(`${API_BASE}/admin/orders/${orderId}?embed=items,return,cancellation`, token)).order ?? null) as Record<string, any> | null;
       let rf: Record<string, any> | null, order: Record<string, any> | null;
       try { [rf, order] = await Promise.all([findRefund("F"), readOrder()]); } catch (e) { return json({ error: "카페24에서 환불 내역을 읽지 못했어요 — " + String(e).slice(0, 200) }, 502); }
       if (!rf) {
@@ -1278,13 +1337,32 @@ Deno.serve(async (req) => {
         expected_amount: expectAmount, points: row.points, by_id: authed.id, by_name: authed.name, ...extra }) }).catch(() => null);
       if (row.group !== "auto") return json({ error: row.group === "cash" ? "무통장(현금 환불)은 직접 입금한 뒤 카페24에서 완료해 주세요" : "직접 확인이 필요한 환불이에요 — " + row.why.join(" / "), blocked: true }, 400);
       if (row.amount !== expectAmount) return json({ error: `화면의 환불 금액(${expectAmount.toLocaleString("ko-KR")}원)과 카페24의 지금 금액(${row.amount.toLocaleString("ko-KR")}원)이 달라요 — 새로고침한 뒤 다시 확인해주세요`, stale: true }, 409);
+      if (b.expect_points !== undefined && Number(b.expect_points) !== row.points) return json({ error: `화면의 적립금 반환(${Number(b.expect_points).toLocaleString("ko-KR")}원)과 카페24의 지금 값(${row.points.toLocaleString("ko-KR")}원)이 달라요 — 새로고침해 주세요`, stale: true }, 409);
+      // ── 안전장치(2026-10-15 사용자 요청): 보내기 직전, 카페24에서 새로 읽은 값으로 ──
+      //  ① 결제액 한도(절대 금지 — 넘길 방법 없음) ② 상품 값보다 많은 환불·규칙과 다름·규칙 계산 불가 → 화면이 사람에게 따로 확인받고 ack:true를 보낸 경우만
+      let guard: ReturnType<typeof rfGuardOf>, rule: Record<string, any> | null = null;
+      try {
+        const oref = (await rfOrderRefunds([orderId])).get(orderId) ?? [];
+        if (!oref.some((x) => String(x.refund_code) === code)) oref.push(rf);
+        guard = rfGuardOf(rf, order, oref);
+      } catch (e) { return json({ error: "이 주문의 환불 내역을 읽지 못해 금액 한도를 확인할 수 없어요 — 보내지 않았어요 (" + String(e).slice(0, 150) + ")" }, 502); }
+      if (guard.block.length) return json({ error: "안전장치가 막았어요(보내지 않음) — " + guard.block.join(" / "), blocked: true }, 400);
+      try {
+        const nrSets = await rscanNrSets(token);
+        const cp = await retCouponInfo([order as Record<string, any>], token);
+        rule = rfRuleOf(rf, order, nrSets, cp);
+      } catch { rule = null; }
+      const ackWhy = [...guard.ack, ...(!rule ? ["규칙 점검을 하지 못했어요"] : rule.level === "warn" || rule.level === "note" ? (rule.issues as { text: string }[]).map((x) => x.text) : [])];
+      // 검사만(dry): 안전장치 결과만 돌려주고 끝 — 카페24에 아무것도 보내지 않는다(점검·시험용)
+      if (b.dry === true) return json({ ok: true, dry: true, would_send: !ackWhy.length || b.ack === true, need_ack: ackWhy.length > 0, reasons: ackWhy, paid: guard.paid, prior: guard.prior, me: guard.me, items_net: guard.items_net, rule_level: rule ? rule.level : null });
+      if (ackWhy.length && b.ack !== true) return json({ error: "한 번 더 확인이 필요한 환불이에요(보내지 않음) — " + ackWhy.join(" / "), need_ack: true, reasons: ackWhy }, 409);
       // 안전장치: 사람별 1시간 300건 · 전체 하루 1,000건 (취소·반품 접수 기록과 합산)
       const sinceIso = (ms: number) => new Date(Date.now() - ms).toISOString();
       const mine = ((await sbRest(`cancel_accept_log?select=id&by_id=eq.${encodeURIComponent(authed.id)}&created_at=gte.${sinceIso(3600e3)}&limit=500`)) ?? []) as unknown[];
       const allDay = ((await sbRest(`cancel_accept_log?select=id&created_at=gte.${sinceIso(24 * 3600e3)}&limit=1500`)) ?? []) as unknown[];
       if (mine.length >= 300 || allDay.length >= 1000) return json({ error: "처리 한도를 넘었어요 — 잠시 뒤 다시 시도해주세요" }, 429);
       const won = (v: number) => v.toLocaleString("ko-KR") + "원";
-      const detail: Record<string, unknown> = { stage: "refund_done", refund_code: code, methods: row.methods, kind: row.kind };
+      const detail: Record<string, unknown> = { stage: "refund_done", refund_code: code, methods: row.methods, kind: row.kind, paid: guard.paid, prior: guard.prior, items_net: guard.items_net, acked: ackWhy.length ? ackWhy : undefined };
       try { await cafe24CompleteRefund(orderId, code, token); }
       catch (e) {
         const st = (e as { status?: number }).status ?? 0, raw = String((e as Error).message ?? e);
