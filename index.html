@@ -1656,6 +1656,7 @@
             <div style="border:1px solid #e5e7eb;border-radius:10px;padding:8px 11px;background:#fff;"><div style="font-size:.72rem;font-weight:800;color:#4338ca;"><i class="fa-solid fa-list-check"></i> 대상</div><div style="font-size:.8rem;line-height:1.55;margin-top:3px;">카페24 <b>환불전</b>에 있는 환불(환불 접수 최근 180일). 카페24 '환불전 › 처리 › 환불완료'와 같아요.</div></div>
             <div style="border:1px solid #e5e7eb;border-radius:10px;padding:8px 11px;background:#fff;"><div style="font-size:.72rem;font-weight:800;color:#4338ca;"><i class="fa-solid fa-credit-card"></i> 바로 처리</div><div style="font-size:.8rem;line-height:1.55;margin-top:3px;"><b>카드·계좌이체·선불금</b> 환불 — 환불완료와 함께 <b>PG 결제취소</b>까지 해요.</div></div>
             <div style="border:1px solid #fde68a;border-radius:10px;padding:8px 11px;background:#fffbeb;"><div style="font-size:.72rem;font-weight:800;color:#b45309;"><i class="fa-solid fa-building-columns"></i> 무통장은 따로</div><div style="font-size:.8rem;line-height:1.55;margin-top:3px;">직접 입금해야 해서 <b>처리하지 않고</b> 환불 계좌만 보여 줘요. 입금 뒤 카페24에서 완료.</div></div>
+            <div style="border:1px solid #fecaca;border-radius:10px;padding:8px 11px;background:#fef2f2;"><div style="font-size:.72rem;font-weight:800;color:#b91c1c;"><i class="fa-solid fa-scale-balanced"></i> 규칙 점검</div><div style="font-size:.8rem;line-height:1.55;margin-top:3px;">접수된 금액을 <b>우리 취소·반품 규칙</b>(배송비 3,000/6,000·쿠폰·적립금 3만 원 기준)으로 다시 계산해 견주고, 다르거나 <b>반품 불가 품목</b>이면 빨간 표시 + 체크를 꺼 둬요.</div></div>
             <div style="border:1px solid #bbf7d0;border-radius:10px;padding:8px 11px;background:#f0fdf4;"><div style="font-size:.72rem;font-weight:800;color:#15803d;"><i class="fa-solid fa-shield-halved"></i> 안전장치</div><div style="font-size:.8rem;line-height:1.55;margin-top:3px;">보내기 직전 <b>환불전 그대로·금액이 화면과 같은지</b> 다시 확인, 반품은 <b>수거 완료(환불전)</b>만. 끝난 뒤 환불완료·PG 취소·금액 재확인. 막히면 바로 멈춤.</div></div>
           </div>
         </div>
@@ -4512,7 +4513,7 @@ async function cxsRunAll() {
    카페24 '환불전'(환불 내역 refund_status F)을 모아 한 번에 환불완료 — 카페24 관리자 '환불전 › 처리 › 환불완료'처럼 PG 결제취소도 같이(서버 refundpend_run → cafe24CompleteRefund).
    무통장(현금 환불)은 사람이 고객 계좌로 입금해야 하므로 처리하지 않고 따로 보여 준다(계좌 + 복사). 그 밖에 자동으로 다루지 않는 것은 '직접 확인'.
    한 건씩 보내고, 한 건이라도 막히면(그 사이 바뀐 건 제외) 바로 멈춘다. 기록 = 처리 내역 탭(종류 '환불완료'). */
-const cxfState = { data: null, loading: false, off: new Set(), status: new Map(), running: false, lastRun: null };
+const cxfState = { data: null, loading: false, off: new Set(), status: new Map(), running: false, lastRun: null, warnSeen: new Set() };
 const cxfKey = r => r.order_id + '|' + r.refund_code;
 const cxfDone = r => { const s = cxfState.status.get(cxfKey(r)); return !!(s && s.state === 'ok'); };
 const CXF_METHOD = { card: '신용카드', tcash: '계좌이체', prepaid: '선불금(네이버페이 포인트·머니)', cash: '무통장(현금 환불)' };
@@ -4521,7 +4522,12 @@ async function cxfLoad() {
   if (cxfState.loading) return;
   cxfState.loading = true;
   if (!cxfState.data) $('cxf-list').innerHTML = '<div class="empty-state"><p><i class="fa-solid fa-spinner fa-spin"></i> 카페24에서 환불전 내역을 불러오는 중…</p></div>';
-  try { cxfState.data = await anGet({ action: 'refundpend_list', nocache: 1 }); cxfRender(); }
+  try {
+    cxfState.data = await anGet({ action: 'refundpend_list', nocache: 1 });
+    // 규칙과 다르게 접수된 환불(규칙 점검 warn)은 처음 볼 때 체크를 꺼 둔다 — 확인한 뒤 직접 체크하면 그대로 둠
+    for (const r of cxfState.data.rows || []) if (r.group === 'auto' && r.rule && r.rule.level === 'warn' && !cxfState.warnSeen.has(cxfKey(r))) { cxfState.warnSeen.add(cxfKey(r)); cxfState.off.add(cxfKey(r)); }
+    cxfRender();
+  }
   catch (e) { $('cxf-list').innerHTML = `<div class="empty-state"><p style="color:#b91c1c;">불러오지 못했어요 — ${escHtml(e.message)}</p></div>`; }
   finally { cxfState.loading = false; cxlTabsRender(); }
 }
@@ -4540,6 +4546,18 @@ function cxfItemsCell(r) {
 const cxfKindBadge = r => `<span style="display:inline-block;border-radius:6px;padding:1px 7px;font-size:.68rem;font-weight:800;white-space:nowrap;background:${r.kind === 'return' ? '#ede9fe' : '#e0e7ff'};color:${r.kind === 'return' ? '#6d28d9' : '#4338ca'};">${r.kind === 'return' ? '반품' : r.kind === 'cancel' ? '취소' : '?'}</span>`;
 const cxfCafeBtn = r => `<button class="toggle-btn" style="font-size:.68rem;padding:1px 8px;" data-site="cafe24" data-oid="${escHtml(r.order_id)}" onclick="cxlOpenSide(this)" title="카페24 주문 화면을 오른쪽 창에 열기"><i class="fa-solid fa-arrow-up-right-from-square"></i> 카페24</button>`;
 const cxfOrderCell = r => `<div style="white-space:nowrap;"><b style="font-family:monospace;">${escHtml(r.order_id)}</b> ${cxfKindBadge(r)}</div><div style="font-size:.7rem;color:#6b7280;">${escHtml(r.buyer || '')} · 환불 접수 ${escHtml(cxlShort(String(r.accepted_at).replace('T', ' ').slice(0, 16)))}</div><div style="margin-top:3px;">${cxfCafeBtn(r)}</div>`;
+// 규칙 점검 칸(2026-10-15 사용자 요청 — "우리 취소·반품 접수 규칙에 어긋나게 접수된 게 있으면 주의 표시"). 서버 rfRuleOf: ok / warn(규칙과 다름) / note(참고) / skip
+function cxfRuleCell(r) {
+  const ru = r.rule;
+  if (!ru) return '<span style="color:#9ca3af;font-size:.72rem;">점검 못 함</span>';
+  if (ru.level === 'skip') return '<span style="color:#9ca3af;font-size:.72rem;">점검 안 함(교환 등)</span>';
+  const basis = ru.basis ? `<div style="font-size:.66rem;color:#6b7280;margin-top:2px;line-height:1.4;">${escHtml(ru.basis)}</div>` : '';
+  if (ru.level === 'ok') return `<span style="color:#15803d;font-weight:800;white-space:nowrap;" title="${escHtml(ru.basis || '')}"><i class="fa-solid fa-circle-check"></i> 규칙대로</span>${ru.ok_text ? `<div style="font-size:.7rem;color:#1d4ed8;line-height:1.4;">${escHtml(ru.ok_text)}</div>` : ''}`;
+  const warn = ru.level === 'warn';
+  const col = warn ? '#b91c1c' : '#b45309', bg = warn ? '#fee2e2' : '#fef3c7';
+  return `<span style="display:inline-block;background:${bg};color:${col};border-radius:6px;padding:1px 8px;font-weight:800;white-space:nowrap;"><i class="fa-solid fa-triangle-exclamation"></i> ${warn ? '규칙과 다름' : '확인해 보세요'}</span>`
+    + (ru.issues || []).map(x => `<div style="font-size:.72rem;color:${x.level === 'warn' ? '#b91c1c' : '#92400e'};line-height:1.45;margin-top:2px;"><b>${escHtml(x.tag)}</b> · ${escHtml(x.text)}</div>`).join('') + basis;
+}
 const cxfAmountCell = r => `<div style="white-space:nowrap;"><b>${cxsWon(r.amount)}</b></div>${r.points ? `<div style="font-size:.7rem;color:#6b7280;white-space:nowrap;">적립금 반환 ${cxsWon(r.points)}</div>` : ''}`;
 function cxfRender() {
   const d = cxfState.data; if (!d) return;
@@ -4548,6 +4566,13 @@ function cxfRender() {
   const tile = (label, n, amt, col, sub) => `<div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:10px;padding:8px 14px;min-width:150px;"><div style="font-size:.72rem;color:#6b7280;">${label}</div><div style="font-size:1.1rem;font-weight:800;color:${col};">${fmt(n)}건 <span style="font-size:.78rem;color:#374151;">${cxsWon(amt)}</span></div>${sub ? `<div style="font-size:.66rem;color:#6b7280;">${sub}</div>` : ''}</div>`;
   const run = cxfState.lastRun;
   $('cxf-summary').innerHTML = `<div style="display:flex;gap:8px;flex-wrap:wrap;">${tile('바로 환불완료 가능', auto.filter(r => !cxfDone(r)).length, sum(auto.filter(r => !cxfDone(r))), '#4338ca', '카드·계좌이체·선불금 — PG 결제취소까지')}${tile('무통장 — 직접 입금', cash.length, sum(cash), '#b45309', '고객 계좌로 입금한 뒤 카페24에서 완료')}${tile('직접 확인', check.length, sum(check), check.length ? '#b91c1c' : '#9ca3af', '자동으로 다루지 않는 환불')}</div>
+    ${(() => {
+      const w = rows.filter(r => r.rule && r.rule.level === 'warn'), nt = rows.filter(r => r.rule && r.rule.level === 'note');
+      if (!w.length && !nt.length) return rows.some(r => r.rule) ? '<div style="margin-top:8px;font-size:.78rem;color:#15803d;"><i class="fa-solid fa-circle-check"></i> 접수된 금액이 모두 우리 취소·반품 규칙과 맞아요.</div>' : '';
+      return `<div style="margin-top:8px;border:1.5px solid ${w.length ? '#fca5a5' : '#fde68a'};background:${w.length ? '#fef2f2' : '#fffbeb'};border-radius:10px;padding:8px 12px;font-size:.8rem;line-height:1.55;">
+        ${w.length ? `<b style="color:#b91c1c;"><i class="fa-solid fa-triangle-exclamation"></i> 규칙과 다르게 접수된 환불 ${fmt(w.length)}건</b> — 금액(배송비 차감·쿠폰·적립금)이 규칙과 다르거나 반품 불가 품목이 들어 있어요. 아래 표의 빨간 칸을 보고 카페24에서 고친 뒤 처리해 주세요.${w.some(r => r.group === 'auto') ? ' <b>바로 처리 목록에서는 체크를 꺼 뒀어요.</b>' : ''}` : ''}
+        ${nt.length ? `<div style="color:#92400e;"><i class="fa-solid fa-circle-info"></i> <b>확인해 보세요 ${fmt(nt.length)}건</b> — 1+1·세일·다른 취소가 섞이는 등 규칙 계산이 정확하지 않을 수 있는 주문인데 금액이 계산과 달라요.</div>` : ''}</div>`;
+    })()}
     <div style="font-size:.7rem;color:#9ca3af;margin-top:6px;">카페24에서 ${escHtml(new Date(d.fetched_at).toLocaleTimeString('ko-KR', { timeZone: 'Asia/Seoul', hour: '2-digit', minute: '2-digit' }))}에 읽은 환불전 내역(환불 접수일 최근 180일)이에요.</div>`;
   $('cxf-result').innerHTML = run ? `<div style="border:1.5px solid ${run.fail ? '#fca5a5' : '#a7f3d0'};background:${run.fail ? '#fef2f2' : '#f0fdf4'};border-radius:12px;padding:10px 14px;font-size:.84rem;margin:10px 0;line-height:1.6;">
       ${run.running ? `<i class="fa-solid fa-spinner fa-spin"></i> 환불완료 처리 중… ${fmt(run.ok + run.fail)} / ${fmt(run.total)} — 이 탭을 닫지 마세요` : `<b>환불완료 결과</b> — 완료 <b>${fmt(run.ok)}</b>건 · 환불 ${cxsWon(run.amount)}${run.fail ? ` · <b style="color:#b91c1c;">안 됨 ${fmt(run.fail)}건</b>` : ''}`}
@@ -4558,8 +4583,9 @@ function cxfRender() {
       <td style="text-align:left;vertical-align:top;">${cxfItemsCell(r)}</td>
       <td style="text-align:left;vertical-align:top;font-size:.76rem;">${escHtml(cxfMethods(r))}</td>
       <td style="text-align:right;vertical-align:top;">${cxfAmountCell(r)}</td>
+      <td style="text-align:left;vertical-align:top;font-size:.76rem;min-width:200px;max-width:380px;${r.rule && r.rule.level === 'warn' ? 'background:#fef2f2;' : ''}">${cxfRuleCell(r)}</td>
       <td style="text-align:left;vertical-align:top;font-size:.78rem;">${withCheck ? cxfStatusCell(r) : r.bank ? cxfBankCell(r) : `<div style="color:#b91c1c;">${(r.why || []).map(w => '· ' + escHtml(w)).join('<br>')}</div>`}</td></tr>`).join('');
-  const head = (withCheck, last) => `<thead><tr>${withCheck ? `<th><input type="checkbox" ${pick.length === auto.filter(r => !cxfDone(r)).length && pick.length ? 'checked' : ''} onchange="cxfAll(this.checked)" style="width:16px;height:16px;" title="전체 선택" /></th>` : ''}<th style="text-align:left;">주문</th><th style="text-align:left;">상품</th><th style="text-align:left;">환불 수단</th><th style="text-align:right;">환불 금액</th><th style="text-align:left;">${last}</th></tr></thead>`;
+  const head = (withCheck, last) => `<thead><tr>${withCheck ? `<th><input type="checkbox" ${pick.length === auto.filter(r => !cxfDone(r)).length && pick.length ? 'checked' : ''} onchange="cxfAll(this.checked)" style="width:16px;height:16px;" title="전체 선택" /></th>` : ''}<th style="text-align:left;">주문</th><th style="text-align:left;">상품</th><th style="text-align:left;">환불 수단</th><th style="text-align:right;">환불 금액</th><th style="text-align:left;">규칙 점검</th><th style="text-align:left;">${last}</th></tr></thead>`;
   let html = '';
   html += `<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:14px 0 8px;"><b style="font-size:.9rem;color:#3730a3;"><i class="fa-solid fa-credit-card"></i> 바로 환불완료할 수 있는 환불</b>
       <button class="toggle-btn" id="cxf-go" onclick="cxfRunAll()" ${cxfState.running || !pick.length ? 'disabled' : ''} style="margin-left:auto;background:${pick.length ? '#dc2626' : '#f3f4f6'};color:${pick.length ? '#fff' : '#9ca3af'};border-color:${pick.length ? '#dc2626' : '#e5e7eb'};font-weight:800;"><i class="fa-solid fa-money-bill-transfer"></i> 환불완료 처리 (${fmt(pick.length)}건 · ${cxsWon(sum(pick))})</button></div>`;
@@ -4589,7 +4615,8 @@ async function cxfRunAll() {
   const targets = ((cxfState.data || {}).rows || []).filter(r => r.group === 'auto' && !cxfState.off.has(cxfKey(r)) && !cxfDone(r));
   if (!targets.length) { showToast('환불완료할 환불을 골라 주세요'); return; }
   const total = targets.reduce((t, r) => t + r.amount, 0);
-  if (!confirm(`환불전 ${targets.length}건을 환불완료로 처리할까요?\n\n환불 합계 ${cxsWon(total)}\n\n· 결제한 수단(카드·계좌이체·선불금)으로 바로 환불돼요(PG 결제취소). 되돌릴 수 없어요.\n· 카페24 설정대로 고객에게 환불 안내 문자·메일이 나가요.\n· 한 건씩 보내고, 막히는 건이 나오면 나머지는 보내지 않고 멈춰요.\n\n처음이면 1건만 골라서 해 보세요.`)) return;
+  const warnN = targets.filter(r => r.rule && r.rule.level === 'warn').length;
+  if (!confirm(`환불전 ${targets.length}건을 환불완료로 처리할까요?\n\n환불 합계 ${cxsWon(total)}${warnN ? `\n\n⚠ 이 중 ${warnN}건은 규칙과 다르게 접수된 환불이에요(표의 빨간 '규칙과 다름'). 카페24에 접수된 금액 그대로 나가요.` : ''}\n\n· 결제한 수단(카드·계좌이체·선불금)으로 바로 환불돼요(PG 결제취소). 되돌릴 수 없어요.\n· 카페24 설정대로 고객에게 환불 안내 문자·메일이 나가요.\n· 한 건씩 보내고, 막히는 건이 나오면 나머지는 보내지 않고 멈춰요.\n\n처음이면 1건만 골라서 해 보세요.`)) return;
   cxfState.running = true;
   const run = cxfState.lastRun = { running: true, total: targets.length, ok: 0, fail: 0, amount: 0, stopped: '' };
   for (let i = 0; i < targets.length; i++) {

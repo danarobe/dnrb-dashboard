@@ -918,6 +918,101 @@ function retGroupsOf(o: Record<string, any>, nrSets: NrSets, cp: RetCoupons): Re
   return groups;
 }
 
+// ── 환불전 목록의 '규칙 점검'(2026-10-15 사용자 요청 — "환불전 메뉴에서 우리 취소·반품 접수 규칙에 어긋나게 접수된 게 있으면 주의 표시") ──
+// 카페24에 접수된 환불 금액(actual_refund_amount + used_points)을 우리 규칙으로 다시 계산한 값과 견준다. 읽기만 — 아무것도 바꾸지 않는다.
+//  · 반품: 반품접수 탭과 같은 계산(retGroupsOf — 배송비 3,000/6,000 · 쿠폰 3만 원 기준 · 적립금 3만 원 기준 · 상품별 할인 차감)을 이 접수에 그대로 돌린다.
+//    불량·오배송·그 밖의 사유는 '배송비 차감 없음'도 맞는 것으로 본다(사람이 인정했을 수 있음). 반품 불가 품목(수영복·ACC 주얼리·양말·모자·할인 상품)이 들어 있으면 주의.
+//  · 취소: 전체 취소 = 처음 결제액 그대로(실측 591/591). 부분 취소 = 사용자 규칙(§7-9-b, 2026-10-05) — 변심이고 무료배송 주문인데 남는 상품 7만 원 미만이면
+//    배송비 3,000 차감(배송지연·품절은 차감 없음이 기본이지만 사람이 차감했을 수 있어 둘 다 인정, '기타'는 아직 미정이라 둘 다 인정), 쿠폰·적립금은 반품과 같은 기준.
+//  · level: ok(규칙대로) / warn(규칙과 다름 — 계산이 확실한데 금액이 다르거나 반품 불가 품목) / note(계산이 불확실한 주문인데 금액이 다름 — 참고) / skip(교환 등 점검 안 함)
+const RF_SOFT_TAGS = new Set(["불량·오배송", "사유 글 확인", "그 밖의 사유", "쿠폰 확인", "경계 금액", "다른 취소·교환·반품", "수거 신청 아님", "그 밖의 할인", "배송비 확인", "배송 묶음",
+  "1+1 상품", "10% 이상 할인", "할인 상품 수량", "예치금", "수량 일부", "배송 전 상태", "금액 확인", "미결제"]);
+function rfRuleOf(r: Record<string, any>, o: Record<string, any> | null, nrSets: NrSets, cp: RetCoupons) {
+  const n = (v: unknown) => Math.round(Number(v ?? 0) || 0);
+  const won = (v: number) => v.toLocaleString("ko-KR") + "원";
+  const got = { amount: n(r.actual_refund_amount), points: n(r.used_points) };
+  type Issue = { level: "warn" | "note"; tag: string; text: string };
+  const issues: Issue[] = [];
+  const out = (level: "ok" | "warn" | "note" | "skip", basis: string, expect: { amount: number; points: number } | null, okText = "") =>
+    ({ level: issues.some((x) => x.level === "warn") ? "warn" : level === "ok" && issues.length ? "note" : level, basis, expect, got, ok_text: okText, issues });
+  if (!o) { issues.push({ level: "note", tag: "점검 못 함", text: "주문을 읽지 못해 규칙과 맞는지 보지 못했어요" }); return out("note", "", null); }
+  const codes = new Set(((r.order_item_code ?? []) as unknown[]).map(String));
+  const all = (o.items ?? []) as Record<string, any>[];
+  const its = all.filter((it) => codes.has(String(it.order_item_code)));
+  const st = its.map((it) => String(it.order_status ?? ""));
+  const kind = st.length && st.every((x) => x.startsWith("R")) ? "return" : st.length && st.every((x) => x.startsWith("C")) ? "cancel" : "";
+  if (!kind) return out("skip", "", null);
+  const claims = [...new Set(its.map((it) => String(it.claim_code ?? "")).filter(Boolean))];
+  if (claims.length !== 1) { issues.push({ level: "note", tag: "점검 못 함", text: "접수번호가 여러 개이거나 없어 규칙 계산을 못 했어요" }); return out("note", "", null); }
+  const claim = claims[0];
+  // 반품 불가 품목(반품 스캔과 같은 기준) — 반품으로 접수됐으면 그 자체가 규칙 위반
+  if (kind === "return") for (const it of its) for (const f of rscanItemFlags(it, nrSets)) if (f.level === "block") issues.push({ level: "warn", tag: "반품 불가 품목", text: `${String(it.product_name ?? "").slice(0, 30)} — ${f.text}` });
+  // 반품접수 탭의 계산을 그대로 쓰려고 이 접수의 상품만 '반품접수(R10)'로 보고 돌린다(남는 상품·다른 접수는 그대로)
+  const fake = { ...o, items: all.map((it) => codes.has(String(it.order_item_code)) ? { ...it, order_status: "R10" } : it), return: kind === "return" ? o.return : [{ ...((((o.cancellation ?? []) as Record<string, any>[]).find((c) => c.claim_code === claim)) ?? {}), claim_code: claim, pickup: { use_pickup: "T" }, pickup_request_state: "T" }] };
+  if (kind === "cancel") fake.items = fake.items.map((it: Record<string, any>) => codes.has(String(it.order_item_code)) ? { ...it, order_status_before_cs: "N40" } : it);
+  const g = retGroupsOf(fake, nrSets, cp).find((x) => x.claim_code === claim);
+  if (!g) { issues.push({ level: "note", tag: "점검 못 함", text: o.order_place_id === "NCHECKOUT" || o.market_id === "NCHECKOUT" ? "네이버페이 주문은 규칙 점검을 하지 않아요" : "규칙 계산을 하지 못했어요" }); return out("note", "", null); }
+  const tags = new Set((g.manual as { tag: string }[]).map((m) => m.tag));
+  const init = (o.initial_order_amount ?? {}) as Record<string, any>;
+  const ship = n(init.shipping_fee);
+  const reasonType = String(g.reason_type ?? "");
+  // 맞는 금액 후보들 — [이름, 결제 수단 환불, 적립금 반환, 설명]
+  const cands: { amount: number; points: number; text: string }[] = [];
+  let soft: string[] = [];
+  let basis = "";
+  if (kind === "return") {
+    const e = g.expect as { amount: number; points: number };
+    const fee = n(g.calc.fee);
+    cands.push({ amount: e.amount, points: e.points, text: "" });
+    const defect = tags.has("불량·오배송") || tags.has("사유 글 확인");
+    if (defect) cands.push({ amount: e.amount + fee + (g.full && ship > 0 ? ship : 0), points: e.points, text: "불량·오배송으로 인정해 반품 배송비를 차감하지 않았어요" });
+    else if (tags.has("그 밖의 사유")) cands.push({ amount: e.amount + fee, points: e.points, text: `사유(${RET_REASON_LABEL[reasonType] ?? reasonType})를 우리 쪽 사정으로 보고 배송비를 차감하지 않았어요` });
+    soft = (g.manual as { tag: string; text: string }[]).filter((m) => RF_SOFT_TAGS.has(m.tag) && m.tag !== "불량·오배송" && m.tag !== "사유 글 확인" && m.tag !== "그 밖의 사유").map((m) => m.text);
+    basis = `규칙 계산: 상품 ${won(n(g.calc.goods))}${n(g.calc.disc) ? ` − 할인 ${won(n(g.calc.disc))}` : ""} − 반품 배송비 ${won(fee)}${n(g.calc.coupon_cancel) ? ` − 쿠폰 취소 ${won(n(g.calc.coupon_cancel))}` : ""}${e.points ? ` − 적립금 반환 ${won(e.points)}` : ""} = ${won(e.amount)}${e.points ? ` + 적립금 ${won(e.points)}` : ""}`;
+  } else {
+    const others = all.filter((it) => !codes.has(String(it.order_item_code)));
+    if (!others.length) {
+      // 전체 취소 — 처음 결제액 그대로, 쓴 적립금 전액 반환(실측 591/591)
+      cands.push({ amount: n(init.payment_amount), points: n(init.points_spent_amount), text: "" });
+      basis = `규칙 계산: 전체 취소 = 처음 결제액 ${won(n(init.payment_amount))}${n(init.points_spent_amount) ? ` + 적립금 ${won(n(init.points_spent_amount))}` : ""}`;
+      if (n(init.credits_spent_amount) > 0) soft.push("예치금을 쓴 주문이에요");
+    } else {
+      const remain = n(g.remain), goods = n(g.calc.goods) - n(g.calc.disc), cpc = n(g.calc.coupon_cancel), pts = n((g.expect as { points: number }).points);
+      const needFee = ship === 0 && remain < RET_FREE_SHIP;   // 무료배송 주문인데 남는 상품이 7만 원 미만 → 변심이면 배송비 3,000 차감
+      const fee = needFee && reasonType !== "B" && reasonType !== "H" ? RET_FEE : 0;
+      const base = goods - cpc - pts;
+      cands.push({ amount: base - fee, points: pts, text: "" });
+      if (needFee && reasonType === "I") cands.push({ amount: base, points: pts, text: "사유가 '기타'라 배송비를 차감하지 않았어요(기타를 변심으로 볼지는 아직 정하지 않음)" });
+      if (needFee && (reasonType === "B" || reasonType === "H")) cands.push({ amount: base - RET_FEE, points: pts, text: "배송지연·품절 취소인데 배송비 3,000원을 차감했어요(사람이 판단했을 수 있음)" });
+      soft = (g.manual as { tag: string; text: string }[]).filter((m) => ["쿠폰 확인", "경계 금액", "다른 취소·교환·반품", "그 밖의 할인", "배송비 확인", "1+1 상품", "10% 이상 할인", "할인 상품 수량", "예치금", "수량 일부"].includes(m.tag)).map((m) => m.text);
+      if (others.some((it) => /^[CER]/.test(String(it.order_status ?? "")))) soft.push("같은 주문에 먼저 처리된 취소·반품이 있어요");
+      // 규칙 5: 할인 상품·1+1 상품이 든 주문의 부분 취소는 사람이 본다(상품별 할인을 취소할지에 따라 금액이 달라짐)
+      if (all.some((it) => n(it.additional_discount_price) > 0) && !soft.some((t) => /할인/.test(t))) soft.push("상품별 할인이 적용된 상품이 든 주문이에요 — 할인 취소 여부에 따라 금액이 달라요");
+      if (cands[0].amount <= 0) soft.push("규칙대로 빼면 환불액이 0원 이하가 돼요");
+      basis = `규칙 계산(부분 취소): 상품 ${won(goods)}${needFee ? ` − 배송비 ${won(fee)}(무료배송 주문 · 남는 상품 ${won(remain)})` : ""}${cpc ? ` − 쿠폰 취소 ${won(cpc)}` : ""}${pts ? ` − 적립금 반환 ${won(pts)}` : ""} = ${won(cands[0].amount)}${pts ? ` + 적립금 ${won(pts)}` : ""}`;
+    }
+  }
+  const expect = { amount: cands[0].amount, points: cands[0].points };
+  const hit = cands.find((c) => c.amount === got.amount && c.points === got.points);
+  if (hit) return out("ok", basis, expect, hit.text);
+  const d = got.amount + got.points - (expect.amount + expect.points);
+  const diffText = `규칙대로면 ${won(expect.amount)}${expect.points ? ` + 적립금 ${won(expect.points)}` : ""}인데 접수는 ${won(got.amount)}${got.points ? ` + 적립금 ${won(got.points)}` : ""}이에요` +
+    (d ? ` (고객에게 ${won(Math.abs(d))} ${d > 0 ? "더" : "덜"} 나가요)` : got.points !== expect.points ? " (카드·현금과 적립금 나눔이 달라요)" : "");
+  // 반품은 접수 내역의 항목별 금액으로 어디가 다른지 짚어 준다
+  const parts: string[] = [];
+  if (kind === "return") {
+    const ret = (((o.return ?? []) as Record<string, any>[]).find((x) => x.claim_code === claim)) ?? {};
+    const neg = (v: unknown) => 0 - n(v) || 0;
+    const fee = neg(ret.return_shipping_fee), cpn = neg(ret.coupon_discount_amount), rpt = neg(ret.point_used);
+    if (fee !== n(g.calc.fee) && !(cands.length > 1 && fee === 0)) parts.push(`반품 배송비 차감 — 규칙 ${won(n(g.calc.fee))} · 접수 ${won(fee)}`);
+    if (cpn !== n(g.calc.coupon_cancel)) parts.push(`쿠폰할인 취소 — 규칙 ${won(n(g.calc.coupon_cancel))} · 접수 ${won(cpn)}`);
+    if (rpt !== n(expect.points)) parts.push(`적립금 반환 — 규칙 ${won(expect.points)} · 접수 ${won(rpt)}`);
+  }
+  const firm = soft.length === 0 && issues.every((x) => x.tag !== "점검 못 함");
+  issues.unshift({ level: firm ? "warn" : "note", tag: firm ? "규칙과 금액 다름" : "규칙 계산과 다름(참고)", text: diffText + (parts.length ? " — " + parts.join(" / ") : "") + (firm ? "" : ` — 이 주문은 계산이 정확하지 않을 수 있어요: ${soft.join(" / ")}`) });
+  return out(firm ? "warn" : "note", basis, expect);
+}
+
 Deno.serve(async (req) => {
   const opt = handleOptions(req);
   if (opt) return opt;
@@ -1126,10 +1221,10 @@ Deno.serve(async (req) => {
           bank: group === "cash" ? { name: String(r.refund_bank_name ?? ""), holder: String(r.refund_bank_account_holder ?? ""), account: String(r.refund_bank_account_no ?? "") } : null,
         };
       };
-      const rfOrders = async (ids: string[]) => {
+      const rfOrders = async (ids: string[], embed = "items") => {
         const m = new Map<string, Record<string, any>>();
         for (let i = 0; i < ids.length; i += 50) {
-          const body = await apiGet(`${API_BASE}/admin/orders?shop_no=1&order_id=${ids.slice(i, i + 50).join(",")}&embed=items&limit=100`, token);
+          const body = await apiGet(`${API_BASE}/admin/orders?shop_no=1&order_id=${ids.slice(i, i + 50).join(",")}&embed=${embed}&limit=100`, token);
           for (const o of (body.orders ?? []) as Record<string, any>[]) m.set(String(o.order_id), o);
         }
         return m;
@@ -1146,8 +1241,12 @@ Deno.serve(async (req) => {
           }
         }
         const seen = new Set<string>(), uniq = all.filter((r) => { const k = String(r.refund_code); if (seen.has(k)) return false; seen.add(k); return true; });
-        const orders = await rfOrders([...new Set(uniq.map((r) => String(r.order_id)))]);
-        const rows = uniq.map((r) => rfRow(r, orders.get(String(r.order_id)) ?? null)).sort((a, b) => a.accepted_at.localeCompare(b.accepted_at));
+        const orders = await rfOrders([...new Set(uniq.map((r) => String(r.order_id)))], "items,return,cancellation");
+        // 규칙 점검(2026-10-15 사용자 요청) — 접수된 금액이 우리 취소·반품 규칙과 맞는지. 못 읽으면 rule:null(목록은 그대로)
+        const nrSets = await rscanNrSets(token).catch(() => null);
+        const cp = nrSets ? await retCouponInfo([...orders.values()], token).catch(() => null) : null;
+        const ruleOf = (r: Record<string, any>) => { if (!nrSets || !cp) return null; try { return rfRuleOf(r, orders.get(String(r.order_id)) ?? null, nrSets, cp); } catch { return null; } };
+        const rows = uniq.map((r) => ({ ...rfRow(r, orders.get(String(r.order_id)) ?? null), rule: ruleOf(r) })).sort((a, b) => a.accepted_at.localeCompare(b.accepted_at));
         return json({ fetched_at: new Date().toISOString(), rows });
       }
       // ── 한 건 처리 ──
