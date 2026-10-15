@@ -1295,7 +1295,9 @@ Deno.serve(async (req) => {
       for (let i = 0; i < 4 && !done; i++) { await sleep(i ? 1500 : 800); try { done = await findRefund("T"); } catch { done = null; } }
       const pgList = ((done?.payment_gateway_cancel_statuses ?? []) as Record<string, any>[]);
       const pg = pgList.map((x) => `${x.payment_method}:${x.cancel_status}`);
-      const pgOk = !!done && pgList.length > 0 && pgList.every((x) => x.cancel_status === "T");
+      // PG 취소 상태: T = 전체 취소 완료, M = 부분 취소 완료(환불액이 결제액보다 적을 때 — 반품 배송비 차감·부분 반품 등). 둘 다 정상.
+      // (2026-10-15 첫 실사용: 반품 2건이 M으로 정상 환불됐는데 T만 보고 '확인 실패'로 멈췄음. 지난 60일 환불완료 3,235건 중 M 1,959건 — 전부 환불액 < 결제액)
+      const pgOk = !!done && pgList.length > 0 && pgList.every((x) => x.cancel_status === "T" || x.cancel_status === "M");
       const finalAmt = done ? rfNum(done.actual_refund_amount) : NaN;
       Object.assign(detail, { pg });
       if (!done || !pgOk || finalAmt !== expectAmount) {
@@ -1303,7 +1305,8 @@ Deno.serve(async (req) => {
         await logRow(false, "환불완료를 보냈지만 확인 실패 — " + why, { refund_amount: isFinite(finalAmt) ? finalAmt : null, detail });
         return json({ error: `환불완료 처리를 보냈지만 ${why} — 카페24 환불 관리와 PG사에서 이 주문을 꼭 확인해주세요`, critical: true }, 502);
       }
-      await logRow(true, `환불완료 · ${won(finalAmt)}${row.points ? ` · 적립금 반환 ${won(row.points)}` : ""} · PG 취소 확인`, { refund_amount: finalAmt, detail });
+      const pgPart = pgList.some((x) => x.cancel_status === "M");
+      await logRow(true, `환불완료 · ${won(finalAmt)}${row.points ? ` · 적립금 반환 ${won(row.points)}` : ""} · PG ${pgPart ? "부분 취소" : "취소"} 확인`, { refund_amount: finalAmt, detail });
       return json({ ok: true, refund_amount: finalAmt, points: row.points, pg });
     }
 
