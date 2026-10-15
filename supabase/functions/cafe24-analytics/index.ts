@@ -1082,6 +1082,132 @@ Deno.serve(async (req) => {
     // ── 취소·반품 접수 2단계 — 자사몰 취소접수(C10) → 환불 (2026-10-05 사용자 요청): 관리자 + 허용 목록(최종 환불은 관리자만).
     //    selfcancel_list: 목록·분류(캐시 없음) / selfcancel_run(POST, 사람 로그인만): 한 건 처리 = ② 취소처리중으로 넘김 → 금액 확인(여기까지가 기본)
     //    → [요청에 refund:true가 있을 때만] ③ 환불완료 → 재확인·기록.
+    // ── 취소·반품 접수 ④ 환불전 → 환불완료 (2026-10-15 사용자 요청 — "카페24 환불전에 있는 걸 일괄 환불완료. 카페24 환불전에서 처리 → 환불완료하면
+    //    접수된 환불 수단의 PG 취소도 함께 되는데 이것도 같게. 단 무통장은 직접 입금하고 완료해야 하니 따로 분류") ──
+    //   · 관리자만(최종 환불은 관리자만 — 2026-10-08 규칙). 쓰기는 이미 승인된 cafe24CompleteRefund 하나(본문 고정: status complete · PG 결제취소 T · 문자·메일 T).
+    //   · 목록 = 카페24 환불 내역 refund_status=F(환불전), 환불 접수일 최근 180일(60일씩 나눠 읽음). 주문을 같이 읽어 상품·취소/반품 구분을 붙인다.
+    //   · 분류: cash(무통장 — 현금 환불, 사람이 계좌로 입금해야 함: 처리하지 않고 계좌만 보여 줌) / auto(환불 수단이 card·tcash·prepaid뿐, 예치금 없음,
+    //     네이버페이 주문 아님, 금액 > 0) / check(그 밖 — 카페24에서 직접).
+    //   · 처리(한 건씩): 보내기 직전 다시 읽어 '환불전 그대로 · 분류 auto · 금액 = 화면 금액'일 때만 보냄 → 환불완료·PG 취소·금액 재확인 → cancel_accept_log(kind 'refund').
+    if (action === "refundpend_list" || action === "refundpend_run") {
+      if (authed.role !== "admin" || viaAgent || viaCron || viaSecret) return json({ error: "환불완료 처리는 관리자만 할 수 있어요" }, 403);
+      const RF_AUTO = new Set(["card", "tcash", "prepaid"]);
+      const rfNum = (v: unknown) => Math.round(Number(v ?? 0) || 0);
+      const rfMethods = (r: Record<string, any>) => ((r.refund_payment_methods ?? []) as unknown[]).map(String);
+      const rfDay = (off: number) => { const d = rscanYesterday(); d.setUTCDate(d.getUTCDate() + 1 + off); return d.toISOString().slice(0, 10); };
+      const rfRow = (r: Record<string, any>, o: Record<string, any> | null) => {
+        const codes = ((r.order_item_code ?? []) as unknown[]).map(String);
+        const its = ((o?.items ?? []) as Record<string, any>[]).filter((it) => codes.includes(String(it.order_item_code)));
+        const st = its.map((it) => String(it.order_status ?? ""));
+        const kind = st.length && st.every((x) => x.startsWith("R")) ? "return" : st.length && st.every((x) => x.startsWith("C")) ? "cancel" : st.length ? "mixed" : "unknown";
+        const methods = rfMethods(r), amount = rfNum(r.actual_refund_amount), points = rfNum(r.used_points), credits = rfNum(r.used_credits);
+        const naver = !!o && (o.order_place_id === "NCHECKOUT" || o.market_id === "NCHECKOUT");
+        const why: string[] = [];
+        let group = "auto";
+        if (methods.includes("cash")) group = "cash";
+        else {
+          if (!o) why.push("주문을 읽지 못했어요");
+          if (naver) why.push("네이버페이 주문이에요");
+          if (!methods.length) why.push("환불 수단이 비어 있어요");
+          const other = methods.filter((m) => !RF_AUTO.has(m));
+          if (other.length) why.push(`자동으로 다루지 않는 환불 수단(${other.join(", ")})`);
+          if (credits > 0) why.push(`예치금 ${credits.toLocaleString("ko-KR")}원이 섞여 있어요`);
+          if (amount <= 0) why.push("환불 금액이 0원이에요");
+          if (kind === "mixed" || kind === "unknown") why.push("취소·반품 구분이 섞였거나 읽히지 않아요");
+          // 상품 상태가 '취소처리중·환불전'(C34) 또는 '반품처리중·환불전'(R34 — 수거 완료)일 때만. 반품이 아직 수거 전(R30 등)이면 돈만 먼저 나가므로 자동에서 뺀다
+          if (st.length && !st.every((x) => x === "C34" || x === "R34")) why.push(`상품 상태가 환불전이 아니에요(${[...new Set(its.map((it) => String(it.status_text ?? it.order_status ?? "") + (it.order_status_additional_info ? "·" + it.order_status_additional_info : "")))].join(", ")})`);
+          if (why.length) group = "check";
+        }
+        return {
+          refund_code: String(r.refund_code ?? ""), order_id: String(r.order_id ?? ""), accepted_at: String(r.accepted_refund_date ?? ""), order_date: String(r.order_date ?? ""),
+          amount, points, credits, methods, refund_methods: ((r.refund_methods ?? []) as unknown[]).map(String), pay_methods: ((r.payment_methods ?? []) as unknown[]).map(String),
+          kind, naver, buyer: String(o?.buyer_name ?? ""), group, why,
+          items: its.map((it) => ({ code: String(it.order_item_code), product_name: String(it.product_name ?? ""), option: String(it.option_value ?? ""), qty: rfNum(it.quantity), status: String(it.status_text ?? it.order_status ?? "") })),
+          bank: group === "cash" ? { name: String(r.refund_bank_name ?? ""), holder: String(r.refund_bank_account_holder ?? ""), account: String(r.refund_bank_account_no ?? "") } : null,
+        };
+      };
+      const rfOrders = async (ids: string[]) => {
+        const m = new Map<string, Record<string, any>>();
+        for (let i = 0; i < ids.length; i += 50) {
+          const body = await apiGet(`${API_BASE}/admin/orders?shop_no=1&order_id=${ids.slice(i, i + 50).join(",")}&embed=items&limit=100`, token);
+          for (const o of (body.orders ?? []) as Record<string, any>[]) m.set(String(o.order_id), o);
+        }
+        return m;
+      };
+      if (action === "refundpend_list") {
+        const all: Record<string, any>[] = [];
+        for (let back = 0; back < 180; back += 60) {
+          const end = rfDay(-back), start = rfDay(-back - 59);
+          for (let offset = 0; offset < 3000; offset += 100) {
+            const body = await apiGet(`${API_BASE}/admin/refunds?start_date=${start}&end_date=${end}&date_type=accepted_refund_date&refund_status=F&limit=100&offset=${offset}`, token);
+            const rs = (body.refunds ?? []) as Record<string, any>[];
+            all.push(...rs);
+            if (rs.length < 100) break;
+          }
+        }
+        const seen = new Set<string>(), uniq = all.filter((r) => { const k = String(r.refund_code); if (seen.has(k)) return false; seen.add(k); return true; });
+        const orders = await rfOrders([...new Set(uniq.map((r) => String(r.order_id)))]);
+        const rows = uniq.map((r) => rfRow(r, orders.get(String(r.order_id)) ?? null)).sort((a, b) => a.accepted_at.localeCompare(b.accepted_at));
+        return json({ fetched_at: new Date().toISOString(), rows });
+      }
+      // ── 한 건 처리 ──
+      if (req.method !== "POST") return json({ error: "POST로 호출해주세요" }, 405);
+      const b = await req.json().catch(() => ({})) as Record<string, any>;
+      const orderId = String(b.order_id ?? ""), code = String(b.refund_code ?? ""), acc = String(b.accepted_at ?? "").slice(0, 10);
+      if (!/^\d{8}-\d{7}$/.test(orderId) || !/^[A-Z]\d{8}-\d{7}$/.test(code) || !/^\d{4}-\d{2}-\d{2}$/.test(acc)) return json({ error: "주문번호·환불번호가 올바르지 않습니다" }, 400);
+      const expectAmount = Number(b.expect_amount);
+      if (!Number.isInteger(expectAmount) || expectAmount <= 0) return json({ error: "환불 금액이 올바르지 않습니다" }, 400);
+      // 환불 접수일 앞뒤로만 찾는다(카페24 조회 기간 제한·같은 주소 60초 캐시를 피하려고 화면 목록과 다른 주소)
+      const accD = new Date(acc + "T00:00:00Z"); const from = new Date(accD); from.setUTCDate(from.getUTCDate() - 1); const to = new Date(accD); to.setUTCDate(to.getUTCDate() + 60);
+      const today = rfDay(0), toS = to.toISOString().slice(0, 10) > today ? today : to.toISOString().slice(0, 10);
+      const findRefund = async (status: "F" | "T") => {
+        const body = await apiGet(`${API_BASE}/admin/refunds?start_date=${from.toISOString().slice(0, 10)}&end_date=${toS}&date_type=accepted_refund_date&order_id=${orderId}&refund_status=${status}&limit=100`, token);
+        return (((body.refunds ?? []) as Record<string, any>[]).find((r) => String(r.refund_code) === code)) ?? null;
+      };
+      const readOrder = async () => ((await apiGet(`${API_BASE}/admin/orders/${orderId}?embed=items`, token)).order ?? null) as Record<string, any> | null;
+      let rf: Record<string, any> | null, order: Record<string, any> | null;
+      try { [rf, order] = await Promise.all([findRefund("F"), readOrder()]); } catch (e) { return json({ error: "카페24에서 환불 내역을 읽지 못했어요 — " + String(e).slice(0, 200) }, 502); }
+      if (!rf) {
+        const done0 = await findRefund("T").catch(() => null);
+        if (done0) return json({ ok: true, already: true, refund_amount: rfNum(done0.actual_refund_amount) });
+        return json({ error: "카페24 환불전 목록에 이 환불이 없어요(그 사이 처리됐거나 바뀜) — 새로고침해 주세요", stale: true }, 409);
+      }
+      const row = rfRow(rf, order);
+      const logRow = (ok: boolean, result: string, extra: Record<string, unknown> = {}) => sbRest("cancel_accept_log", { method: "POST", headers: { Prefer: "return=minimal" }, body: JSON.stringify({
+        kind: "refund", order_id: orderId, claim_code: code, items: row.items.map((x) => ({ code: x.code, product_name: x.product_name, option: x.option, qty: x.qty })),
+        reason_type: null, reason_label: row.kind === "return" ? "반품 환불" : row.kind === "cancel" ? "취소 환불" : "환불", reason: null, ok, result: String(result).slice(0, 500),
+        expected_amount: expectAmount, points: row.points, by_id: authed.id, by_name: authed.name, ...extra }) }).catch(() => null);
+      if (row.group !== "auto") return json({ error: row.group === "cash" ? "무통장(현금 환불)은 직접 입금한 뒤 카페24에서 완료해 주세요" : "직접 확인이 필요한 환불이에요 — " + row.why.join(" / "), blocked: true }, 400);
+      if (row.amount !== expectAmount) return json({ error: `화면의 환불 금액(${expectAmount.toLocaleString("ko-KR")}원)과 카페24의 지금 금액(${row.amount.toLocaleString("ko-KR")}원)이 달라요 — 새로고침한 뒤 다시 확인해주세요`, stale: true }, 409);
+      // 안전장치: 사람별 1시간 300건 · 전체 하루 1,000건 (취소·반품 접수 기록과 합산)
+      const sinceIso = (ms: number) => new Date(Date.now() - ms).toISOString();
+      const mine = ((await sbRest(`cancel_accept_log?select=id&by_id=eq.${encodeURIComponent(authed.id)}&created_at=gte.${sinceIso(3600e3)}&limit=500`)) ?? []) as unknown[];
+      const allDay = ((await sbRest(`cancel_accept_log?select=id&created_at=gte.${sinceIso(24 * 3600e3)}&limit=1500`)) ?? []) as unknown[];
+      if (mine.length >= 300 || allDay.length >= 1000) return json({ error: "처리 한도를 넘었어요 — 잠시 뒤 다시 시도해주세요" }, 429);
+      const won = (v: number) => v.toLocaleString("ko-KR") + "원";
+      const detail: Record<string, unknown> = { stage: "refund_done", refund_code: code, methods: row.methods, kind: row.kind };
+      try { await cafe24CompleteRefund(orderId, code, token); }
+      catch (e) {
+        const st = (e as { status?: number }).status ?? 0, raw = String((e as Error).message ?? e);
+        await logRow(false, "환불완료 처리 실패 — " + raw, { detail });
+        return json({ error: "카페24가 환불완료 처리를 받지 않았어요(환불전 그대로) — " + (st === 403 || /scope|permission|insufficient/i.test(raw) ? "카페24 앱에 '주문 쓰기' 권한이 없어요" : raw.slice(0, 300)) }, 502);
+      }
+      let done: Record<string, any> | null = null;
+      for (let i = 0; i < 4 && !done; i++) { await sleep(i ? 1500 : 800); try { done = await findRefund("T"); } catch { done = null; } }
+      const pgList = ((done?.payment_gateway_cancel_statuses ?? []) as Record<string, any>[]);
+      const pg = pgList.map((x) => `${x.payment_method}:${x.cancel_status}`);
+      const pgOk = !!done && pgList.length > 0 && pgList.every((x) => x.cancel_status === "T");
+      const finalAmt = done ? rfNum(done.actual_refund_amount) : NaN;
+      Object.assign(detail, { pg });
+      if (!done || !pgOk || finalAmt !== expectAmount) {
+        const why = !done ? "환불완료로 바뀐 것을 확인하지 못했어요" : !pgOk ? `PG 결제취소가 확인되지 않아요(${pg.join(", ") || "상태 없음"})` : `환불완료 금액이 달라요(${won(finalAmt)})`;
+        await logRow(false, "환불완료를 보냈지만 확인 실패 — " + why, { refund_amount: isFinite(finalAmt) ? finalAmt : null, detail });
+        return json({ error: `환불완료 처리를 보냈지만 ${why} — 카페24 환불 관리와 PG사에서 이 주문을 꼭 확인해주세요`, critical: true }, 502);
+      }
+      await logRow(true, `환불완료 · ${won(finalAmt)}${row.points ? ` · 적립금 반환 ${won(row.points)}` : ""} · PG 취소 확인`, { refund_amount: finalAmt, detail });
+      return json({ ok: true, refund_amount: finalAmt, points: row.points, pg });
+    }
+
     if (action === "selfcancel_list" || action === "selfcancel_run") {
       if (!(await cxlRoleOk(authed))) return json({ error: "접근 권한이 없습니다" }, 403);   // 관리자 + 허용 목록(cxl_users) — 단 최종 환불은 아래에서 관리자만
       const nrSets = await rscanNrSets(token).catch(() => null);
