@@ -1204,7 +1204,7 @@
         </button>
         <input type="text" id="perfSearch" placeholder="상품명 검색" oninput="renderSoon('renderPerfResult')"
                style="border:1.5px solid #d1d5db;border-radius:8px;padding:7px 12px;font-size:.82rem;outline:none;min-width:170px;" />
-        <span style="font-size:.75rem;color:#6b7280;">판매수량 = 주문수량 − 취소·반품완료 수량 · 마진율은 카페24 상품정보의 공급가(+부가세 10%) 기준</span>
+        <span style="font-size:.75rem;color:#6b7280;">판매수량 = 주문수량 − 취소·반품완료 수량 · 마진율은 카페24 상품정보의 공급가(+부가세 10%) 기준 · <b>중국 사입 상품은 중국 사입 관리의 실질 단가(+부가세 10%) 기준</b>(관리자 화면)</span>
       </div>
 
       <!-- 집계 기준 안내 -->
@@ -17834,7 +17834,8 @@ async function fetchPerfApi() {
         returnRate: r.paid_qty > 0 ? r.cancel_qty / r.paid_qty * 100 : 0,
       });
       if (r.supply_price > 0 && r.price > 0) {
-        store.costMap[(r.product_name || '').toLowerCase().trim()] = { supplyCost: r.supply_price, salePrice: r.price };
+        // 중국 사입 상품은 서버가 공급가 자리에 '실질 단가'를 넣어 준다(관리자만, cost_src 'cn' — 2026-10-16 사용자 요청). 원래 공급가 = supply_c24
+        store.costMap[(r.product_name || '').toLowerCase().trim()] = { supplyCost: r.supply_price, salePrice: r.price, cn: r.cost_src === 'cn', c24: r.supply_c24, cnNames: r.cn_snames || [], cnWithCost: r.cn_with_cost };
         mappedCost++;
       }
     });
@@ -18002,7 +18003,7 @@ function renderPerfResult() {
         ${isCS() ? '' : '<th class="m-hide">ON 광고<br><span style="font-size:.7rem;font-weight:400;color:#6b7280;">활성 기준</span></th>'}
         <th>순반품률<br class="m-hide"><span class="m-hide" style="font-size:.7rem;font-weight:400;color:#6b7280;">배송완료일 기준</span></th>
         <th class="m-hide">취소&amp;반품률<br><span style="font-size:.7rem;font-weight:400;color:#6b7280;">주문일 기준·참고용</span></th>
-        ${isCS() ? '' : '<th>마진율<br class="m-hide"><span class="m-hide" style="font-size:.7rem;font-weight:400;color:#6b7280;">공급가×1.1 기준</span></th>'}
+        ${isCS() ? '' : '<th>마진율<br class="m-hide"><span class="m-hide" style="font-size:.7rem;font-weight:400;color:#6b7280;">공급가×1.1 기준' + (isAdmin() ? '<br>중국 사입은 실질 단가×1.1' : '') + '</span></th>'}
       </tr></thead>
       <tbody>`;
 
@@ -18014,6 +18015,7 @@ function renderPerfResult() {
         const m = ((cd.salePrice - vatCost) / cd.salePrice) * 100;
         const c = (vatCost / cd.salePrice) * 100;
         mg = marginBadge(m); cr = costBadge(c); sc = fmt(cd.supplyCost)+'원';
+        if (cd.cn) sc += `<div title="중국 사입 관리의 실질 단가 = 위안 × 환율 200원 × (1 + 들여오는 비용 비율), 부가세 제외${cd.cnWithCost === false ? ' (비용 시트가 없어 환율만 곱한 값)' : ''}&#10;사입상품명: ${escHtml((cd.cnNames || []).join(', '))}" style="display:inline-block;margin-top:2px;background:#fef3c7;color:#92400e;border-radius:5px;padding:0 6px;font-size:.66rem;font-weight:800;cursor:help;white-space:nowrap;">중국 사입 실질 단가</div>${cd.c24 > 0 && cd.c24 !== cd.supplyCost ? `<div style="font-size:.66rem;color:#9ca3af;white-space:nowrap;">카페24 공급가 ${fmt(cd.c24)}원</div>` : ''}`;
       }
       html += `<tr>
         <td class="m-hide">${row.rank}</td>

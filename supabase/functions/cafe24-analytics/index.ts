@@ -743,6 +743,102 @@ function selfGroupsOf(o: Record<string, any>, nrSets: NrSets): Record<string, an
   return groups;
 }
 
+// ── 중국 사입 ↔ 카페24 상품 맞추기 · 실질 단가 (cn_list·종합 판매 데이터(performance) 공용, 2026-10-16) ──
+const cnNorm = (v: unknown) => String(v ?? "").toLowerCase().replace(/\s+/g, "");
+const cnHead = (n: string) => (n.match(/^[0-9a-z]+/) ?? [""])[0];   // 앞머리의 영문·숫자 묶음(품번 몸통)
+// 카페24 전 상품의 공급사 상품명(30분 캐시)
+async function cnC24LoadShared(token: string, noCache: boolean): Promise<Record<string, any>[]> {
+  let cps = (await cacheGet("cn:c24products", 30 * 60 * 1000)) as Record<string, any>[] | null;
+  if (!cps || noCache) {
+    cps = [];
+    for (let offset = 0; offset < 10000; offset += 100) {
+      const body = await apiGet(`${API_BASE}/admin/products?shop_no=1&limit=100&offset=${offset}&fields=product_no,product_name,supply_product_name,display,selling`, token);
+      const page = (body.products ?? []) as Record<string, any>[];
+      cps.push(...page.map((x) => ({ product_no: x.product_no, product_name: x.product_name, supply_product_name: x.supply_product_name ?? "", display: x.display, selling: x.selling })));
+      if (page.length < 100) break;
+    }
+    await cacheSet("cn:c24products", cps);
+  }
+  return cps;
+}
+// 사입상품명 → 카페24 상품 (2026-10-12 규칙 — 사용자 지정 반영): 카페24 상품의 '공급사 상품명'(공백·대소문자 무시)과 사입상품명(품번)을 맞춘다.
+//   ① 직접 연결(cn_products.c24_nos 배열)이 있으면 그것만 쓴다([] = '해당 없음'으로 확정).
+//   ② 확실(exact): 같은 이름이거나, 공급사 상품명이 품번으로 시작하고 바로 뒤가 영문·숫자가 아님 ("26K07가디건(네이비) 79위안" ↔ 26K07).
+//   ③ 몸통 일치(base): 품번에 꼬리가 붙은 것('6800短款'·'26833-1短'·'801#')은, 공급사 상품명의 앞머리 영문·숫자가 품번 몸통('6800'·'26833'·'801')과 같으면 같은 상품
+//      — 사용자 지정: "6800과 6800短款은 카페24에 상품 1개로 등록하고 옵션으로 나눈다, 공급사 상품명은 6800". 그래서 한 카페24 상품이 여러 사입상품명에 붙을 수 있다.
+//   ④ 헷갈림(maybe): 위에 안 걸렸는데 앞머리가 서로 앞부분만 같은 상품이 있으면('6800' ↔ '68001…', 짧은 쪽 4자 이상) 등록으로 치지 않고 주의 후보로만.
+function cnMatchC24(names: string[], manualOf: (name: string) => unknown, cps: Record<string, any>[]) {
+  const pub = (x: Record<string, any>, how: string) => ({ product_no: x.product_no, product_name: x.product_name, supply_product_name: x.supply_product_name ?? "", display: x.display, selling: x.selling, how });
+  const c24: Record<string, ReturnType<typeof pub>[]> = {}, c24_warn: Record<string, ReturnType<typeof pub>[]> = {};
+  const byNo = new Map(cps.map((x) => [Number(x.product_no), x]));
+  const withNorm = cps.map((x) => ({ x, n: cnNorm(x.supply_product_name) })).filter((y) => y.n).map((y) => ({ ...y, h: cnHead(y.n) }));
+  for (const name of names) {
+    const k = cnNorm(name); if (!k) continue;
+    const manual = manualOf(name);
+    if (Array.isArray(manual)) {
+      const hits = manual.map((no: unknown) => byNo.get(Number(no))).filter(Boolean).map((x) => pub(x as Record<string, any>, "manual"));
+      if (hits.length) c24[name] = hits.slice(0, 5);
+      continue;
+    }
+    const base = cnHead(k);
+    const exact = withNorm.filter((y) => y.n === k || (y.n.startsWith(k) && !/[0-9a-z]/.test(y.n.charAt(k.length))));
+    const variant = exact.length ? [] : withNorm.filter((y) => base.length >= 3 && base !== k && y.h === base);
+    if (exact.length || variant.length) { c24[name] = (exact.length ? exact.map((y) => pub(y.x, "exact")) : variant.map((y) => pub(y.x, "base"))).slice(0, 5); continue; }
+    const maybe = withNorm.filter((y) => y.h !== base && Math.min(y.h.length, base.length) >= 4 && (y.h.startsWith(base) || base.startsWith(y.h)));
+    if (maybe.length) c24_warn[name] = maybe.slice(0, 8).map((y) => pub(y.x, "maybe"));
+  }
+  return { c24, c24_warn };
+}
+// 카페24 상품별 실질 단가(원, 부가세 제외) — 중국 사입 관리 화면의 '실질 단가'와 같은 계산(cn_export와 같음):
+//   줄마다 위안 × 환율 200 × (1 + 그 입고의 들여오는 비용 비율)을 원 단위로 반올림 → 입고(전달) 수량으로 가중 평균, 비용 시트가 있는 입고가 하나라도 있으면 그 줄들만으로.
+//   한 카페24 상품에 사입상품명이 여럿 붙으면(6800 + 6800短款) 그 줄들을 합쳐 가중 평균. 연결은 직접 연결·확실·몸통 일치만(헷갈림 후보는 안 씀).
+async function cnRealCostByProduct(token: string, noCache: boolean): Promise<Map<number, { won: number; snames: string[]; qty: number; with_cost: boolean }>> {
+  const [ships, lines, prodRows] = await Promise.all([
+    sbRest("cn_shipments?select=id,costs&limit=500"),
+    sbRest("cn_lines?select=shipment_id,sname,qty_sent,unit_price&limit=20000"),
+    sbRest("cn_products?select=sname,c24_nos&limit=5000"),
+  ]) as [Record<string, any>[], Record<string, any>[], Record<string, any>[]];
+  const CN_FX = 200;
+  const ratio = new Map<number, number | null>();
+  for (const sh of ships ?? []) {
+    const c = sh.costs as Record<string, any> | null;
+    const items = ((c?.items ?? []) as Record<string, any>[]), pays = ((c?.payments ?? []) as Record<string, any>[]);
+    const sum = items.reduce((t, x) => t + (Number(x.amount) || 0), 0), vat = items.filter((x) => /부가세/.test(String(x.name ?? ""))).reduce((t, x) => t + (Number(x.amount) || 0), 0);
+    const paySum = pays.reduce((t, x) => t + (Number(x.krw) || 0), 0);
+    ratio.set(Number(sh.id), c && paySum > 0 ? (sum - vat) / paySum : null);
+  }
+  const by = new Map<string, { cost: { sum: number; qty: number }; all: { sum: number; qty: number } }>();
+  for (const l of lines ?? []) {
+    const name = String(l.sname ?? ""), q = Number(l.qty_sent) || 0;
+    if (!name || l.unit_price == null || q <= 0) continue;
+    const g = by.get(name) ?? { cost: { sum: 0, qty: 0 }, all: { sum: 0, qty: 0 } };
+    const r = ratio.get(Number(l.shipment_id)) ?? null, base = Number(l.unit_price) * CN_FX;
+    const won = Math.round(r != null ? base * (1 + r) : base);
+    g.all.sum += q * won; g.all.qty += q;
+    if (r != null) { g.cost.sum += q * won; g.cost.qty += q; }
+    by.set(name, g);
+  }
+  const manual = new Map((prodRows ?? []).map((r) => [String(r.sname), Array.isArray(r.c24_nos) ? r.c24_nos : null]));
+  const { c24 } = cnMatchC24([...by.keys()], (n) => manual.get(n) ?? null, await cnC24LoadShared(token, noCache));
+  const acc = new Map<number, { cost: { sum: number; qty: number }; all: { sum: number; qty: number }; snames: string[] }>();
+  for (const [sname, hits] of Object.entries(c24)) {
+    const g = by.get(sname); if (!g) continue;
+    for (const h of hits) {
+      const no = Number(h.product_no);
+      const a = acc.get(no) ?? { cost: { sum: 0, qty: 0 }, all: { sum: 0, qty: 0 }, snames: [] };
+      a.cost.sum += g.cost.sum; a.cost.qty += g.cost.qty; a.all.sum += g.all.sum; a.all.qty += g.all.qty;
+      if (!a.snames.includes(sname)) a.snames.push(sname);
+      acc.set(no, a);
+    }
+  }
+  const out = new Map<number, { won: number; snames: string[]; qty: number; with_cost: boolean }>();
+  for (const [no, a] of acc) {
+    const use = a.cost.qty > 0 ? a.cost : a.all;
+    if (use.qty > 0) out.set(no, { won: Math.round(use.sum / use.qty), snames: a.snames, qty: use.qty, with_cost: a.cost.qty > 0 });
+  }
+  return out;
+}
+
 // ── 취소·반품 접수 3단계 (2026-10-06 사용자 요청) — 자사몰 반품접수(R10) → 반품처리중(수거전) ──
 // 한 접수번호(claim_code)가 한 건. 이 단계에서 환불 금액(반품 배송비 차감·쿠폰할인 취소·적립금 반환)이 정해진다.
 // 공개 API(PUT return status=processing)에는 배송비 차감·쿠폰 취소 금액을 넣는 자리가 없어서, 넘기는 일은 이 PC의 연결 스크립트(window.CAFE24_RETURN)가
@@ -1108,7 +1204,7 @@ Deno.serve(async (req) => {
     // performance는 역할에 따라 응답이 달라서(비관리자 order_amount=0) 키에 역할 포함.
     const qsKey = new URLSearchParams(url.search);
     qsKey.delete("nocache"); qsKey.sort();
-    const cacheKey = `an:${qsKey.toString()}` + (action === "performance" ? `:${authed.role}` : "");
+    const cacheKey = `an:${qsKey.toString()}` + (action === "performance" ? `:${authed.role}:cn1` : "");   // cn1 = 중국 사입 실질 단가 반영(2026-10-16) 전 캐시를 쓰지 않게
     const noCache = url.searchParams.get("nocache") === "1";
     // 저장 시간: 분석용 조회는 30분(2026-10-01 사용자 결정 — 첫 조회가 6~35초라 다시 기다리는 일을 줄임, 그동안 새 주문·취소는 미반영),
     //   미발송 목록은 10분 그대로(물류팀 실시간 작업 — 화면 새로고침 버튼은 nocache). api_cache 행은 1시간 뒤 자동 삭제.
@@ -1765,22 +1861,7 @@ Deno.serve(async (req) => {
         return Number.isInteger(n) && n >= 0 && n <= max ? n : NaN;
       };
       // 카페24 전 상품의 공급사 상품명(30분 캐시) — 등록 여부 맞추기(cn_list)·직접 연결할 상품 찾기(cn_c24find)·직접 연결 저장(cn_c24set)이 같이 쓴다
-      const cnNorm = (v: unknown) => String(v ?? "").toLowerCase().replace(/\s+/g, "");
-      const cnHead = (n: string) => (n.match(/^[0-9a-z]+/) ?? [""])[0];   // 앞머리의 영문·숫자 묶음(품번 몸통)
-      const cnC24Load = async (): Promise<Record<string, any>[]> => {
-        let cps = (await cacheGet("cn:c24products", 30 * 60 * 1000)) as Record<string, any>[] | null;
-        if (!cps || noCache) {
-          cps = [];
-          for (let offset = 0; offset < 10000; offset += 100) {
-            const body = await apiGet(`${API_BASE}/admin/products?shop_no=1&limit=100&offset=${offset}&fields=product_no,product_name,supply_product_name,display,selling`, token);
-            const page = (body.products ?? []) as Record<string, any>[];
-            cps.push(...page.map((x) => ({ product_no: x.product_no, product_name: x.product_name, supply_product_name: x.supply_product_name ?? "", display: x.display, selling: x.selling })));
-            if (page.length < 100) break;
-          }
-          await cacheSet("cn:c24products", cps);
-        }
-        return cps;
-      };
+      const cnC24Load = () => cnC24LoadShared(token, noCache);   // 공용(최상위) — 종합 판매 데이터의 실질 단가도 같은 목록을 쓴다
       const cnC24Pub = (x: Record<string, any>, how: string) => ({ product_no: x.product_no, product_name: x.product_name, supply_product_name: x.supply_product_name ?? "", display: x.display, selling: x.selling, how });
       // ── 상품 관리 시스템(newproduct-manager)으로 내보내기 (2026-10-13 사용자 요청 — 중국 사입 상품을 그쪽에 자동 등록) ──
       //   서버 간 전용: 상품관리 서버가 x-sync-secret(NPM_SYNC_SECRET)으로만 부른다(사람 로그인으로는 403 — 원가가 들어 있음).
@@ -1846,29 +1927,12 @@ Deno.serve(async (req) => {
         //   ③ 몸통 일치(base): 품번에 꼬리가 붙은 것('6800短款'·'26833-1短'·'801#')은, 공급사 상품명의 앞머리 영문·숫자가 품번 몸통('6800'·'26833'·'801')과 같으면 같은 상품
         //      — 사용자 지정: "6800과 6800短款은 카페24에 상품 1개로 등록하고 옵션으로 나눈다, 공급사 상품명은 6800". 그래서 한 카페24 상품이 여러 사입상품명에 붙을 수 있다.
         //   ④ 헷갈림(maybe → c24_warn): 위에 안 걸렸는데 앞머리가 서로 앞부분만 같은 상품이 있으면('6800' ↔ '68001…', 짧은 쪽 4자 이상) 등록으로 치지 않고 **주의 후보**로만 내려 준다 — 화면에서 직접 연결.
-        const c24: Record<string, unknown[]> = {};
-        const c24_warn: Record<string, unknown[]> = {};
+        let c24: Record<string, unknown[]> = {};
+        let c24_warn: Record<string, unknown[]> = {};
         let c24_error: string | null = null;
         try {
-          const cps = await cnC24Load();
-          const byNo = new Map(cps.map((x) => [Number(x.product_no), x]));
           const names = [...new Set(lines.map((l) => String(l.sname ?? "")).filter(Boolean))];
-          const withNorm = cps.map((x) => ({ x, n: cnNorm(x.supply_product_name) })).filter((y) => y.n).map((y) => ({ ...y, h: cnHead(y.n) }));
-          for (const name of names) {
-            const k = cnNorm(name); if (!k) continue;
-            const manual = (prods[name] as Record<string, any> | undefined)?.c24_nos;
-            if (Array.isArray(manual)) {
-              const hits = manual.map((no: unknown) => byNo.get(Number(no))).filter(Boolean).map((x) => cnC24Pub(x as Record<string, any>, "manual"));
-              if (hits.length) c24[name] = hits.slice(0, 5);
-              continue;
-            }
-            const base = cnHead(k);
-            const exact = withNorm.filter((y) => y.n === k || (y.n.startsWith(k) && !/[0-9a-z]/.test(y.n.charAt(k.length))));
-            const variant = exact.length ? [] : withNorm.filter((y) => base.length >= 3 && base !== k && y.h === base);
-            if (exact.length || variant.length) { c24[name] = (exact.length ? exact.map((y) => cnC24Pub(y.x, "exact")) : variant.map((y) => cnC24Pub(y.x, "base"))).slice(0, 5); continue; }
-            const maybe = withNorm.filter((y) => y.h !== base && Math.min(y.h.length, base.length) >= 4 && (y.h.startsWith(base) || base.startsWith(y.h)));
-            if (maybe.length) c24_warn[name] = maybe.slice(0, 8).map((y) => cnC24Pub(y.x, "maybe"));
-          }
+          ({ c24, c24_warn } = cnMatchC24(names, (name) => (prods[name] as Record<string, any> | undefined)?.c24_nos, await cnC24Load()));
         } catch (e) { c24_error = "카페24 상품 목록을 읽지 못했어요 — " + String(e).slice(0, 150); }
         return json({ ships: outShips, lines: outLines, prods, c24, c24_warn, c24_error, can_price: canPrice, can_edit: canEdit });
       }
@@ -3191,6 +3255,7 @@ Deno.serve(async (req) => {
         product_no: number; product_name: string;
         paid_qty: number; order_amount: number; cancel_qty: number;
         price: number; supply_price: number;
+        supply_c24?: number; cost_src?: string; cn_snames?: string[]; cn_with_cost?: boolean;
       };
       const map = new Map<number, Perf>();
       for (const r of sales) {
@@ -3233,10 +3298,23 @@ Deno.serve(async (req) => {
         }
       }
 
+      // ④ 중국 사입 상품은 공급가 대신 '실질 단가'(중국 사입 관리 — 위안 × 200 × (1 + 들여오는 비용 비율), 부가세 제외) — 2026-10-16 사용자 요청
+      //    "일반 상품은 공급가×1.1, 중국 사입 상품은 실질 단가×1.1로 마진율". 화면들은 supply_price × 1.1로 마진을 계산하므로 그 자리에 넣고, 원래 공급가는 supply_c24로.
+      //    단가는 관리자만 보는 값이라(중국 사입 관리 규칙) 관리자 응답에만 넣는다. 못 읽으면 공급가 그대로(cn_cost_error).
+      let cnCostError: string | null = null;
+      if (authed.role === "admin") {
+        try {
+          const cn = await cnRealCostByProduct(token, noCache);
+          for (const row of map.values()) {
+            const c = cn.get(row.product_no); if (!c) continue;
+            row.supply_c24 = row.supply_price; row.supply_price = c.won; row.cost_src = "cn"; row.cn_snames = c.snames; row.cn_with_cost = c.with_cost;
+          }
+        } catch (e) { cnCostError = "중국 사입 실질 단가를 읽지 못해 공급가로 계산했어요 — " + String(e).slice(0, 120); }
+      }
       const rows = [...map.values()].sort((a, b) => b.paid_qty - a.paid_qty);
       // 주문금액(판매합계)은 관리자만 — 직원·CS는 UI에서도 숨김/블러 처리되는 값이라 서버에서 0으로 제거
       if (authed.role !== "admin") for (const r of rows) r.order_amount = 0;
-      return respond({ period: { start: s, end: e }, product_count: rows.length, rows });
+      return respond({ period: { start: s, end: e }, product_count: rows.length, rows, cn_cost: authed.role === "admin", cn_cost_error: cnCostError });
     }
 
     // ── 조회수 + 주문수 통합 (기본) ──
