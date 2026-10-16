@@ -1204,7 +1204,7 @@ Deno.serve(async (req) => {
     // performance는 역할에 따라 응답이 달라서(비관리자 order_amount=0) 키에 역할 포함.
     const qsKey = new URLSearchParams(url.search);
     qsKey.delete("nocache"); qsKey.sort();
-    const cacheKey = `an:${qsKey.toString()}` + (action === "performance" ? `:${authed.role}:cn1` : "");   // cn1 = 중국 사입 실질 단가 반영(2026-10-16) 전 캐시를 쓰지 않게
+    const cacheKey = `an:${qsKey.toString()}` + (action === "performance" ? `:${authed.role}:cn2` : "");   // cn1 = 중국 사입 실질 단가 반영(2026-10-16) 전 캐시를 쓰지 않게
     const noCache = url.searchParams.get("nocache") === "1";
     // 저장 시간: 분석용 조회는 30분(2026-10-01 사용자 결정 — 첫 조회가 6~35초라 다시 기다리는 일을 줄임, 그동안 새 주문·취소는 미반영),
     //   미발송 목록은 10분 그대로(물류팀 실시간 작업 — 화면 새로고침 버튼은 nocache). api_cache 행은 1시간 뒤 자동 삭제.
@@ -3300,9 +3300,10 @@ Deno.serve(async (req) => {
 
       // ④ 중국 사입 상품은 공급가 대신 '실질 단가'(중국 사입 관리 — 위안 × 200 × (1 + 들여오는 비용 비율), 부가세 제외) — 2026-10-16 사용자 요청
       //    "일반 상품은 공급가×1.1, 중국 사입 상품은 실질 단가×1.1로 마진율". 화면들은 supply_price × 1.1로 마진을 계산하므로 그 자리에 넣고, 원래 공급가는 supply_c24로.
-      //    단가는 관리자만 보는 값이라(중국 사입 관리 규칙) 관리자 응답에만 넣는다. 못 읽으면 공급가 그대로(cn_cost_error).
+      //    관리자 + MD(staff — 2026-10-16 사용자 요청 "MD도 그렇게 보이게"). 물류·CS는 공급가 그대로. 못 읽으면 공급가 그대로(cn_cost_error).
       let cnCostError: string | null = null;
-      if (authed.role === "admin") {
+      const cnCostOn = authed.role === "admin" || authed.role === "staff";
+      if (cnCostOn) {
         try {
           const cn = await cnRealCostByProduct(token, noCache);
           for (const row of map.values()) {
@@ -3314,7 +3315,7 @@ Deno.serve(async (req) => {
       const rows = [...map.values()].sort((a, b) => b.paid_qty - a.paid_qty);
       // 주문금액(판매합계)은 관리자만 — 직원·CS는 UI에서도 숨김/블러 처리되는 값이라 서버에서 0으로 제거
       if (authed.role !== "admin") for (const r of rows) r.order_amount = 0;
-      return respond({ period: { start: s, end: e }, product_count: rows.length, rows, cn_cost: authed.role === "admin", cn_cost_error: cnCostError });
+      return respond({ period: { start: s, end: e }, product_count: rows.length, rows, cn_cost: cnCostOn, cn_cost_error: cnCostError });
     }
 
     // ── 조회수 + 주문수 통합 (기본) ──
