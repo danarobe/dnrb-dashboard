@@ -717,7 +717,7 @@
     <button type="button" class="menu-sec-head" onclick="menuSecToggle('order')"><i class="fa-solid fa-box" style="width:18px;text-align:center;"></i><span>주문</span><i class="fa-solid fa-chevron-down menu-sec-caret"></i></button>
     <div class="menu-sec-body">
       <button class="menu-item" data-menu="stable" id="menu-stable" onclick="showMenu('stable')"><i class="fa-solid fa-warehouse" style="width:18px;text-align:center;color:#818cf8;"></i>안정재고 편성</button>
-      <button class="menu-item" data-menu="cnbuy" id="menu-cnbuy" onclick="showMenu('cnbuy')"><i class="fa-solid fa-ship" style="width:18px;text-align:center;color:#818cf8;"></i>중국 사입 관리</button>
+      <button class="menu-item" data-menu="cnbuy" id="menu-cnbuy" onclick="showMenu('cnbuy')"><i class="fa-solid fa-ship" style="width:18px;text-align:center;color:#818cf8;"></i>중국 사입/제작 관리</button>
       <button class="menu-item" data-menu="madechk" id="menu-madechk" style="display:none;" onclick="showMenu('madechk')"><i class="fa-solid fa-industry" style="width:18px;text-align:center;color:#818cf8;"></i>자체제작 주문 점검</button>
     </div>
   </div>
@@ -1204,7 +1204,7 @@
         </button>
         <input type="text" id="perfSearch" placeholder="상품명 검색" oninput="renderSoon('renderPerfResult')"
                style="border:1.5px solid #d1d5db;border-radius:8px;padding:7px 12px;font-size:.82rem;outline:none;min-width:170px;" />
-        <span style="font-size:.75rem;color:#6b7280;">판매수량 = 주문수량 − 취소·반품완료 수량 · 마진율은 카페24 상품정보의 공급가(+부가세 10%) 기준 · <b>중국 사입 상품은 중국 사입 관리의 실질 단가(+부가세 10%) 기준</b>(관리자·MD 화면)</span>
+        <span style="font-size:.75rem;color:#6b7280;">판매수량 = 주문수량 − 취소·반품완료 수량 · 마진율은 카페24 상품정보의 공급가(+부가세 10%) 기준 · <b>중국 사입 상품은 중국 사입/제작 관리의 실질 단가(+부가세 10%) 기준</b>(관리자·MD 화면)</span>
       </div>
 
       <!-- 집계 기준 안내 -->
@@ -1470,7 +1470,7 @@
   <!-- 중국 사입 관리 (2026-10-01) — 입고 엑셀의 전달 수량 ↔ 현장 실제 수량 비교, 상품별 현황(카페24 등록·판매량) -->
   <div class="section-card page-sec" id="sec-cnbuy">
     <div class="section-header" style="cursor:default;">
-      <h2><span><i class="fa-solid fa-ship" style="color:#4f46e5;font-size:.9em;"></i></span> 중국 사입 관리</h2>
+      <h2><span><i class="fa-solid fa-ship" style="color:#4f46e5;font-size:.9em;"></i></span> 중국 사입/제작 관리</h2>
       <div style="display:flex;gap:8px;flex-wrap:wrap;">
         <label class="toggle-btn" id="cn-upload-btn" style="cursor:pointer;display:none;"><i class="fa-solid fa-file-arrow-up"></i> 입고 엑셀 올리기
           <input type="file" accept=".xlsx,.xls" style="display:none;" onchange="cnFilePick(this)" /></label>
@@ -18015,7 +18015,7 @@ function renderPerfResult() {
         const m = ((cd.salePrice - vatCost) / cd.salePrice) * 100;
         const c = (vatCost / cd.salePrice) * 100;
         mg = marginBadge(m); cr = costBadge(c); sc = fmt(cd.supplyCost)+'원';
-        if (cd.cn) sc += `<div style="margin-top:2px;line-height:1;"><span title="중국 사입 관리의 실질 단가 = 위안 × 환율 200원 × (1 + 들여오는 비용 비율), 부가세 제외${cd.cnWithCost === false ? ' (비용 시트가 없어 환율만 곱한 값)' : ''}&#10;사입상품명: ${escHtml((cd.cnNames || []).join(', '))}" style="display:inline-block;background:#fef3c7;color:#92400e;border-radius:5px;padding:0 6px;font-size:.66rem;font-weight:800;cursor:help;white-space:nowrap;">중국 사입 실질 단가</span></div>${cd.c24 > 0 && cd.c24 !== cd.supplyCost ? `<div style="font-size:.66rem;color:#9ca3af;white-space:nowrap;">카페24 공급가 ${fmt(cd.c24)}원</div>` : ''}`;
+        if (cd.cn) sc += `<div style="margin-top:2px;line-height:1;"><span title="중국 사입/제작 관리의 실질 단가 = 위안 × 환율 200원 × (1 + 들여오는 비용 비율), 부가세 제외${cd.cnWithCost === false ? ' (비용 시트가 없어 환율만 곱한 값)' : ''}&#10;사입상품명: ${escHtml((cd.cnNames || []).join(', '))}" style="display:inline-block;background:#fef3c7;color:#92400e;border-radius:5px;padding:0 6px;font-size:.66rem;font-weight:800;cursor:help;white-space:nowrap;">중국 사입 실질 단가</span></div>${cd.c24 > 0 && cd.c24 !== cd.supplyCost ? `<div style="font-size:.66rem;color:#9ca3af;white-space:nowrap;">카페24 공급가 ${fmt(cd.c24)}원</div>` : ''}`;
       }
       html += `<tr>
         <td class="m-hide">${row.rank}</td>
