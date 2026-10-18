@@ -1146,6 +1146,7 @@
           <option value="views">조회수순</option>
           <option value="order_count">주문수순</option>
           <option value="rate">주문율순</option>
+          <option value="margin">마진율순</option>
           <option value="order_amount">매출액순</option>
           <option value="order_qty">판매수량순</option>
         </select>
@@ -7637,7 +7638,9 @@ async function fetchAnalytics(auto = false) {
       action: 'summary', start_date: ds, end_date: de,
       device_type: $('anDevice').value,
     });
-    anState.rows = data.rows || [];
+    // 마진율(2026-10-18 사용자 요청 — 종합 판매 데이터와 같은 계산): (판매가 − 공급가×1.1) ÷ 판매가. 중국 사입 상품은 서버가 공급가 자리에 실질 단가를 넣어 줌(관리자·MD)
+    anState.rows = (data.rows || []).map(r => ({ ...r, margin: r.price > 0 && r.supply_price > 0 ? (r.price - r.supply_price * 1.1) / r.price * 100 : NaN }));
+    anState.costError = data.cost_error || null;
     if (!auto) showToast(`${data.product_count}개 상품 · 조회 ${fmt(data.totals.views)} / 주문 ${fmt(data.totals.order_count)}건`);
     // 카테고리가 선택돼 있으면 필터 Set 재적용, 아니면 바로 렌더
     if ($('anCategory').value) await applyAnCategory();
@@ -7735,11 +7738,12 @@ function renderAnalytics() {
 
   // 정렬 + 테이블
   const key = $('anSort').value;
-  const sorted = [...rows].sort((a, b) => b[key] - a[key]);
-  let html = `<div class="table-wrap"><table>
+  const sv = (r, k) => { const v = r[k]; return Number.isFinite(v) ? v : -Infinity; };   // 마진율 없는 상품은 맨 뒤
+  const sorted = [...rows].sort((a, b) => sv(b, key) - sv(a, key));
+  let html = `${anState.costError ? `<div style="font-size:.76rem;color:#b45309;margin-bottom:6px;"><i class="fa-solid fa-triangle-exclamation"></i> ${escHtml(anState.costError)}</div>` : ''}<div class="table-wrap"><table>
     <thead><tr>
       <th style="width:44px;" class="m-hide">#</th><th style="text-align:left;">상품</th>
-      <th>조회수</th><th class="m-hide">주문수</th><th>판매수량</th>${isStaff() ? '' : '<th class="m-hide">주문금액</th>'}<th>주문율</th>
+      <th>조회수</th><th class="m-hide">주문수</th><th>판매수량</th>${isStaff() ? '' : '<th class="m-hide">주문금액</th>'}<th>주문율</th><th>마진율<br class="m-hide"><span class="m-hide" style="font-size:.7rem;font-weight:400;color:#6b7280;">공급가×1.1 기준<br>중국 사입은 실질 단가×1.1</span></th>
     </tr></thead><tbody>`;
   sorted.forEach((r, i) => {
     html += `<tr>
@@ -7750,6 +7754,7 @@ function renderAnalytics() {
       <td>${fmt(r.order_qty)}</td>
       ${isStaff() ? '' : `<td class="m-hide">${fmt(r.order_amount)}원</td>`}
       <td>${anRateBadge(r.rate)}</td>
+      <td>${marginBadge(r.margin)}${r.cost_src === 'cn' ? `<div style="margin-top:2px;line-height:1;"><span title="중국 사입/제작 관리의 실질 단가 ${fmt(r.supply_price)}원 기준 (부가세 제외)${r.supply_c24 > 0 ? '&#10;카페24 공급가 ' + fmt(r.supply_c24) + '원' : ''}&#10;사입상품명: ${escHtml((r.cn_snames || []).join(', '))}" style="display:inline-block;background:#fef3c7;color:#92400e;border-radius:5px;padding:0 6px;font-size:.62rem;font-weight:800;cursor:help;white-space:nowrap;">중국 사입 실질 단가</span></div>` : ''}</td>
     </tr>`;
   });
   html += '</tbody></table></div>';
@@ -7760,13 +7765,15 @@ function downloadAnalyticsCSV() {
   const rows = anFilteredRows();
   if (rows.length === 0) { showToast('다운로드할 데이터가 없습니다'); return; }
   const key = $('anSort').value;
-  const sorted = [...rows].sort((a, b) => b[key] - a[key]);
+  const sv = (r, k) => { const v = r[k]; return Number.isFinite(v) ? v : -Infinity; };
+  const sorted = [...rows].sort((a, b) => sv(b, key) - sv(a, key));
+  const mg = r => Number.isFinite(r.margin) ? r.margin.toFixed(1) : '';
   const lines = [isStaff()
-    ? '상품번호,상품명,조회수,주문수,판매수량,주문율(%)'
-    : '상품번호,상품명,조회수,주문수,판매수량,주문금액,주문율(%)'];
+    ? '상품번호,상품명,조회수,주문수,판매수량,주문율(%),마진율(%),원가 기준'
+    : '상품번호,상품명,조회수,주문수,판매수량,주문금액,주문율(%),마진율(%),원가 기준'];
   sorted.forEach(r => lines.push(isStaff()
-    ? `${r.product_no},"${(r.product_name || '').replace(/"/g, '""')}",${r.views},${r.order_count},${r.order_qty},${r.rate}`
-    : `${r.product_no},"${(r.product_name || '').replace(/"/g, '""')}",${r.views},${r.order_count},${r.order_qty},${r.order_amount},${r.rate}`,
+    ? `${r.product_no},"${(r.product_name || '').replace(/"/g, '""')}",${r.views},${r.order_count},${r.order_qty},${r.rate},${mg(r)},${r.cost_src === 'cn' ? '중국 사입 실질 단가' : '공급가'}`
+    : `${r.product_no},"${(r.product_name || '').replace(/"/g, '""')}",${r.views},${r.order_count},${r.order_qty},${r.order_amount},${r.rate},${mg(r)},${r.cost_src === 'cn' ? '중국 사입 실질 단가' : '공급가'}`,
   ));
   dlCSV(lines.join('\n'), `상품_조회수_주문율_${$('anDateStart').value}_${$('anDateEnd').value}.csv`);
 }

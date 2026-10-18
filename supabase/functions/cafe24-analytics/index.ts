@@ -3336,6 +3336,7 @@ Deno.serve(async (req) => {
     type Row = {
       product_no: number; product_name: string;
       views: number; order_count: number; order_qty: number; order_amount: number; rate: number;
+      price?: number; supply_price?: number; supply_c24?: number; cost_src?: string; cn_snames?: string[]; cn_with_cost?: boolean;
     };
     const map = new Map<number, Row>();
     const rowOf = (no: number, name: string): Row => {
@@ -3363,6 +3364,28 @@ Deno.serve(async (req) => {
     rows.sort((a, b) => b.views - a.views);
     if (authed.role !== "admin") for (const r of rows) r.order_amount = 0;   // 주문금액은 관리자만 — performance와 동일 (보안 점검 2026-09-22)
 
+    // 마진율용 판매가·공급가 (2026-10-18 사용자 요청 — "상품 분석에도 마진율, 종합 판매 데이터와 똑같이"): performance ③④와 같은 값.
+    //   판매가·공급가 = 카페24 상품 정보, 중국 사입 상품은 관리자·MD에게 공급가 자리에 실질 단가(supply_c24 = 원래 공급가). 못 읽으면 마진율만 빈칸(조회는 그대로).
+    let costError: string | null = null;
+    try {
+      const byNo = new Map(rows.map((r) => [r.product_no, r]));
+      const nos = [...byNo.keys()].filter((n) => n > 0);
+      for (let i = 0; i < nos.length; i += 100) {
+        const body = await apiGet(`${API_BASE}/admin/products?product_no=${nos.slice(i, i + 100).join(",")}&fields=product_no,price,supply_price&limit=100`, token);
+        for (const p of (body.products ?? []) as Record<string, unknown>[]) {
+          const r = byNo.get(Number(p.product_no)); if (!r) continue;
+          r.price = num(p.price); r.supply_price = num(p.supply_price);
+        }
+      }
+      if (authed.role === "admin" || authed.role === "staff") {
+        const cn = await cnRealCostByProduct(token, noCache);
+        for (const r of rows) {
+          const c = cn.get(r.product_no); if (!c || r.supply_price === undefined) continue;
+          r.supply_c24 = r.supply_price; r.supply_price = c.won; r.cost_src = "cn"; r.cn_snames = c.snames; r.cn_with_cost = c.with_cost;
+        }
+      }
+    } catch (e) { costError = "마진율 계산용 상품 정보를 읽지 못했어요 — " + String(e).slice(0, 120); }
+
     const totals = rows.reduce((t, r) => ({
       views: t.views + r.views,
       order_count: t.order_count + r.order_count,
@@ -3375,7 +3398,7 @@ Deno.serve(async (req) => {
       device_type: device ?? "total",
       product_count: rows.length,
       totals: { ...totals, rate: totals.views > 0 ? +(totals.order_count / totals.views * 100).toFixed(2) : 0 },
-      rows,
+      rows, cost_error: costError,
     });
   } catch (e) {
     return json({ error: String(e) }, 500);
