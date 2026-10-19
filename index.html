@@ -5156,7 +5156,7 @@ function cnSumLines(raw) {
   for (const l of raw) {
     const k = l.sname + '\u0001' + cnOpt(l);
     let m = by.get(k);
-    if (!m) { m = { id: 'sum:' + k, sname: l.sname, color: l.color, size: l.size, seq: l.seq, qty_sent: 0, act: 0, actSent: 0, unchecked: 0, def: 0, defN: 0, memos: [], raw: [] }; by.set(k, m); }
+    if (!m) { m = { id: 'sum' + by.size, sname: l.sname, color: l.color, size: l.size, seq: l.seq, qty_sent: 0, act: 0, actSent: 0, unchecked: 0, def: 0, defN: 0, memos: [], raw: [] }; by.set(k, m); }
     m.raw.push(l); m.qty_sent += l.qty_sent;
     if (l.qty_actual == null) m.unchecked++; else { m.act += l.qty_actual; m.actSent += l.qty_sent; }
     if (l.qty_defect != null) { m.def += l.qty_defect; m.defN++; }
@@ -5501,7 +5501,7 @@ function cnCheckRender() {
       ${cnNameCell('check', g.sname, open, g.show.length, cnC24Badge(g.sname), '', cnC24NamesHtml(g.sname, false))}
       <td style="text-align:right;">${h.sent}</td><td style="text-align:right;" data-cn-h="act">${h.act}</td><td style="text-align:right;" data-cn-h="diff">${h.diff}</td><td style="text-align:right;" data-cn-h="def">${h.def}</td>${canPrice ? (isSum ? cnGroupPriceCellsAll({ ...g, rows: g.rows.flatMap(l => l._raw) }) : isAll ? cnGroupPriceCellsAll(g) : cnGroupPriceCells(g)) : ''}<td style="text-align:left;">${todo ? `<button class="toggle-btn" style="font-size:.68rem;padding:2px 9px;white-space:nowrap;" data-g="${escHtml(g.sname)}" onclick="cnFillSame(this)" title="아직 안 적은 옵션 ${todo}개를 전달 수량과 같게 채워요">전달 수량과 같음</button>` : ''}</td></tr>`;
     g.show.forEach(l => {
-      html += `<tr data-cn-l="${l.id}" data-cn-o="${escHtml(gi)}"${open ? '' : ' style="display:none;"'}>
+      html += `<tr data-cn-l="${escHtml(String(l.id))}" data-cn-o="${escHtml(gi)}"${open ? '' : ' style="display:none;"'}>
         <td style="text-align:left;padding-left:30px;">${escHtml(cnOpt(l))}${isAll ? shipTag(l) : ''}${isSum ? sumTag(l) : ''}</td>
         <td style="text-align:right;">${fmt(l.qty_sent)}</td>
         ${isSum ? `<td style="text-align:right;font-weight:700;">${l.qty_actual == null ? '<span style="color:#9ca3af;font-weight:400;">—</span>' : fmt(l.qty_actual)}</td>` : `<td style="text-align:right;"><input type="number" class="cn-act" min="0" step="1" inputmode="numeric" value="${l.qty_actual == null ? '' : l.qty_actual}" data-id="${l.id}" data-prev="${l.qty_actual == null ? '' : l.qty_actual}" onchange="cnActSave(this)" onkeydown="cnActKey(event,this)"${cnLineLocked(l) ? ' disabled title="검수 완료된 차수예요"' : ''} style="width:72px;text-align:right;border:1.5px solid ${l.qty_actual == null ? '#d1d5db' : l.qty_actual === l.qty_sent ? '#86efac' : '#fca5a5'};border-radius:7px;padding:4px 6px;font-size:.82rem;font-weight:700;" /></td>`}
