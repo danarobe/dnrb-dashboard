@@ -1475,15 +1475,25 @@
       <div style="display:flex;gap:8px;flex-wrap:wrap;">
         <label class="toggle-btn" id="cn-upload-btn" style="cursor:pointer;display:none;"><i class="fa-solid fa-file-arrow-up"></i> 입고 엑셀 올리기
           <input type="file" accept=".xlsx,.xls" style="display:none;" onchange="cnFilePick(this)" /></label>
+        <label class="toggle-btn" id="cn-order-btn" style="cursor:pointer;display:none;" title="주문서 엑셀(품번·색상·사이즈·수량)을 올리면 표의 '주문'·'잔여' 칸에 들어가요"><i class="fa-solid fa-file-signature"></i> 주문서 올리기
+          <input type="file" accept=".xlsx,.xls" style="display:none;" onchange="cnOrderPick(this)" /></label>
         <button class="toggle-btn" onclick="cnLoad(true)"><i class="fa-solid fa-rotate"></i> 새로고침</button>
       </div>
     </div>
     <div class="section-body">
       <div id="cn-tabs" style="display:flex;gap:2px;border-bottom:2px solid #e5e7eb;margin-bottom:14px;flex-wrap:wrap;"></div>
       <div id="cn-upload-panel"></div>
+      <div id="cn-ord-modal" onclick="if(event.target===this)this.style.display='none'" style="display:none;position:fixed;inset:0;background:rgba(15,23,42,.55);z-index:210;align-items:center;justify-content:center;padding:20px;">
+        <div style="background:#fff;border-radius:16px;max-width:460px;width:100%;max-height:88vh;overflow:auto;padding:20px;">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;"><b style="flex:1;font-size:.95rem;color:#1e1b4b;">주문서 정보·연결 수정</b>
+            <button onclick="$('cn-ord-modal').style.display='none'" style="border:none;background:#f3f4f6;border-radius:8px;padding:4px 10px;font-size:.88rem;cursor:pointer;">✕</button></div>
+          <div id="cn-ord-modal-body"></div>
+          <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px;"><button class="toggle-btn" onclick="$('cn-ord-modal').style.display='none'">취소</button><button class="toggle-btn" style="background:#4f46e5;color:#fff;border-color:#4f46e5;" onclick="cnOrderEditSave()"><i class="fa-solid fa-floppy-disk"></i> 저장</button></div>
+        </div>
+      </div>
       <div id="cn-pane-check" class="cn-pane">
         <div style="font-size:.8rem;color:#6b7280;margin-bottom:10px;line-height:1.7;">
-          · 중국에서 받은 <b>입고 엑셀</b>을 올리면 <b>전달받은 수량</b>이 옵션별로 들어와요. 상자를 열어 센 <b>실제 수량</b>을 적으면 차이가 바로 표시돼요.<br>
+          · 중국에서 받은 <b>입고 엑셀</b>을 올리면 <b>중국출고</b>(엑셀 출고 수량)가 옵션별로 들어와요. 상자를 열어 센 수량을 <b>실입고</b>에 적으면 <b>차이(중국출고 − 실입고)</b>가 바로 표시돼요. <b>[주문서 올리기]</b>로 주문서를 올리고 입고에 연결하면 <b>주문</b>과 <b>잔여(주문 − 중국출고)</b>가 채워져요.<br>
           · 상품 줄의 <b>▸</b>를 누르면 그 상품의 옵션이 펼쳐져요(<b>전체 펼치기</b>도 있어요). 실제 수량 칸에서 <b>Enter</b>를 누르면 저장하고 다음 칸으로 넘어가요. 전달 수량과 같으면 상품 줄의 <b>[전달 수량과 같음]</b>으로 한 번에 채울 수 있어요.<br>
           · <b>사입상품명</b>은 카페24 <b>공급사 상품명</b>과 같은 이름이에요 — 카페24에 등록되면 자동으로 '등록됨'으로 바뀌어요.
         </div>
@@ -5007,6 +5017,7 @@ async function cnLoad(force) {
     // 입고 검수의 기본 보기 = '전체'(입고가 2건 이상일 때 — 2026-10-07 사용자 요청). 입고가 하나뿐이면 그 입고.
     { const sid = cnState.shipId; if ((sid === 'sum' && ships.length < 2) || (sid === 'all' && cnPendingShips().length < 2) || (sid !== 'all' && sid !== 'sum' && !ships.some(x => x.id === sid))) cnState.shipId = cnDefaultShip(); }   // 기본 = 검수할 입고(완료 전 차수)
     $('cn-upload-btn').style.display = cnState.data.can_edit ? '' : 'none';
+    $('cn-order-btn').style.display = cnState.data.can_edit ? '' : 'none';
     const pn = $('cn-prod-price-note'); if (pn) pn.style.display = cnState.data.can_price ? '' : 'none';   // 단가 설명은 단가를 보는 사람(관리자)에게만
     cnSetTab(cnState.tab);   // 탭 줄(입고 비용은 관리자만)도 권한에 맞게 다시
     cnThumbsLoad(!!force);   // 사진은 표를 그린 뒤 따로(표를 늦추지 않게)
@@ -5132,11 +5143,15 @@ async function cnUploadSave() {
 }
 
 /* ── 입고 검수 ── */
+// 차이 = 중국출고 − 실입고(2026-10-19 사용자 지정): 양수 = 덜 들어옴(부족), 음수 = 더 들어옴(초과)
+function cnGapHtml(v) {
+  return v === 0 ? '<span style="color:#15803d;font-weight:700;white-space:nowrap;">0 <span style="font-size:.66rem;font-weight:600;">일치</span></span>'
+    : v > 0 ? `<b style="color:#b91c1c;white-space:nowrap;">${fmt(v)} <span style="font-size:.66rem;font-weight:600;">부족</span></b>` : `<b style="color:#1d4ed8;white-space:nowrap;">−${fmt(-v)} <span style="font-size:.66rem;font-weight:600;">초과</span></b>`;
+}
 function cnDiffHtml(l) {
+  if (l._ordOnly) return '<span style="color:#9ca3af;">—</span>';
   if (l.qty_actual == null) return '<span style="color:#9ca3af;">미확인</span>';
-  const d = l.qty_actual - cnSentCk(l);
-  return (d === 0 ? '<span style="color:#15803d;font-weight:700;">일치</span>' : d < 0 ? `<b style="color:#b91c1c;">부족 ${fmt(-d)}</b>` : `<b style="color:#1d4ed8;">초과 +${fmt(d)}</b>`)
-    + (l._unchecked ? ` <span style="font-size:.66rem;color:#9ca3af;">미확인 입고 ${l._unchecked}건</span>` : '');
+  return cnGapHtml(cnSentCk(l) - l.qty_actual) + (l._unchecked ? ` <span style="font-size:.66rem;color:#9ca3af;">미확인 입고 ${l._unchecked}건</span>` : '');
 }
 // 불량 수량(2026-10-19 사용자 요청 "전달, 실제 수량, 차이 옆에 불량") — 실제로 받은 것 중 불량 개수. 비어 있으면 '—'
 const cnDefShow = n => n == null ? '<span style="color:#9ca3af;">—</span>' : n > 0 ? `<b style="color:#b91c1c;">${fmt(n)}</b>` : '<span style="color:#6b7280;">0</span>';
@@ -5147,14 +5162,221 @@ function cnWhoHtml(l) { return l.checked_by_name ? `${escHtml(l.checked_by_name)
 const cnShipDone = x => !!(x && x.checked_done);
 const cnPendingShips = () => (((cnState.data || {}).ships) || []).filter(x => !cnShipDone(x));
 const cnLineLocked = l => cnShipDone((((cnState.data || {}).ships) || []).find(x => x.id === l.shipment_id));
+/* ══ 주문서 (2026-10-19 다시 — 사용자 요청 "주문서 수량을 표기 안 하니 언제 얼마나 주문했는지 알 수 없다") ══
+   표의 수량 = 주문 | 중국출고(입고 엑셀 E열) | 실입고(실제 수량) | 잔여(주문 − 중국출고) | 차이(중국출고 − 실입고) | 입고중불량.
+   주문서 1건에 여러 차수가 들어오므로 입고 건마다 어느 주문서 것인지 연결(cn_shipments.order_id). 옵션은 품번·색상·사이즈 글자 그대로(cnOptKey)로 맞춘다.
+   · 차수 하나·'검수할 입고' 보기: 주문 = 그 입고가 연결된 주문서의 그 옵션 수량, 잔여 = 주문 − 그 주문서에 연결된 입고 중 이 차수까지(출고일 순) 중국출고 누적.
+   · '전체' 보기·상품별 현황: 주문 = 모든 주문서 합, 잔여 = 주문 − 주문서에 연결된 입고의 중국출고 합. 주문서에만 있고 아직 출고 없는 옵션도 줄로 나온다.
+   · 주문서에 연결 안 된 입고의 옵션은 주문·잔여 '—'. 연결된 입고에 있는데 주문서에 없는 옵션은 주문 0(잔여가 마이너스 = 주문보다 더 출고). */
+const cnOptKey = (sname, color, size) => String(sname == null ? '' : sname).trim() + '\u0001' + String(color || '').trim() + '\u0001' + String(size || '').trim();
+const cnLKey = l => cnOptKey(l.sname, l.color, l.size);
+function cnOrdCalc() {
+  const d = cnState.data || {};
+  if (cnState._oc && cnState._oc.d === d) return cnState._oc.c;
+  const orders = new Map((d.orders || []).map(o => [o.id, o]));
+  const qty = new Map(), total = new Map();
+  for (const ol of d.order_lines || []) {
+    const k = cnLKey(ol), m = qty.get(ol.order_id) || new Map();
+    m.set(k, (m.get(k) || 0) + ol.qty); qty.set(ol.order_id, m);
+    total.set(k, (total.get(k) || 0) + ol.qty);
+  }
+  const ord = x => String(x.ship_date || '9999') + String(x.id).padStart(9, '0');
+  const linked = (d.ships || []).filter(x => x.order_id != null && orders.has(x.order_id)).sort((a, b) => ord(a) < ord(b) ? -1 : 1);
+  const rank = new Map(linked.map((x, i) => [x.id, i])), shipOf = new Map(linked.map(x => [x.id, x]));
+  const sent = new Map(), sentTotal = new Map();   // 주문서별 · 옵션별 출고 목록 / 옵션별 (연결된 입고) 출고 합
+  for (const l of d.lines || []) {
+    const x = shipOf.get(l.shipment_id); if (!x) continue;
+    const k = cnLKey(l), m = sent.get(x.order_id) || new Map(), a = m.get(k) || [];
+    a.push({ r: rank.get(x.id), qty: l.qty_sent, ship: x }); m.set(k, a); sent.set(x.order_id, m);
+    sentTotal.set(k, (sentTotal.get(k) || 0) + l.qty_sent);
+  }
+  const c = { orders, qty, total, rank, sent, sentTotal };
+  cnState._oc = { d, c };
+  return c;
+}
+function cnOrdOfLine(l) {   // 입고 줄 하나 — 그 입고가 연결된 주문서 기준
+  const c = cnOrdCalc(), x = ((cnState.data || {}).ships || []).find(s => s.id === l.shipment_id);
+  if (!x || x.order_id == null || !c.qty.has(x.order_id)) return null;
+  const k = cnLKey(l), m = c.qty.get(x.order_id), r = c.rank.get(x.id);
+  const parts = ((c.sent.get(x.order_id) || new Map()).get(k) || []).filter(p => p.r <= r).sort((a, b) => a.r - b.r);
+  const ordered = m.get(k) || 0, cum = parts.reduce((t, p) => t + p.qty, 0);
+  return { ordered, cum, remain: ordered - cum, notIn: !m.has(k), order: c.orders.get(x.order_id), parts, uk: x.order_id + '\u0002' + k, r };
+}
+function cnOrdOfKey(k) {   // 합친 줄·상품별 현황 — 모든 주문서 기준
+  const c = cnOrdCalc(), ordered = c.total.get(k), st = c.sentTotal.get(k) || 0;
+  if (ordered == null && !st) return null;
+  return { ordered: ordered || 0, cum: st, remain: (ordered || 0) - st, notIn: ordered == null, uk: k, r: Infinity };
+}
+const cnOrdOf = l => l._sum ? l._ord : cnOrdOfLine(l);
+const cnOrdTitle = o => o ? `${o.title}${o.order_date ? ` (주문일 ${o.order_date})` : ''}` : '';
+function cnOrdCell(l) {
+  const o = cnOrdOf(l);
+  if (!o) return '<span style="color:#9ca3af;" title="주문서에 연결 안 된 입고예요">—</span>';
+  if (o.notIn) return '<span style="color:#9ca3af;" title="주문서에 없는 옵션이에요">0</span>';
+  const tip = o.order ? cnOrdTitle(o.order) : '모든 주문서 합';
+  return `<span title="${escHtml(tip)}">${fmt(o.ordered)}</span>`;
+}
+function cnRemainHtml(v, tip) {
+  if (v == null) return '<span style="color:#9ca3af;">—</span>';
+  const t = tip ? ` title="${escHtml(tip)}"` : '';
+  return v > 0 ? `<b style="color:#c2410c;"${t}>${fmt(v)}</b>` : v === 0 ? `<span style="color:#15803d;font-weight:700;"${t}>0</span>` : `<b style="color:#1d4ed8;"${t}>−${fmt(-v)}</b>`;
+}
+function cnRemainCell(l) {
+  const o = cnOrdOf(l); if (!o) return cnRemainHtml(null);
+  const tip = o.parts ? `주문 ${o.ordered} − 이 차수까지 중국출고 ${o.cum}${o.parts.length > 1 ? ` (${o.parts.map(p => `${p.ship.order_round || p.ship.title || ''} ${p.qty}`).join(' + ')})` : ''}` : `주문 ${o.ordered} − 주문서에 연결된 입고의 중국출고 ${o.cum}`;
+  return cnRemainHtml(o.remain, tip + (o.remain < 0 ? ' — 주문보다 더 출고됨' : ''));
+}
+// 같은 옵션이 여러 줄(검수할 입고 보기의 차수별 줄)에 나와도 주문·잔여는 한 번만 센다 — 잔여는 가장 늦은 차수 기준
+function cnOrdSums(lines) {
+  const m = new Map();
+  for (const l of lines) { const o = cnOrdOf(l); if (!o) continue; const e = m.get(o.uk); if (!e || o.r > e.r) m.set(o.uk, o); }
+  const v = [...m.values()];
+  return { any: v.length > 0, ordered: v.reduce((t, o) => t + o.ordered, 0), remain: v.reduce((t, o) => t + Math.max(0, o.remain), 0), over: v.filter(o => o.remain < 0).length, net: v.reduce((t, o) => t + o.remain, 0) };
+}
+function cnShipOrderHtml(x) {   // 입고 카드 — 어느 주문서의 입고인지(관리자·MD는 바꿀 수 있음)
+  const d = cnState.data || {}, orders = d.orders || [], o = orders.find(y => y.id === x.order_id);
+  if (!d.can_edit) return `<span class="cn-sub" style="display:inline;"><i class="fa-solid fa-file-signature"></i> 주문서 ${o ? escHtml(cnOrdTitle(o)) : '연결 없음'}</span>`;
+  if (!orders.length) return '<span class="cn-sub" style="display:inline;color:#9ca3af;"><i class="fa-solid fa-file-signature"></i> 주문서 없음 — [주문서 올리기]로 올려요</span>';
+  return `<span class="cn-sub" style="display:inline-flex;align-items:center;gap:4px;"><i class="fa-solid fa-file-signature"></i> 주문서 <select onchange="cnShipOrderSet(${x.id}, this)" style="border:1px solid #d1d5db;border-radius:6px;padding:1px 4px;font-size:.72rem;max-width:220px;"><option value="">연결 안 함</option>${orders.map(y => `<option value="${y.id}"${y.id === x.order_id ? ' selected' : ''}>${escHtml(cnOrdTitle(y))}</option>`).join('')}</select></span>`;
+}
+async function cnShipOrderSet(id, sel) {   // 입고 건 ↔ 주문서 연결 바꾸기
+  const v = sel.value === '' ? null : Number(sel.value);
+  try { const r = await cnPost('cn_ship', { id, order_id: v }); const x = (cnState.data.ships || []).find(s => s.id === id); if (x) Object.assign(x, r.shipment || { order_id: v }); cnState._oc = null; cnCheckRender(); showToast(v ? '주문서에 연결했어요' : '주문서 연결을 끊었어요'); }
+  catch (e) { showToast('저장 실패: ' + e.message); cnCheckRender(); }
+}
+function cnOrderBarHtml() {   // '전체' 보기 위 — 주문서 목록(주문일·연결된 입고·수정·삭제)
+  const d = cnState.data || {}, orders = d.orders || [];
+  const canEdit = !!d.can_edit;
+  if (!orders.length) return `<div style="font-size:.76rem;color:#6b7280;margin-top:8px;"><i class="fa-solid fa-file-signature" style="color:#9ca3af;"></i> 올린 주문서가 없어요${canEdit ? ' — 위의 <b>[주문서 올리기]</b>로 올리면 주문·잔여 칸이 채워져요' : ''}.</div>`;
+  const ships = d.ships || [];
+  return `<div style="display:flex;flex-direction:column;gap:6px;margin-top:8px;">${orders.map(o => {
+    const ln = ships.filter(x => x.order_id === o.id), q = (d.order_lines || []).filter(x => x.order_id === o.id).reduce((t, x) => t + x.qty, 0);
+    return `<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;border:1.5px solid #e0e7ff;background:#f8f9ff;border-radius:10px;padding:6px 12px;font-size:.78rem;">
+      <i class="fa-solid fa-file-signature" style="color:#4f46e5;"></i><b style="color:#3730a3;">${escHtml(o.title)}</b>
+      <span class="cn-sub" style="display:inline;">${o.order_date ? `주문일 <b>${escHtml(o.order_date)}</b> · ` : '주문일 미입력 · '}주문 ${fmt(q)}장 · 입고 ${ln.length ? ln.map(x => escHtml(cnShipName(x))).join(', ') : '<span style="color:#b45309;font-weight:700;">연결 없음</span>'}</span>
+      ${canEdit ? `<span style="margin-left:auto;display:flex;gap:6px;"><button class="toggle-btn" style="font-size:.7rem;padding:2px 9px;" onclick="cnOrderEditOpen(${o.id})"><i class="fa-solid fa-pen"></i> 정보·연결 수정</button><button class="toggle-btn" style="font-size:.7rem;padding:2px 9px;color:#dc2626;" onclick="cnOrderDelete(${o.id})">삭제</button></span>` : ''}</div>`; }).join('')}</div>`;
+}
+/* ── 주문서 엑셀 읽기·올리기·수정 (10-14에 만들었던 것을 그대로 다시 — '직접 정리' 기능만 뺌) ── */
+function cnParseOrderGrid(grid) {
+  const txt = v => String(v == null ? '' : v).replace(/\s+/g, ' ').trim();
+  let hr = -1, col = { name: 0, color: 2, size: 3, qty: 4 };   // 머리글을 못 찾으면 A 품번 · C 색상 · D 사이즈 · E 수량(사용자 지정)
+  for (let r = 0; r < Math.min(grid.length, 10); r++) {
+    const cells = (grid[r] || []).map(txt);
+    const ci = cells.findIndex(c => c === '색상'), qi = cells.findIndex(c => c === '수량');
+    if (ci >= 0 && qi >= 0) { hr = r; const find = (names, def) => { const i = cells.findIndex(c => names.includes(c)); return i >= 0 ? i : def; }; col = { name: find(['품번', '상품명', '사입상품명'], 0), color: ci, size: find(['싸이즈', '사이즈', '비고'], ci + 1), qty: qi }; break; }
+  }
+  const lines = [], skipped = [], rowNames = [];
+  let cur = '';
+  for (let r = hr + 1; r < grid.length; r++) {
+    const row = grid[r] || [];
+    const name = txt(row[col.name]); if (name && name !== '합계' && !/^款号$/.test(name)) cur = name;
+    rowNames[r] = cur;
+    const color = txt(row[col.color]), size = txt(row[col.size]), qRaw = row[col.qty], qT = txt(qRaw);
+    if (!color && !size) continue;                         // 빈 줄·합계 줄
+    if (color === '颜色' || qT === '数量') continue;          // 중국어 머리글 줄
+    if (qT === '') continue;                               // 수량이 빈 옵션 줄 = 주문하지 않은 옵션
+    const q = typeof qRaw === 'number' ? qRaw : (/^\d+$/.test(qT) ? Number(qT) : null);
+    if (q == null || !Number.isInteger(q) || q < 0) { skipped.push(`${r + 1}행 (${cur} ${color} ${size}): 수량을 읽지 못함 "${qT}"`); continue; }
+    if (!cur) { skipped.push(`${r + 1}행: 품번이 없음`); continue; }
+    if (q === 0) continue;
+    lines.push({ sname: cur, color: color || null, size: size || null, qty: q });
+  }
+  return { lines, skipped, headerFound: hr >= 0, rowNames };
+}
+async function cnOrderPick(input) {
+  const file = input.files[0]; input.value = '';
+  if (!file) return;
+  const panel = $('cn-upload-panel');
+  cnState.pending = null;
+  panel.innerHTML = '<div class="empty-state"><p><i class="fa-solid fa-spinner fa-spin"></i> 주문서를 읽는 중… (사진이 든 파일은 몇 초 걸려요)</p></div>';
+  try {
+    const XLSX = await loadSheetJS(), buf = await file.arrayBuffer();
+    const wb = XLSX.read(buf, { type: 'array' });
+    let parts = wb.SheetNames.map((sn, i) => ({ sheet: sn, index: i, ...cnParseOrderGrid(XLSX.utils.sheet_to_json(wb.Sheets[sn], { header: 1, defval: '' })) }));
+    const withHead = parts.filter(p => p.headerFound && p.lines.length);
+    parts = withHead.length ? withHead : parts.slice(0, 1).filter(p => p.lines.length);   // 머리글(색상·수량)이 있는 시트는 모두, 하나도 없으면 첫 시트를 A·C·D·E 순서로
+    if (!parts.length) throw new Error('주문 옵션 줄을 찾지 못했어요 — 품번·색상·수량 열이 있는지 확인해 주세요');
+    const lines = parts.flatMap(p => p.lines.map(l => ({ ...l, sheet: p.sheet })));
+    const thumbs = {};
+    for (const p of parts) { try { const t = await cnExtractThumbs(buf, XLSX, p.rowNames, p.index); for (const [k, v] of Object.entries(t)) if (!thumbs[k]) thumbs[k] = v; } catch (e2) { /* 사진은 못 꺼내도 주문서는 올린다 */ } }
+    cnState.pendingOrder = { file_name: file.name.normalize('NFC'), title: file.name.replace(/\.(xlsx|xls)$/i, '').normalize('NFC'), parts, lines, skipped: parts.flatMap(p => p.skipped.map(t => `[${p.sheet}] ${t}`)), headerFound: withHead.length > 0, thumbs };
+    cnOrderPanelRender();
+  } catch (e) { panel.innerHTML = `<div style="border:1.5px solid #fca5a5;background:#fef2f2;border-radius:12px;padding:10px 14px;font-size:.82rem;color:#b91c1c;margin-bottom:12px;">주문서를 읽지 못했어요 — ${escHtml(e.message)}</div>`; }
+}
+function cnOrderPanelRender() {
+  const p = cnState.pendingOrder, panel = $('cn-upload-panel');
+  if (!p) { panel.innerHTML = ''; return; }
+  const d = cnState.data || {}, orders = new Map((d.orders || []).map(o => [o.id, o]));
+  const names = new Set(p.lines.map(l => l.sname)), qty = p.lines.reduce((t, l) => t + l.qty, 0);
+  const dupKeys = (() => { const m = new Map(); for (const l of p.lines) { const k = cnOptKey(l.sname, l.color, l.size); m.set(k, (m.get(k) || 0) + 1); } return [...m.values()].filter(n => n > 1).length; })();
+  const inp = (id, label, val, ph, type) => `<label style="font-size:.74rem;color:#4b5563;font-weight:600;">${label}<input id="${id}" type="${type || 'text'}" value="${escHtml(val || '')}" placeholder="${ph || ''}" style="display:block;margin-top:3px;border:1.5px solid #d1d5db;border-radius:8px;padding:6px 10px;font-size:.82rem;width:100%;box-sizing:border-box;" /></label>`;
+  const shipChecks = (d.ships || []).slice().sort((a, b) => a.id - b.id).map(x => { const other = x.order_id != null && orders.get(x.order_id); return `<label style="display:flex;align-items:center;gap:6px;font-size:.8rem;color:#374151;padding:3px 0;"><input type="checkbox" class="cn-ord-ship" value="${x.id}" ${other ? '' : 'checked'} style="margin:0;" /> ${escHtml(x.title)}${x.order_round ? ` <span class="cn-sub" style="display:inline;">(${escHtml(x.order_round)})</span>` : ''}${other ? ` <span style="font-size:.7rem;color:#b45309;">지금은 "${escHtml(other.title)}"에 연결돼 있어요 — 체크하면 이 주문서로 옮겨요</span>` : ''}</label>`; }).join('');
+  panel.innerHTML = `<div style="border:1.5px solid #c7d2fe;background:#f8f9ff;border-radius:14px;padding:14px 16px;margin-bottom:14px;">
+    <div style="font-size:.9rem;font-weight:800;color:#3730a3;"><i class="fa-solid fa-file-signature"></i> 주문서 올릴 내용 확인 — ${escHtml(p.file_name)}</div>
+    <div style="font-size:.82rem;color:#374151;margin:8px 0;">품번 <b>${fmt(names.size)}개</b> · 옵션 <b>${fmt(p.lines.length)}줄</b> · 주문 수량 <b>${fmt(qty)}장</b> <span style="color:#6b7280;font-size:.76rem;">(${p.parts.map(x => `시트 "${escHtml(x.sheet)}" ${fmt(x.lines.length)}줄 · ${fmt(x.lines.reduce((t, l) => t + l.qty, 0))}장`).join(' / ')})</span></div>
+    <div style="font-size:.78rem;color:#6b7280;margin-bottom:8px;">품번·색상·사이즈·수량만 저장해요(단가는 읽지 않아요).${Object.keys(p.thumbs).length ? ` 사진 <b>${Object.keys(p.thumbs).length}장</b>은 아직 사진이 없는 품번에만 넣어요.` : ''}</div>
+    ${!p.headerFound ? '<div style="font-size:.76rem;color:#b45309;margin-bottom:6px;"><i class="fa-solid fa-triangle-exclamation"></i> 머리글(색상·수량)을 못 찾아 첫 시트를 A 품번 · C 색상 · D 사이즈 · E 수량 순서로 읽었어요 — 아래 내용이 맞는지 확인해 주세요.</div>' : ''}
+    ${dupKeys ? `<div style="font-size:.76rem;color:#b45309;margin-bottom:6px;"><i class="fa-solid fa-triangle-exclamation"></i> 같은 품번·색상·사이즈가 두 번 이상 나오는 옵션이 ${dupKeys}개 있어요 — 수량을 더해서 비교해요.</div>` : ''}
+    ${p.skipped.length ? `<details style="font-size:.76rem;color:#b45309;margin-bottom:6px;"><summary style="cursor:pointer;font-weight:700;"><i class="fa-solid fa-triangle-exclamation"></i> 읽지 못한 줄 ${p.skipped.length}개</summary>${p.skipped.slice(0, 30).map(t => `<div>${escHtml(t)}</div>`).join('')}</details>` : ''}
+    <details style="font-size:.76rem;margin-bottom:10px;"><summary style="cursor:pointer;color:#4f46e5;font-weight:700;">읽은 내용 미리 보기</summary>
+      <div class="table-wrap" style="max-height:260px;overflow:auto;margin-top:6px;"><table style="width:100%;font-size:.76rem;"><thead><tr><th style="text-align:left;">품번</th><th style="text-align:left;">색상</th><th style="text-align:left;">사이즈</th><th>주문 수량</th></tr></thead>
+      <tbody>${p.lines.map(l => `<tr><td style="text-align:left;">${escHtml(l.sname)}</td><td style="text-align:left;">${escHtml(l.color || '')}</td><td style="text-align:left;">${escHtml(l.size || '')}</td><td style="text-align:right;">${fmt(l.qty)}</td></tr>`).join('')}</tbody></table></div></details>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;margin-bottom:10px;">
+      ${inp('cn-ord-title', '주문서 이름', p.title, '예: 9월 광저우 주문')}${inp('cn-ord-date', '주문일 (비워도 돼요)', '', '', 'date')}${inp('cn-ord-note', '메모', '', '')}
+    </div>
+    <div style="font-size:.78rem;font-weight:700;color:#3730a3;margin-bottom:2px;">이 주문서로 들어온 입고 건 <span style="font-weight:500;color:#6b7280;">— 체크한 입고의 수량을 이 주문서와 비교해요(나중에 바꿀 수 있어요)</span></div>
+    <div style="margin-bottom:10px;">${shipChecks || '<span style="font-size:.78rem;color:#9ca3af;">아직 올린 입고 엑셀이 없어요 — 입고 엑셀을 올릴 때 주문서를 고르면 돼요.</span>'}</div>
+    <div style="display:flex;gap:8px;"><button class="toggle-btn" id="cn-ord-save" style="background:#4f46e5;color:#fff;border-color:#4f46e5;" onclick="cnOrderSave()"><i class="fa-solid fa-floppy-disk"></i> 이 내용으로 저장</button>
+      <button class="toggle-btn" onclick="cnState.pendingOrder=null;cnOrderPanelRender()">취소</button></div>
+  </div>`;
+}
+async function cnOrderSave() {
+  const p = cnState.pendingOrder; if (!p) return;
+  const title = $('cn-ord-title').value.trim();
+  if (!title) { showToast('주문서 이름을 입력해 주세요'); return; }
+  const dup = ((cnState.data || {}).orders || []).find(x => x.file_name === p.file_name);
+  if (dup && !confirm(`같은 파일 이름의 주문서가 이미 있어요 ("${dup.title}").\n그래도 새 주문서로 저장할까요?`)) return;
+  const btn = $('cn-ord-save'); btn.disabled = true;
+  try {
+    const r = await cnPost('cn_order_upload', { title, order_date: $('cn-ord-date').value || null, note: $('cn-ord-note').value, file_name: p.file_name, lines: p.lines, ship_ids: [...document.querySelectorAll('.cn-ord-ship:checked')].map(x => Number(x.value)), thumbs: p.thumbs || {} });
+    cnState.pendingOrder = null; cnOrderPanelRender();
+    cnState.shipId = 'sum'; cnState.filter = 'all';   // 올린 뒤 '전체' 보기로 — 옵션별 주문·잔여가 한눈에
+    showToast(`주문서 저장 완료 — 옵션 ${fmt(r.line_count)}줄 · 입고 ${fmt(r.linked)}건 연결`);
+    cnState.loading = false; await cnLoad(true); cnSetTab('check');
+  } catch (e) { btn.disabled = false; showToast('저장 실패: ' + e.message); }
+}
+function cnOrderEditOpen(oid) {
+  const d = cnState.data, o = (d.orders || []).find(x => x.id === oid); if (!o) return;
+  const orders = new Map((d.orders || []).map(x => [x.id, x]));
+  const inp = (id, label, val, type) => `<label style="font-size:.74rem;color:#4b5563;font-weight:600;display:block;margin-bottom:8px;">${label}<input id="${id}" type="${type || 'text'}" value="${escHtml(val || '')}" style="display:block;margin-top:3px;border:1.5px solid #d1d5db;border-radius:8px;padding:6px 10px;font-size:.82rem;width:100%;box-sizing:border-box;" /></label>`;
+  $('cn-ord-modal-body').innerHTML = `<input type="hidden" id="cn-ordm-id" value="${o.id}" />${inp('cn-ordm-title', '주문서 이름', o.title)}${inp('cn-ordm-date', '주문일', o.order_date || '', 'date')}${inp('cn-ordm-note', '메모', o.note || '')}
+    <div style="font-size:.78rem;font-weight:700;color:#3730a3;margin:4px 0 2px;">이 주문서로 들어온 입고 건</div>
+    ${(d.ships || []).slice().sort((a, b) => a.id - b.id).map(x => { const other = x.order_id != null && x.order_id !== o.id && orders.get(x.order_id); return `<label style="display:flex;align-items:center;gap:6px;font-size:.8rem;color:#374151;padding:3px 0;"><input type="checkbox" class="cn-ordm-ship" value="${x.id}" ${x.order_id === o.id ? 'checked' : ''} style="margin:0;" /> ${escHtml(x.title)}${other ? ` <span style="font-size:.7rem;color:#b45309;">("${escHtml(other.title)}"에 연결됨)</span>` : ''}</label>`; }).join('') || '<div style="font-size:.78rem;color:#9ca3af;">올린 입고 엑셀이 없어요</div>'}`;
+  $('cn-ord-modal').style.display = 'flex';
+}
+async function cnOrderEditSave() {
+  const oid = Number($('cn-ordm-id').value), title = $('cn-ordm-title').value.trim();
+  if (!title) { showToast('주문서 이름을 입력해 주세요'); return; }
+  try {
+    await cnPost('cn_order', { id: oid, title, order_date: $('cn-ordm-date').value || null, note: $('cn-ordm-note').value, ship_ids: [...document.querySelectorAll('.cn-ordm-ship:checked')].map(x => Number(x.value)) });
+    $('cn-ord-modal').style.display = 'none'; showToast('주문서를 저장했어요');
+    cnState.loading = false; await cnLoad(true);
+  } catch (e) { showToast('저장 실패: ' + e.message); }
+}
+async function cnOrderDelete(oid) {
+  const o = ((cnState.data || {}).orders || []).find(x => x.id === oid); if (!o) return;
+  if (!confirm(`"${o.title}" 주문서를 지울까요?\n주문 수량과, 남은 수량을 정리해 둔 기록이 지워져요. 입고 건과 적어 둔 실제 수량은 그대로 남아요(연결만 끊겨요).`)) return;
+  try { await cnPost('cn_order', { id: oid, delete: true }); showToast('주문서를 지웠어요'); cnState.loading = false; await cnLoad(true); }
+  catch (e) { showToast('삭제 실패: ' + e.message); }
+}
 const cnIsAll = () => cnState.shipId === 'all' && cnPendingShips().length > 1;
 // '전체' 보기(2026-10-19 사용자 요청 — "1차·2차 등 전체를 같은 품목끼리 총합으로: 1차 燕麦오트/S 9장 + 2차 1장 = 10장"): 검수 완료한 차수까지 모든 입고를
 //   사입상품명 + 옵션(색상·사이즈 글자 그대로)이 같은 줄끼리 합친다. 보기 전용 — 합친 숫자는 어느 입고를 고칠지 알 수 없어 수량·불량·메모는 차수를 골라 고친다.
 const cnIsSum = () => cnState.shipId === 'sum' && (((cnState.data || {}).ships) || []).length > 1;
-function cnSumLines(raw) {
+function cnSumLines(raw, withOrders) {   // withOrders = 주문서에만 있고 아직 출고 없는 옵션도 줄로(2026-10-19)
   const by = new Map();
   for (const l of raw) {
-    const k = l.sname + '\u0001' + cnOpt(l);
+    const k = cnLKey(l);
     let m = by.get(k);
     if (!m) { m = { id: 'sum' + by.size, sname: l.sname, color: l.color, size: l.size, seq: l.seq, qty_sent: 0, act: 0, actSent: 0, unchecked: 0, def: 0, defN: 0, memos: [], raw: [] }; by.set(k, m); }
     m.raw.push(l); m.qty_sent += l.qty_sent;
@@ -5168,8 +5390,17 @@ function cnSumLines(raw) {
     return { id: m.id, sname: m.sname, color: m.color, size: m.size, seq: m.seq, qty_sent: m.qty_sent,
       qty_actual: anyChecked ? m.act : null, _sentChecked: m.actSent, _unchecked: anyChecked ? m.unchecked : 0,
       qty_defect: m.defN ? m.def : null, memo: [...new Set(m.memos)].join(' / '),
-      unit_price: pq ? Math.round(priced.reduce((t, l) => t + l.qty_sent * Number(l.unit_price), 0) / pq * 100) / 100 : null, _raw: m.raw, _sum: true };
-  });
+      unit_price: pq ? Math.round(priced.reduce((t, l) => t + l.qty_sent * Number(l.unit_price), 0) / pq * 100) / 100 : null, _raw: m.raw, _sum: true, _ord: cnOrdOfKey(cnLKey(m)) };
+  }).concat(withOrders ? cnOrderOnlyLines(new Set(by.keys())) : []);
+}
+function cnOrderOnlyLines(seen) {   // 주문서에만 있는 옵션(아직 중국출고 없음) — 라인 칩을 따른다
+  const out = [], done = new Set();
+  for (const ol of ((cnState.data || {}).order_lines || [])) {
+    const k = cnLKey(ol); if (seen.has(k) || done.has(k)) continue; done.add(k);
+    if (cnState.lineFilter !== 'all' && !cnLinePass(ol.sname)) continue;
+    out.push({ id: 'ordonly' + out.length, sname: ol.sname, color: ol.color, size: ol.size, seq: ol.seq, qty_sent: 0, qty_actual: null, _sentChecked: 0, _unchecked: 0, qty_defect: null, memo: '', unit_price: null, _raw: [], _sum: true, _ordOnly: true, _ord: cnOrdOfKey(k) });
+  }
+  return out;
 }
 const cnSentCk = l => l._sentChecked ?? l.qty_sent;   // 차이를 볼 때 견줄 전달 수량 — 합친 줄은 '실제 수량을 적은 입고'의 전달 수량만   // '검수할 입고' 보기 = 완료 전인 입고(2건 이상일 때)를 합쳐 보기
 function cnShipLines() { const all = (cnState.data || {}).lines || []; if (cnIsSum()) return all; if (cnIsAll()) { const ids = new Set(cnPendingShips().map(x => x.id)); return all.filter(l => ids.has(l.shipment_id)); } return all.filter(l => l.shipment_id === cnState.shipId); }
@@ -5402,29 +5633,33 @@ function cnCheckSummaryHtml(lines) {
   const sent = lines.reduce((t, l) => t + l.qty_sent, 0), checked = lines.filter(l => l.qty_actual != null);
   const act = checked.reduce((t, l) => t + l.qty_actual, 0), sentChecked = checked.reduce((t, l) => t + cnSentCk(l), 0);
   const short = checked.reduce((t, l) => t + Math.max(0, cnSentCk(l) - l.qty_actual), 0), over = checked.reduce((t, l) => t + Math.max(0, l.qty_actual - cnSentCk(l)), 0);
-  const unchecked = lines.filter(l => l.qty_actual == null || l._unchecked).length;
+  const unchecked = lines.filter(l => !l._ordOnly && (l.qty_actual == null || l._unchecked)).length;
   const defect = lines.reduce((t, l) => t + (l.qty_defect || 0), 0);
+  const os = cnOrdSums(lines);
   const canPrice = (cnState.data || {}).can_price;
   return `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(118px,1fr));gap:8px;">${
     admgrTile('사입상품 / 옵션', `${fmt(new Set(lines.map(l => l.sname)).size)}개 <span style="font-size:.7rem;color:#6b7280;">옵션 ${fmt(lines.length)}</span>`, false)
-    + admgrTile('전달 수량', fmt(sent) + '장', false)
-    + admgrTile('실제 수량(확인분)', `${fmt(act)}장 <span style="font-size:.7rem;color:#6b7280;">/ 전달 ${fmt(sentChecked)}</span>`, false)
-    + admgrTile(admgrDot('#ef4444') + '부족', fmt(short) + '장', false)
-    + admgrTile(admgrDot('#3b82f6') + '초과', fmt(over) + '장', false)
-    + admgrTile(admgrDot('#b91c1c') + '불량', fmt(defect) + '장', false)
+    + admgrTile('주문', os.any ? fmt(os.ordered) + '장' : '<span style="font-size:.8rem;color:#9ca3af;">주문서 연결 없음</span>', false)
+    + admgrTile('중국출고', fmt(sent) + '장', false)
+    + admgrTile('실입고(확인분)', `${fmt(act)}장 <span style="font-size:.7rem;color:#6b7280;">/ 중국출고 ${fmt(sentChecked)}</span>`, false)
+    + admgrTile(admgrDot('#f97316') + '잔여(주문−중국출고)', os.any ? `${fmt(os.remain)}장${os.over ? ` <span style="font-size:.7rem;color:#1d4ed8;" title="잔여는 아직 덜 나온 수량만 더해요. 엑셀 합계는 옵션별 값(마이너스 포함)을 그대로 더해요">주문보다 더 출고 ${fmt(os.over)}옵션 · ${fmt(os.remain - os.net)}장</span>` : ''}` : '—', false)
+    + admgrTile(admgrDot('#ef4444') + '차이 — 부족', fmt(short) + '장', false)
+    + admgrTile(admgrDot('#3b82f6') + '차이 — 초과', fmt(over) + '장', false)
+    + admgrTile(admgrDot('#b91c1c') + '입고중불량', fmt(defect) + '장', false)
     + admgrTile(admgrDot('#9ca3af') + '미확인 옵션', fmt(unchecked) + '개', false)
     + (canPrice ? admgrTile('금액(전달 기준)', cnYuan(lines.reduce((t, l) => t + l.qty_sent * (Number(l.unit_price) || 0), 0)), false) : '')}</div>`;
 }
 function cnProdHeadCells(g) {   // 상품 줄의 합계 칸(전달·실제·차이·잔여) — 저장 뒤 이 칸만 다시 그린다
   const sent = g.rows.reduce((t, l) => t + l.qty_sent, 0), ck = g.rows.filter(l => l.qty_actual != null);
-  const act = ck.reduce((t, l) => t + l.qty_actual, 0), d = act - ck.reduce((t, l) => t + cnSentCk(l), 0), un = g.rows.filter(l => l.qty_actual == null || l._unchecked).length;
-  const dl = g.rows.filter(l => l.qty_defect != null);
+  const act = ck.reduce((t, l) => t + l.qty_actual, 0), d = ck.reduce((t, l) => t + cnSentCk(l), 0) - act, un = g.rows.filter(l => !l._ordOnly && (l.qty_actual == null || l._unchecked)).length;
+  const dl = g.rows.filter(l => l.qty_defect != null), os = cnOrdSums(g.rows);
   return { sent: `<b>${fmt(sent)}</b>`, act: ck.length ? `<b>${fmt(act)}</b>` : '<span style="color:#9ca3af;">—</span>', def: cnDefShow(dl.length ? dl.reduce((t, l) => t + l.qty_defect, 0) : null),
-    diff: (!ck.length ? '<span style="color:#9ca3af;">미확인</span>' : d === 0 ? '<span style="color:#15803d;font-weight:700;">일치</span>' : d < 0 ? `<b style="color:#b91c1c;">부족 ${fmt(-d)}</b>` : `<b style="color:#1d4ed8;">초과 +${fmt(d)}</b>`) + (un && ck.length ? ` <span style="font-size:.66rem;color:#9ca3af;">미확인 ${un}</span>` : '') };
+    ord: os.any ? `<b>${fmt(os.ordered)}</b>` : '<span style="color:#9ca3af;">—</span>', remain: os.any ? cnRemainHtml(os.remain) : '<span style="color:#9ca3af;">—</span>',
+    diff: (!ck.length ? '<span style="color:#9ca3af;">미확인</span>' : cnGapHtml(d)) + (un && ck.length ? ` <span style="font-size:.66rem;color:#9ca3af;">미확인 ${un}</span>` : '') };
 }
-const CN_CHECK_PASS = { all: () => true, todo: l => l.qty_actual == null || !!l._unchecked, diff: l => l.qty_actual != null && l.qty_actual !== cnSentCk(l), def: l => (l.qty_defect || 0) > 0 };
+const CN_CHECK_PASS = { all: () => true, todo: l => !l._ordOnly && (l.qty_actual == null || !!l._unchecked), diff: l => l.qty_actual != null && l.qty_actual !== cnSentCk(l), def: l => (l.qty_defect || 0) > 0, remain: l => ((cnOrdOf(l) || {}).remain || 0) > 0 };
 function cnCheckChipsRender(lines) {   // 보기 칩(건수) — 수량을 적을 때마다 건수만 다시 센다
-  $('cn-check-chips').innerHTML = [['all', '전체'], ['todo', '미확인'], ['diff', '차이 있음'], ['def', '불량 있음']].map(([k, label]) => `<button class="${cnState.filter === k ? 'active' : ''}" onclick="cnState.filter='${k}';cnCheckRender()">${label} ${fmt(lines.filter(CN_CHECK_PASS[k]).length)}</button>`).join('');
+  $('cn-check-chips').innerHTML = [['all', '전체'], ['remain', '잔여 있음'], ['todo', '미확인'], ['diff', '차이 있음'], ['def', '불량 있음']].map(([k, label]) => `<button class="${cnState.filter === k ? 'active' : ''}" onclick="cnState.filter='${k}';cnCheckRender()">${label} ${fmt(lines.filter(CN_CHECK_PASS[k]).length)}</button>`).join('');
 }
 // 상품 줄의 단가 칸(2026-10-02 사용자 요청 — 옵션을 접어도 단가(CHN)·단가(KRW)·실질 단가가 보여야 함):
 //   옵션 단가가 모두 같으면 그 값, 다르면 전달 수량으로 가중 평균(옆에 '평균' 표시). 금액 칸은 옵션 금액의 합.
@@ -5466,7 +5701,7 @@ function cnCheckRender() {
   const isAll = cnIsAll(), isSum = cnIsSum(), pend = cnPendingShips();
   const ship = isAll || isSum ? null : (ships.find(x => x.id === cnState.shipId) || pend[0] || ships[0]);
   if (!isAll && !isSum) cnState.shipId = ship.id;
-  const lines = isSum ? cnSumLines(cnViewLines()) : cnViewLines();   // 전체 보기 = 같은 옵션끼리 합친 줄   // 입고 선택 + 라인 칩(made / 일반 / 미분류) — 요약·건수·표가 모두 이 줄로 계산된다
+  const lines = isSum ? cnSumLines(cnViewLines(), true) : cnViewLines();   // 전체 보기 = 같은 옵션끼리 합친 줄   // 입고 선택 + 라인 칩(made / 일반 / 미분류) — 요약·건수·표가 모두 이 줄로 계산된다
   const shipById = new Map(ships.map(x => [x.id, x]));
   const canDone = true, canUndo = !!d.can_edit;   // 완료 = 관리자·MD·물류팀(메뉴를 보는 사람 모두), 완료 취소 = 관리자·MD
   bar.innerHTML = `<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
@@ -5474,7 +5709,7 @@ function cnCheckRender() {
       ${ships.length > 1 ? `<option value="sum"${isSum ? ' selected' : ''}>전체 — 입고 ${ships.length}건 합계 (같은 옵션끼리)</option>` : ''}${pend.length > 1 ? `<option value="all"${isAll ? ' selected' : ''}>검수할 입고 (완료 전 ${pend.length}건)</option>` : ''}${ships.map(x => `<option value="${x.id}"${!isAll && !isSum && x.id === ship.id ? ' selected' : ''}>${cnShipDone(x) ? '✓ ' : ''}${escHtml(x.title)}${x.ship_date ? ' · ' + escHtml(String(x.ship_date).slice(5)) + ' 출고' : ''}${cnShipDone(x) ? ' (검수 완료)' : ''}</option>`).join('')}</select>
     ${isSum ? `<span style="font-size:.76rem;color:#6b7280;">입고 <b>${ships.length}건 전체</b>(검수 완료한 차수 포함)를 <b>같은 품번·옵션끼리 합쳐</b> 보여줘요 — 보기 전용이라 수량·불량·메모는 차수를 골라 고쳐요</span>` : isAll ? `<span style="font-size:.76rem;color:#6b7280;">검수 완료 전인 입고 <b>${pend.length}건</b>을 합쳐 보여줘요 — <b>완료한 차수는 빠져요</b>(위에서 골라 볼 수 있어요)${d.can_price ? " · <b>실질 단가</b> = 단가(KRW) + 100원당 추가 금액" : ''}</span>` : `<span style="font-size:.76rem;color:#6b7280;">${[ship.order_round ? '발주 <b>' + escHtml(ship.order_round) + '</b>' : '', ship.ship_date ? '출고 ' + escHtml(ship.ship_date) : '', '올린 사람 ' + escHtml(ship.created_by_name || '') + ' ' + escHtml(unshipKst(ship.created_at))].filter(Boolean).join(' · ')}${ship.note ? ' · ' + escHtml(ship.note) : ''}</span>`}
     ${d.can_edit && !isAll && !isSum ? `<label class="toggle-btn" style="font-size:.7rem;padding:3px 9px;cursor:pointer;" title="이 입고의 엑셀을 다시 고르면 상품 사진만 작게 줄여 넣어요(수량은 그대로)"><i class="fa-regular fa-image"></i> 사진 넣기<input type="file" accept=".xlsx" style="display:none;" onchange="cnThumbFilePick(this)" /></label><button class="toggle-btn" style="font-size:.7rem;padding:3px 9px;" onclick="cnShipEdit()">정보 수정</button><button class="toggle-btn" style="font-size:.7rem;padding:3px 9px;color:#dc2626;" onclick="cnShipDelete()">삭제</button>` : ''}</div>
-    <div style="display:flex;flex-direction:column;gap:6px;margin-top:8px;">${(isSum ? [] : isAll ? pend : [ship]).map(x => `<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;border:1.5px solid ${cnShipDone(x) ? '#bbf7d0' : '#e0e7ff'};background:${cnShipDone(x) ? '#f0fdf4' : '#f8f9ff'};border-radius:10px;padding:6px 12px;">${isAll ? `<span style="font-size:.78rem;font-weight:700;color:#3730a3;">${escHtml(cnShipName(x))}</span>` : '<span style="font-size:.78rem;font-weight:700;color:#3730a3;">실물 검수</span>'}${cnShipDoneHtml(x, canUndo)}${cnShipDone(x) ? '<span class="cn-sub" style="display:inline;">이 차수는 고칠 수 없어요 — 고치려면 관리자·MD가 완료를 취소해요</span>' : ''}</div>`).join('')}</div>`;
+    <div style="display:flex;flex-direction:column;gap:6px;margin-top:8px;">${(isSum ? [] : isAll ? pend : [ship]).map(x => `<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;border:1.5px solid ${cnShipDone(x) ? '#bbf7d0' : '#e0e7ff'};background:${cnShipDone(x) ? '#f0fdf4' : '#f8f9ff'};border-radius:10px;padding:6px 12px;">${isAll ? `<span style="font-size:.78rem;font-weight:700;color:#3730a3;">${escHtml(cnShipName(x))}</span>` : '<span style="font-size:.78rem;font-weight:700;color:#3730a3;">실물 검수</span>'}${cnShipDoneHtml(x, canUndo)}${cnShipOrderHtml(x)}${cnShipDone(x) ? '<span class="cn-sub" style="display:inline;">이 차수는 고칠 수 없어요 — 고치려면 관리자·MD가 완료를 취소해요</span>' : ''}</div>`).join('')}</div>${isSum ? cnOrderBarHtml() : ''}`;
   $('cn-check-summary').innerHTML = cnCheckSummaryHtml(lines);
   const q = String(($('cn-check-q') || {}).value || '').trim().toLowerCase();
   const pass = CN_CHECK_PASS;
@@ -5490,21 +5725,23 @@ function cnCheckRender() {
   const optKey = l => l.sname + '\u0001' + cnOpt(l), optReal = new Map();   // 전체 보기: 같은 옵션의 모든 입고 줄을 합친 실질 단가
   if ((isAll || isSum) && canPrice) { const by = new Map(); for (const l of (isSum ? cnViewLines() : lines)) { const k = optKey(l); by.set(k, [...(by.get(k) || []), l]); } for (const [k, rows] of by) optReal.set(k, cnRealAvg(cnLineParts(rows))); }
   // 전체 보기: 옵션 줄마다 차수별 수량 꼬리표(예: 1차 9 · 2차 1) — 마우스를 올리면 차수별 전달·실제·불량
-  const sumTag = l => ` <span style="font-size:.64rem;color:#6366f1;background:#eef2ff;border-radius:99px;padding:0 7px;white-space:nowrap;cursor:help;" title="${escHtml(l._raw.map(r => { const x = shipById.get(r.shipment_id) || {}; return `${x.title || ''}: 전달 ${r.qty_sent} · 실제 ${r.qty_actual == null ? '미확인' : r.qty_actual}${r.qty_defect != null ? ' · 불량 ' + r.qty_defect : ''}`; }).join('\n'))}">${escHtml(l._raw.map(r => { const x = shipById.get(r.shipment_id) || {}; return `${x.order_round || x.title || ''} ${r.qty_sent}`; }).join(' · '))}</span>`;
+  const sumTag = l => !l._raw.length ? ' <span style="font-size:.64rem;color:#c2410c;background:#ffedd5;border-radius:99px;padding:0 7px;white-space:nowrap;">주문서에만 있음 · 아직 중국출고 없음</span>' : ` <span style="font-size:.64rem;color:#6366f1;background:#eef2ff;border-radius:99px;padding:0 7px;white-space:nowrap;cursor:help;" title="${escHtml(l._raw.map(r => { const x = shipById.get(r.shipment_id) || {}; return `${x.title || ''}: 전달 ${r.qty_sent} · 실제 ${r.qty_actual == null ? '미확인' : r.qty_actual}${r.qty_defect != null ? ' · 불량 ' + r.qty_defect : ''}`; }).join('\n'))}">${escHtml(l._raw.map(r => { const x = shipById.get(r.shipment_id) || {}; return `${x.order_round || x.title || ''} ${r.qty_sent}`; }).join(' · '))}</span>`;
   const shipTag = l => { const x = shipById.get(l.shipment_id) || {}; return ` <span style="font-size:.64rem;color:#6366f1;background:#eef2ff;border-radius:99px;padding:0 7px;white-space:nowrap;" title="${escHtml(x.title || '')}">${escHtml(x.order_round || x.title || '')}</span>`; };
   // 열(2026-10-12 정리 — 12열 → 8열): 사입상품명/옵션(+혼용률·라벨) | 전달 | 실제 | 차이(+확인한 사람) | 단가(위안+원) | 실질 단가 | 금액 | 메모
-  let html = `<div style="display:flex;gap:6px;margin-bottom:6px;">${cnFoldAllHtml('check')}</div><div class="table-wrap"><table class="cn-tbl" style="width:100%;font-size:.8rem;"><thead><tr><th style="text-align:left;">사입상품명 / 옵션<div class="cn-sub">혼용률 · 라벨</div></th><th>전달<div class="cn-sub">엑셀 출고 수량</div></th><th>실제 수량</th><th>차이<div class="cn-sub m-hide cn-wide">확인한 사람</div></th><th>불량<div class="cn-sub">실제 중 불량</div></th>${canPrice ? `<th title="위안 단가와, 환율 ${CN_FX}원을 곱한 원화 단가" style="cursor:help;">단가<div class="cn-sub">위안 · 원(×${CN_FX})</div></th><th title="환율 ${CN_FX}원으로 계산&#10;100원당 추가비용 포함 · 부가세는 제외 (입고 비용 기준)${isAll || isSum ? '&#10;전체 차수 값을 반영함' : ''}" style="cursor:help;">실질 단가${isAll || isSum ? '<div class="cn-sub">전체 입고 기준</div>' : ''}</th><th class="m-hide cn-wide">금액</th>` : ''}<th style="text-align:left;">메모</th></tr></thead><tbody>`;
+  let html = `<div style="display:flex;gap:6px;margin-bottom:6px;">${cnFoldAllHtml('check')}</div><div class="table-wrap"><table class="cn-tbl" style="width:100%;font-size:.8rem;"><thead><tr><th style="text-align:left;">사입상품명 / 옵션<div class="cn-sub">혼용률 · 라벨</div></th><th>주문<div class="cn-sub">주문서 수량</div></th><th>중국출고<div class="cn-sub">엑셀 출고 수량</div></th><th>실입고</th><th>잔여<div class="cn-sub">주문 − 중국출고</div></th><th>차이<div class="cn-sub">중국출고 − 실입고</div></th><th>입고중불량</th>${canPrice ? `<th title="위안 단가와, 환율 ${CN_FX}원을 곱한 원화 단가" style="cursor:help;">단가<div class="cn-sub">위안 · 원(×${CN_FX})</div></th><th title="환율 ${CN_FX}원으로 계산&#10;100원당 추가비용 포함 · 부가세는 제외 (입고 비용 기준)${isAll || isSum ? '&#10;전체 차수 값을 반영함' : ''}" style="cursor:help;">실질 단가${isAll || isSum ? '<div class="cn-sub">전체 입고 기준</div>' : ''}</th><th class="m-hide cn-wide">금액</th>` : ''}<th style="text-align:left;">메모</th></tr></thead><tbody>`;
   groups.forEach(g => {
     const gi = encodeURIComponent(g.sname), h = cnProdHeadCells(g), todo = isSum ? 0 : g.rows.filter(l => l.qty_actual == null && !cnLineLocked(l)).length;
     const open = forceOpen || cnState.open.check.has(g.sname);
     html += `<tr style="background:#f8f9ff;" data-cn-g="${escHtml(gi)}">
       ${cnNameCell('check', g.sname, open, g.show.length, cnC24Badge(g.sname), '', cnC24NamesHtml(g.sname, false))}
-      <td style="text-align:right;">${h.sent}</td><td style="text-align:right;" data-cn-h="act">${h.act}</td><td style="text-align:right;" data-cn-h="diff">${h.diff}</td><td style="text-align:right;" data-cn-h="def">${h.def}</td>${canPrice ? (isSum ? cnGroupPriceCellsAll({ ...g, rows: g.rows.flatMap(l => l._raw) }) : isAll ? cnGroupPriceCellsAll(g) : cnGroupPriceCells(g)) : ''}<td style="text-align:left;">${todo ? `<button class="toggle-btn" style="font-size:.68rem;padding:2px 9px;white-space:nowrap;" data-g="${escHtml(g.sname)}" onclick="cnFillSame(this)" title="아직 안 적은 옵션 ${todo}개를 전달 수량과 같게 채워요">전달 수량과 같음</button>` : ''}</td></tr>`;
+      <td style="text-align:right;">${h.ord}</td><td style="text-align:right;">${h.sent}</td><td style="text-align:right;" data-cn-h="act">${h.act}</td><td style="text-align:right;">${h.remain}</td><td style="text-align:right;" data-cn-h="diff">${h.diff}</td><td style="text-align:right;" data-cn-h="def">${h.def}</td>${canPrice ? (isSum ? cnGroupPriceCellsAll({ ...g, rows: g.rows.flatMap(l => l._raw) }) : isAll ? cnGroupPriceCellsAll(g) : cnGroupPriceCells(g)) : ''}<td style="text-align:left;">${todo ? `<button class="toggle-btn" style="font-size:.68rem;padding:2px 9px;white-space:nowrap;" data-g="${escHtml(g.sname)}" onclick="cnFillSame(this)" title="아직 안 적은 옵션 ${todo}개를 전달 수량과 같게 채워요">전달 수량과 같음</button>` : ''}</td></tr>`;
     g.show.forEach(l => {
       html += `<tr data-cn-l="${escHtml(String(l.id))}" data-cn-o="${escHtml(gi)}"${open ? '' : ' style="display:none;"'}>
         <td style="text-align:left;padding-left:30px;">${escHtml(cnOpt(l))}${isAll ? shipTag(l) : ''}${isSum ? sumTag(l) : ''}</td>
+        <td style="text-align:right;">${cnOrdCell(l)}</td>
         <td style="text-align:right;">${fmt(l.qty_sent)}</td>
         ${isSum ? `<td style="text-align:right;font-weight:700;">${l.qty_actual == null ? '<span style="color:#9ca3af;font-weight:400;">—</span>' : fmt(l.qty_actual)}</td>` : `<td style="text-align:right;"><input type="number" class="cn-act" min="0" step="1" inputmode="numeric" value="${l.qty_actual == null ? '' : l.qty_actual}" data-id="${l.id}" data-prev="${l.qty_actual == null ? '' : l.qty_actual}" onchange="cnActSave(this)" onkeydown="cnActKey(event,this)"${cnLineLocked(l) ? ' disabled title="검수 완료된 차수예요"' : ''} style="width:72px;text-align:right;border:1.5px solid ${l.qty_actual == null ? '#d1d5db' : l.qty_actual === l.qty_sent ? '#86efac' : '#fca5a5'};border-radius:7px;padding:4px 6px;font-size:.82rem;font-weight:700;" /></td>`}
+        <td style="text-align:right;">${cnRemainCell(l)}</td>
         <td style="text-align:right;"><div data-cn-c="diff">${cnDiffHtml(l)}</div><div class="cn-sub m-hide cn-wide" data-cn-c="who">${isSum ? `입고 ${l._raw.length}건` : cnWhoHtml(l)}</div></td>
         <td style="text-align:right;">${isSum ? cnDefShow(l.qty_defect) : `<input type="number" class="cn-def" min="0" step="1" inputmode="numeric" value="${l.qty_defect == null ? '' : l.qty_defect}" data-id="${l.id}" data-prev="${l.qty_defect == null ? '' : l.qty_defect}" onchange="cnDefSave(this)" onkeydown="if(event.key==='Enter'&&!event.isComposing){event.preventDefault();this.blur();}"${cnLineLocked(l) ? ' disabled title="검수 완료된 차수예요"' : ''} title="실제로 받은 것 중 불량 개수" style="width:58px;text-align:right;border:1.5px solid ${(l.qty_defect || 0) > 0 ? '#fca5a5' : '#d1d5db'};border-radius:7px;padding:4px 6px;font-size:.82rem;font-weight:700;color:${(l.qty_defect || 0) > 0 ? '#b91c1c' : 'inherit'};" />`}</td>
         ${canPrice ? cnPriceTd(l.unit_price, '', l.unit_price == null ? '' : `금액 ${cnYuan(l.qty_sent * Number(l.unit_price))} = 전달 ${fmt(l.qty_sent)}장 × ${cnYuan(l.unit_price)}`) + num(isAll || isSum ? cnRealAvgHtml(optReal.get(optKey(l)), false) : cnRealHtml(l.unit_price, l.shipment_id), '') + `<td class="m-hide cn-wide" style="text-align:right;color:#6b7280;">${l.unit_price == null ? '—' : cnYuan(l.qty_sent * Number(l.unit_price))}</td>` : ''}
@@ -5600,7 +5837,7 @@ async function cnShipDelete() {
    입고 엑셀 B열 그림을 올릴 때 브라우저에서 160px JPEG(한 장 몇 KB)로 줄여 cn_thumbs에 저장한다(원본 10MB는 올리지 않음).
    표시는 목록(cn_list)과 따로: 표를 먼저 그린 뒤 cn_thumbs를 한 번 받아(접속 중 재사용) 자리 표시 칸만 채운다.
    엑셀 구조: 그림 위치 = xl/drawings/drawingN.xml 의 anchor(from/to 행) → 그 행의 품번(이어받은 값). 압축은 SheetJS에 든 CFB(zip 읽기)로 푼다. */
-async function cnExtractThumbs(buf, XLSX, rowNames) {
+async function cnExtractThumbs(buf, XLSX, rowNames, sheetIndex) {   // sheetIndex = 몇 번째 시트의 그림인지(기본 첫 시트 — 주문서는 시트마다 부른다)
   const cfb = XLSX.CFB.read(new Uint8Array(buf), { type: 'array' });
   const get = pth => { const i = cfb.FullPaths.indexOf('Root Entry/' + pth); return i >= 0 ? cfb.FileIndex[i].content : null; };
   const text = pth => { const c = get(pth); return c ? new TextDecoder().decode(c instanceof Uint8Array ? c : new Uint8Array(c)) : ''; };
@@ -5608,7 +5845,7 @@ async function cnExtractThumbs(buf, XLSX, rowNames) {
   const join = (base, target) => { const parts = (target.startsWith('/') ? target.slice(1) : base.replace(/[^/]*$/, '') + target).split('/'), o = []; for (const x of parts) { if (x === '..') o.pop(); else if (x && x !== '.') o.push(x); } return o.join('/'); };
   const relsOf = pth => { const m = new Map(); const d = xml(text(pth.replace(/([^/]+)$/, '_rels/$1.rels'))); for (const r of d.getElementsByTagName('Relationship')) m.set(r.getAttribute('Id'), { target: r.getAttribute('Target'), type: r.getAttribute('Type') || '' }); return m; };
   // 첫 시트 → 그 시트의 drawing
-  const wb = xml(text('xl/workbook.xml')), sheet0 = wb.getElementsByTagName('sheet')[0];
+  const wb = xml(text('xl/workbook.xml')), sheet0 = wb.getElementsByTagName('sheet')[sheetIndex || 0];
   if (!sheet0) return {};
   const rid = sheet0.getAttribute('r:id') || sheet0.getAttributeNS('http://schemas.openxmlformats.org/officeDocument/2006/relationships', 'id');
   const wbRel = relsOf('xl/workbook.xml').get(rid); if (!wbRel) return {};
@@ -5886,12 +6123,23 @@ function cnProducts() {
     if (l.unit_price != null && l.shipment_id > o.priceShip) { o.price = Number(l.unit_price); o.priceShip = l.shipment_id; }
     // 실질 단가 통합용(2026-10-01 사용자 요청): 입고마다 100원당 추가 비용이 달라 → 입고별 실질 단가를 입고(전달) 수량으로 가중 평균
     if (l.unit_price != null && l.qty_sent > 0) { const rw = cnRealWon(l.unit_price, l.shipment_id); (o.parts = o.parts || []).push({ ship: l.shipment_id, title: ship.title || '', qty: l.qty_sent, yuan: Number(l.unit_price), won: rw.won, hasCost: !!rw.r, rate: rw.r ? rw.r.cost : null }); }
+    o.key = cnLKey(l);
     p.opts.set(ok, o); prods.set(l.sname, p);
   }
+  // 주문서에만 있는 옵션·품번(아직 중국출고 없음, 2026-10-19)
+  const seenK = new Set([...prods.values()].flatMap(p => [...p.opts.values()].map(o => o.key)));
+  for (const ol of (d.order_lines || [])) {
+    const k = cnLKey(ol); if (seenK.has(k)) continue; seenK.add(k);
+    const p = prods.get(ol.sname) || { sname: ol.sname, opts: new Map(), rounds: new Set(), vendors: new Set(), ships: new Set() };
+    const ok = cnOpt(ol); if (!p.opts.has(ok)) p.opts.set(ok, { opt: ok, sent: 0, act: 0, actSent: 0, unchecked: 0, def: 0, defN: 0, price: null, priceShip: -1, key: k, ordOnly: true });
+    prods.set(ol.sname, p);
+  }
   return [...prods.values()].map(p => {
-    const opts = [...p.opts.values()].map(o => ({ ...o, real: cnRealAvg(o.parts || []) }));
+    const opts = [...p.opts.values()].map(o => ({ ...o, real: cnRealAvg(o.parts || []), ord: cnOrdOfKey(o.key) }));
+    const ords = opts.filter(o => o.ord);
     const sum = k => opts.reduce((t, o) => t + o[k], 0);
-    return { ...p, opts, sent: sum('sent'), act: sum('act'), actSent: sum('actSent'), unchecked: sum('unchecked'), def: sum('def'), defN: sum('defN'), c24: (d.c24 || {})[p.sname] || [],
+    return { ...p, opts, sent: sum('sent'), act: sum('act'), actSent: sum('actSent'), unchecked: sum('unchecked'), def: sum('def'), defN: sum('defN'),
+      ordAny: ords.length > 0, ordered: ords.reduce((t, o) => t + o.ord.ordered, 0), remain: ords.reduce((t, o) => t + Math.max(0, o.ord.remain), 0), remainNet: ords.reduce((t, o) => t + o.ord.remain, 0), c24: (d.c24 || {})[p.sname] || [],
       real: cnRealAvg(opts.flatMap(o => o.parts || [])) };
   });
 }
@@ -5915,11 +6163,11 @@ function cnSalesOf(p) {
   for (const h of p.c24) { const r = by.get(h.product_no); if (r) { found = true; avg7 += r.avg7 || 0; net30 += r.net30 || 0; } }
   return { avg7: found ? avg7 : 0, net30: found ? net30 : 0 };
 }
-const cnProdPass = () => ({ all: () => true, def: p => p.def > 0, diff: p => p.act !== p.actSent, todo: p => p.unchecked > 0, unreg: p => !p.c24.length, reg: p => p.c24.length > 0, nofabric: p => !cnFabricOf(p.sname), label: p => cnLabelOf(p.sname), c24warn: p => !p.c24.length && cnC24Warn(p.sname).length > 0 });   // 상품별 현황 칩 — 표와 엑셀 저장이 같이 쓴다
+const cnProdPass = () => ({ all: () => true, remain: p => p.remain > 0, def: p => p.def > 0, diff: p => p.act !== p.actSent, todo: p => p.unchecked > 0, unreg: p => !p.c24.length, reg: p => p.c24.length > 0, nofabric: p => !cnFabricOf(p.sname), label: p => cnLabelOf(p.sname), c24warn: p => !p.c24.length && cnC24Warn(p.sname).length > 0 });   // 상품별 현황 칩 — 표와 엑셀 저장이 같이 쓴다
 /* ── 엑셀로 저장 (2026-10-14 사용자 요청) — 지금 화면에 보이는 표 그대로(입고 선택·라인·칩·검색 반영). 단가·실질 단가는 관리자에게만(서버도 다른 역할에는 단가를 안 줌) ── */
 function cnCheckRowsForXlsx() {   // 입고 검수 표가 보여 주는 옵션 줄(그리는 쪽 cnCheckRender와 같은 거르기)
   const q = String(($('cn-check-q') || {}).value || '').trim().toLowerCase(), pass = CN_CHECK_PASS[cnState.filter] || CN_CHECK_PASS.all;
-  let groups = cnGroups(cnIsSum() ? cnSumLines(cnViewLines()) : cnViewLines()).map(g => ({ ...g, show: g.rows.filter(pass) })).filter(g => g.show.length);
+  let groups = cnGroups(cnIsSum() ? cnSumLines(cnViewLines(), true) : cnViewLines()).map(g => ({ ...g, show: g.rows.filter(pass) })).filter(g => g.show.length);
   if (q) groups = groups.map(g => g.sname.toLowerCase().includes(q) ? g : { ...g, show: g.show.filter(l => cnOpt(l).toLowerCase().includes(q)) }).filter(g => g.show.length);
   return groups.flatMap(g => g.show);
 }
@@ -5946,20 +6194,21 @@ async function cnCheckXlsx(btn) {
   const canPrice = !!d.can_price, ships = new Map((d.ships || []).map(x => [x.id, x]));
   const ord = l => { const x = ships.get(l.shipment_id) || {}; return String(x.ship_date || '9999') + String(l.shipment_id).padStart(9, '0') + String(l.seq).padStart(6, '0'); };
   if (!cnIsSum()) rows.sort((a, b) => ord(a) < ord(b) ? -1 : 1);
-  const head = ['입고(차수)', '중국 출고일', '검수 완료', '사입상품명', '색상', '사이즈', '라인', '혼용률', '라벨', '전달(엑셀 출고)', '실제 수량', '차이(실제−전달)', '불량', '확인한 사람', '확인 시각', '메모', ...(canPrice ? ['단가(위안)', `단가(원, ×${CN_FX})`, '실질 단가(원)', '금액(위안)'] : [])];
+  const head = ['입고(차수)', '중국 출고일', '검수 완료', '사입상품명', '색상', '사이즈', '라인', '혼용률', '라벨', '주문', '중국출고(엑셀 출고)', '실입고', '잔여(주문−중국출고)', '차이(중국출고−실입고)', '입고중불량', '확인한 사람', '확인 시각', '메모', ...(canPrice ? ['단가(위안)', `단가(원, ×${CN_FX})`, '실질 단가(원)', '금액(위안)'] : [])];
   const out = rows.map(l => {
     const x = ships.get(l.shipment_id) || {}, rw = !canPrice ? null : l._sum ? cnRealAvg(cnLineParts(l._raw)) : cnRealWon(l.unit_price, l.shipment_id);
+    const ox = cnOrdOf(l);
     const sumWhere = l._sum ? l._raw.map(r => { const y = ships.get(r.shipment_id) || {}; return `${y.order_round || y.title || ''} ${r.qty_sent}`; }).join(' · ') : '';
     return [l._sum ? sumWhere : x.title || '', l._sum ? '' : x.ship_date || '', l._sum ? '' : cnShipDone(x) ? `완료 (${x.checked_done_by_name || ''})` : '', l.sname, l.color || '', l.size || '', cnLineLabel(l.sname), cnFabricOf(l.sname), cnLabelOf(l.sname) ? '라벨 제작' : '',
-      l.qty_sent, l.qty_actual == null ? '' : l.qty_actual, l.qty_actual == null ? '미확인' : l._unchecked ? `${l.qty_actual - cnSentCk(l)} (미확인 입고 ${l._unchecked}건)` : l.qty_actual - cnSentCk(l), l.qty_defect == null ? '' : l.qty_defect, l.checked_by_name || '', l.checked_at ? unshipKst(l.checked_at) : '', l.memo || '',
+      ox ? ox.ordered : '', l.qty_sent, l.qty_actual == null ? '' : l.qty_actual, ox ? ox.remain : '', l._ordOnly ? '' : l.qty_actual == null ? '미확인' : l._unchecked ? `${cnSentCk(l) - l.qty_actual} (미확인 입고 ${l._unchecked}건)` : cnSentCk(l) - l.qty_actual, l.qty_defect == null ? '' : l.qty_defect, l.checked_by_name || '', l.checked_at ? unshipKst(l.checked_at) : '', l.memo || '',
       ...(canPrice ? [l.unit_price == null ? '' : Number(l.unit_price), l.unit_price == null ? '' : Math.round(Number(l.unit_price) * CN_FX), rw ? rw.won : '', l.unit_price == null ? '' : Math.round(l.qty_sent * Number(l.unit_price) * 100) / 100] : [])];
   });
-  const checked = rows.filter(l => l.qty_actual != null);
-  const totals = ['합계', '', '', `옵션 ${rows.length}개`, '', '', '', '', '', rows.reduce((t, l) => t + l.qty_sent, 0), checked.reduce((t, l) => t + l.qty_actual, 0), checked.reduce((t, l) => t + l.qty_actual - cnSentCk(l), 0), rows.reduce((t, l) => t + (l.qty_defect || 0), 0), `미확인 ${rows.filter(l => l.qty_actual == null || l._unchecked).length}개`, '', '', ...(canPrice ? ['', '', '', Math.round(rows.reduce((t, l) => t + l.qty_sent * (Number(l.unit_price) || 0), 0) * 100) / 100] : [])];
+  const checked = rows.filter(l => l.qty_actual != null), osx = cnOrdSums(rows);
+  const totals = ['합계', '', '', `옵션 ${rows.length}개`, '', '', '', '', '', osx.any ? osx.ordered : '', rows.reduce((t, l) => t + l.qty_sent, 0), checked.reduce((t, l) => t + l.qty_actual, 0), osx.any ? osx.net : '', checked.reduce((t, l) => t + cnSentCk(l) - l.qty_actual, 0), rows.reduce((t, l) => t + (l.qty_defect || 0), 0), `미확인 ${rows.filter(l => !l._ordOnly && (l.qty_actual == null || l._unchecked)).length}개`, '', '', ...(canPrice ? ['', '', '', Math.round(rows.reduce((t, l) => t + l.qty_sent * (Number(l.unit_price) || 0), 0) * 100) / 100] : [])];
   const which = cnIsSum() ? '전체합계' : cnIsAll() ? '검수할입고' : String(((ships.get(cnState.shipId) || {}).order_round || (ships.get(cnState.shipId) || {}).title || '입고')).replace(/[\\/:*?"<>|\s]+/g, '');
-  const viewNote = [cnIsSum() ? `입고 ${ships.size}건 전체를 같은 옵션끼리 합계` : cnIsAll() ? `검수 완료 전 입고 ${cnPendingShips().length}건` : (ships.get(cnState.shipId) || {}).title, cnState.filter !== 'all' ? `보기: ${({ todo: '미확인', diff: '차이 있음', def: '불량 있음' })[cnState.filter] || cnState.filter}` : '', cnState.lineFilter !== 'all' ? `라인: ${({ made: 'made', normal: '일반', none: '미분류' })[cnState.lineFilter]}` : '', String(($('cn-check-q') || {}).value || '').trim() ? `찾기: ${$('cn-check-q').value.trim()}` : ''].filter(Boolean).join(' · ');
+  const viewNote = [cnIsSum() ? `입고 ${ships.size}건 전체를 같은 옵션끼리 합계` : cnIsAll() ? `검수 완료 전 입고 ${cnPendingShips().length}건` : (ships.get(cnState.shipId) || {}).title, cnState.filter !== 'all' ? `보기: ${({ todo: '미확인', diff: '차이 있음', def: '불량 있음', remain: '잔여 있음' })[cnState.filter] || cnState.filter}` : '', cnState.lineFilter !== 'all' ? `라인: ${({ made: 'made', normal: '일반', none: '미분류' })[cnState.lineFilter]}` : '', String(($('cn-check-q') || {}).value || '').trim() ? `찾기: ${$('cn-check-q').value.trim()}` : ''].filter(Boolean).join(' · ');
   if (btn) btn.disabled = true;
-  try { await cnXlsxSave(`중국사입_입고검수_${which}_${cnXlsxDay()}`, '중국 사입 — 입고 검수', `${viewNote} · 전달 = 입고 엑셀의 출고 수량(E열) · 차이 = 실제 − 전달 · ${hireToday()} 저장`, head, out, [24, 11, 14, 14, 14, 8, 7, 22, 9, 11, 9, 11, 7, 10, 12, 24, ...(canPrice ? [10, 11, 12, 11] : [])], totals); showToast(`엑셀로 저장했어요 — 옵션 ${rows.length}개`); }
+  try { await cnXlsxSave(`중국사입_입고검수_${which}_${cnXlsxDay()}`, '중국 사입 — 입고 검수', `${viewNote} · 주문 = 주문서 수량 · 중국출고 = 입고 엑셀의 출고 수량(E열) · 잔여 = 주문 − 중국출고 · 차이 = 중국출고 − 실입고 · ${hireToday()} 저장`, head, out, [24, 11, 14, 14, 14, 8, 7, 22, 9, 8, 11, 9, 11, 11, 9, 10, 12, 24, ...(canPrice ? [10, 11, 12, 11] : [])], totals); showToast(`엑셀로 저장했어요 — 옵션 ${rows.length}개`); }
   catch (e) { showToast('엑셀 저장 실패: ' + e.message); }
   finally { if (btn) btn.disabled = false; }
 }
@@ -5970,17 +6219,17 @@ async function cnProdXlsx(btn) {
   if (q) list = list.filter(p => p.sname.toLowerCase().includes(q) || p.opts.some(o => o.opt.toLowerCase().includes(q)) || p.c24.some(h => String(h.product_name || '').toLowerCase().includes(q)));
   if (!list.length) { showToast('저장할 상품이 없어요'); return; }
   const canPrice = !!d.can_price, showSales = !isCS();
-  const head = ['사입상품명', '옵션', '라인', '혼용률', '라벨', '입고 건수', '전달(엑셀 출고 합)', '실제 수량(확인분)', '차이(실제−전달, 확인분)', '불량', '미확인 옵션', '카페24 상품명', ...(showSales ? ['판매 하루 평균(7일)', '판매 30일'] : []), ...(canPrice ? ['단가(위안, 평균)', '실질 단가(원)'] : [])];
+  const head = ['사입상품명', '옵션', '라인', '혼용률', '라벨', '입고 건수', '주문(주문서 합)', '중국출고(엑셀 출고 합)', '실입고(확인분)', '잔여(주문−중국출고)', '차이(중국출고−실입고, 확인분)', '입고중불량', '미확인 옵션', '카페24 상품명', ...(showSales ? ['판매 하루 평균(7일)', '판매 30일'] : []), ...(canPrice ? ['단가(위안, 평균)', '실질 단가(원)'] : [])];
   const out = [];
   for (const p of list) {
     const c24 = p.c24.map(h => h.product_name).join(' / '), sales = showSales ? cnSalesOf(p) : null;
-    for (const o of p.opts) out.push([p.sname, o.opt, cnLineLabel(p.sname), cnFabricOf(p.sname), cnLabelOf(p.sname) ? '라벨 제작' : '', p.ships.size, o.sent, o.act || o.actSent ? o.act : '', o.act || o.actSent ? o.act - o.actSent : '', o.defN ? o.def : '', o.unchecked || '', c24,
+    for (const o of p.opts) out.push([p.sname, o.opt, cnLineLabel(p.sname), cnFabricOf(p.sname), cnLabelOf(p.sname) ? '라벨 제작' : '', p.ships.size, o.ord ? o.ord.ordered : '', o.sent, o.act || o.actSent ? o.act : '', o.ord ? o.ord.remain : '', o.act || o.actSent ? o.actSent - o.act : '', o.defN ? o.def : '', o.unchecked || '', c24,
       ...(showSales ? [sales && sales.avg7 != null ? Math.round(sales.avg7 * 10) / 10 : '', sales ? sales.net30 : ''] : []),
       ...(canPrice ? [o.real ? o.real.yuan : (o.price == null ? '' : o.price), o.real ? o.real.won : ''] : [])]);
   }
-  const totals = ['합계', `상품 ${list.length}개 · 옵션 ${out.length}개`, '', '', '', '', list.reduce((t, p) => t + p.sent, 0), list.reduce((t, p) => t + p.act, 0), list.reduce((t, p) => t + p.act - p.actSent, 0), list.reduce((t, p) => t + p.def, 0), list.reduce((t, p) => t + p.unchecked, 0) || ''];
+  const totals = ['합계', `상품 ${list.length}개 · 옵션 ${out.length}개`, '', '', '', '', list.some(p => p.ordAny) ? list.reduce((t, p) => t + p.ordered, 0) : '', list.reduce((t, p) => t + p.sent, 0), list.reduce((t, p) => t + p.act, 0), list.some(p => p.ordAny) ? list.reduce((t, p) => t + p.remainNet, 0) : '', list.reduce((t, p) => t + p.actSent - p.act, 0), list.reduce((t, p) => t + p.def, 0), list.reduce((t, p) => t + p.unchecked, 0) || ''];
   if (btn) btn.disabled = true;
-  try { await cnXlsxSave(`중국사입_상품별현황_${cnXlsxDay()}`, '중국 사입 — 상품별 현황 (모든 차수 합계)', `입고 ${(d.ships || []).length}건을 사입상품명·옵션별로 합친 값 · 전달 = 입고 엑셀의 출고 수량(E열) 합 · ${hireToday()} 저장${showSales ? ' · 판매량은 카페24에 등록된 상품만(상품 단위)' : ''}`, head, out, [14, 18, 7, 22, 9, 8, 12, 12, 13, 7, 9, 30, ...(showSales ? [12, 9] : []), ...(canPrice ? [12, 12] : [])], totals); showToast(`엑셀로 저장했어요 — 상품 ${list.length}개`); }
+  try { await cnXlsxSave(`중국사입_상품별현황_${cnXlsxDay()}`, '중국 사입 — 상품별 현황 (모든 차수 합계)', `입고 ${(d.ships || []).length}건을 사입상품명·옵션별로 합친 값 · 주문 = 주문서 합 · 중국출고 = 입고 엑셀의 출고 수량(E열) 합 · 잔여 = 주문 − 중국출고 · 차이 = 중국출고 − 실입고 · ${hireToday()} 저장${showSales ? ' · 판매량은 카페24에 등록된 상품만(상품 단위)' : ''}`, head, out, [14, 18, 7, 22, 9, 8, 10, 12, 12, 11, 13, 9, 9, 30, ...(showSales ? [12, 9] : []), ...(canPrice ? [12, 12] : [])], totals); showToast(`엑셀로 저장했어요 — 상품 ${list.length}개`); }
   catch (e) { showToast('엑셀 저장 실패: ' + e.message); }
   finally { if (btn) btn.disabled = false; }
 }
@@ -5992,21 +6241,23 @@ function cnProdRender() {
   const reg = prods.filter(p => p.c24.length).length;
   $('cn-prod-summary').innerHTML = `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(118px,1fr));gap:8px;">${
     admgrTile('사입상품', fmt(prods.length) + '개', false)
-    + admgrTile('전달받은 수량', fmt(prods.reduce((t, p) => t + p.sent, 0)) + '장', false) + admgrTile('실제 수량(확인분)', fmt(prods.reduce((t, p) => t + p.act, 0)) + '장', false)
-    + admgrTile(admgrDot('#b91c1c') + '불량', fmt(prods.reduce((t, p) => t + p.def, 0)) + '장', false)
+    + admgrTile('주문', prods.some(p => p.ordAny) ? fmt(prods.reduce((t, p) => t + p.ordered, 0)) + '장' : '<span style="font-size:.8rem;color:#9ca3af;">주문서 없음</span>', false)
+    + admgrTile('중국출고', fmt(prods.reduce((t, p) => t + p.sent, 0)) + '장', false) + admgrTile('실입고(확인분)', fmt(prods.reduce((t, p) => t + p.act, 0)) + '장', false)
+    + admgrTile(admgrDot('#f97316') + '잔여(주문−중국출고)', prods.some(p => p.ordAny) ? (() => { const rem = prods.reduce((t, p) => t + p.remain, 0), net = prods.reduce((t, p) => t + p.remainNet, 0); return `${fmt(rem)}장${rem !== net ? ` <span style="font-size:.7rem;color:#1d4ed8;" title="잔여는 아직 덜 나온 수량만 더해요. 엑셀 합계는 옵션별 값(마이너스 포함)을 그대로 더해요">주문보다 더 출고 ${fmt(rem - net)}장</span>` : ''}`; })() : '—', false)
+    + admgrTile(admgrDot('#b91c1c') + '입고중불량', fmt(prods.reduce((t, p) => t + p.def, 0)) + '장', false)
     + admgrTile(admgrDot('#22c55e') + '카페24 등록', `${fmt(reg)} / ${fmt(prods.length)}개`, false)}</div>
     ${d.c24_error ? `<div style="font-size:.74rem;color:#b91c1c;margin-top:6px;">${escHtml(d.c24_error)}</div>` : ''}`;
   const pass = cnProdPass();
-  $('cn-prod-chips').innerHTML = [['all', '전체'], ['diff', '수량 차이'], ['def', '불량 있음'], ['todo', '미확인 있음'], ['unreg', '카페24 미등록'], ['reg', '등록됨'], ['c24warn', '카페24 확인 필요'], ['nofabric', '혼용률 미입력'], ['label', '라벨 제작']].map(([k, label]) => `<button id="cn-chip-${k}" class="${cnState.prodFilter === k ? 'active' : ''}" onclick="cnState.prodFilter='${k}';cnProdRender()">${label} ${fmt(prods.filter(pass[k]).length)}</button>`).join('');
+  $('cn-prod-chips').innerHTML = [['all', '전체'], ['remain', '잔여 있음'], ['diff', '수량 차이'], ['def', '불량 있음'], ['todo', '미확인 있음'], ['unreg', '카페24 미등록'], ['reg', '등록됨'], ['c24warn', '카페24 확인 필요'], ['nofabric', '혼용률 미입력'], ['label', '라벨 제작']].map(([k, label]) => `<button id="cn-chip-${k}" class="${cnState.prodFilter === k ? 'active' : ''}" onclick="cnState.prodFilter='${k}';cnProdRender()">${label} ${fmt(prods.filter(pass[k]).length)}</button>`).join('');
   const q = String(($('cn-prod-q') || {}).value || '').trim().toLowerCase();
   let list = prods.filter(pass[cnState.prodFilter] || pass.all);
   if (q) list = list.filter(p => p.sname.toLowerCase().includes(q) || p.opts.some(o => o.opt.toLowerCase().includes(q)) || p.c24.some(h => String(h.product_name || '').toLowerCase().includes(q)));
   if (cnState.prodFilter === 'novendor') cnState.prodFilter = 'all';
   if (!list.length) { $('cn-prod-list').innerHTML = '<div class="empty-state"><p>조건에 맞는 상품이 없어요.</p></div>'; return; }
   const num = v => `<td style="text-align:right;">${v}</td>`;
-  const diffHtml = (act, actSent, unchecked) => { const dd = act - actSent; return (unchecked && act === 0 && actSent === 0 ? '<span style="color:#9ca3af;">미확인</span>' : dd === 0 ? '<span style="color:#15803d;font-weight:700;">일치</span>' : dd < 0 ? `<b style="color:#b91c1c;">부족 ${fmt(-dd)}</b>` : `<b style="color:#1d4ed8;">초과 +${fmt(dd)}</b>`) + (unchecked && !(act === 0 && actSent === 0) ? ` <span style="font-size:.66rem;color:#9ca3af;">미확인 ${unchecked}</span>` : ''); };
+  const diffHtml = (act, actSent, unchecked) => { const dd = actSent - act; return (unchecked && act === 0 && actSent === 0 ? '<span style="color:#9ca3af;">미확인</span>' : cnGapHtml(dd)) + (unchecked && !(act === 0 && actSent === 0) ? ` <span style="font-size:.66rem;color:#9ca3af;">미확인 ${unchecked}</span>` : ''); };
   // 열(2026-10-12 정리 — 12열 → 8열): 사입상품명/옵션(+혼용률·라벨) | 전달 | 실제 | 차이 | 단가(위안+원) | 실질 단가 | 카페24(+판매량)
-  let html = `<div style="display:flex;gap:6px;margin-bottom:6px;">${cnFoldAllHtml('prod')}</div><div class="table-wrap"><table class="cn-tbl" style="width:100%;font-size:.8rem;"><thead><tr><th style="text-align:left;">사입상품명 / 옵션<div class="cn-sub">혼용률 · 라벨</div></th><th>전달<div class="cn-sub">엑셀 출고 수량</div></th><th>실제<div class="cn-sub">확인분</div></th><th>차이</th><th>불량</th>${canPrice ? `<th title="위안 단가와, 환율 ${CN_FX}원을 곱한 원화 단가" style="cursor:help;">단가<div class="cn-sub">위안 · 원(×${CN_FX})</div></th><th title="환율 ${CN_FX}원으로 계산&#10;100원당 추가비용 포함 · 부가세는 제외 (입고 비용 기준)&#10;전체 차수 값을 반영함" style="cursor:help;">실질 단가</th>` : ''}<th style="text-align:left;">카페24${showSales ? '<div class="cn-sub">판매 = 하루 평균(7일) · 30일</div>' : ''}</th></tr></thead><tbody>`;
+  let html = `<div style="display:flex;gap:6px;margin-bottom:6px;">${cnFoldAllHtml('prod')}</div><div class="table-wrap"><table class="cn-tbl" style="width:100%;font-size:.8rem;"><thead><tr><th style="text-align:left;">사입상품명 / 옵션<div class="cn-sub">혼용률 · 라벨</div></th><th>주문<div class="cn-sub">주문서 합</div></th><th>중국출고<div class="cn-sub">엑셀 출고 합</div></th><th>실입고<div class="cn-sub">확인분</div></th><th>잔여<div class="cn-sub">주문 − 중국출고</div></th><th>차이<div class="cn-sub">중국출고 − 실입고</div></th><th>입고중불량</th>${canPrice ? `<th title="위안 단가와, 환율 ${CN_FX}원을 곱한 원화 단가" style="cursor:help;">단가<div class="cn-sub">위안 · 원(×${CN_FX})</div></th><th title="환율 ${CN_FX}원으로 계산&#10;100원당 추가비용 포함 · 부가세는 제외 (입고 비용 기준)&#10;전체 차수 값을 반영함" style="cursor:help;">실질 단가</th>` : ''}<th style="text-align:left;">카페24${showSales ? '<div class="cn-sub">판매 = 하루 평균(7일) · 30일</div>' : ''}</th></tr></thead><tbody>`;
   for (const p of list) {
     const sales = cnSalesOf(p);
     const salesHtml = sales === null ? '' : sales === undefined ? (cnState.salesLoading ? '<span style="color:#9ca3af;">…</span>' : `<span style="color:#9ca3af;" title="${escHtml(cnState.salesErr || '')}">—</span>`) : `<b style="color:${sales.avg7 > 0 ? '#4338ca' : '#9ca3af'};">${madeAvgFmt(sales.avg7)}</b> · ${fmt(sales.net30)}장`;
@@ -6016,10 +6267,10 @@ function cnProdRender() {
     const meta = [[...p.rounds].length ? '발주 ' + [...p.rounds].join(', ') : '', `입고 ${p.ships.size}건`].filter(Boolean).join(' · ');
     const open = !!q && p.opts.some(o => o.opt.toLowerCase().includes(q)) || cnState.open.prod.has(p.sname), gi = encodeURIComponent(p.sname);
     html += `<tr style="background:#f8f9ff;">${cnNameCell('prod', p.sname, open, p.opts.length, `<span class="cn-sub" title="${escHtml(meta)}" style="cursor:help;">입고 ${p.ships.size}건</span>`, '')}
-      ${num(`<b>${fmt(p.sent)}</b>`)}${num(p.act || p.actSent ? `<b>${fmt(p.act)}</b>` : '<span style="color:#9ca3af;">—</span>')}${num(diffHtml(p.act, p.actSent, p.unchecked))}${num(cnDefShow(p.defN ? p.def : null))}${canPrice ? cnPriceTd(p.real ? p.real.yuan : null) + num(cnRealAvgHtml(p.real, true)) : ''}
+      ${num(p.ordAny ? `<b>${fmt(p.ordered)}</b>` : '<span style="color:#9ca3af;">—</span>')}${num(`<b>${fmt(p.sent)}</b>`)}${num(p.act || p.actSent ? `<b>${fmt(p.act)}</b>` : '<span style="color:#9ca3af;">—</span>')}${num(p.ordAny ? cnRemainHtml(p.remain) : '<span style="color:#9ca3af;">—</span>')}${num(p.sent || p.act ? diffHtml(p.act, p.actSent, p.unchecked) : '<span style="color:#9ca3af;">—</span>')}${num(cnDefShow(p.defN ? p.def : null))}${canPrice ? cnPriceTd(p.real ? p.real.yuan : null) + num(cnRealAvgHtml(p.real, true)) : ''}
       <td style="text-align:left;">${c24Html}${showSales && salesHtml ? `<div class="cn-sub" style="margin-top:2px;">판매 ${salesHtml}</div>` : ''}</td></tr>`;
     for (const o of p.opts) {
-      html += `<tr data-cn-o="${escHtml(gi)}"${open ? '' : ' style="display:none;"'}><td style="text-align:left;padding-left:30px;">${escHtml(o.opt)}</td>${num(fmt(o.sent))}${num(o.act || o.actSent ? fmt(o.act) : '<span style="color:#9ca3af;">—</span>')}${num(diffHtml(o.act, o.actSent, o.unchecked))}${num(cnDefShow(o.defN ? o.def : null))}${canPrice ? cnPriceTd(o.real ? o.real.yuan : o.price) + num(cnRealAvgHtml(o.real, false)) : ''}<td></td></tr>`;
+      html += `<tr data-cn-o="${escHtml(gi)}"${open ? '' : ' style="display:none;"'}><td style="text-align:left;padding-left:30px;">${escHtml(o.opt)}</td>${num(o.ord ? (o.ord.notIn ? '<span style="color:#9ca3af;" title="주문서에 없는 옵션이에요">0</span>' : fmt(o.ord.ordered)) : '<span style="color:#9ca3af;">—</span>')}${num(fmt(o.sent))}${num(o.act || o.actSent ? fmt(o.act) : '<span style="color:#9ca3af;">—</span>')}${num(o.ord ? cnRemainHtml(o.ord.remain, `주문 ${o.ord.ordered} − 주문서에 연결된 입고의 중국출고 ${o.ord.cum}`) : '<span style="color:#9ca3af;">—</span>')}${num(o.ordOnly ? '<span style="color:#c2410c;font-size:.7rem;">아직 출고 없음</span>' : diffHtml(o.act, o.actSent, o.unchecked))}${num(cnDefShow(o.defN ? o.def : null))}${canPrice ? cnPriceTd(o.real ? o.real.yuan : o.price) + num(cnRealAvgHtml(o.real, false)) : ''}<td></td></tr>`;
     }
   }
   $('cn-prod-list').innerHTML = html + '</tbody></table></div>';
