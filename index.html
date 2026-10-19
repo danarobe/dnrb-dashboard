@@ -1485,7 +1485,7 @@
       <div id="cn-upload-panel"></div>
       <div id="cn-ord-modal" onclick="if(event.target===this)this.style.display='none'" style="display:none;position:fixed;inset:0;background:rgba(15,23,42,.55);z-index:210;align-items:center;justify-content:center;padding:20px;">
         <div style="background:#fff;border-radius:16px;max-width:460px;width:100%;max-height:88vh;overflow:auto;padding:20px;">
-          <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;"><b style="flex:1;font-size:.95rem;color:#1e1b4b;">주문서 정보·연결 수정</b>
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;"><b style="flex:1;font-size:.95rem;color:#1e1b4b;">주문서 정보 수정</b>
             <button onclick="$('cn-ord-modal').style.display='none'" style="border:none;background:#f3f4f6;border-radius:8px;padding:4px 10px;font-size:.88rem;cursor:pointer;">✕</button></div>
           <div id="cn-ord-modal-body"></div>
           <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px;"><button class="toggle-btn" onclick="$('cn-ord-modal').style.display='none'">취소</button><button class="toggle-btn" style="background:#4f46e5;color:#fff;border-color:#4f46e5;" onclick="cnOrderEditSave()"><i class="fa-solid fa-floppy-disk"></i> 저장</button></div>
@@ -5164,56 +5164,50 @@ const cnPendingShips = () => (((cnState.data || {}).ships) || []).filter(x => !c
 const cnLineLocked = l => cnShipDone((((cnState.data || {}).ships) || []).find(x => x.id === l.shipment_id));
 /* ══ 주문서 (2026-10-19 다시 — 사용자 요청 "주문서 수량을 표기 안 하니 언제 얼마나 주문했는지 알 수 없다") ══
    표의 수량 = 주문 | 중국출고(입고 엑셀 E열) | 실입고(실제 수량) | 잔여(주문 − 중국출고) | 차이(중국출고 − 실입고) | 입고중불량.
-   주문서 1건에 여러 차수가 들어오므로 입고 건마다 어느 주문서 것인지 연결(cn_shipments.order_id). 옵션은 품번·색상·사이즈 글자 그대로(cnOptKey)로 맞춘다.
-   · 차수 하나·'검수할 입고' 보기: 주문 = 그 입고가 연결된 주문서의 그 옵션 수량, 잔여 = 주문 − 그 주문서에 연결된 입고 중 이 차수까지(출고일 순) 중국출고 누적.
-   · '전체' 보기·상품별 현황: 주문 = 모든 주문서 합, 잔여 = 주문 − 주문서에 연결된 입고의 중국출고 합. 주문서에만 있고 아직 출고 없는 옵션도 줄로 나온다.
-   · 주문서에 연결 안 된 입고의 옵션은 주문·잔여 '—'. 연결된 입고에 있는데 주문서에 없는 옵션은 주문 0(잔여가 마이너스 = 주문보다 더 출고). */
+   주문서와 입고는 연결하지 않는다(2026-10-19 사용자 지정 — "연동할 필요 없어, 수량만 체크"): 주문 = 모든 주문서의 그 옵션 합. 옵션은 품번·색상·사이즈 글자 그대로(cnOptKey)로 맞춘다.
+   · 차수 하나·'검수할 입고' 보기: 잔여 = 주문 − 이 차수까지(출고일 순) 모든 입고의 중국출고 누적.
+   · '전체' 보기·상품별 현황: 잔여 = 주문 − 모든 입고의 중국출고 합. 주문서에만 있고 아직 출고 없는 옵션도 줄로 나온다.
+   · 주문서가 하나도 없으면 주문·잔여 '—'. 입고에 있는데 어느 주문서에도 없는 옵션은 주문 0(잔여가 마이너스 = 주문보다 더 출고). (cn_shipments.order_id 칸은 쓰지 않음) */
 const cnOptKey = (sname, color, size) => String(sname == null ? '' : sname).trim() + '\u0001' + String(color || '').trim() + '\u0001' + String(size || '').trim();
 const cnLKey = l => cnOptKey(l.sname, l.color, l.size);
 function cnOrdCalc() {
   const d = cnState.data || {};
   if (cnState._oc && cnState._oc.d === d) return cnState._oc.c;
-  const orders = new Map((d.orders || []).map(o => [o.id, o]));
-  const qty = new Map(), total = new Map();
-  for (const ol of d.order_lines || []) {
-    const k = cnLKey(ol), m = qty.get(ol.order_id) || new Map();
-    m.set(k, (m.get(k) || 0) + ol.qty); qty.set(ol.order_id, m);
-    total.set(k, (total.get(k) || 0) + ol.qty);
-  }
+  const total = new Map();
+  for (const ol of d.order_lines || []) { const k = cnLKey(ol); total.set(k, (total.get(k) || 0) + ol.qty); }
   const ord = x => String(x.ship_date || '9999') + String(x.id).padStart(9, '0');
-  const linked = (d.ships || []).filter(x => x.order_id != null && orders.has(x.order_id)).sort((a, b) => ord(a) < ord(b) ? -1 : 1);
-  const rank = new Map(linked.map((x, i) => [x.id, i])), shipOf = new Map(linked.map(x => [x.id, x]));
-  const sent = new Map(), sentTotal = new Map();   // 주문서별 · 옵션별 출고 목록 / 옵션별 (연결된 입고) 출고 합
+  const ships = (d.ships || []).slice().sort((a, b) => ord(a) < ord(b) ? -1 : 1);
+  const rank = new Map(ships.map((x, i) => [x.id, i])), shipOf = new Map(ships.map(x => [x.id, x]));
+  const sent = new Map(), sentTotal = new Map();   // 옵션별 출고 목록(차수 순) / 옵션별 출고 합 — 모든 입고
   for (const l of d.lines || []) {
     const x = shipOf.get(l.shipment_id); if (!x) continue;
-    const k = cnLKey(l), m = sent.get(x.order_id) || new Map(), a = m.get(k) || [];
-    a.push({ r: rank.get(x.id), qty: l.qty_sent, ship: x }); m.set(k, a); sent.set(x.order_id, m);
+    const k = cnLKey(l), a = sent.get(k) || [];
+    a.push({ r: rank.get(x.id), qty: l.qty_sent, ship: x }); sent.set(k, a);
     sentTotal.set(k, (sentTotal.get(k) || 0) + l.qty_sent);
   }
-  const c = { orders, qty, total, rank, sent, sentTotal };
+  const c = { has: (d.order_lines || []).length > 0, total, rank, sent, sentTotal };
   cnState._oc = { d, c };
   return c;
 }
-function cnOrdOfLine(l) {   // 입고 줄 하나 — 그 입고가 연결된 주문서 기준
-  const c = cnOrdCalc(), x = ((cnState.data || {}).ships || []).find(s => s.id === l.shipment_id);
-  if (!x || x.order_id == null || !c.qty.has(x.order_id)) return null;
-  const k = cnLKey(l), m = c.qty.get(x.order_id), r = c.rank.get(x.id);
-  const parts = ((c.sent.get(x.order_id) || new Map()).get(k) || []).filter(p => p.r <= r).sort((a, b) => a.r - b.r);
-  const ordered = m.get(k) || 0, cum = parts.reduce((t, p) => t + p.qty, 0);
-  return { ordered, cum, remain: ordered - cum, notIn: !m.has(k), order: c.orders.get(x.order_id), parts, uk: x.order_id + '\u0002' + k, r };
+function cnOrdOfLine(l) {   // 입고 줄 하나 — 잔여 = 주문 − 이 차수까지 중국출고 누적
+  const c = cnOrdCalc(); if (!c.has) return null;
+  const k = cnLKey(l), r = c.rank.get(l.shipment_id);
+  const parts = (c.sent.get(k) || []).filter(p => p.r <= r).sort((a, b) => a.r - b.r);
+  const ordered = c.total.get(k) || 0, cum = parts.reduce((t, p) => t + p.qty, 0);
+  return { ordered, cum, remain: ordered - cum, notIn: !c.total.has(k), parts, uk: k, r };
 }
-function cnOrdOfKey(k) {   // 합친 줄·상품별 현황 — 모든 주문서 기준
-  const c = cnOrdCalc(), ordered = c.total.get(k), st = c.sentTotal.get(k) || 0;
-  if (ordered == null && !st) return null;
-  return { ordered: ordered || 0, cum: st, remain: (ordered || 0) - st, notIn: ordered == null, uk: k, r: Infinity };
+function cnOrdOfKey(k) {   // 합친 줄·상품별 현황 — 모든 입고 합
+  const c = cnOrdCalc(); if (!c.has) return null;
+  const st = c.sentTotal.get(k) || 0;
+  return { ordered: c.total.get(k) || 0, cum: st, remain: (c.total.get(k) || 0) - st, notIn: !c.total.has(k), uk: k, r: Infinity };
 }
 const cnOrdOf = l => l._sum ? l._ord : cnOrdOfLine(l);
 const cnOrdTitle = o => o ? `${o.title}${o.order_date ? ` (주문일 ${o.order_date})` : ''}` : '';
 function cnOrdCell(l) {
   const o = cnOrdOf(l);
-  if (!o) return '<span style="color:#9ca3af;" title="주문서에 연결 안 된 입고예요">—</span>';
-  if (o.notIn) return '<span style="color:#9ca3af;" title="주문서에 없는 옵션이에요">0</span>';
-  const tip = o.order ? cnOrdTitle(o.order) : '모든 주문서 합';
+  if (!o) return '<span style="color:#9ca3af;" title="올린 주문서가 없어요">—</span>';
+  if (o.notIn) return '<span style="color:#9ca3af;" title="어느 주문서에도 없는 옵션이에요">0</span>';
+  const tip = '모든 주문서 합';
   return `<span title="${escHtml(tip)}">${fmt(o.ordered)}</span>`;
 }
 function cnRemainHtml(v, tip) {
@@ -5223,7 +5217,7 @@ function cnRemainHtml(v, tip) {
 }
 function cnRemainCell(l) {
   const o = cnOrdOf(l); if (!o) return cnRemainHtml(null);
-  const tip = o.parts ? `주문 ${o.ordered} − 이 차수까지 중국출고 ${o.cum}${o.parts.length > 1 ? ` (${o.parts.map(p => `${p.ship.order_round || p.ship.title || ''} ${p.qty}`).join(' + ')})` : ''}` : `주문 ${o.ordered} − 주문서에 연결된 입고의 중국출고 ${o.cum}`;
+  const tip = o.parts ? `주문 ${o.ordered} − 이 차수까지 중국출고 ${o.cum}${o.parts.length > 1 ? ` (${o.parts.map(p => `${p.ship.order_round || p.ship.title || ''} ${p.qty}`).join(' + ')})` : ''}` : `주문 ${o.ordered} − 모든 입고의 중국출고 ${o.cum}`;
   return cnRemainHtml(o.remain, tip + (o.remain < 0 ? ' — 주문보다 더 출고됨' : ''));
 }
 // 같은 옵션이 여러 줄(검수할 입고 보기의 차수별 줄)에 나와도 주문·잔여는 한 번만 센다 — 잔여는 가장 늦은 차수 기준
@@ -5248,13 +5242,12 @@ function cnOrderBarHtml() {   // '전체' 보기 위 — 주문서 목록(주문
   const d = cnState.data || {}, orders = d.orders || [];
   const canEdit = !!d.can_edit;
   if (!orders.length) return `<div style="font-size:.76rem;color:#6b7280;margin-top:8px;"><i class="fa-solid fa-file-signature" style="color:#9ca3af;"></i> 올린 주문서가 없어요${canEdit ? ' — 위의 <b>[주문서 올리기]</b>로 올리면 주문·잔여 칸이 채워져요' : ''}.</div>`;
-  const ships = d.ships || [];
-  return `<div style="display:flex;flex-direction:column;gap:6px;margin-top:8px;">${orders.map(o => {
-    const ln = ships.filter(x => x.order_id === o.id), q = (d.order_lines || []).filter(x => x.order_id === o.id).reduce((t, x) => t + x.qty, 0);
+  return `<div style="display:flex;flex-direction:column;gap:6px;margin-top:8px;"><div style="font-size:.74rem;color:#6b7280;">주문서 ${fmt(orders.length)}건 — 주문 = 모든 주문서의 같은 품번·색상·사이즈 합</div>${orders.map(o => {
+    const ols = (d.order_lines || []).filter(x => x.order_id === o.id), q = ols.reduce((t, x) => t + x.qty, 0);
     return `<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;border:1.5px solid #e0e7ff;background:#f8f9ff;border-radius:10px;padding:6px 12px;font-size:.78rem;">
       <i class="fa-solid fa-file-signature" style="color:#4f46e5;"></i><b style="color:#3730a3;">${escHtml(o.title)}</b>
-      <span class="cn-sub" style="display:inline;">${o.order_date ? `주문일 <b>${escHtml(o.order_date)}</b> · ` : '주문일 미입력 · '}주문 ${fmt(q)}장 · 입고 ${ln.length ? ln.map(x => escHtml(cnShipName(x))).join(', ') : '<span style="color:#b45309;font-weight:700;">연결 없음</span>'}</span>
-      ${canEdit ? `<span style="margin-left:auto;display:flex;gap:6px;"><button class="toggle-btn" style="font-size:.7rem;padding:2px 9px;" onclick="cnOrderEditOpen(${o.id})"><i class="fa-solid fa-pen"></i> 정보·연결 수정</button><button class="toggle-btn" style="font-size:.7rem;padding:2px 9px;color:#dc2626;" onclick="cnOrderDelete(${o.id})">삭제</button></span>` : ''}</div>`; }).join('')}</div>`;
+      <span class="cn-sub" style="display:inline;">${o.order_date ? `주문일 <b>${escHtml(o.order_date)}</b> · ` : '주문일 미입력 · '}품번 ${fmt(new Set(ols.map(x => x.sname)).size)}개 · 옵션 ${fmt(ols.length)}줄 · 주문 ${fmt(q)}장${o.file_name ? ` · ${escHtml(o.file_name)}` : ''}</span>
+      ${canEdit ? `<span style="margin-left:auto;display:flex;gap:6px;"><button class="toggle-btn" style="font-size:.7rem;padding:2px 9px;" onclick="cnOrderEditOpen(${o.id})"><i class="fa-solid fa-pen"></i> 정보 수정</button><button class="toggle-btn" style="font-size:.7rem;padding:2px 9px;color:#dc2626;" onclick="cnOrderDelete(${o.id})">삭제</button></span>` : ''}</div>`; }).join('')}</div>`;
 }
 /* ── 주문서 엑셀 읽기·올리기·수정 (10-14에 만들었던 것을 그대로 다시 — '직접 정리' 기능만 뺌) ── */
 function cnParseOrderGrid(grid) {
@@ -5310,7 +5303,6 @@ function cnOrderPanelRender() {
   const names = new Set(p.lines.map(l => l.sname)), qty = p.lines.reduce((t, l) => t + l.qty, 0);
   const dupKeys = (() => { const m = new Map(); for (const l of p.lines) { const k = cnOptKey(l.sname, l.color, l.size); m.set(k, (m.get(k) || 0) + 1); } return [...m.values()].filter(n => n > 1).length; })();
   const inp = (id, label, val, ph, type) => `<label style="font-size:.74rem;color:#4b5563;font-weight:600;">${label}<input id="${id}" type="${type || 'text'}" value="${escHtml(val || '')}" placeholder="${ph || ''}" style="display:block;margin-top:3px;border:1.5px solid #d1d5db;border-radius:8px;padding:6px 10px;font-size:.82rem;width:100%;box-sizing:border-box;" /></label>`;
-  const shipChecks = (d.ships || []).slice().sort((a, b) => a.id - b.id).map(x => { const other = x.order_id != null && orders.get(x.order_id); return `<label style="display:flex;align-items:center;gap:6px;font-size:.8rem;color:#374151;padding:3px 0;"><input type="checkbox" class="cn-ord-ship" value="${x.id}" ${other ? '' : 'checked'} style="margin:0;" /> ${escHtml(x.title)}${x.order_round ? ` <span class="cn-sub" style="display:inline;">(${escHtml(x.order_round)})</span>` : ''}${other ? ` <span style="font-size:.7rem;color:#b45309;">지금은 "${escHtml(other.title)}"에 연결돼 있어요 — 체크하면 이 주문서로 옮겨요</span>` : ''}</label>`; }).join('');
   panel.innerHTML = `<div style="border:1.5px solid #c7d2fe;background:#f8f9ff;border-radius:14px;padding:14px 16px;margin-bottom:14px;">
     <div style="font-size:.9rem;font-weight:800;color:#3730a3;"><i class="fa-solid fa-file-signature"></i> 주문서 올릴 내용 확인 — ${escHtml(p.file_name)}</div>
     <div style="font-size:.82rem;color:#374151;margin:8px 0;">품번 <b>${fmt(names.size)}개</b> · 옵션 <b>${fmt(p.lines.length)}줄</b> · 주문 수량 <b>${fmt(qty)}장</b> <span style="color:#6b7280;font-size:.76rem;">(${p.parts.map(x => `시트 "${escHtml(x.sheet)}" ${fmt(x.lines.length)}줄 · ${fmt(x.lines.reduce((t, l) => t + l.qty, 0))}장`).join(' / ')})</span></div>
@@ -5324,8 +5316,6 @@ function cnOrderPanelRender() {
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;margin-bottom:10px;">
       ${inp('cn-ord-title', '주문서 이름', p.title, '예: 9월 광저우 주문')}${inp('cn-ord-date', '주문일 (비워도 돼요)', '', '', 'date')}${inp('cn-ord-note', '메모', '', '')}
     </div>
-    <div style="font-size:.78rem;font-weight:700;color:#3730a3;margin-bottom:2px;">이 주문서로 들어온 입고 건 <span style="font-weight:500;color:#6b7280;">— 체크한 입고의 수량을 이 주문서와 비교해요(나중에 바꿀 수 있어요)</span></div>
-    <div style="margin-bottom:10px;">${shipChecks || '<span style="font-size:.78rem;color:#9ca3af;">아직 올린 입고 엑셀이 없어요 — 입고 엑셀을 올릴 때 주문서를 고르면 돼요.</span>'}</div>
     <div style="display:flex;gap:8px;"><button class="toggle-btn" id="cn-ord-save" style="background:#4f46e5;color:#fff;border-color:#4f46e5;" onclick="cnOrderSave()"><i class="fa-solid fa-floppy-disk"></i> 이 내용으로 저장</button>
       <button class="toggle-btn" onclick="cnState.pendingOrder=null;cnOrderPanelRender()">취소</button></div>
   </div>`;
@@ -5338,7 +5328,7 @@ async function cnOrderSave() {
   if (dup && !confirm(`같은 파일 이름의 주문서가 이미 있어요 ("${dup.title}").\n그래도 새 주문서로 저장할까요?`)) return;
   const btn = $('cn-ord-save'); btn.disabled = true;
   try {
-    const r = await cnPost('cn_order_upload', { title, order_date: $('cn-ord-date').value || null, note: $('cn-ord-note').value, file_name: p.file_name, lines: p.lines, ship_ids: [...document.querySelectorAll('.cn-ord-ship:checked')].map(x => Number(x.value)), thumbs: p.thumbs || {} });
+    const r = await cnPost('cn_order_upload', { title, order_date: $('cn-ord-date').value || null, note: $('cn-ord-note').value, file_name: p.file_name, lines: p.lines, ship_ids: [], thumbs: p.thumbs || {} });
     cnState.pendingOrder = null; cnOrderPanelRender();
     cnState.shipId = 'sum'; cnState.filter = 'all';   // 올린 뒤 '전체' 보기로 — 옵션별 주문·잔여가 한눈에
     showToast(`주문서 저장 완료 — 옵션 ${fmt(r.line_count)}줄 · 입고 ${fmt(r.linked)}건 연결`);
@@ -5347,18 +5337,15 @@ async function cnOrderSave() {
 }
 function cnOrderEditOpen(oid) {
   const d = cnState.data, o = (d.orders || []).find(x => x.id === oid); if (!o) return;
-  const orders = new Map((d.orders || []).map(x => [x.id, x]));
   const inp = (id, label, val, type) => `<label style="font-size:.74rem;color:#4b5563;font-weight:600;display:block;margin-bottom:8px;">${label}<input id="${id}" type="${type || 'text'}" value="${escHtml(val || '')}" style="display:block;margin-top:3px;border:1.5px solid #d1d5db;border-radius:8px;padding:6px 10px;font-size:.82rem;width:100%;box-sizing:border-box;" /></label>`;
-  $('cn-ord-modal-body').innerHTML = `<input type="hidden" id="cn-ordm-id" value="${o.id}" />${inp('cn-ordm-title', '주문서 이름', o.title)}${inp('cn-ordm-date', '주문일', o.order_date || '', 'date')}${inp('cn-ordm-note', '메모', o.note || '')}
-    <div style="font-size:.78rem;font-weight:700;color:#3730a3;margin:4px 0 2px;">이 주문서로 들어온 입고 건</div>
-    ${(d.ships || []).slice().sort((a, b) => a.id - b.id).map(x => { const other = x.order_id != null && x.order_id !== o.id && orders.get(x.order_id); return `<label style="display:flex;align-items:center;gap:6px;font-size:.8rem;color:#374151;padding:3px 0;"><input type="checkbox" class="cn-ordm-ship" value="${x.id}" ${x.order_id === o.id ? 'checked' : ''} style="margin:0;" /> ${escHtml(x.title)}${other ? ` <span style="font-size:.7rem;color:#b45309;">("${escHtml(other.title)}"에 연결됨)</span>` : ''}</label>`; }).join('') || '<div style="font-size:.78rem;color:#9ca3af;">올린 입고 엑셀이 없어요</div>'}`;
+  $('cn-ord-modal-body').innerHTML = `<input type="hidden" id="cn-ordm-id" value="${o.id}" />${inp('cn-ordm-title', '주문서 이름', o.title)}${inp('cn-ordm-date', '주문일', o.order_date || '', 'date')}${inp('cn-ordm-note', '메모', o.note || '')}`;
   $('cn-ord-modal').style.display = 'flex';
 }
 async function cnOrderEditSave() {
   const oid = Number($('cn-ordm-id').value), title = $('cn-ordm-title').value.trim();
   if (!title) { showToast('주문서 이름을 입력해 주세요'); return; }
   try {
-    await cnPost('cn_order', { id: oid, title, order_date: $('cn-ordm-date').value || null, note: $('cn-ordm-note').value, ship_ids: [...document.querySelectorAll('.cn-ordm-ship:checked')].map(x => Number(x.value)) });
+    await cnPost('cn_order', { id: oid, title, order_date: $('cn-ordm-date').value || null, note: $('cn-ordm-note').value });
     $('cn-ord-modal').style.display = 'none'; showToast('주문서를 저장했어요');
     cnState.loading = false; await cnLoad(true);
   } catch (e) { showToast('저장 실패: ' + e.message); }
@@ -5709,7 +5696,7 @@ function cnCheckRender() {
       ${ships.length > 1 ? `<option value="sum"${isSum ? ' selected' : ''}>전체 — 입고 ${ships.length}건 합계 (같은 옵션끼리)</option>` : ''}${pend.length > 1 ? `<option value="all"${isAll ? ' selected' : ''}>검수할 입고 (완료 전 ${pend.length}건)</option>` : ''}${ships.map(x => `<option value="${x.id}"${!isAll && !isSum && x.id === ship.id ? ' selected' : ''}>${cnShipDone(x) ? '✓ ' : ''}${escHtml(x.title)}${x.ship_date ? ' · ' + escHtml(String(x.ship_date).slice(5)) + ' 출고' : ''}${cnShipDone(x) ? ' (검수 완료)' : ''}</option>`).join('')}</select>
     ${isSum ? `<span style="font-size:.76rem;color:#6b7280;">입고 <b>${ships.length}건 전체</b>(검수 완료한 차수 포함)를 <b>같은 품번·옵션끼리 합쳐</b> 보여줘요 — 보기 전용이라 수량·불량·메모는 차수를 골라 고쳐요</span>` : isAll ? `<span style="font-size:.76rem;color:#6b7280;">검수 완료 전인 입고 <b>${pend.length}건</b>을 합쳐 보여줘요 — <b>완료한 차수는 빠져요</b>(위에서 골라 볼 수 있어요)${d.can_price ? " · <b>실질 단가</b> = 단가(KRW) + 100원당 추가 금액" : ''}</span>` : `<span style="font-size:.76rem;color:#6b7280;">${[ship.order_round ? '발주 <b>' + escHtml(ship.order_round) + '</b>' : '', ship.ship_date ? '출고 ' + escHtml(ship.ship_date) : '', '올린 사람 ' + escHtml(ship.created_by_name || '') + ' ' + escHtml(unshipKst(ship.created_at))].filter(Boolean).join(' · ')}${ship.note ? ' · ' + escHtml(ship.note) : ''}</span>`}
     ${d.can_edit && !isAll && !isSum ? `<label class="toggle-btn" style="font-size:.7rem;padding:3px 9px;cursor:pointer;" title="이 입고의 엑셀을 다시 고르면 상품 사진만 작게 줄여 넣어요(수량은 그대로)"><i class="fa-regular fa-image"></i> 사진 넣기<input type="file" accept=".xlsx" style="display:none;" onchange="cnThumbFilePick(this)" /></label><button class="toggle-btn" style="font-size:.7rem;padding:3px 9px;" onclick="cnShipEdit()">정보 수정</button><button class="toggle-btn" style="font-size:.7rem;padding:3px 9px;color:#dc2626;" onclick="cnShipDelete()">삭제</button>` : ''}</div>
-    <div style="display:flex;flex-direction:column;gap:6px;margin-top:8px;">${(isSum ? [] : isAll ? pend : [ship]).map(x => `<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;border:1.5px solid ${cnShipDone(x) ? '#bbf7d0' : '#e0e7ff'};background:${cnShipDone(x) ? '#f0fdf4' : '#f8f9ff'};border-radius:10px;padding:6px 12px;">${isAll ? `<span style="font-size:.78rem;font-weight:700;color:#3730a3;">${escHtml(cnShipName(x))}</span>` : '<span style="font-size:.78rem;font-weight:700;color:#3730a3;">실물 검수</span>'}${cnShipDoneHtml(x, canUndo)}${cnShipOrderHtml(x)}${cnShipDone(x) ? '<span class="cn-sub" style="display:inline;">이 차수는 고칠 수 없어요 — 고치려면 관리자·MD가 완료를 취소해요</span>' : ''}</div>`).join('')}</div>${isSum ? cnOrderBarHtml() : ''}`;
+    <div style="display:flex;flex-direction:column;gap:6px;margin-top:8px;">${(isSum ? [] : isAll ? pend : [ship]).map(x => `<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;border:1.5px solid ${cnShipDone(x) ? '#bbf7d0' : '#e0e7ff'};background:${cnShipDone(x) ? '#f0fdf4' : '#f8f9ff'};border-radius:10px;padding:6px 12px;">${isAll ? `<span style="font-size:.78rem;font-weight:700;color:#3730a3;">${escHtml(cnShipName(x))}</span>` : '<span style="font-size:.78rem;font-weight:700;color:#3730a3;">실물 검수</span>'}${cnShipDoneHtml(x, canUndo)}${cnShipDone(x) ? '<span class="cn-sub" style="display:inline;">이 차수는 고칠 수 없어요 — 고치려면 관리자·MD가 완료를 취소해요</span>' : ''}</div>`).join('')}</div>${isSum ? cnOrderBarHtml() : ''}`;
   $('cn-check-summary').innerHTML = cnCheckSummaryHtml(lines);
   const q = String(($('cn-check-q') || {}).value || '').trim().toLowerCase();
   const pass = CN_CHECK_PASS;
@@ -6270,7 +6257,7 @@ function cnProdRender() {
       ${num(p.ordAny ? `<b>${fmt(p.ordered)}</b>` : '<span style="color:#9ca3af;">—</span>')}${num(`<b>${fmt(p.sent)}</b>`)}${num(p.act || p.actSent ? `<b>${fmt(p.act)}</b>` : '<span style="color:#9ca3af;">—</span>')}${num(p.ordAny ? cnRemainHtml(p.remain) : '<span style="color:#9ca3af;">—</span>')}${num(p.sent || p.act ? diffHtml(p.act, p.actSent, p.unchecked) : '<span style="color:#9ca3af;">—</span>')}${num(cnDefShow(p.defN ? p.def : null))}${canPrice ? cnPriceTd(p.real ? p.real.yuan : null) + num(cnRealAvgHtml(p.real, true)) : ''}
       <td style="text-align:left;">${c24Html}${showSales && salesHtml ? `<div class="cn-sub" style="margin-top:2px;">판매 ${salesHtml}</div>` : ''}</td></tr>`;
     for (const o of p.opts) {
-      html += `<tr data-cn-o="${escHtml(gi)}"${open ? '' : ' style="display:none;"'}><td style="text-align:left;padding-left:30px;">${escHtml(o.opt)}</td>${num(o.ord ? (o.ord.notIn ? '<span style="color:#9ca3af;" title="주문서에 없는 옵션이에요">0</span>' : fmt(o.ord.ordered)) : '<span style="color:#9ca3af;">—</span>')}${num(fmt(o.sent))}${num(o.act || o.actSent ? fmt(o.act) : '<span style="color:#9ca3af;">—</span>')}${num(o.ord ? cnRemainHtml(o.ord.remain, `주문 ${o.ord.ordered} − 주문서에 연결된 입고의 중국출고 ${o.ord.cum}`) : '<span style="color:#9ca3af;">—</span>')}${num(o.ordOnly ? '<span style="color:#c2410c;font-size:.7rem;">아직 출고 없음</span>' : diffHtml(o.act, o.actSent, o.unchecked))}${num(cnDefShow(o.defN ? o.def : null))}${canPrice ? cnPriceTd(o.real ? o.real.yuan : o.price) + num(cnRealAvgHtml(o.real, false)) : ''}<td></td></tr>`;
+      html += `<tr data-cn-o="${escHtml(gi)}"${open ? '' : ' style="display:none;"'}><td style="text-align:left;padding-left:30px;">${escHtml(o.opt)}</td>${num(o.ord ? (o.ord.notIn ? '<span style="color:#9ca3af;" title="주문서에 없는 옵션이에요">0</span>' : fmt(o.ord.ordered)) : '<span style="color:#9ca3af;">—</span>')}${num(fmt(o.sent))}${num(o.act || o.actSent ? fmt(o.act) : '<span style="color:#9ca3af;">—</span>')}${num(o.ord ? cnRemainHtml(o.ord.remain, `주문 ${o.ord.ordered} − 모든 입고의 중국출고 ${o.ord.cum}`) : '<span style="color:#9ca3af;">—</span>')}${num(o.ordOnly ? '<span style="color:#c2410c;font-size:.7rem;">아직 출고 없음</span>' : diffHtml(o.act, o.actSent, o.unchecked))}${num(cnDefShow(o.defN ? o.def : null))}${canPrice ? cnPriceTd(o.real ? o.real.yuan : o.price) + num(cnRealAvgHtml(o.real, false)) : ''}<td></td></tr>`;
     }
   }
   $('cn-prod-list').innerHTML = html + '</tbody></table></div>';
