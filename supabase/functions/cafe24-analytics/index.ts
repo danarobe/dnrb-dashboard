@@ -1981,8 +1981,9 @@ Deno.serve(async (req) => {
         if (!ids) return json({ error: "연결할 입고 건이 올바르지 않아요" }, 400);
         const rows: Record<string, unknown>[] = [];
         for (let i = 0; i < src.length; i++) {
-          const r = src[i], sname = txt(r.sname, 100), qty = intOrNull(r.qty, 1_000_000);
-          if (!sname || qty === null || Number.isNaN(qty)) return json({ error: `${i + 1}번째 줄 값이 올바르지 않아요 (품번·수량 확인)` }, 400);
+          // 수량은 마이너스도 받는다(2026-10-19 사용자 지정 — 주문서의 '-1' = 앞선 주문에서 취소, 주문 합계에서 뺌)
+          const r = src[i], sname = txt(r.sname, 100), qn = Number(r.qty), qty = Number.isInteger(qn) && Math.abs(qn) <= 1_000_000 ? qn : NaN;
+          if (!sname || Number.isNaN(qty)) return json({ error: `${i + 1}번째 줄 값이 올바르지 않아요 (품번·수량 확인)` }, 400);
           rows.push({ seq: i, sheet: txt(r.sheet, 60), sname, color: txt(r.color, 60), size: txt(r.size, 40), qty });
         }
         const [order] = await sbRest("cn_orders", { method: "POST", body: JSON.stringify({

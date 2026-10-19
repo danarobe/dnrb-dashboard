@@ -5268,8 +5268,8 @@ function cnParseOrderGrid(grid) {
     if (!color && !size) continue;                         // 빈 줄·합계 줄
     if (color === '颜色' || qT === '数量') continue;          // 중국어 머리글 줄
     if (qT === '') continue;                               // 수량이 빈 옵션 줄 = 주문하지 않은 옵션
-    const q = typeof qRaw === 'number' ? qRaw : (/^\d+$/.test(qT) ? Number(qT) : null);
-    if (q == null || !Number.isInteger(q) || q < 0) { skipped.push(`${r + 1}행 (${cur} ${color} ${size}): 수량을 읽지 못함 "${qT}"`); continue; }
+    const q = typeof qRaw === 'number' ? qRaw : (/^-?\d+$/.test(qT) ? Number(qT) : null);   // 마이너스 = 앞선 주문에서 취소(2026-10-19 사용자 지정 — 합계에서 뺌)
+    if (q == null || !Number.isInteger(q)) { skipped.push(`${r + 1}행 (${cur} ${color} ${size}): 수량을 읽지 못함 "${qT}"`); continue; }
     if (!cur) { skipped.push(`${r + 1}행: 품번이 없음`); continue; }
     if (q === 0) continue;
     lines.push({ sname: cur, color: color || null, size: size || null, qty: q });
