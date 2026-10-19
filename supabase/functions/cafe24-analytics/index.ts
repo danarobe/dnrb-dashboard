@@ -2106,7 +2106,7 @@ Deno.serve(async (req) => {
         return json({ ok: true, shipment: hideCosts(ship), line_count: rows.length, thumbs_saved, fabrics_saved });
       }
       if (action === "cn_check") {
-        // items: [{ line_id, qty_actual?(0 이상 정수 | null = 확인 취소), memo? }] — 한 번에 500줄까지('전달 수량과 같음' 일괄 기입)
+        // items: [{ line_id, qty_actual?(0 이상 정수 | null = 확인 취소), qty_defect?(0 이상 정수 | null), memo? }] — 한 번에 500줄까지('전달 수량과 같음' 일괄 기입)
         const items = (Array.isArray(b.items) ? b.items : [b]) as Record<string, any>[];
         if (!items.length || items.length > 500) return json({ error: "한 번에 500줄까지 바꿀 수 있어요" }, 400);
         // 검수 완료한 차수의 줄은 고치지 않는다 (2026-10-14 사용자 요청 — 끝낸 차수를 다시 체크해 꼬이지 않게. 고치려면 관리자·MD가 완료를 취소)
@@ -2129,6 +2129,12 @@ Deno.serve(async (req) => {
             patch.checked_by = q === null ? null : authed.id;
             patch.checked_by_name = q === null ? null : authed.name;
             patch.checked_at = q === null ? null : now;
+          }
+          // 불량 수량(2026-10-19 사용자 요청) — 실제로 받은 것 중 불량 개수, null = 아직 안 적음
+          if ("qty_defect" in it) {
+            const q = intOrNull(it.qty_defect, 1_000_000);
+            if (Number.isNaN(q)) return json({ error: "불량 수량은 0 이상의 정수로 적어 주세요" }, 400);
+            patch.qty_defect = q;
           }
           if ("memo" in it) patch.memo = txt(it.memo, 300);
           if (!Object.keys(patch).length) continue;
