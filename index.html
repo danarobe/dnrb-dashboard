@@ -3873,6 +3873,10 @@ async function bigretLoad(force) {
   finally { bigretState.loading = false; }
 }
 const BIGRET_ST = { T: ['환불완료', '#166534', '#dcfce7'], F: ['환불전', '#b45309', '#fef3c7'], R40: ['반품완료', '#166534', '#dcfce7'], R: ['반품 진행중', '#b45309', '#fef3c7'] };
+// 고객명을 누르면 카페24 관리자의 회원 정보 화면(불량회원 설정·관리자 메모가 있는 곳)을 연다(2026-10-20 사용자 요청 — 불량회원 설정은 공개 API에 없어 화면으로 연결만).
+//   카페24 클래식 관리자 회원 상세 주소. 비회원 주문(네이버페이 주문 전부)은 회원 정보가 없어 링크를 달지 않는다.
+const BIGRET_MEMBER_URL = 'https://wnqka5000.cafe24.com/admin/php/shop1/c/member_admin_d.php?user_id={member_id}';
+function bigretOpenMember(a) { const mid = String(a.dataset.mid || ''); if (!mid) return; cafe24SideOpen(BIGRET_MEMBER_URL.replace('{member_id}', encodeURIComponent(mid))); }
 function bigretRender() {
   const d = bigretState.data; if (!d) return;
   const won = v => fmt(v || 0) + '원', rows = d.rows || [];
@@ -3894,7 +3898,7 @@ function bigretRender() {
   const day = v => v ? escHtml(new Date(v).toLocaleDateString('ko-KR', { timeZone: 'Asia/Seoul', year: '2-digit', month: '2-digit', day: '2-digit' })) : '';
   $('bigret-list').innerHTML = `<div class="table-wrap"><table class="cxl-tbl" style="width:100%;font-size:.8rem;"><thead><tr>
       <th style="text-align:left;">고객명</th><th style="text-align:left;">휴대전화</th><th style="text-align:left;">주문번호</th><th style="text-align:right;">실결제금액</th><th style="text-align:right;">환불 금액</th><th>부분/전체</th><th>누적 횟수<div class="cn-sub">고액 반품</div></th><th style="text-align:left;">환불 접수</th><th style="text-align:left;" class="m-hide">반품 상품</th></tr></thead><tbody>${list.map(r => `<tr${r.refund_amount >= d.rule.always ? ' style="background:#fff7f7;"' : ''}>
-      <td class="nw" style="text-align:left;"><b>${escHtml(r.buyer_name || '—')}</b>${r.member_id ? `<div class="cn-sub">${escHtml(r.member_id)}</div>` : '<div class="cn-sub">비회원</div>'}</td>
+      <td class="nw" style="text-align:left;">${r.member_id ? `<a href="#" data-mid="${escHtml(r.member_id)}" onclick="bigretOpenMember(this);return false;" title="카페24 회원 정보 열기 — 불량회원 설정·관리자 메모는 여기서" style="font-weight:800;color:#4338ca;text-decoration:underline dotted;">${escHtml(r.buyer_name || '—')} <i class="fa-solid fa-arrow-up-right-from-square" style="font-size:.66em;"></i></a><div class="cn-sub">${escHtml(r.member_id)}</div>` : `<b>${escHtml(r.buyer_name || '—')}</b><div class="cn-sub" title="비회원 주문(네이버페이 주문 포함)은 카페24에 회원 정보가 없어요">비회원</div>`}</td>
       <td class="nw" style="text-align:left;font-family:monospace;">${escHtml(r.buyer_phone || '—')}</td>
       <td class="nw" style="text-align:left;"><span style="font-family:monospace;">${escHtml(r.order_id)}</span> <button class="toggle-btn" style="font-size:.66rem;padding:1px 7px;" data-site="cafe24" data-oid="${escHtml(r.order_id)}" onclick="cxlOpenSide(this)" title="카페24 주문 화면 열기"><i class="fa-solid fa-arrow-up-right-from-square"></i></button>${r.source === 'naver' ? '<span style="display:inline-block;margin-left:4px;background:#dcfce7;color:#166534;border-radius:6px;padding:0 6px;font-size:.66rem;font-weight:800;" title="네이버페이로 결제한 주문 — 반품 내역을 주문 정보에서 읽었어요">네이버페이</span>' : ''}</td>
       <td class="nw" style="text-align:right;">${won(r.pay_amount)}${r.points_spent ? `<div class="cn-sub">적립금 ${won(r.points_spent)} 사용</div>` : ''}${r.naver_point ? `<div class="cn-sub">네이버 포인트 ${won(r.naver_point)} 사용</div>` : ''}</td>
@@ -4532,9 +4536,13 @@ function cxlOpenSide(btn) {
   let u = null; try { u = new URL(url); } catch {}
   const adminHost = new URL(RSCAN_URL_DEFAULTS.cafe24_url).hostname;
   if (!u || u.protocol !== 'https:' || u.hostname !== adminHost) { rscanOpenLink({ site: 'cafe24', oid: btn.dataset.oid || '' }); return; }
+  cafe24SideOpen(u.href);
+}
+// 우리 몰 카페24 관리자 주소를 오른쪽 반 크기의 창(dnrb_cafe24_side, 재사용) 하나로 연다 — 주문 화면(cxlOpenSide)·회원 정보(bigretOpenMember) 공용(2026-10-20)
+function cafe24SideOpen(href) {
   const sc = window.screen || {}, aw = sc.availWidth || 1440, ah = sc.availHeight || 900, ax = sc.availLeft || 0, ay = sc.availTop || 0;
   const w = Math.min(aw, Math.max(Math.round(aw / 2), 820));
-  const win = window.open(u.href, 'dnrb_cafe24_side', `popup=yes,width=${w},height=${ah},left=${ax + aw - w},top=${ay},resizable=yes,scrollbars=yes`);
+  const win = window.open(href, 'dnrb_cafe24_side', `popup=yes,width=${w},height=${ah},left=${ax + aw - w},top=${ay},resizable=yes,scrollbars=yes`);
   if (!win) { showToast('창이 막혔어요 — 주소창 오른쪽의 팝업 차단을 이 사이트에서 풀어주세요'); return; }
   try { win.focus(); } catch {}
 }
