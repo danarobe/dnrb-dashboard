@@ -1937,7 +1937,7 @@ Deno.serve(async (req) => {
     //   cn_vendor POST — 사입상품명별 거래처명 수동 입력 (관리자·MD, 2026-10-01 — 입고 건 단위가 아니라 상품마다)
     //   cn_thumbs POST {get:[사입상품명…]} — 그 상품들의 작은 사진(전원, 한 번에 200개 — 화면에 보이는 것만 받게)
     //             POST {thumbs:{사입상품명:dataURL}} — 사진 저장(관리자·MD, 상품당 1장 — 같은 이름은 덮어씀). 목록과 따로 불러 표를 늦추지 않는다 (2026-10-02)
-    if (action === "cn_list" || action === "cn_upload" || action === "cn_check" || action === "cn_ship" || action === "cn_vendor" || action === "cn_line" || action === "cn_fabric" || action === "cn_label" || action === "cn_c24find" || action === "cn_c24set" || action === "cn_export" || action === "cn_thumbs" || action === "cn_order_upload" || action === "cn_order") {
+    if (action === "cn_list" || action === "cn_upload" || action === "cn_check" || action === "cn_ship" || action === "cn_vendor" || action === "cn_line" || action === "cn_fabric" || action === "cn_label" || action === "cn_c24find" || action === "cn_c24set" || action === "cn_export" || action === "cn_thumbs" || action === "cn_order_upload" || action === "cn_order" || action === "cn_inactive" || action === "cn_manual_ship") {
       // 관리자 + MD + 물류팀. **CS팀은 볼 필요 없음(2026-10-02 사용자 지정)** — 서버 역할은 logistics→cs로 합쳐져 있어 원래 역할을 다시 본다(soldoutRoleOk와 같은 방식)
       if (!(authed.role === "staff" || await soldoutRoleOk(authed))) return json({ error: "접근 권한이 없습니다" }, 403);
       const canPrice = authed.role === "admin";   // 단가·비용 = **관리자만** (2026-10-02 사용자 지정 — MD도 안 보이게. 물류팀은 원래 수량만)
@@ -2006,10 +2006,10 @@ Deno.serve(async (req) => {
           sbRest("cn_lines?select=*&order=shipment_id.desc,seq.asc&limit=20000"),
           sbRest("cn_orders?select=*&order=id.desc&limit=300"),                                   // 주문서(2026-10-19 다시) — 단가가 없어 역할과 관계없이 그대로
           sbRest("cn_order_lines?select=*&order=order_id.desc,seq.asc&limit=30000"),
-          sbRest("cn_products?select=sname,vendor,updated_by_name,updated_at,line,line_by_name,line_at,fabric,fabric_by_name,fabric_at,label,label_by_name,label_at,c24_nos,c24_by_name,c24_at&limit=5000"),
+          sbRest("cn_products?select=sname,vendor,updated_by_name,updated_at,line,line_by_name,line_at,fabric,fabric_by_name,fabric_at,label,label_by_name,label_at,c24_nos,c24_by_name,c24_at,inactive,inactive_by_name,inactive_at&limit=5000"),
         ]) as [Record<string, any>[], Record<string, any>[], Record<string, any>[], Record<string, any>[], Record<string, any>[]];
         const prods: Record<string, unknown> = {};
-        for (const r of prodRows) prods[String(r.sname)] = { vendor: r.vendor ?? null, by: r.updated_by_name ?? null, at: r.updated_at ?? null, line: r.line ?? null, line_by: r.line_by_name ?? null, line_at: r.line_at ?? null, fabric: r.fabric ?? null, fabric_by: r.fabric_by_name ?? null, fabric_at: r.fabric_at ?? null, label: r.label === true, label_by: r.label_by_name ?? null, label_at: r.label_at ?? null, c24_nos: Array.isArray(r.c24_nos) ? r.c24_nos : null, c24_by: r.c24_by_name ?? null, c24_at: r.c24_at ?? null };
+        for (const r of prodRows) prods[String(r.sname)] = { vendor: r.vendor ?? null, by: r.updated_by_name ?? null, at: r.updated_at ?? null, line: r.line ?? null, line_by: r.line_by_name ?? null, line_at: r.line_at ?? null, fabric: r.fabric ?? null, fabric_by: r.fabric_by_name ?? null, fabric_at: r.fabric_at ?? null, label: r.label === true, label_by: r.label_by_name ?? null, label_at: r.label_at ?? null, c24_nos: Array.isArray(r.c24_nos) ? r.c24_nos : null, c24_by: r.c24_by_name ?? null, c24_at: r.c24_at ?? null, inactive: r.inactive === true, inactive_by: r.inactive_by_name ?? null, inactive_at: r.inactive_at ?? null };
         const outLines = canPrice ? lines : lines.map((l) => { const { unit_price: _u, ...rest } = l; return rest; });
         const outShips = ships.map(hideCosts);   // 비용(2번째 시트)도 관리자만
         // 카페24 등록 여부 (2026-10-12 규칙 — 사용자 지정 반영): 카페24 상품의 '공급사 상품명'(공백·대소문자 무시)과 사입상품명(품번)을 맞춘다.
@@ -2204,6 +2204,41 @@ Deno.serve(async (req) => {
         return json({ ok: true, sname, c24_nos: nos, c24_by: authed.name, c24_at: now });
       }
       // 혼용률 라벨 제작 대상 표시 (2026-10-12 사용자 요청 — 아우터는 혼용률이 라벨에 들어가야 해서 라벨을 만들어야 하는 상품을 따로 파악). 관리자·MD만, 물류팀은 보기만.
+      // 미진행 표시 (2026-10-20 사용자 요청 — 진행하지 않는 상품은 체크하면 안 보이게). 관리자·MD.
+      if (action === "cn_inactive") {
+        if (!canEdit) return json({ error: "미진행 표시는 관리자·MD만 바꿀 수 있어요" }, 403);
+        const sname = txt(b.sname, 100);
+        if (!sname) return json({ error: "사입상품명이 없어요" }, 400);
+        if (typeof b.inactive !== "boolean") return json({ error: "미진행 값이 올바르지 않아요" }, 400);
+        if (!(await snameKnown(sname)).length) return json({ error: "입고 내역·주문서에 없는 사입상품명이에요 — 새로고침한 뒤 다시 시도해주세요" }, 404);
+        await sbRest("cn_products?on_conflict=sname", { method: "POST", headers: { Prefer: "resolution=merge-duplicates,return=minimal" }, body: JSON.stringify({ sname, inactive: b.inactive, inactive_by_name: authed.name, inactive_at: now }) });
+        return json({ ok: true, sname, inactive: b.inactive, inactive_by: authed.name, inactive_at: now });
+      }
+      // 입고 엑셀 없이 들어온 상품을 직접 입고로 등록 (2026-10-20 — 26902처럼 주문서에만 있는 상품): 그 품번의 주문서 수량(모든 주문서 합)으로 입고 건 하나를 만든다.
+      //   중국출고 = 주문 수량으로 본다(엑셀이 없으니). 만든 뒤에는 보통 입고처럼 실입고·불량을 적고 검수 완료. 이미 입고 줄이 있는 품번은 409(엑셀로 들어온 것과 겹치지 않게).
+      if (action === "cn_manual_ship") {
+        if (!canEdit) return json({ error: "직접 입고 등록은 관리자·MD만 할 수 있어요" }, 403);
+        const sname = txt(b.sname, 100);
+        if (!sname) return json({ error: "사입상품명이 없어요" }, 400);
+        const have = ((await sbRest(`cn_lines?sname=eq.${encodeURIComponent(sname)}&select=id&limit=1`)) ?? []) as unknown[];
+        if (have.length) return json({ error: "이미 입고 내역이 있는 상품이에요 — 그 입고에서 수량을 적어 주세요" }, 409);
+        const ols = ((await sbRest(`cn_order_lines?sname=eq.${encodeURIComponent(sname)}&select=color,size,qty,seq,order_id&order=order_id.asc,seq.asc`)) ?? []) as Record<string, any>[];
+        const by = new Map<string, { color: string | null; size: string | null; qty: number }>();
+        for (const l of ols) { const k = String(l.color ?? "") + "\u0001" + String(l.size ?? ""); const e = by.get(k) ?? { color: l.color ?? null, size: l.size ?? null, qty: 0 }; e.qty += Number(l.qty) || 0; by.set(k, e); }
+        const rows = [...by.values()].filter((e) => e.qty > 0);
+        if (!rows.length) return json({ error: "주문서에 이 품번의 주문 수량이 없어요" }, 400);
+        const today = new Date(Date.now() + 9 * 3600e3).toISOString().slice(0, 10);
+        const [ship] = await sbRest("cn_shipments", { method: "POST", body: JSON.stringify({
+          title: `직접 입고 · ${sname}`, order_round: "직접 입고", ship_date: today, note: "입고 엑셀 없이 직접 등록 — 중국출고 = 주문서 수량", created_by: authed.id, created_by_name: authed.name, costs: null,
+        }) }) as Record<string, any>[];
+        try {
+          await sbRest("cn_lines", { method: "POST", headers: { Prefer: "return=minimal" }, body: JSON.stringify(rows.map((e, i) => ({ shipment_id: ship.id, seq: i, sname, color: e.color, size: e.size, qty_sent: e.qty, qty_left: null, unit_price: null }))) });
+        } catch (e) {
+          await sbRest(`cn_shipments?id=eq.${ship.id}`, { method: "DELETE", headers: { Prefer: "return=minimal" } }).catch(() => null);
+          return json({ error: "저장하지 못했어요 — " + String(e).slice(0, 150) }, 500);
+        }
+        return json({ ok: true, shipment: hideCosts(ship), line_count: rows.length });
+      }
       if (action === "cn_label") {
         if (!canEdit) return json({ error: "라벨 표시는 관리자·MD만 바꿀 수 있어요" }, 403);
         const sname = txt(b.sname, 100);

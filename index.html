@@ -5474,6 +5474,7 @@ function cnOrderOnlyLines(seen) {   // 주문서에만 있는 옵션(아직 중�
   const out = [], done = new Set();
   for (const ol of ((cnState.data || {}).order_lines || [])) {
     const k = cnLKey(ol); if (seen.has(k) || done.has(k)) continue; done.add(k);
+    if (cnInactive(ol.sname)) continue;
     if (cnState.lineFilter !== 'all' && !cnLinePass(ol.sname)) continue;
     out.push({ id: 'ordonly' + out.length, sname: ol.sname, color: ol.color, size: ol.size, seq: ol.seq, qty_sent: 0, qty_actual: null, _sentChecked: 0, _unchecked: 0, qty_defect: null, memo: '', unit_price: null, _raw: [], _sum: true, _ordOnly: true, _ord: cnOrdOfKey(k) });
   }
@@ -5607,7 +5608,7 @@ async function cnC24Save(mode) {
 const CN_LINE_LABEL = { made: 'made', normal: '일반' };
 const cnLineOf = sname => ((((cnState.data || {}).prods || {})[sname]) || {}).line || '';
 const cnLinePass = sname => cnState.lineFilter === 'all' || (cnState.lineFilter === 'none' ? !cnLineOf(sname) : cnLineOf(sname) === cnState.lineFilter);
-function cnViewLines() { const ls = cnShipLines(); return cnState.lineFilter === 'all' ? ls : ls.filter(l => cnLinePass(l.sname)); }   // 입고 검수가 보여 주는 줄(입고 선택 + 라인 칩)
+function cnViewLines() { const ls = cnShipLines().filter(l => !cnInactive(l.sname)); return cnState.lineFilter === 'all' ? ls : ls.filter(l => cnLinePass(l.sname)); }   // 미진행 상품은 뺀다(2026-10-20)   // 입고 검수가 보여 주는 줄(입고 선택 + 라인 칩)
 function cnLineHtml(sname) {
   const d = cnState.data || {}, cur = cnLineOf(sname), info = (d.prods || {})[sname] || {};
   const who = cur && info.line_by ? ` — ${info.line_by} · ${unshipKst(info.line_at)}` : '';
@@ -5652,7 +5653,7 @@ function cnFabricHtml(sname) {   // 상품 줄 이름 아래 둘째 줄에 들�
 function cnNameCell(tab, sname, open, nOpt, line1, line2, line3) {
   return `<td class="cn-name"><div style="display:flex;align-items:center;">${cnFoldBtn(tab, sname, open, nOpt)}${cnThumbHtml(sname)}<div style="min-width:0;flex:1;">
       <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;"><b style="font-weight:800;">${escHtml(sname)}</b><span class="cn-sub">옵션 ${nOpt}</span>${line1 || ''}${cnLineHtml(sname)}</div>
-      <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-top:4px;">${cnFabricHtml(sname)}${line2 || ''}</div>${line3 ? `<div style="margin-top:4px;min-width:0;">${line3}</div>` : ''}</div></div></td>`;
+      <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-top:4px;">${cnFabricHtml(sname)}${cnInactiveHtml(sname)}${line2 || ''}</div>${line3 ? `<div style="margin-top:4px;min-width:0;">${line3}</div>` : ''}</div></div></td>`;
 }
 // 단가 칸 하나: 위안(굵게) + 아래 작은 글씨로 원(× 환율) — 예전의 단가(CHN)·단가(KRW) 두 열을 합침
 const cnPriceTd = (yuan, tag, tip) => `<td style="text-align:right;"${tip ? ` title="${escHtml(tip)}"` : ''}>${yuan == null ? '<span style="color:#9ca3af;">—</span>' : `<b>${cnYuan(yuan)}</b>${tag || ''}<div class="cn-sub">${fmt(Math.round(Number(yuan) * CN_FX))}원</div>`}</td>`;
@@ -5673,6 +5674,40 @@ async function cnFabricSave(el) {
 /* 혼용률 '라벨' 체크 (2026-10-12 사용자 요청: 아우터는 혼용률이 라벨에 들어가야 해서, 라벨을 제작해야 하는 상품을 따로 파악) — 상품마다 하나(cn_products.label).
    혼용률 칸 옆 체크(관리자·MD, 물류팀은 '라벨' 배지만), 상품별 현황의 '라벨 제작' 칩으로 모아 본다. */
 const cnLabelOf = sname => ((((cnState.data || {}).prods || {})[sname]) || {}).label === true;
+// 미진행 상품(2026-10-20 사용자 요청 — "진행하지 않는 상품이어서 미진행 체크하면 안 보이도록"): 입고 검수·상품별 현황의 기본 보기와 합계에서 빠지고, 상품별 현황 '미진행' 칩에서만 보인다
+const cnInactive = sname => ((((cnState.data || {}).prods || {})[sname]) || {}).inactive === true;
+const cnHasLines = sname => (((cnState.data || {}).lines) || []).some(l => l.sname === sname);
+function cnInactiveHtml(sname) {
+  const d = cnState.data || {}, info = (d.prods || {})[sname] || {}, on = info.inactive === true;
+  const tip = on && info.inactive_by ? `미진행 — ${info.inactive_by} · ${unshipKst(info.inactive_at)}` : '진행하지 않는 상품이면 체크 — 입고 검수·상품별 현황에서 안 보여요(상품별 현황 \'미진행\' 칩에서 볼 수 있어요)';
+  if (!d.can_edit) return on ? `<span class="cn-label-badge" style="background:#f3f4f6;color:#6b7280;" title="${escHtml(tip)}">미진행</span>` : '';
+  const manual = !cnHasLines(sname) && !on ? `<button class="toggle-btn" style="font-size:.66rem;padding:1px 8px;" data-s="${escHtml(sname)}" onclick="cnManualShip(this)" title="입고 엑셀 없이 들어왔을 때 — 주문서 수량으로 입고 건을 만들고 실입고를 적어요"><i class="fa-solid fa-box-open"></i> 직접 입고 등록</button>` : '';
+  return `<label style="display:inline-flex;align-items:center;gap:3px;font-size:.7rem;color:${on ? '#b91c1c' : '#6b7280'};font-weight:${on ? 800 : 600};cursor:pointer;" title="${escHtml(tip)}"><input type="checkbox" data-s="${escHtml(sname)}" ${on ? 'checked' : ''} onchange="cnInactiveSet(this)" style="width:13px;height:13px;" /> 미진행</label>${manual}`;
+}
+async function cnInactiveSet(cb) {
+  const sname = cb.dataset.s, want = cb.checked;
+  cb.disabled = true;
+  try {
+    const r = await cnPost('cn_inactive', { sname, inactive: want });
+    const d = cnState.data; d.prods = d.prods || {};
+    d.prods[sname] = Object.assign({}, d.prods[sname], { inactive: r.inactive, inactive_by: r.inactive_by, inactive_at: r.inactive_at });
+    cnState._oc = null;
+    showToast(r.inactive ? `${sname} — 미진행으로 표시했어요(상품별 현황의 '미진행' 칩에서 볼 수 있어요)` : `${sname} — 미진행 표시를 껐어요`);
+    cnTabRender();
+  } catch (e) { cb.checked = !want; cb.disabled = false; showToast('저장 실패: ' + e.message); }
+}
+async function cnManualShip(btn) {
+  const sname = btn.dataset.s;
+  const ols = ((cnState.data || {}).order_lines || []).filter(x => x.sname === sname), q = ols.reduce((t, x) => t + x.qty, 0);
+  if (!confirm(`${sname} — 입고 엑셀 없이 들어온 입고로 등록할까요?\n\n주문서 수량(옵션 ${new Set(ols.map(cnLKey)).size}개 · ${fmt(q)}장)을 중국출고로 보고 입고 건을 만들어요.\n만든 뒤 입고 검수에서 실입고·불량을 적으면 돼요.\n\n※ 이 상품이 나중에 입고 엑셀로도 올라오면 수량이 겹치니, 그때는 이 입고 건을 지워 주세요.`)) return;
+  btn.disabled = true;
+  try {
+    const r = await cnPost('cn_manual_ship', { sname });
+    showToast(`직접 입고 등록 — ${sname} 옵션 ${fmt(r.line_count)}개`);
+    cnState.loading = false; await cnLoad(true);
+    cnState.shipId = r.shipment.id; cnState.filter = 'all'; cnState.open.check.add(sname); cnSetTab('check');
+  } catch (e) { btn.disabled = false; showToast('등록 실패: ' + e.message); }
+}
 async function cnLabelSet(cb) {
   const sname = cb.dataset.s, want = cb.checked;
   cb.disabled = true;
@@ -6240,7 +6275,7 @@ function cnSalesOf(p) {
   for (const h of p.c24) { const r = by.get(h.product_no); if (r) { found = true; avg7 += r.avg7 || 0; net30 += r.net30 || 0; } }
   return { avg7: found ? avg7 : 0, net30: found ? net30 : 0 };
 }
-const cnProdPass = () => ({ all: () => true, remain: p => p.remain > 0, def: p => p.def > 0, diff: p => p.act !== p.actSent, todo: p => p.unchecked > 0, unreg: p => !p.c24.length, reg: p => p.c24.length > 0, nofabric: p => !cnFabricOf(p.sname), label: p => cnLabelOf(p.sname), c24warn: p => !p.c24.length && cnC24Warn(p.sname).length > 0 });   // 상품별 현황 칩 — 표와 엑셀 저장이 같이 쓴다
+const cnProdPass = () => ({ all: () => true, inactive: () => true, remain: p => p.remain > 0, def: p => p.def > 0, diff: p => p.act !== p.actSent, todo: p => p.unchecked > 0, unreg: p => !p.c24.length, reg: p => p.c24.length > 0, nofabric: p => !cnFabricOf(p.sname), label: p => cnLabelOf(p.sname), c24warn: p => !p.c24.length && cnC24Warn(p.sname).length > 0 });   // 상품별 현황 칩 — 표와 엑셀 저장이 같이 쓴다
 /* ── 엑셀로 저장 (2026-10-14 사용자 요청) — 지금 화면에 보이는 표 그대로(입고 선택·라인·칩·검색 반영). 단가·실질 단가는 관리자에게만(서버도 다른 역할에는 단가를 안 줌) ── */
 function cnCheckRowsForXlsx() {   // 입고 검수 표가 보여 주는 옵션 줄(그리는 쪽 cnCheckRender와 같은 거르기)
   const q = String(($('cn-check-q') || {}).value || '').trim().toLowerCase(), pass = CN_CHECK_PASS[cnState.filter] || CN_CHECK_PASS.all;
@@ -6292,7 +6327,7 @@ async function cnCheckXlsx(btn) {
 async function cnProdXlsx(btn) {
   const d = cnState.data; if (!d) return;
   const q = String(($('cn-prod-q') || {}).value || '').trim().toLowerCase(), pass = cnProdPass();
-  let list = cnProducts().filter(p => cnLinePass(p.sname)).filter(pass[cnState.prodFilter] || pass.all);
+  let list = cnProducts().filter(p => cnLinePass(p.sname) && (cnState.prodFilter === 'inactive' ? cnInactive(p.sname) : !cnInactive(p.sname))).filter(pass[cnState.prodFilter] || pass.all);
   if (q) list = list.filter(p => p.sname.toLowerCase().includes(q) || p.opts.some(o => o.opt.toLowerCase().includes(q)) || p.c24.some(h => String(h.product_name || '').toLowerCase().includes(q)));
   if (!list.length) { showToast('저장할 상품이 없어요'); return; }
   const canPrice = !!d.can_price, showSales = !isCS();
@@ -6312,7 +6347,8 @@ async function cnProdXlsx(btn) {
 }
 function cnProdRender() {
   const d = cnState.data; if (!d) return;
-  const allProds = cnProducts(), prods = allProds.filter(p => cnLinePass(p.sname)), canPrice = d.can_price, showSales = !isCS();   // 라인 칩에 맞는 상품만 — 요약·건수·표 모두
+  const showInactive = cnState.prodFilter === 'inactive', inactiveN = cnProducts().filter(p => cnLinePass(p.sname) && cnInactive(p.sname)).length;
+  const allProds = cnProducts(), prods = allProds.filter(p => cnLinePass(p.sname) && (showInactive ? cnInactive(p.sname) : !cnInactive(p.sname))), canPrice = d.can_price, showSales = !isCS();   // 미진행 상품은 '미진행' 칩에서만(2026-10-20)   // 라인 칩에 맞는 상품만 — 요약·건수·표 모두
   cnLineChipsRender('cn-prod-line', allProds.map(p => p.sname));
   if (!allProds.length) { $('cn-prod-summary').innerHTML = ''; $('cn-prod-chips').innerHTML = ''; $('cn-prod-list').innerHTML = '<div class="empty-state"><p>아직 올린 입고 엑셀이 없어요.</p></div>'; return; }
   const reg = prods.filter(p => p.c24.length).length;
@@ -6325,7 +6361,7 @@ function cnProdRender() {
     + admgrTile(admgrDot('#22c55e') + '카페24 등록', `${fmt(reg)} / ${fmt(prods.length)}개`, false)}</div>
     ${d.c24_error ? `<div style="font-size:.74rem;color:#b91c1c;margin-top:6px;">${escHtml(d.c24_error)}</div>` : ''}`;
   const pass = cnProdPass();
-  $('cn-prod-chips').innerHTML = [['all', '전체'], ['remain', '잔여 있음'], ['diff', '수량 차이'], ['def', '불량 있음'], ['todo', '미확인 있음'], ['unreg', '카페24 미등록'], ['reg', '등록됨'], ['c24warn', '카페24 확인 필요'], ['nofabric', '혼용률 미입력'], ['label', '라벨 제작']].map(([k, label]) => `<button id="cn-chip-${k}" class="${cnState.prodFilter === k ? 'active' : ''}" onclick="cnState.prodFilter='${k}';cnProdRender()">${label} ${fmt(prods.filter(pass[k]).length)}</button>`).join('');
+  $('cn-prod-chips').innerHTML = [['all', '전체'], ['remain', '잔여 있음'], ['diff', '수량 차이'], ['def', '불량 있음'], ['todo', '미확인 있음'], ['unreg', '카페24 미등록'], ['reg', '등록됨'], ['c24warn', '카페24 확인 필요'], ['nofabric', '혼용률 미입력'], ['label', '라벨 제작'], ['inactive', '미진행']].map(([k, label]) => `<button id="cn-chip-${k}" class="${cnState.prodFilter === k ? 'active' : ''}" onclick="cnState.prodFilter='${k}';cnProdRender()">${label} ${k === 'inactive' ? fmt(inactiveN) : fmt(prods.filter(pass[k]).length)}</button>`).join('');
   const q = String(($('cn-prod-q') || {}).value || '').trim().toLowerCase();
   let list = prods.filter(pass[cnState.prodFilter] || pass.all);
   if (q) list = list.filter(p => p.sname.toLowerCase().includes(q) || p.opts.some(o => o.opt.toLowerCase().includes(q)) || p.c24.some(h => String(h.product_name || '').toLowerCase().includes(q)));
