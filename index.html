@@ -1558,7 +1558,7 @@
     <div class="section-header" style="cursor:default;">
       <h2><span><i class="fa-solid fa-sack-dollar" style="color:#4f46e5;font-size:.9em;"></i></span> 고액 반품 관리</h2>
       <div style="display:flex;gap:8px;flex-wrap:wrap;">
-        <button class="toggle-btn" onclick="bigretLoad(true)" title="카페24 환불 내역과 네이버페이 반품을 다시 읽어요(평소엔 10분 동안 같은 결과)"><i class="fa-solid fa-rotate"></i> 새로고침</button>
+        <button class="toggle-btn" onclick="bigretRefresh()" title="지금 보는 탭을 카페24에서 다시 읽어요(평소엔 10분 동안 같은 결과)"><i class="fa-solid fa-rotate"></i> 새로고침</button>
       </div>
     </div>
     <div class="section-body">
@@ -1566,12 +1566,23 @@
         · <b>고액 반품</b> = 환불 금액(결제 취소·환불 + 적립금 + 예치금) <b>30만 원 이상</b>인 반품이에요(취소 환불은 빼요). <b>누적 횟수</b> = 같은 고객의 고액 반품 횟수(휴대전화 번호가 같으면 회원·비회원·네이버페이 주문이 섞여도 같은 고객).<br>
         · <b>50만 원 이상</b>은 1회여도 보여 주고, <b>30만~50만 원</b>은 그 고객의 고액 반품이 <b>2회 이상</b>일 때만 보여 줘요. <b>네이버페이 주문</b>의 반품도 들어 있어요 — 카페24에 환불 금액이 없어 반품 상품 금액(할인을 뺀 판매가×수량)으로 추정하고 '상품 금액 기준(추정)'이라고 표시해요.
       </div>
+      <div id="bigret-tabs" style="display:flex;gap:2px;border-bottom:2px solid #e5e7eb;margin-bottom:14px;flex-wrap:wrap;"></div>
+      <div id="bigret-pane-special" style="display:none;">
+        <div style="font-size:.8rem;color:#6b7280;margin-bottom:10px;line-height:1.7;">· 카페24 회원 정보에서 <b>'특별 관리 회원'</b>으로 체크한 회원 목록이에요(카페24에서 바로 읽어요, 10분 동안은 같은 결과 — 바꾼 뒤엔 [새로고침]). 이름을 누르면 카페24 회원 정보 화면이 열려요. <b>고액 반품 누적</b>은 이 메뉴에 모아 둔 30만 원 이상 반품 중 같은 회원(회원 ID 또는 휴대전화 번호)의 것이에요.</div>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px;">
+          <span id="bigret-sp-summary" style="font-size:.82rem;color:#374151;font-weight:700;"></span>
+          <input id="bigret-sp-q" type="search" placeholder="이름·회원ID·휴대전화 찾기" oninput="renderSoon('bigretSpecialRender')" style="padding:6px 10px;border:1.5px solid #d1d5db;border-radius:8px;font-size:.82rem;min-width:220px;" />
+        </div>
+        <div id="bigret-sp-list"></div>
+      </div>
+      <div id="bigret-pane-list">
       <div id="bigret-summary" style="margin-bottom:10px;"></div>
       <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px;">
         <span id="bigret-chips" class="qp"></span>
         <input id="bigret-q" type="search" placeholder="고객명·휴대전화·주문번호 찾기" oninput="renderSoon('bigretRender')" style="padding:6px 10px;border:1.5px solid #d1d5db;border-radius:8px;font-size:.82rem;min-width:220px;" />
       </div>
       <div id="bigret-list"></div>
+      </div>
     </div>
   </div>
 
@@ -3855,8 +3866,60 @@ const anState = {
    50만 원 이상은 늘, 30만~50만 원은 그 고객의 고액 반품이 2회 이상일 때만 돌려준다. 누적 횟수 = 같은 고객(회원 ID, 비회원은 이름+휴대전화)의 30만 원 이상 반품 수.
    네이버페이 주문의 반품(2026-10-20 사용자 요청 "빠지는 게 있으면 안 돼")은 카페24 환불 내역에 없어 주문 API로 따로 모은다(source 'naver') — 환불 금액은 반품 상품 금액으로 추정(estimated, '상품 금액 기준' 표시).
    누적 횟수의 '같은 고객'은 휴대전화 번호가 있으면 번호로 묶는다(회원·비회원·네이버페이 주문이 섞여도 한 사람, 서버 group_key). */
-const bigretState = { data: null, loading: false, filter: 'all' };
-function bigretInit() { if (!bigretState.data && !bigretState.loading) bigretLoad(false); else bigretRender(); }
+const bigretState = { data: null, loading: false, filter: 'all', tab: 'list', special: null, specialLoading: false, specialSet: null };
+const BIGRET_TABS = [['list', '고액 반품', null, 'fa-solid fa-sack-dollar'], ['special', '특별 관리 회원', null, 'fa-solid fa-user-tag']];
+function bigretTabsRender() { uiTabs('bigret-tabs', BIGRET_TABS.map(t => t[0] === 'special' && bigretState.special && bigretState.special.members ? [t[0], t[1], String(bigretState.special.count), t[3]] : t), bigretState.tab, 'bigretSetTab'); }
+function bigretSetTab(k) {
+  bigretState.tab = k; bigretTabsRender();
+  $('bigret-pane-list').style.display = k === 'list' ? '' : 'none';
+  $('bigret-pane-special').style.display = k === 'special' ? '' : 'none';
+  if (k === 'special') { if (!bigretState.special && !bigretState.specialLoading) bigretSpecialLoad(false); else bigretSpecialRender(); }
+  else bigretRender();
+}
+function bigretRefresh() { if (bigretState.tab === 'special') bigretSpecialLoad(true); else bigretLoad(true); }
+function bigretInit() { bigretTabsRender(); bigretSetTab(bigretState.tab); if (!bigretState.data && !bigretState.loading) bigretLoad(false); if (!bigretState.special && !bigretState.specialLoading) bigretSpecialLoad(false, true); }
+/* ── 특별 관리 회원 소메뉴(2026-10-20 사용자 요청): 서버 bigret_special = 카페24 customersprivacy?member_type=vip(권한 mall.read_privacy — 없으면 scope_missing 안내) + 고액 반품 누적 ── */
+async function bigretSpecialLoad(force, quiet) {
+  if (bigretState.specialLoading) return;
+  bigretState.specialLoading = true;
+  const box = $('bigret-sp-list');
+  try {
+    if (!quiet || !bigretState.special) box.innerHTML = `<div class="empty-state"><p><i class="fa-solid fa-spinner fa-spin"></i> 카페24에서 특별 관리 회원을 읽는 중…</p></div>`;
+    const d = await anGet(Object.assign({ action: 'bigret_special' }, force ? { nocache: 1 } : {}));
+    bigretState.special = d;
+    bigretState.specialSet = d.members ? new Set(d.members.map(m => m.member_id)) : null;
+    bigretTabsRender();
+    if (bigretState.tab === 'special') bigretSpecialRender(); else if (bigretState.data) bigretRender();   // 고액 반품 표의 '특별 관리' 배지
+  } catch (e) { if (!quiet) box.innerHTML = `<div class="empty-state"><p style="color:#b91c1c;">불러오지 못했어요 — ${escHtml(e.message)}</p></div>`; }
+  finally { bigretState.specialLoading = false; }
+}
+function bigretSpecialRender() {
+  const d = bigretState.special; if (!d) return;
+  const box = $('bigret-sp-list');
+  if (d.error === 'scope_missing') {
+    $('bigret-sp-summary').textContent = '';
+    box.innerHTML = `<div class="empty-state" style="text-align:left;"><p style="color:#b45309;font-weight:800;"><i class="fa-solid fa-triangle-exclamation"></i> 카페24 연동에 '회원 개인정보 조회' 권한이 아직 없어요.</p>
+      <p style="font-size:.82rem;color:#4b5563;line-height:1.8;">① 카페24 개발자센터 → 이 워크스페이스가 쓰는 앱(Client ID UzeJXo…) → 권한 설정에서 <b>회원 개인정보 조회(읽기)</b>를 켜고 저장<br>② 대시보드 첫 화면의 <b>[카페24 연동]</b> 버튼으로 다시 연동(관리자만)<br>③ 이 탭에서 [새로고침]</p></div>`;
+    return;
+  }
+  const won = v => fmt(v || 0) + '원';
+  const q = String(($('bigret-sp-q') || {}).value || '').trim().toLowerCase().replace(/-/g, '');
+  let list = (d.members || []).slice().sort((a, b) => (b.bigret_count - a.bigret_count) || (b.bigret_total - a.bigret_total) || String(a.name).localeCompare(String(b.name), 'ko'));
+  if (q) list = list.filter(m => [m.name, m.member_id, m.cellphone].some(v => String(v || '').toLowerCase().replace(/-/g, '').includes(q)));
+  const withRet = (d.members || []).filter(m => m.bigret_count > 0).length;
+  $('bigret-sp-summary').innerHTML = `특별 관리 회원 <b>${fmt(d.count || 0)}명</b> <span style="color:#6b7280;font-weight:500;">· 이 중 고액 반품 기록 있음 ${fmt(withRet)}명 · ${d.at ? escHtml(new Date(d.at).toLocaleTimeString('ko-KR', { timeZone: 'Asia/Seoul', hour: '2-digit', minute: '2-digit' })) + ' 기준' : ''}</span>`;
+  if (!list.length) { box.innerHTML = `<div class="empty-state"><p>${(d.members || []).length ? '조건에 맞는 회원이 없어요.' : '특별 관리 회원으로 체크한 회원이 아직 없어요.'}</p></div>`; return; }
+  const day = v => v ? escHtml(new Date(v).toLocaleDateString('ko-KR', { timeZone: 'Asia/Seoul', year: '2-digit', month: '2-digit', day: '2-digit' })) : '—';
+  const black = m => m.use_blacklist === 'T' ? `<span style="display:inline-block;background:#fee2e2;color:#b91c1c;border-radius:6px;padding:0 6px;font-size:.7rem;font-weight:800;">불량회원${m.blacklist_type ? ' · ' + escHtml({ P: '구매 차단', L: '로그인 차단', A: '구매·로그인 차단' }[m.blacklist_type] || m.blacklist_type) : ''}</span>` : '<span style="color:#9ca3af;font-size:.74rem;">—</span>';
+  box.innerHTML = `<div class="table-wrap"><table class="cxl-tbl" style="width:100%;font-size:.8rem;"><thead><tr>
+      <th style="text-align:left;">이름</th><th style="text-align:left;">회원 ID</th><th style="text-align:left;">휴대전화</th><th>불량회원 설정</th><th style="text-align:right;">고액 반품 누적<div class="cn-sub">30만 원 이상 · 최근 1년</div></th><th>가입일</th><th>마지막 로그인</th></tr></thead><tbody>${list.map(m => `<tr>
+      <td class="nw" style="text-align:left;"><a href="#" data-mid="${escHtml(m.member_id)}" onclick="bigretOpenMember(this);return false;" title="카페24 회원 정보 열기" style="font-weight:800;color:#4338ca;text-decoration:underline dotted;">${escHtml(m.name || '—')} <i class="fa-solid fa-arrow-up-right-from-square" style="font-size:.66em;"></i></a></td>
+      <td class="nw" style="text-align:left;font-family:monospace;">${escHtml(m.member_id)}</td>
+      <td class="nw" style="text-align:left;font-family:monospace;">${escHtml(m.cellphone || '—')}</td>
+      <td class="nw">${black(m)}</td>
+      <td class="nw" style="text-align:right;">${m.bigret_count ? `<button onclick="bigretState.tab='list';bigretSetTab('list');$('bigret-q').value=this.dataset.q;bigretState.filter='all';bigretRender()" data-q="${escHtml(m.cellphone || m.member_id)}" title="이 회원의 고액 반품 보기" style="border:none;cursor:pointer;background:${m.bigret_count >= 2 ? '#fee2e2' : '#f3f4f6'};color:${m.bigret_count >= 2 ? '#b91c1c' : '#374151'};border-radius:99px;padding:2px 10px;font-weight:800;font-size:.76rem;">${fmt(m.bigret_count)}회 · ${won(m.bigret_total)}</button><div class="cn-sub">최근 ${day(m.bigret_last)}</div>` : '<span style="color:#9ca3af;">없음</span>'}</td>
+      <td class="nw">${day(m.created_date)}</td><td class="nw">${day(m.last_login_date)}</td></tr>`).join('')}</tbody></table></div>`;
+}
 async function bigretLoad(force) {
   if (bigretState.loading) return;
   bigretState.loading = true;
@@ -3898,7 +3961,7 @@ function bigretRender() {
   const day = v => v ? escHtml(new Date(v).toLocaleDateString('ko-KR', { timeZone: 'Asia/Seoul', year: '2-digit', month: '2-digit', day: '2-digit' })) : '';
   $('bigret-list').innerHTML = `<div class="table-wrap"><table class="cxl-tbl" style="width:100%;font-size:.8rem;"><thead><tr>
       <th style="text-align:left;">고객명</th><th style="text-align:left;">휴대전화</th><th style="text-align:left;">주문번호</th><th style="text-align:right;">실결제금액</th><th style="text-align:right;">환불 금액</th><th>부분/전체</th><th>누적 횟수<div class="cn-sub">고액 반품</div></th><th style="text-align:left;">환불 접수</th><th style="text-align:left;" class="m-hide">반품 상품</th></tr></thead><tbody>${list.map(r => `<tr${r.refund_amount >= d.rule.always ? ' style="background:#fff7f7;"' : ''}>
-      <td class="nw" style="text-align:left;">${r.member_id ? `<a href="#" data-mid="${escHtml(r.member_id)}" onclick="bigretOpenMember(this);return false;" title="카페24 회원 정보 열기 — 불량회원 설정·관리자 메모는 여기서" style="font-weight:800;color:#4338ca;text-decoration:underline dotted;">${escHtml(r.buyer_name || '—')} <i class="fa-solid fa-arrow-up-right-from-square" style="font-size:.66em;"></i></a><div class="cn-sub">${escHtml(r.member_id)}</div>` : `<b>${escHtml(r.buyer_name || '—')}</b><div class="cn-sub" title="비회원 주문(네이버페이 주문 포함)은 카페24에 회원 정보가 없어요">비회원</div>`}</td>
+      <td class="nw" style="text-align:left;">${r.member_id ? `<a href="#" data-mid="${escHtml(r.member_id)}" onclick="bigretOpenMember(this);return false;" title="카페24 회원 정보 열기 — 불량회원 설정·관리자 메모는 여기서" style="font-weight:800;color:#4338ca;text-decoration:underline dotted;">${escHtml(r.buyer_name || '—')} <i class="fa-solid fa-arrow-up-right-from-square" style="font-size:.66em;"></i></a>${bigretState.specialSet && bigretState.specialSet.has(r.member_id) ? '<span style="display:inline-block;margin-left:4px;background:#fef3c7;color:#b45309;border-radius:6px;padding:0 6px;font-size:.66rem;font-weight:800;" title="카페24에서 특별 관리 회원으로 체크된 회원">특별 관리</span>' : ''}<div class="cn-sub">${escHtml(r.member_id)}</div>` : `<b>${escHtml(r.buyer_name || '—')}</b><div class="cn-sub" title="비회원 주문(네이버페이 주문 포함)은 카페24에 회원 정보가 없어요">비회원</div>`}</td>
       <td class="nw" style="text-align:left;font-family:monospace;">${escHtml(r.buyer_phone || '—')}</td>
       <td class="nw" style="text-align:left;"><span style="font-family:monospace;">${escHtml(r.order_id)}</span> <button class="toggle-btn" style="font-size:.66rem;padding:1px 7px;" data-site="cafe24" data-oid="${escHtml(r.order_id)}" onclick="cxlOpenSide(this)" title="카페24 주문 화면 열기"><i class="fa-solid fa-arrow-up-right-from-square"></i></button>${r.source === 'naver' ? '<span style="display:inline-block;margin-left:4px;background:#dcfce7;color:#166534;border-radius:6px;padding:0 6px;font-size:.66rem;font-weight:800;" title="네이버페이로 결제한 주문 — 반품 내역을 주문 정보에서 읽었어요">네이버페이</span>' : ''}</td>
       <td class="nw" style="text-align:right;">${won(r.pay_amount)}${r.points_spent ? `<div class="cn-sub">적립금 ${won(r.points_spent)} 사용</div>` : ''}${r.naver_point ? `<div class="cn-sub">네이버 포인트 ${won(r.naver_point)} 사용</div>` : ''}</td>

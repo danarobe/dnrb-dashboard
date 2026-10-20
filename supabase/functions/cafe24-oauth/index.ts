@@ -18,7 +18,9 @@ const CLIENT_SECRET = Deno.env.get("CAFE24_CLIENT_SECRET")!;
 // mall.write_order (2026-09-28): 반품 스캔의 '수거 완료' 처리(PUT orders/{id}/return|exchange/{claim_code} pickup_completed=T).
 //   개발자센터 앱 권한에 '주문 쓰기'를 켠 뒤 '카페24 연동'으로 재연동해야 토큰에 반영된다. 권한을 켜기 전에 재연동하면 invalid_scope.
 // ⚠ mall.write_product(상품 쓰기)는 넣지 않는다 (2026-09-29 사용자 결정 — 상품 삭제까지 포함하는 넓은 권한). 품절 재고 점검은 읽기만.
-const SCOPE = "mall.read_order,mall.write_order,mall.read_analytics,mall.read_category,mall.read_product,mall.read_promotion,mall.read_community";
+// mall.read_privacy (2026-10-20): 고액 반품 관리의 '특별 관리 회원' 소메뉴 — 회원 개인정보 목록 조회(customersprivacy?member_type=vip)로 특별관리회원을 읽는다(읽기만).
+//   개발자센터에서 UzeJXo 앱에 '회원 개인정보 조회(읽기)' 권한을 먼저 켠 뒤 '카페24 연동'으로 재연동해야 한다(먼저 재연동하면 invalid_scope).
+const SCOPE = "mall.read_order,mall.write_order,mall.read_analytics,mall.read_category,mall.read_product,mall.read_promotion,mall.read_community,mall.read_privacy";
 
 const API_BASE = `https://${MALL_ID}.cafe24api.com/api/v2`;
 
