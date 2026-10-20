@@ -1344,6 +1344,95 @@ Deno.serve(async (req) => {
     //   · 분류: cash(무통장 — 현금 환불, 사람이 계좌로 입금해야 함: 처리하지 않고 계좌만 보여 줌) / auto(환불 수단이 card·tcash·prepaid뿐, 예치금 없음,
     //     네이버페이 주문 아님, 금액 > 0) / check(그 밖 — 카페24에서 직접).
     //   · 처리(한 건씩): 보내기 직전 다시 읽어 '환불전 그대로 · 분류 auto · 금액 = 화면 금액'일 때만 보냄 → 환불완료·PG 취소·금액 재확인 → cancel_accept_log(kind 'refund').
+    // ── 고액 반품 관리 (2026-10-20 사용자 요청 — 물류·CS 메뉴) ──
+    //   고액 = 환불 금액(결제 수단 환불 + 적립금 + 예치금) 30만 원 이상인 '반품' 환불(환불 상품이 모두 반품 상태 R…). 취소 환불은 뺀다.
+    //   보여 주기: 50만 원 이상은 1회여도 표시, 30만~50만 원 미만은 그 고객의 고액 반품이 2회 이상일 때만(1회성은 너무 많아서 — 사용자 지정).
+    //   누적 횟수 = 같은 고객(회원 ID, 비회원은 이름+휴대전화)의 30만 원 이상 반품 환불 건수(모은 기간 안 — 처음 최근 1년부터).
+    //   모으기: bigret_refunds 표에 30만 원 이상만 저장. 처음엔 최근 1년을 89일씩 나눠(한 번 호출에 구간 1~2개) 읽고, 그 뒤로는 부를 때마다 최근 14일을 다시 읽어 갱신(10분 안에 다시 부르면 생략).
+    //   카페24 환불 내역(refunds)에는 네이버페이 주문의 반품이 없다 — 자사몰 결제분만.
+    if (action === "bigret_list") {
+      if (!["admin", "staff", "cs"].includes(authed.role)) return json({ error: "접근 권한이 없습니다" }, 403);
+      const MIN = 300_000, ALWAYS = 500_000, t0 = Date.now(), BUDGET = 35_000;   // 89일 한 구간 ≈ 30~50초 — 새 구간은 35초 안에서만 시작(벽시계 150초 한도, 2026-10-20 첫 실행 99초)
+      const n = (v: unknown) => Math.round(Number(v ?? 0) || 0);
+      const day = (off: number) => { const d = rscanYesterday(); d.setUTCDate(d.getUTCDate() + 1 + off); return d.toISOString().slice(0, 10); };
+      const addD = (ymd: string, k: number) => { const d = new Date(ymd + "T00:00:00Z"); d.setUTCDate(d.getUTCDate() + k); return d.toISOString().slice(0, 10); };
+      const today = day(0);
+      const [st0] = (((await sbRest("bigret_sync?id=eq.1&select=*")) ?? []) as Record<string, any>[]);
+      let st = st0 ?? null;
+      if (!st) { st = { id: 1, backfill_from: day(-365), synced_until: null, updated_at: null }; await sbRest("bigret_sync", { method: "POST", headers: { Prefer: "return=minimal" }, body: JSON.stringify(st) }); }
+      const backfilled = !!st.synced_until && st.synced_until >= today;
+      const fresh = backfilled && st.updated_at && Date.now() - new Date(st.updated_at).getTime() < 10 * 60_000 && !noCache;
+      let windows = 0, scanned = 0, saved = 0;
+      if (!fresh) {
+        // 읽을 구간: 처음 모으는 중이면 이어서, 다 모았으면 최근 14일
+        let cur = backfilled ? addD(today, -14) : (st.synced_until ? addD(st.synced_until, 1) : st.backfill_from);
+        while (cur <= today && Date.now() - t0 < BUDGET) {
+          const end = addD(cur, 88) > today ? today : addD(cur, 88);
+          const amt = (r: Record<string, any>) => n(r.actual_refund_amount) + n(r.used_points) + n(r.used_credits);
+          const cand: Record<string, any>[] = [], seen = new Set<string>();
+          for (let offset = 0; offset < 20000; offset += 100) {
+            const body = await apiGet(`${API_BASE}/admin/refunds?start_date=${cur}&end_date=${end}&date_type=accepted_refund_date&limit=100&offset=${offset}`, token);
+            const rs = (body.refunds ?? []) as Record<string, any>[];
+            scanned += rs.length;
+            for (const r of rs) { seen.add(String(r.refund_code)); if (amt(r) >= MIN) cand.push(r); }
+            if (rs.length < 100) break;
+          }
+          // 주문(상품 상태·구매자) — 50개씩
+          const orders = new Map<string, Record<string, any>>();
+          const ids = [...new Set(cand.map((r) => String(r.order_id)))];
+          for (let i = 0; i < ids.length; i += 50) {
+            const body = await apiGet(`${API_BASE}/admin/orders?shop_no=1&order_id=${ids.slice(i, i + 50).join(",")}&embed=items,buyer&limit=100`, token);
+            for (const o of (body.orders ?? []) as Record<string, any>[]) orders.set(String(o.order_id), o);
+          }
+          const rows: Record<string, unknown>[] = [];
+          for (const r of cand) {
+            const o = orders.get(String(r.order_id)); if (!o) continue;
+            const codes = new Set(((r.order_item_code ?? []) as unknown[]).map(String));
+            const all = (o.items ?? []) as Record<string, any>[], its = all.filter((it) => codes.has(String(it.order_item_code)));
+            if (!its.length || !its.every((it) => String(it.order_status ?? "").startsWith("R"))) continue;   // 취소 환불·섞인 것은 뺀다
+            const rest = all.filter((it) => !codes.has(String(it.order_item_code)) && !String(it.order_status ?? "").startsWith("C"));
+            const buyer = (o.buyer ?? {}) as Record<string, any>;
+            const memberId = String(o.member_id ?? buyer.member_id ?? "").trim();
+            const name = String(buyer.name ?? o.billing_name ?? "").trim(), phone = String(buyer.cellphone || buyer.phone || "").trim();
+            const init = (o.initial_order_amount ?? {}) as Record<string, any>;
+            rows.push({
+              refund_code: String(r.refund_code), order_id: String(r.order_id), member_id: memberId || null, buyer_name: name || null, buyer_phone: phone || null,
+              customer_key: memberId ? "m:" + memberId : "p:" + name + "|" + phone.replace(/\D/g, ""),
+              pay_amount: n(init.payment_amount), points_spent: n(init.points_spent_amount),
+              refund_amount: n(r.actual_refund_amount) + n(r.used_points) + n(r.used_credits), refund_cash: n(r.actual_refund_amount), refund_points: n(r.used_points), refund_credits: n(r.used_credits),
+              scope: rest.length ? "partial" : "full", status: String(r.status ?? ""), accepted_at: r.accepted_refund_date || null, refunded_at: r.refund_date || null,
+              items: its.map((it) => ({ product_name: String(it.product_name ?? ""), option: String(it.option_value ?? ""), qty: n(it.quantity) })), updated_at: new Date().toISOString(),
+            });
+          }
+          if (rows.length) { await sbRest("bigret_refunds?on_conflict=refund_code", { method: "POST", headers: { Prefer: "resolution=merge-duplicates,return=minimal" }, body: JSON.stringify(rows) }); saved += rows.length; }
+          // 저장해 둔 것 중 이번에 30만 원 아래로 바뀌었거나 반품이 아니게 된 환불은 지운다(이 구간에 저장된 것만 확인)
+          const keep = new Set(rows.map((x) => String(x.refund_code)));
+          const stored = (((await sbRest(`bigret_refunds?accepted_at=gte.${cur}T00:00:00%2B09:00&accepted_at=lte.${end}T23:59:59%2B09:00&select=refund_code`)) ?? []) as Record<string, any>[]).map((x) => String(x.refund_code));
+          const gone = stored.filter((c) => seen.has(c) && !keep.has(c));
+          for (let i = 0; i < gone.length; i += 100) {
+            const list = gone.slice(i, i + 100).map((c) => '"' + c.replace(/"/g, "") + '"').join(",");
+            await sbRest(`bigret_refunds?refund_code=in.(${encodeURIComponent(list)})`, { method: "DELETE", headers: { Prefer: "return=minimal" } });
+          }
+          windows++;
+          const prevUntil = st.synced_until;
+          st.synced_until = !prevUntil || end > prevUntil ? end : prevUntil;
+          st.updated_at = new Date().toISOString();
+          await sbRest("bigret_sync?id=eq.1", { method: "PATCH", headers: { Prefer: "return=minimal" }, body: JSON.stringify({ synced_until: st.synced_until, updated_at: st.updated_at }) });
+          cur = addD(end, 1);
+        }
+      }
+      const all = (((await sbRest("bigret_refunds?select=*&order=accepted_at.desc&limit=20000")) ?? []) as Record<string, any>[]);
+      const cnt = new Map<string, number>();
+      for (const r of all) cnt.set(r.customer_key, (cnt.get(r.customer_key) ?? 0) + 1);
+      const rows = all.filter((r) => n(r.refund_amount) >= ALWAYS || (cnt.get(r.customer_key) ?? 0) >= 2).map((r) => ({ ...r, count: cnt.get(r.customer_key) ?? 1 }));
+      const done = !!st.synced_until && st.synced_until >= today;
+      return json({
+        rows, stored: all.length, customers: cnt.size, repeat_customers: [...cnt.values()].filter((v) => v >= 2).length,
+        sync: { done, from: st.backfill_from, until: st.synced_until, today, windows, scanned, saved, ms: Date.now() - t0 },
+        rule: { min: MIN, always: ALWAYS },
+      });
+    }
+
     if (action === "refundpend_list" || action === "refundpend_run") {
       if (authed.role !== "admin" || viaAgent || viaCron || viaSecret) return json({ error: "환불완료 처리는 관리자만 할 수 있어요" }, 403);
       const RF_AUTO = new Set(["card", "tcash", "prepaid"]);
