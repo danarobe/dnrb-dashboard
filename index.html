@@ -3874,8 +3874,8 @@ async function bigretLoad(force) {
 }
 const BIGRET_ST = { T: ['환불완료', '#166534', '#dcfce7'], F: ['환불전', '#b45309', '#fef3c7'], R40: ['반품완료', '#166534', '#dcfce7'], R: ['반품 진행중', '#b45309', '#fef3c7'] };
 // 고객명을 누르면 카페24 관리자의 회원 정보 화면(불량회원 설정·관리자 메모가 있는 곳)을 연다(2026-10-20 사용자 요청 — 불량회원 설정은 공개 API에 없어 화면으로 연결만).
-//   카페24 클래식 관리자 회원 상세 주소. 비회원 주문(네이버페이 주문 전부)은 회원 정보가 없어 링크를 달지 않는다.
-const BIGRET_MEMBER_URL = 'https://wnqka5000.cafe24.com/admin/php/shop1/c/member_admin_d.php?user_id={member_id}';
+//   카페24 클래식 관리자 회원 상세 주소(2026-10-20 사용자가 실제 주소로 알려 줌 — member_admin_d.php는 '다시 한번 확인해주세요' 오류). 비회원 주문(네이버페이 주문 전부)은 회원 정보가 없어 링크를 달지 않는다.
+const BIGRET_MEMBER_URL = 'https://wnqka5000.cafe24.com/admin/php/shop1/c/member_admin_d_f.php?user_id={member_id}&referer=OrderDetail';
 function bigretOpenMember(a) { const mid = String(a.dataset.mid || ''); if (!mid) return; cafe24SideOpen(BIGRET_MEMBER_URL.replace('{member_id}', encodeURIComponent(mid))); }
 function bigretRender() {
   const d = bigretState.data; if (!d) return;
