@@ -717,6 +717,7 @@ function selfGroupsOf(o: Record<string, any>, nrSets: NrSets): Record<string, an
     if (claims.length > 1) manual.push("한 주문에 취소 접수가 여러 건이에요");
     if (reasonType === "H") manual.push("사유가 품절이에요 — 재고 복구 여부와 환불을 직접 확인해주세요");   // 2026-10-06 사용자 지정: 품절 취소는 직접 확인
     if (all.some((it) => n(it.additional_discount_price) > 0)) manual.push("상품별 추가할인이 적용된 상품이 있어요");
+    if (all.some((it) => n(it.app_item_discount_amount) > 0)) manual.push("할인코드가 적용된 상품이 있어요");   // 카페24 '할인코드'(예: live1019 5%)는 상품별 app_item_discount_amount에 찍힘(2026-10-20 실측·사용자 지정: 세 단계 모두 직접 확인)
     if (all.some(onePlusOne)) manual.push("1+1 할인 상품이 들어 있어요");
     if (main.length !== 1 || !SELF_MAIN_OK.has(main[0])) manual.push(`결제 수단(${pay.map((m) => SELF_PAY_LABEL[m] ?? m).join("+") || "알 수 없음"})은 아직 자동 환불 대상이 아니에요`);
     if (n(init.credits_spent_amount) > 0) manual.push("예치금을 쓴 주문이에요");
@@ -905,7 +906,8 @@ function retGroupsOf(o: Record<string, any>, nrSets: NrSets, cp: RetCoupons): Re
   const qty = (it: Record<string, any>) => Number(it.quantity ?? 0) || 0;
   const unit = (it: Record<string, any>) => n(it.product_price) + n(it.option_price);
   const price = (it: Record<string, any>) => unit(it) * qty(it);
-  const disc = (it: Record<string, any>) => n(it.additional_discount_price);
+  // 상품별 할인 = 상품 추가할인(additional_discount_price) + 할인코드 할인(app_item_discount_amount — 카페24 '할인코드' 5% 등이 여기에 찍힘, 2026-10-20 실측: 주문 단위 app_discount_amount는 0으로 남음)
+  const disc = (it: Record<string, any>) => n(it.additional_discount_price) + n(it.app_item_discount_amount);
   const onePlusOne = (it: Record<string, any>) => /1\s*\+\s*1/.test(String(it.product_name ?? "")) || ((nrSets.sale[String(Number(it.product_no))] ?? []) as string[]).some((c) => /1\s*\+\s*1/.test(c));
   const sum = (list: Record<string, any>[], f: (it: Record<string, any>) => number) => list.reduce((t, it) => t + f(it), 0);
   const won = (v: number) => v.toLocaleString("ko-KR") + "원";
@@ -926,6 +928,7 @@ function retGroupsOf(o: Record<string, any>, nrSets: NrSets, cp: RetCoupons): Re
     if (its.some(onePlusOne)) M("1+1 상품", "반품 상품에 1+1 할인 상품이 있어요");
     if (its.some((it) => disc(it) > 0 && ((unit(it) > 0 && disc(it) / unit(it) >= 0.1) || (price(it) > 0 && disc(it) / price(it) >= 0.1)))) M("10% 이상 할인", "반품 상품에 10% 이상 할인된 상품이 있어요");
     if (its.some((it) => disc(it) > 0 && qty(it) !== 1)) M("할인 상품 수량", "할인된 상품을 2개 이상 반품해요 — 할인 금액을 따져야 해요");
+    if (its.some((it) => n(it.app_item_discount_amount) > 0)) M("할인코드", "할인코드가 적용된 상품이 있어요 — 할인 금액이 환불액에 반영됐는지 직접 확인해주세요");   // 2026-10-20 사용자 지정: 할인코드 주문은 직접 확인
     if (others.some((it) => /^[CER]/.test(String(it.order_status ?? "")) || !!it.claim_code) || claims.length > 1) M("다른 취소·교환·반품", "같은 주문에 다른 취소·교환·반품이 있어요 — 남는 금액을 따져야 해요");
     const pk = (ret.pickup ?? {}) as Record<string, any>;
     if (pk.use_pickup !== "T" || ret.pickup_request_state !== "T") M("수거 신청 아님", "수거 신청으로 접수된 반품이 아니에요(고객 직접 발송 등) — 배송비를 따져야 해요");
@@ -1022,7 +1025,7 @@ function retGroupsOf(o: Record<string, any>, nrSets: NrSets, cp: RetCoupons): Re
 //    배송비 3,000 차감(배송지연·품절은 차감 없음이 기본이지만 사람이 차감했을 수 있어 둘 다 인정, '기타'는 아직 미정이라 둘 다 인정), 쿠폰·적립금은 반품과 같은 기준.
 //  · level: ok(규칙대로) / warn(규칙과 다름 — 계산이 확실한데 금액이 다르거나 반품 불가 품목) / note(계산이 불확실한 주문인데 금액이 다름 — 참고) / skip(교환 등 점검 안 함)
 const RF_SOFT_TAGS = new Set(["불량·오배송", "사유 글 확인", "그 밖의 사유", "쿠폰 확인", "경계 금액", "다른 취소·교환·반품", "수거 신청 아님", "그 밖의 할인", "배송비 확인", "배송 묶음",
-  "1+1 상품", "10% 이상 할인", "할인 상품 수량", "예치금", "수량 일부", "배송 전 상태", "금액 확인", "미결제"]);
+  "1+1 상품", "10% 이상 할인", "할인 상품 수량", "할인코드", "예치금", "수량 일부", "배송 전 상태", "금액 확인", "미결제"]);
 function rfRuleOf(r: Record<string, any>, o: Record<string, any> | null, nrSets: NrSets, cp: RetCoupons, orderRefunds: Record<string, any>[] = []) {
   const n = (v: unknown) => Math.round(Number(v ?? 0) || 0);
   const won = (v: number) => v.toLocaleString("ko-KR") + "원";
@@ -1080,10 +1083,10 @@ function rfRuleOf(r: Record<string, any>, o: Record<string, any> | null, nrSets:
       cands.push({ amount: base - fee, points: pts, text: "" });
       if (needFee && reasonType === "I") cands.push({ amount: base, points: pts, text: "사유가 '기타'라 배송비를 차감하지 않았어요(기타를 변심으로 볼지는 아직 정하지 않음)" });
       if (needFee && (reasonType === "B" || reasonType === "H")) cands.push({ amount: base - RET_FEE, points: pts, text: "배송지연·품절 취소인데 배송비 3,000원을 차감했어요(사람이 판단했을 수 있음)" });
-      soft = (g.manual as { tag: string; text: string }[]).filter((m) => ["쿠폰 확인", "경계 금액", "다른 취소·교환·반품", "그 밖의 할인", "배송비 확인", "1+1 상품", "10% 이상 할인", "할인 상품 수량", "예치금", "수량 일부"].includes(m.tag)).map((m) => m.text);
+      soft = (g.manual as { tag: string; text: string }[]).filter((m) => ["쿠폰 확인", "경계 금액", "다른 취소·교환·반품", "그 밖의 할인", "배송비 확인", "1+1 상품", "10% 이상 할인", "할인 상품 수량", "할인코드", "예치금", "수량 일부"].includes(m.tag)).map((m) => m.text);
       if (others.some((it) => /^[CER]/.test(String(it.order_status ?? "")))) soft.push("같은 주문에 먼저 처리된 취소·반품이 있어요");
       // 규칙 5: 할인 상품·1+1 상품이 든 주문의 부분 취소는 사람이 본다(상품별 할인을 취소할지에 따라 금액이 달라짐)
-      if (all.some((it) => n(it.additional_discount_price) > 0) && !soft.some((t) => /할인/.test(t))) soft.push("상품별 할인이 적용된 상품이 든 주문이에요 — 할인 취소 여부에 따라 금액이 달라요");
+      if (all.some((it) => n(it.additional_discount_price) > 0 || n(it.app_item_discount_amount) > 0) && !soft.some((t) => /할인/.test(t))) soft.push("상품별 할인·할인코드가 적용된 상품이 든 주문이에요 — 할인 취소 여부에 따라 금액이 달라요");
       if (cands[0].amount <= 0) soft.push("규칙대로 빼면 환불액이 0원 이하가 돼요");
       basis = `규칙 계산(부분 취소): 상품 ${won(goods)}${needFee ? ` − 배송비 ${won(fee)}(무료배송 주문 · 남는 상품 ${won(remain)})` : ""}${cpc ? ` − 쿠폰 취소 ${won(cpc)}` : ""}${pts ? ` − 적립금 반환 ${won(pts)}` : ""} = ${won(cands[0].amount)}${pts ? ` + 적립금 ${won(pts)}` : ""}`;
     }
@@ -1165,7 +1168,7 @@ function rfGuardOf(r: Record<string, any>, o: Record<string, any> | null, orderR
   const codes = new Set(((r.order_item_code ?? []) as unknown[]).map(String));
   const all = (o.items ?? []) as Record<string, any>[];
   const its = all.filter((it) => codes.has(String(it.order_item_code)));
-  const net = its.reduce((t, it) => t + (n(it.product_price) + n(it.option_price)) * (Number(it.quantity ?? 0) || 0) - n(it.additional_discount_price), 0);
+  const net = its.reduce((t, it) => t + (n(it.product_price) + n(it.option_price)) * (Number(it.quantity ?? 0) || 0) - n(it.additional_discount_price) - n(it.app_item_discount_amount), 0);
   const staying = all.filter((it) => !codes.has(String(it.order_item_code)) && !/^[CR]/.test(String(it.order_status ?? "")));
   if (paid <= 0) block.push("고객이 낸 금액을 읽지 못했어요");
   else if (prior + me > paid) block.push(`고객이 낸 돈(${won(paid)})보다 많이 환불돼요 — 이미 환불 ${won(prior)} + 이번 ${won(me)} = ${won(prior + me)}`);
@@ -1432,7 +1435,7 @@ Deno.serve(async (req) => {
           const memberId = String(o.member_id ?? buyer.member_id ?? "").trim();
           const name = String(buyer.name ?? o.billing_name ?? "").trim(), phone = String(buyer.cellphone || buyer.phone || "").trim();
           const init = (o.initial_order_amount ?? {}) as Record<string, any>;
-          const amount = its.reduce((sum, it) => sum + Math.max(0, n((Number(it.product_price ?? 0) + Number(it.option_price ?? 0)) * Number(it.quantity ?? 0) - Number(it.additional_discount_price ?? 0) - Number(it.coupon_discount_price ?? 0))), 0);
+          const amount = its.reduce((sum, it) => sum + Math.max(0, n((Number(it.product_price ?? 0) + Number(it.option_price ?? 0)) * Number(it.quantity ?? 0) - Number(it.additional_discount_price ?? 0) - Number(it.app_item_discount_amount ?? 0) - Number(it.coupon_discount_price ?? 0))), 0);
           const req = its.map((it) => String(it.return_request_date ?? "")).filter(Boolean).sort();
           const fin = its.map((it) => String(it.refund_date ?? "")).filter(Boolean).sort();
           return {
@@ -1566,6 +1569,7 @@ Deno.serve(async (req) => {
           if (credits > 0) why.push(`예치금 ${credits.toLocaleString("ko-KR")}원이 섞여 있어요`);
           if (amount <= 0) why.push("환불 금액이 0원이에요");
           if (kind === "mixed" || kind === "unknown") why.push("취소·반품 구분이 섞였거나 읽히지 않아요");
+          if (its.some((it) => rfNum(it.app_item_discount_amount) > 0)) why.push("할인코드가 적용된 상품이에요 — 할인 반영을 직접 확인");   // 2026-10-20 사용자 지정
           // 상품 상태가 '취소처리중·환불전'(C34) 또는 '반품처리중·환불전'(R34 — 수거 완료)일 때만. 반품이 아직 수거 전(R30 등)이면 돈만 먼저 나가므로 자동에서 뺀다
           if (st.length && !st.every((x) => x === "C34" || x === "R34")) why.push(`상품 상태가 환불전이 아니에요(${[...new Set(its.map((it) => String(it.status_text ?? it.order_status ?? "") + (it.order_status_additional_info ? "·" + it.order_status_additional_info : "")))].join(", ")})`);
           if (why.length) group = "check";
