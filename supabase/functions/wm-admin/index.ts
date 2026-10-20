@@ -523,6 +523,8 @@ Deno.serve(async (req) => {
           patch.name = u.name;
         } else {
           patch.type = 'parttime';   // 직접 추가는 알바 고정 (사용자 지정 — 서버 강제)
+          // 새 알바는 출근시간 고정 09:30이 기본(2026-10-20 사용자 요청 — "9:30 이전 출근해도 9:30으로 찍혀야", 기존 알바 정현숙·이혜영 등과 같게). 적어 보낸 값이 있으면 그 값.
+          if (!patch.fixed_clock_in) patch.fixed_clock_in = '09:30';
         }
         if (!patch.name) return json({ error: '이름은 필수입니다.' }, 400);
         [row] = await rest('wm_employees', { method: 'POST', body: JSON.stringify(patch) });

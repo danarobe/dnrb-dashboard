@@ -214,6 +214,7 @@ Deno.serve(async (req) => {
         method: 'POST',
         body: JSON.stringify({
           name: h.name, type: 'parttime', hourly_rate: rate, birthday: h.birth,
+          fixed_clock_in: '09:30',   // 출근시간 고정 09:30(2026-10-20 사용자 요청 — 9:30 이전 출근도 9:30으로, 기존 알바와 같게)
           hire_date: h.interview_date ?? null,   // 면접일(첫 출근일) = 입사일 (2026-10-13 채용 지원자 → 2026-10-14 일일알바도 첫 출근일을 적으니 둘 다)   // 채용 지원자는 면접일 = 입사일 (2026-10-13 사용자 요청). 일일알바는 면접일이 없어 비워 둠
           annual_leave_total: 0,   // (이식 시 추가) 근무 관리의 기존 알바 행은 모두 0 — 표 기본값 15가 들어가지 않게
           bank_name: h.bank_name, bank_account: await dec(h.account_enc), bank_holder: h.bank_holder,
