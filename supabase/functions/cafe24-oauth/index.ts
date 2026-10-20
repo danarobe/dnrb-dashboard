@@ -18,9 +18,11 @@ const CLIENT_SECRET = Deno.env.get("CAFE24_CLIENT_SECRET")!;
 // mall.write_order (2026-09-28): 반품 스캔의 '수거 완료' 처리(PUT orders/{id}/return|exchange/{claim_code} pickup_completed=T).
 //   개발자센터 앱 권한에 '주문 쓰기'를 켠 뒤 '카페24 연동'으로 재연동해야 토큰에 반영된다. 권한을 켜기 전에 재연동하면 invalid_scope.
 // ⚠ mall.write_product(상품 쓰기)는 넣지 않는다 (2026-09-29 사용자 결정 — 상품 삭제까지 포함하는 넓은 권한). 품절 재고 점검은 읽기만.
-// mall.read_privacy (2026-10-20): 고액 반품 관리의 '특별 관리 회원' 소메뉴 — 회원 개인정보 목록 조회(customersprivacy?member_type=vip)로 특별관리회원을 읽는다(읽기만).
-//   개발자센터에서 UzeJXo 앱에 '회원 개인정보 조회(읽기)' 권한을 먼저 켠 뒤 '카페24 연동'으로 재연동해야 한다(먼저 재연동하면 invalid_scope).
-const SCOPE = "mall.read_order,mall.write_order,mall.read_analytics,mall.read_category,mall.read_product,mall.read_promotion,mall.read_community,mall.read_privacy";
+// mall.read_customer (2026-10-20): 고액 반품 관리의 '불량회원 · 특별 관리' 소메뉴 — 회원 조회(customers?member_id=)로 불량회원 설정 여부를 읽는다(읽기만).
+//   개발자센터 UzeJXo 앱에 '회원(Customer) 읽기권한'을 켠 뒤 '카페24 연동'으로 재연동(사용자가 2026-10-20 밤에 켬).
+// ⚠ mall.read_privacy(개인정보 읽기 — 특별관리회원 목록 customersprivacy?member_type=vip)는 **넣지 않는다**: 개발자센터 권한 목록에 '개인정보(Privacy)'가 없어(카페24가 사업자등록·개인정보 서약서 심사 뒤에만 열어 줌)
+//   넣으면 재연동이 invalid_scope로 실패한다(2026-10-20 실측). 카페24 승인을 받아 권한이 생기면 그때 SCOPE에 더하고 재연동 — 서버 bigret_special은 권한이 생기면 자동으로 특별관리회원 모드.
+const SCOPE = "mall.read_order,mall.write_order,mall.read_analytics,mall.read_category,mall.read_product,mall.read_promotion,mall.read_community,mall.read_customer";
 
 const API_BASE = `https://${MALL_ID}.cafe24api.com/api/v2`;
 

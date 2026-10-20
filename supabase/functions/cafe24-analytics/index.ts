@@ -1488,37 +1488,57 @@ Deno.serve(async (req) => {
       });
     }
 
-    // ── 특별 관리 회원 (고액 반품 관리의 소메뉴, 2026-10-20 사용자 요청 "특별 관리 회원으로 설정된 사람만 볼 수 있는 소메뉴") ──
-    //   카페24 '회원 개인정보 목록 조회' GET /admin/customersprivacy?member_type=vip(특별관리회원 — 회원 정보 화면의 '특별 관리 회원' 체크) — scope mall.read_privacy 필요
-    //   (개발자센터 권한 + '카페24 연동' 재연동). 권한이 없으면 { error:"scope_missing" }(200, 캐시 안 함). 결과에 우리 고액 반품 저장분(회원 ID 또는 휴대전화 번호 일치)의 누적을 붙인다.
+    // ── 특별 관리 회원 / 불량회원 (고액 반품 관리의 소메뉴, 2026-10-20 사용자 요청 "특별 관리 회원으로 설정된 사람만 볼 수 있는 소메뉴") ──
+    //   ① mode "privacy": 카페24 '회원 개인정보 목록 조회' GET /admin/customersprivacy?member_type=vip(특별관리회원) — scope mall.read_privacy. **이 권한은 카페24가 사업자등록·개인정보 서약서
+    //      심사 뒤에만 열어 준다**(2026-10-20 실측: 개발자센터 권한 목록에 '개인정보(Privacy)' 항목이 없어 invalid_scope). 권한이 생기면 자동으로 이 모드.
+    //   ② mode "customer"(지금): '회원 읽기' GET /admin/customers?member_id=a,b,c(scope mall.read_customer, 개발자센터 '회원(Customer) 읽기권한')로 고액 반품 저장분의 회원들을
+    //      ID로 찾아 불량회원 설정(use_blacklist T, blacklist_type P 구매 차단/L 로그인 차단)을 붙인다 — 이름·휴대전화는 우리 저장분에서. 둘 다 권한이 없으면 { error:"scope_missing" }(200, 캐시 안 함).
+    //   결과에 우리 고액 반품 누적(회원 ID 또는 휴대전화 번호 일치)을 붙인다.
     if (action === "bigret_special") {
       if (!["admin", "staff", "cs"].includes(authed.role)) return json({ error: "접근 권한이 없습니다" }, 403);
       const cached = await fromCache(); if (cached) return json(cached);
+      const digits = (v: unknown) => String(v ?? "").replace(/\D/g, "");
+      const scopeErr = (e: unknown) => /scope|permission|403|insufficient/i.test(String((e as Error)?.message ?? e));
+      const refs = (((await sbRest("bigret_refunds?select=member_id,buyer_name,buyer_phone,refund_amount,accepted_at,order_id,source&order=accepted_at.desc&limit=20000")) ?? []) as Record<string, any>[]);
+      const byKey = new Map<string, Record<string, any>[]>();
+      const add = (k: string, r: Record<string, any>) => { if (!k) return; const l = byKey.get(k) ?? []; l.push(r); byKey.set(k, l); };
+      for (const r of refs) { if (r.member_id) add("m:" + r.member_id, r); const ph = digits(r.buyer_phone); if (ph.length >= 9) add("t:" + ph, r); }
+      const pick = (c: Record<string, any>) => ({ use_blacklist: String(c.use_blacklist ?? ""), blacklist_type: String(c.blacklist_type ?? ""), group_no: c.group_no ?? null, created_date: c.created_date ?? null, last_login_date: c.last_login_date ?? null });
+      let mode = "privacy";
       const members: Record<string, any>[] = [];
       try {
         for (let offset = 0; offset <= 8000; offset += 100) {
           const body = await apiGet(`${API_BASE}/admin/customersprivacy?shop_no=1&member_type=vip&limit=100&offset=${offset}`, token);
           const list = (body.customersprivacy ?? []) as Record<string, any>[];
-          for (const c of list) members.push({ member_id: String(c.member_id ?? ""), name: String(c.name ?? ""), cellphone: String(c.cellphone ?? ""), use_blacklist: String(c.use_blacklist ?? ""), blacklist_type: String(c.blacklist_type ?? ""), group_no: c.group_no ?? null, created_date: c.created_date ?? null, last_login_date: c.last_login_date ?? null });
+          for (const c of list) members.push({ member_id: String(c.member_id ?? ""), name: String(c.name ?? ""), cellphone: String(c.cellphone ?? ""), special: true, ...pick(c) });
           if (list.length < 100) break;
         }
-      } catch (e) {
-        const msg = String((e as Error)?.message ?? e);
-        if (/scope|permission|403|insufficient/i.test(msg)) return json({ error: "scope_missing", detail: msg.slice(0, 200) });
-        throw e;
+      } catch (e) { if (!scopeErr(e)) throw e; mode = "customer"; }
+      if (mode === "customer") {
+        const ids = [...new Set(refs.map((r) => String(r.member_id ?? "").trim()).filter(Boolean))];
+        const info = new Map<string, Record<string, any>>();
+        try {
+          for (let i = 0; i < ids.length; i += 50) {
+            const body = await apiGet(`${API_BASE}/admin/customers?shop_no=1&member_id=${ids.slice(i, i + 50).map(encodeURIComponent).join(",")}`, token);
+            for (const c of (body.customers ?? []) as Record<string, any>[]) info.set(String(c.member_id ?? ""), c);
+          }
+        } catch (e) {
+          if (scopeErr(e)) return json({ error: "scope_missing", detail: String((e as Error)?.message ?? e).slice(0, 200) });
+          throw e;
+        }
+        for (const id of ids) {
+          const c = info.get(id); if (!c) continue;
+          const r0 = refs.find((r) => String(r.member_id ?? "").trim() === id) ?? {};
+          members.push({ member_id: id, name: String(r0.buyer_name ?? ""), cellphone: String(r0.buyer_phone ?? ""), special: null, ...pick(c) });
+        }
       }
-      const digits = (v: unknown) => String(v ?? "").replace(/\D/g, "");
-      const refs = (((await sbRest("bigret_refunds?select=member_id,buyer_phone,refund_amount,accepted_at,order_id,source&order=accepted_at.desc&limit=20000")) ?? []) as Record<string, any>[]);
-      const byKey = new Map<string, Record<string, any>[]>();
-      const add = (k: string, r: Record<string, any>) => { if (!k) return; const l = byKey.get(k) ?? []; l.push(r); byKey.set(k, l); };
-      for (const r of refs) { if (r.member_id) add("m:" + r.member_id, r); const ph = digits(r.buyer_phone); if (ph.length >= 9) add("t:" + ph, r); }
+      const n0 = (v: unknown) => Math.round(Number(v ?? 0) || 0);
       const out = members.map((m) => {
         const seen = new Set<string>(), hits: Record<string, any>[] = [];
         for (const r of [...(byKey.get("m:" + m.member_id) ?? []), ...(byKey.get("t:" + digits(m.cellphone)) ?? [])]) { const k = String(r.order_id) + "|" + String(r.source); if (!seen.has(k)) { seen.add(k); hits.push(r); } }
-        const n0 = (v: unknown) => Math.round(Number(v ?? 0) || 0);
         return { ...m, bigret_count: hits.length, bigret_total: hits.reduce((a, r) => a + n0(r.refund_amount), 0), bigret_last: hits.map((r) => String(r.accepted_at ?? "")).sort().pop() || null };
       });
-      return await respond({ members: out, count: out.length, at: new Date().toISOString() });
+      return await respond({ mode, members: out, count: out.length, blacklisted: out.filter((m) => m.use_blacklist === "T").length, at: new Date().toISOString() });
     }
 
     if (action === "refundpend_list" || action === "refundpend_run") {
