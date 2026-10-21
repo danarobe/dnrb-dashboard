@@ -2826,6 +2826,47 @@ Deno.serve(async (req) => {
       return json({ period: { start: s, end: e }, revenue, order_count: orderCount });
     }
 
+    // ── 매출 구성 (2026-10-21 사용자 요청 "쿠폰할인·적립금 등 매출에서 차감된 비용도 수식에 반영") — 순익 시나리오용, 관리자, 30분 캐시 ──
+    //   결제일 기준 주문의 **주문 시점 금액(initial_order_amount)** 으로 판매가 매출 → 상품 할인(추가할인·할인코드) → 쿠폰·적립금·예치금·회원등급·세트·앱·배송비 쿠폰 → 배송비 수입 → 결제 매출을 쌓는다.
+    //   실주문금액(actual_order_amount)을 쓰지 않는 이유(2026-09 실측 13,032건): 취소·반품 반영 시점이 주문마다 달라(전체 반품인데 결제액은 그대로 등) 취소·반품 환불액을 따로 빼는 손익과 이중 차감된다.
+    //   네이버 포인트(naver_point)는 네이버가 정산 때 보전하므로 매출에 포함(결제액 + 네이버 포인트 = 고객이 치른 돈). 상품 할인은 items(판매가×수량 − order_price)로 잡는다.
+    if (action === "profit_sales") {
+      if (authed.role !== "admin") return json({ error: "접근 권한이 없습니다" }, 403);
+      const s = url.searchParams.get("start_date");
+      const e = url.searchParams.get("end_date");
+      if (!s || !e) return json({ error: "start_date, end_date 필수 (YYYY-MM-DD)" }, 400);
+      const hit = await fromCache(); if (hit) return json(hit);
+      const sum = { orders: 0, list: 0, item_disc: 0, item_code_disc: 0, gross: 0, coupon: 0, points: 0, credits: 0, member: 0, set: 0, app: 0, coupon_ship: 0, naver: 0, ship_fee: 0, ship_disc: 0, paid: 0, naver_point: 0, qty: 0 };
+      await eachOrder(token, "date_type=pay_date&fields=order_id,initial_order_amount,naver_point,items&embed=items", s, e, (orders) => {
+        for (const o of orders as Record<string, any>[]) {
+          const i = (o.initial_order_amount ?? {}) as Record<string, unknown>;
+          const gross = num(i.order_price_amount);
+          if (gross <= 0 && num(i.payment_amount) <= 0) continue;
+          sum.orders++;
+          sum.gross += gross;
+          sum.coupon += num(i.coupon_discount_price); sum.points += num(i.points_spent_amount); sum.credits += num(i.credits_spent_amount);
+          sum.member += num(i.membership_discount_amount); sum.set += num(i.set_product_discount_amount); sum.app += num(i.app_discount_amount);
+          sum.coupon_ship += num(i.coupon_shipping_fee_amount); sum.naver += num(i.market_other_discount_amount);
+          sum.ship_fee += num(i.shipping_fee); sum.ship_disc += num(i.shipping_fee_discount_amount);
+          sum.paid += num(i.payment_amount); sum.naver_point += num(o.naver_point);
+          for (const it of (o.items ?? []) as Record<string, any>[]) {
+            const q = Number(it.quantity ?? 0) || 0;
+            sum.list += (num(it.product_price) + num(it.option_price)) * q; sum.qty += q;
+            sum.item_disc += num(it.additional_discount_price); sum.item_code_disc += num(it.app_item_discount_amount);
+          }
+        }
+      });
+      const own = sum.coupon + sum.points + sum.credits + sum.member + sum.set + sum.app;
+      const shipIncome = Math.max(0, sum.ship_fee - sum.ship_disc - sum.coupon_ship);
+      return respond({
+        period: { start: s, end: e }, basis: "pay_date·initial",
+        ...Object.fromEntries(Object.entries(sum).map(([k, v]) => [k, Math.round(v)])),
+        own_discount: Math.round(own), ship_income: Math.round(shipIncome),
+        // 결제 매출(고객이 치른 돈) = 정가 − 자사 할인 + 배송비 수입. 참고로 카페24 payment_amount + 네이버 포인트도 같이 준다(네이버 즉시할인 등 차이 확인용)
+        revenue: Math.round(sum.gross - own + shipIncome), paid_plus_naver: Math.round(sum.paid + sum.naver_point),
+      });
+    }
+
     // ── 결제 수단 비중 (2026-10-21 사용자 요청 "PG·네이버페이 수수료 알아서 반영") — 순익 시나리오 결제 수수료용, 관리자, 30분 캐시 ──
     //   결제일 기준 주문의 실결제액(actual_order_amount.payment_amount — 부분취소 반영)을 자사몰/네이버페이(NCHECKOUT) × 결제 수단으로 나눈다.
     //   쿠폰·적립금·마일리지는 보조 수단이라 빼고 첫 번째 주 결제 수단으로 분류. 화면이 profit_fee_rates의 수단별 수수료율을 곱해 수수료를 낸다.

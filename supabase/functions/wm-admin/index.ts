@@ -207,14 +207,16 @@ Deno.serve(async (req) => {
         if (months.length > 36) break;   // 안전장치
       }
       let total = 0, empN = 0;
-      const detail: { ym: string; total: number }[] = [];
+      const byType = { employee: 0, parttime: 0 };   // 직원(4대보험 대상) / 알바(프리랜서 3.3%) — 순익 시나리오가 나눠 쓴다(2026-10-21)
+      const detail: { ym: string; total: number; employee: number; parttime: number }[] = [];
       for (const ym of months) {
         const rows = monthRows(ym, await loadForMonth(ym));
-        const sub = rows.reduce((t, r: any) => t + (r.totalPay || 0), 0);
-        total += sub; empN = rows.length;
-        detail.push({ ym, total: sub });
+        let sub = 0, se = 0, sp = 0;
+        for (const r of rows as any[]) { const v = r.totalPay || 0; sub += v; if (r.employee?.type === 'parttime') sp += v; else se += v; }
+        total += sub; empN = rows.length; byType.employee += se; byType.parttime += sp;
+        detail.push({ ym, total: sub, employee: se, parttime: sp });
       }
-      return json({ total, employee_count: empN, months: detail });
+      return json({ total, employee_count: empN, months: detail, by_type: byType });
     }
 
     if (action === 'employee_list') {

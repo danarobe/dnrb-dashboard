@@ -2117,7 +2117,7 @@
       <h2><span><i class="fa-solid fa-coins" style="color:#4f46e5;font-size:.9em;"></i></span> 순익 시나리오</h2>
     </div>
     <div class="section-body">
-      <div style="font-size:.82rem;color:#6b7280;margin-bottom:14px;">기간의 매출·취소반품·마진율·광고비를 <strong>자동으로 수집</strong>하고, 고정비를 더해 부가세·법인세까지 반영한 <strong>순이익</strong>을 계산합니다. 매트릭스에서 ROAS·취소반품률 변화에 따른 시나리오를 비교하세요.</div>
+      <div style="font-size:.82rem;color:#6b7280;margin-bottom:14px;line-height:1.7;">기간의 <strong>매출 구성(판매가 → 상품 할인 → 쿠폰·적립금 → 배송비 수입 → 결제 매출)·취소반품·마진율·광고비·결제 수단 비중·급여(직원/알바)</strong>를 자동으로 모으고, 결제 수수료·택배비·4대보험·퇴직급여·월 고정비·부가세·법인세까지 뺀 <strong>세후 순이익</strong>을 계산해요. 모은 값은 모두 직접 고칠 수 있고, 매트릭스에서 ROAS·취소반품률을 바꿔 가며 비교해요.</div>
 
       <!-- STEP 1: 기간 + 자동 수집 -->
       <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:14px;">
@@ -2133,33 +2133,34 @@
         <span style="font-size:.75rem;color:#6b7280;">매출(카페24 결제)·취소반품(카페24)·마진율(종합 판매 데이터)·광고비(Meta) — 수집 후 직접 수정 가능</span>
       </div>
 
-      <!-- STEP 2: 수집값 (수정 가능) -->
-      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-bottom:14px;">
-        <label style="font-size:.82rem;font-weight:700;color:#4b5563;">결제 매출 (원)<input type="number" id="pf-rev" oninput="renderProfit()" style="width:100%;margin-top:4px;border:1.5px solid #c7d2fe;border-radius:8px;padding:8px 10px;font-size:.88rem;" /></label>
-        <label style="font-size:.82rem;font-weight:700;color:#4b5563;">취소·반품 금액 (원)<input type="number" id="pf-claims" oninput="renderProfit()" style="width:100%;margin-top:4px;border:1.5px solid #c7d2fe;border-radius:8px;padding:8px 10px;font-size:.88rem;" /></label>
-        <label style="font-size:.82rem;font-weight:700;color:#4b5563;">마진율 (%)<input type="number" id="pf-margin" step="0.1" oninput="renderProfit()" style="width:100%;margin-top:4px;border:1.5px solid #c7d2fe;border-radius:8px;padding:8px 10px;font-size:.88rem;" /></label>
-        <label style="font-size:.82rem;font-weight:700;color:#4b5563;">광고비 (원, Meta)<input type="number" id="pf-ad" oninput="renderProfit()" style="width:100%;margin-top:4px;border:1.5px solid #c7d2fe;border-radius:8px;padding:8px 10px;font-size:.88rem;" /></label>
+      <!-- STEP 2: 수집값 (수정 가능) — 2026-10-21 개편: 결제 매출은 매출 구성(profit_sales) 기준, 주문·반품 건수 추가 -->
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin-bottom:14px;">
+        <label style="font-size:.82rem;font-weight:700;color:#4b5563;">결제 매출 (원)<input type="number" id="pf-rev" oninput="renderProfit()" style="width:100%;margin-top:4px;border:1.5px solid #c7d2fe;border-radius:8px;padding:8px 10px;font-size:.88rem;" /><span style="font-size:.68rem;color:#6b7280;font-weight:400;">정가 − 자사 할인 + 배송비 수입 (결제일 기준)</span></label>
+        <label style="font-size:.82rem;font-weight:700;color:#4b5563;">취소·반품 환불 (원)<input type="number" id="pf-claims" oninput="renderProfit()" style="width:100%;margin-top:4px;border:1.5px solid #c7d2fe;border-radius:8px;padding:8px 10px;font-size:.88rem;" /><span style="font-size:.68rem;color:#6b7280;font-weight:400;">카페24 + 네이버 CSV(취소&반품 메뉴)</span></label>
+        <label style="font-size:.82rem;font-weight:700;color:#4b5563;">마진율 (%)<input type="number" id="pf-margin" step="0.1" oninput="renderProfit()" style="width:100%;margin-top:4px;border:1.5px solid #c7d2fe;border-radius:8px;padding:8px 10px;font-size:.88rem;" /><span style="font-size:.68rem;color:#6b7280;font-weight:400;">판매가 기준 (판매가 − 공급가×1.1) ÷ 판매가</span></label>
+        <label style="font-size:.82rem;font-weight:700;color:#4b5563;">광고비 (원, Meta)<input type="number" id="pf-ad" oninput="renderProfit()" style="width:100%;margin-top:4px;border:1.5px solid #c7d2fe;border-radius:8px;padding:8px 10px;font-size:.88rem;" /><span style="font-size:.68rem;color:#6b7280;font-weight:400;">부가세 별도</span></label>
+        <label style="font-size:.82rem;font-weight:700;color:#4b5563;">주문 건수<input type="number" id="pf-orders" oninput="renderProfit()" style="width:100%;margin-top:4px;border:1.5px solid #c7d2fe;border-radius:8px;padding:8px 10px;font-size:.88rem;" /><span style="font-size:.68rem;color:#6b7280;font-weight:400;">택배 발송비·포장재 계산용 (결제 주문)</span></label>
+        <label style="font-size:.82rem;font-weight:700;color:#4b5563;">반품 건수<input type="number" id="pf-returns" oninput="renderProfit()" style="width:100%;margin-top:4px;border:1.5px solid #c7d2fe;border-radius:8px;padding:8px 10px;font-size:.88rem;" /><span style="font-size:.68rem;color:#6b7280;font-weight:400;">반품 회수비 계산용</span></label>
       </div>
 
-      <!-- 실마진율 (쿠폰·적립금·택배 반영) — 2026-09-02 -->
+      <!-- 매출 구성 (2026-10-21 — 쿠폰·적립금 등 매출 차감 항목을 수식에 반영, 서버 profit_sales) -->
       <div style="background:#fff7ed;border:1.5px solid #fed7aa;border-radius:12px;padding:12px 16px;margin-bottom:14px;">
         <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
-          <span style="font-size:.82rem;font-weight:800;color:#c2410c;">실마진율 <span style="font-weight:400;color:#6b7280;font-size:.72rem;">쿠폰·적립금 등 자사 할인 반영 (결제일 기준 · 네이버 부담 할인은 제외)</span></span>
-          <button class="btn-analyze" id="btn-pf-real" onclick="pfRealFetch()" style="padding:6px 14px;font-size:.78rem;"><i class="fa-solid fa-calculator"></i> 실마진율 계산</button>
-          <label style="font-size:.75rem;color:#6b7280;font-weight:600;display:flex;align-items:center;gap:5px;">택배 발송 단가
-            <input type="number" id="pf-ship-unit" value="1850" oninput="pfShipUnitSave()" style="width:76px;border:1.5px solid #d1d5db;border-radius:8px;padding:5px 8px;font-size:.8rem;" />원/건</label>
+          <span style="font-size:.82rem;font-weight:800;color:#c2410c;">매출 구성 <span style="font-weight:400;color:#6b7280;font-size:.72rem;">결제일 기준 주문의 주문 시점 금액 — 판매가에서 무엇이 얼마나 빠져 결제 매출이 되는지</span></span>
+          <button class="toggle-btn" onclick="pfSalesLoad(true)" style="margin-left:auto;" title="카페24에서 다시 읽어요(평소엔 30분 동안 같은 결과)"><i class="fa-solid fa-rotate"></i> 매출 구성 다시 읽기</button>
         </div>
-        <div id="pf-real" style="margin-top:10px;font-size:.82rem;color:#6b7280;">기간을 정하고 '실마진율 계산'을 누르면 카페24 주문의 쿠폰·적립금 사용액을 집계해 실마진율을 보여줍니다. (마진율 칸에 값이 있어야 원가를 역산할 수 있어요 — 먼저 '데이터 자동 수집'을 실행해 주세요)</div>
+        <div id="pf-sales" style="margin-top:10px;font-size:.82rem;color:#6b7280;">'데이터 자동 수집'을 누르면 판매가 매출·상품 할인·쿠폰·적립금·배송비 수입을 읽어 와 손익계산서에 줄별로 보여 줘요. 안 읽은 상태에서는 결제 매출을 판매가 매출로 보고 계산해요(할인이 원가 계산에 반영되지 않아 매출이익이 조금 높게 나와요).</div>
       </div>
 
-      <!-- STEP 3: 고정비 입력 -->
+      <!-- STEP 3: 비용 입력 (2026-10-21 개편: 급여 직원/알바/대표 + 월 고정비 표 + 결제 수수료 + 가정) -->
       <div style="background:#f8f9ff;border:1.5px solid #e0e7ff;border-radius:12px;padding:12px 16px;margin-bottom:14px;">
-        <div style="font-size:.82rem;font-weight:700;color:#4338ca;margin-bottom:10px;">기간 비용 입력 <span style="font-weight:400;color:#6b7280;font-size:.75rem;">— 인건비·택배비는 이 브라우저에, 월 고정비 표는 DB에 저장돼요(관리자 공용)</span></div>
-        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;font-size:.82rem;color:#374151;">
-          <label>인건비
-            <button onclick="event.preventDefault();fetchLaborFromWM()" style="margin-left:6px;border:1px solid #c7d2fe;background:#eef2ff;color:#4338ca;border-radius:6px;padding:2px 8px;font-size:.7rem;font-weight:700;cursor:pointer;">근무관리에서 불러오기</button>
-            <input type="number" id="pf-labor" oninput="profitSaveCosts();renderProfit()" style="width:100%;margin-top:3px;border:1.5px solid #d1d5db;border-radius:8px;padding:7px 10px;" /></label>
-          <label>택배비 <span style="color:#6b7280;font-weight:400;">(면세)</span><input type="number" id="pf-ship" oninput="profitSaveCosts();renderProfit()" style="width:100%;margin-top:3px;border:1.5px solid #d1d5db;border-radius:8px;padding:7px 10px;" /></label>
+        <div style="font-size:.82rem;font-weight:700;color:#4338ca;margin-bottom:10px;">급여 <span style="font-weight:400;color:#6b7280;font-size:.75rem;">— '데이터 자동 수집' 때 근무 관리에서 직원/알바로 나눠 읽어 오고, 직접 고칠 수 있어요(이 브라우저에 저장). 직원 급여에는 4대보험·퇴직급여가 자동으로 붙고, 알바(프리랜서 3.3%)는 급여만 빠져요.</span>
+          <button onclick="event.preventDefault();fetchLaborFromWM()" style="margin-left:6px;border:1px solid #c7d2fe;background:#eef2ff;color:#4338ca;border-radius:6px;padding:2px 8px;font-size:.7rem;font-weight:700;cursor:pointer;">근무관리에서 다시 불러오기</button>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px;font-size:.82rem;color:#374151;">
+          <label>직원 급여 (세전 · 4대보험 대상)<input type="number" id="pf-labor-emp" oninput="profitSaveCosts();renderProfit()" style="width:100%;margin-top:3px;border:1.5px solid #d1d5db;border-radius:8px;padding:7px 10px;" /><span id="pf-labor-emp-hint" style="font-size:.68rem;color:#7c3aed;"></span></label>
+          <label>알바·프리랜서 급여 (3.3% 원천징수)<input type="number" id="pf-labor-part" oninput="profitSaveCosts();renderProfit()" style="width:100%;margin-top:3px;border:1.5px solid #d1d5db;border-radius:8px;padding:7px 10px;" /><span style="font-size:.68rem;color:#6b7280;">회사 추가 부담 없음(3.3%는 받는 사람 공제)</span></label>
+          <label>대표·공동대표 급여<input type="number" id="pf-labor-ceo" oninput="profitSaveCosts();renderProfit()" style="width:100%;margin-top:3px;border:1.5px solid #d1d5db;border-radius:8px;padding:7px 10px;" /><span id="pf-labor-ceo-hint" style="font-size:.68rem;color:#7c3aed;">0이면 미반영</span></label>
         </div>
         <!-- 월 고정비 표 (2026-10-21 사용자 요청 — 항목별, 금액은 부가세 미포함 공급가, DB profit_fixed_costs) -->
         <div style="margin-top:14px;border-top:1px dashed #c7d2fe;padding-top:12px;">
@@ -2170,7 +2171,7 @@
             <button onclick="pfFixedAdd()" style="border:1px solid #c7d2fe;background:#eef2ff;color:#4338ca;border-radius:6px;padding:3px 10px;font-size:.72rem;font-weight:700;cursor:pointer;"><i class="fa-solid fa-plus"></i> 항목 추가</button>
             <button onclick="pfFixedLoad(true)" style="border:1px solid #d1d5db;background:#f3f4f6;border-radius:6px;padding:3px 10px;font-size:.72rem;cursor:pointer;">새로고침</button>
           </div>
-          <div style="font-size:.72rem;color:#6b7280;margin-bottom:8px;line-height:1.6;">금액은 <b>부가세 미포함(공급가)</b>으로 적어요. '부가세 10% 별도'는 손익에 부가세를 더해 빼고 그만큼 매입세액으로 공제, '부가세 없음'은 해외 결제·면세·3.3% 원천징수 같은 건. 금액이 0이면 계산에 안 들어가요(미정 항목). 직원 급여는 위 인건비 칸에 따로.</div>
+          <div style="font-size:.72rem;color:#6b7280;margin-bottom:8px;line-height:1.6;">금액은 <b>부가세 미포함(공급가)</b>으로 적어요. '부가세 10% 별도'는 손익에 부가세를 더해 빼고 그만큼 매입세액으로 공제, '부가세 없음'은 해외 결제·면세·3.3% 원천징수 같은 건. 금액이 0이면 계산에 안 들어가요(미정 항목).</div>
           <div id="pf-fx-note"></div>
           <div id="pf-fx-table"></div>
         </div>
@@ -2184,6 +2185,14 @@
           </div>
           <div style="font-size:.72rem;color:#6b7280;margin-bottom:8px;line-height:1.6;">기간 주문(결제일 기준)의 실결제액을 자사몰·네이버페이 × 결제 수단으로 나눠 비중을 구하고('데이터 자동 수집' 때 같이 읽어요), 수단별 <b>수수료율(부가세 포함)</b>을 곱해요. 수수료는 세금계산서를 받으니 그 10/110은 매입세액으로 공제돼요. <b>수수료율 기본값은 일반 가맹점 추정치</b>예요 — 카페24 PG 계약서와 네이버페이센터 정산 수수료로 확인해서 고쳐 주세요(바꾸면 바로 저장).</div>
           <div id="pf-fee-table"></div>
+        </div>
+        <!-- 가정: 세율·요율·단가 (2026-10-21 — DB profit_settings) -->
+        <div style="margin-top:14px;border-top:1px dashed #c7d2fe;padding-top:12px;">
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px;">
+            <span style="font-size:.82rem;font-weight:800;color:#7c3aed;">자동 계산 가정 (세율 · 요율 · 단가)</span>
+            <span style="font-size:.72rem;color:#6b7280;">바꾸면 바로 저장되고 손익에 반영돼요 (관리자 공용)</span>
+          </div>
+          <div id="pf-set-table"></div>
         </div>
       </div>
 
@@ -14203,17 +14212,21 @@ function pfCorpTax(base) {
    pfCalc에는 예전 모양 그대로 넘긴다: etcVat = 과세 항목 합 × 1.1(부가세 포함 금액 — pfCalc가 10/110으로 매입세액을 떼므로 공급가 × 10%와 같음) × 기간 개월,
    etcNoVat = 부가세 없음 항목 합 × 기간 개월. buying·rent·mgmt는 0(항목표에 들어 있음). */
 function pfCosts() {
-  const fx = pfFixedTotals(), fee = pfFeeRate();
-  return { labor: toNum($('pf-labor').value), buying: 0, rent: 0, mgmt: 0,
-           ship: toNum($('pf-ship').value), etcVat: Math.round(fx.taxable * 1.1 * fx.months), etcNoVat: Math.round(fx.none * fx.months), fixed: fx,
-           feeRate: fee.rate, feeBasis: fee.basis };
+  const fx = pfFixedTotals(), fee = pfFeeRate(), set = pfSetValues();
+  return { laborEmp: toNum($('pf-labor-emp').value), laborPart: toNum($('pf-labor-part').value), laborCeo: toNum($('pf-labor-ceo').value),
+           orders: toNum($('pf-orders').value), returns: toNum($('pf-returns').value),
+           etcVat: Math.round(fx.taxable * 1.1 * fx.months), etcNoVat: Math.round(fx.none * fx.months), fixed: fx,
+           feeRate: fee.rate, feeBasis: fee.basis, set, sales: pfSalesScaled(toNum($('pf-rev').value)),
+           // 옛 필드(기록 호환·손익분기 계산 등)
+           labor: 0, buying: 0, rent: 0, mgmt: 0, ship: 0 };
 }
-function profitSaveCosts() { localStorage.setItem(PF_COST_KEY, JSON.stringify({ labor: toNum($('pf-labor').value), ship: toNum($('pf-ship').value) })); }
+function profitSaveCosts() { localStorage.setItem(PF_COST_KEY, JSON.stringify({ laborEmp: toNum($('pf-labor-emp').value), laborPart: toNum($('pf-labor-part').value), laborCeo: toNum($('pf-labor-ceo').value) })); }
 function profitLoadCosts() {
   try {
     const c = JSON.parse(localStorage.getItem(PF_COST_KEY) || '{}');
-    if (c.labor) $('pf-labor').value = c.labor;
-    if (c.ship) $('pf-ship').value = c.ship;
+    if (c.laborEmp) $('pf-labor-emp').value = c.laborEmp;
+    if (c.laborPart) $('pf-labor-part').value = c.laborPart;
+    if (c.laborCeo) $('pf-labor-ceo').value = c.laborCeo;
   } catch {}
 }
 /* ── 월 고정비 항목표 ── */
@@ -14285,7 +14298,7 @@ async function pfFixedDelete(id) {
   try { await dbProxy(`profit_fixed_costs?id=eq.${id}`, { method: 'DELETE', headers: { Prefer: 'return=minimal' } }); await pfFixedLoad(true); }
   catch (e) { showToast('삭제 실패 — ' + e.message); }
 }
-function pfFixedExitView() { pfFixed.view = null; pfFee.view = null; pfFixedRender(); pfFeeRender(); renderProfit(); }
+function pfFixedExitView() { pfFixed.view = null; pfFee.view = null; pfSet.view = null; pfSales.view = null; pfFixedRender(); pfFeeRender(); pfSetRender(); pfSalesRender(); renderProfit(); }
 /* ── 결제 수수료 (2026-10-21): 서버 paymix(결제 비중) × profit_fee_rates(수단별 수수료율, 부가세 포함) ── */
 const PF_PAYMIX_KEY = 'dnrb_pf_paymix';
 const pfFee = { rates: [], loaded: false, mix: null, view: null };   // view = 불러온 기록의 스냅샷 { rates, mix, legacy }
@@ -14343,89 +14356,113 @@ async function pfFeeEdit(method, el) {
   catch (e) { r.rate_pct = before; pfFeeRender(); renderProfit(); showToast('저장 실패 — ' + e.message); }
 }
 
-/* 핵심 계산 — rev·ad·비용은 원 단위, cr·margin은 %
-   부가세 = 매출세액 − 매입세액:
-   · 매출세액 = 순매출 × 10/110 (판매가는 부가세 포함)
-   · 상품 매입세액 = 원가 × 10/110 — 마진율이 공급가(부가세 미포함)×1.1 기준이라
-     P&L의 원가는 부가세 포함 금액이므로 10/110로 세액 분리 (= 공급가액 × 10%)
-   · Meta 광고비는 부가세 별도 청구 → 광고비 × 10%
-   · 부가세 포함 경비(사입삼촌·월세·관리비·기타포함) = 금액 × 10/110
-   · 인건비·택배비(면세)·기타(미포함)는 매입세액 없음 */
+/* 핵심 계산 (2026-10-21 개편) — rev·ad·비용은 원 단위, cr·margin은 %. 매트릭스·손익분기·상세가 같은 식을 쓴다.
+   매출: 결제 매출 rev → 취소·반품(cr) 빼면 순매출. 매출 구성(costs.sales — 결제 매출에 맞춰 비례 조정된 판매가·할인·배송비 수입)이 있으면
+     원가 = 판매가 매출 × (1−cr) × (1−마진율)   ← 마진율이 판매가 기준이므로 쿠폰·적립금 할인은 원가를 줄이지 않는다(= 할인만큼 매출이익이 줄어든다)
+     없으면 원가 = 순매출 × (1−마진율) (옛 방식 — 할인 미반영)
+   변동비: 광고비(부가세 별도) · 결제 수수료 = 순매출 × 가중 수수료율 · 택배 발송비 = 주문 건수 × 단가 · 반품 회수비 = 반품 건수 × 단가 · 포장재 = 주문 건수 × 단가
+   인건비: 직원 급여 + 4대보험 회사 부담(국민·건강·장기요양·고용·산재) + 퇴직급여 충당 · 알바 급여 · 대표 급여 + 대표 4대보험
+   고정비: 월 고정비 과세(공급가×1.1) + 부가세 없음, 기간 개월 환산
+   부가세 = 매출세액(순매출×10/110) − 매입세액(원가×10/110 + 광고비 부가세 + 수수료×10/110 + 포장재×10/110 + 과세 고정비×10/110). 급여·보험·택배(면세)는 공제 없음.
+   법인세 = 세전이익을 연 환산(÷개월×12)해 구간세율(2억 9%·200억 19%·초과 21%) → 기간분 + 지방소득세(법인세의 10%) */
 function pfCalc(rev, crPct, marginPct, ad, costs) {
-  const netR = rev * (1 - crPct / 100);                 // 순매출 (취소·반품 차감)
-  const gp = netR * (marginPct / 100);                  // 매출이익
-  const cogs = netR - gp;                               // 상품 원가 (부가세 포함 기준)
-  const fee = netR * (costs.feeRate || 0);              // 결제 수수료(PG·네이버페이, 부가세 포함 — 2026-10-21): 순매출 × 가중 수수료율
-  const fixedSum = costs.labor + costs.buying + costs.rent + costs.mgmt + costs.ship + costs.etcVat + costs.etcNoVat;
-  const pretax = gp - ad - fee - fixedSum;              // 세전이익
+  const set = costs.set || {}, g = k => Number(set[k] ?? 0) || 0;
+  const keep = 1 - crPct / 100;
+  const netR = rev * keep;                                            // 순매출
+  const sales = costs.sales;
+  const listBase = sales && sales.list > 0 ? sales.list : rev;        // 판매가 매출(없으면 결제 매출)
+  const cogs = listBase * keep * (1 - marginPct / 100);               // 상품 원가 (부가세 포함 기준)
+  const gp = netR - cogs;                                             // 매출이익
+  const adVat = ad * g('ad_vat') / 100;
+  const fee = netR * (costs.feeRate || 0);
+  const ship = (costs.orders || 0) * g('ship_unit'), ret = (costs.returns || 0) * g('return_unit'), pack = (costs.orders || 0) * g('pack_unit');
+  const insRate = (g('ins_pension') + g('ins_health') + g('ins_care') + g('ins_employ') + g('ins_accident')) / 100;
+  const laborEmp = costs.laborEmp || 0, laborPart = costs.laborPart || 0, laborCeo = costs.laborCeo || 0;
+  const ins = laborEmp * insRate, retire = laborEmp * g('retire') / 100, ceoIns = laborCeo * g('ceo_ins') / 100;
+  const labor = laborEmp + laborPart + laborCeo + ins + retire + ceoIns;
+  const fixedSum = (costs.etcVat || 0) + (costs.etcNoVat || 0);
+  const pretax = gp - ad - fee - ship - ret - pack - labor - fixedSum;  // 세전이익
   const salesVat = netR * 10 / 110;
-  const purchaseVat = cogs * 10 / 110 + ad * 0.1
-    + (costs.buying + costs.rent + costs.mgmt + costs.etcVat) * 10 / 110
-    + fee * 10 / 110;                                    // 결제 수수료는 세금계산서(부가세 포함) → 매입세액
+  const purchaseVat = cogs * 10 / 110 + adVat + fee * 10 / 110 + pack * 10 / 110 + (costs.etcVat || 0) * 10 / 110;
   const vat = Math.max(0, salesVat - purchaseVat);
-  const corp = pfCorpTax(pretax);                       // 법인세
-  return { netR, gp, cogs, fee, fixedSum, pretax, salesVat, purchaseVat, vat, corp, net: pretax - vat - corp };
+  const months = (costs.fixed && costs.fixed.months) || 1;
+  const corpBase = pretax > 0 ? pfCorpTax(pretax / months * 12) * months / 12 : 0;
+  const corp = corpBase * (1 + g('local_tax') / 100);                // 법인세 + 지방소득세
+  return { netR, gp, cogs, listBase, adVat, fee, ship, ret, pack, laborEmp, laborPart, laborCeo, ins, insRate, retire, ceoIns, labor, fixedSum, pretax, salesVat, purchaseVat, vat, corpBase, corp, months, net: pretax - vat - corp };
 }
 
-
-
-/* ── 실마진율 (2026-09-02 사용자 요청) — 쿠폰·적립금 등 자사 할인 + 택배 발송비 반영 ──
-   서버 realmargin: 결제일 기준 주문의 actual_order_amount 집계, 네이버 부담 할인은 제외(A안 — 정산 때 보전됨).
-   이중 차감 방지 설계: 마진율 칸에는 '상품 실마진율'(할인만 반영)을 적용하고,
-   택배 발송비(건수×단가)는 P&L의 기존 '택배비' 비용 칸에 따로 적용한다 — 마진에도 넣으면 두 번 빠짐. */
-const PF_SHIP_UNIT_KEY = 'dnrb_pf_ship_unit';
-let pfRealData = null;
-function pfShipUnitSave() { localStorage.setItem(PF_SHIP_UNIT_KEY, $('pf-ship-unit').value); if (pfRealData) pfRealRender(); }
-function pfShipUnitLoad() { const v = localStorage.getItem(PF_SHIP_UNIT_KEY); if (v && $('pf-ship-unit')) $('pf-ship-unit').value = v; }
-async function pfRealFetch() {
+/* ── 매출 구성 (2026-10-21 사용자 요청 "쿠폰할인·적립금 등 매출 차감 비용도 수식에 반영") — 서버 profit_sales(결제일 기준 주문 시점 금액) ──
+   pfSales.raw = 서버 응답(기간 원값). 손익에는 입력한 결제 매출에 맞춰 비례 조정(pfSalesScaled)한 값을 쓴다 — 매출을 손으로 바꿔도 구성 비율은 유지. */
+const pfSales = { raw: null, view: null };
+function pfSalesData() { return pfSales.view || pfSales.raw; }
+function pfSalesScaled(rev) {
+  const r = pfSalesData(); if (!r || !(r.revenue > 0) || !(rev > 0)) return null;
+  const k = rev / r.revenue, out = { k, orders: r.orders, qty: r.qty };
+  for (const key of ['list', 'item_disc', 'item_code_disc', 'gross', 'coupon', 'points', 'credits', 'member', 'set', 'app', 'coupon_ship', 'ship_income', 'own_discount', 'revenue', 'paid_plus_naver']) out[key] = Math.round((Number(r[key]) || 0) * k);
+  return out;
+}
+async function pfSalesLoad(force) {
   const s = $('pfDateStart').value, e = $('pfDateEnd').value;
-  if (!s || !e) { showToast('기간을 먼저 선택해주세요'); return; }
-  const btn = $('btn-pf-real');
-  btnBusy(btn, '집계 중');
+  if (!s || !e) { showToast('기간을 먼저 선택해주세요'); return null; }
+  const box = $('pf-sales');
+  box.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> 카페24 주문을 읽는 중… (한 달치 20초 안팎)';
   try {
-    const d = await anGet({ action: 'realmargin', start_date: s, end_date: e });
-    d._m0 = Number($('pf-margin').value);   // 원가 역산 기준 = 이 시점의 정가 마진율 (실마진 적용 후 재계산 드리프트 방지)
-    pfRealData = d;
-    pfRealRender();
-  } catch (err) { showToast('실마진 집계 실패: ' + err.message); }
-  finally { btnIdle(btn, '<i class="fa-solid fa-calculator"></i> 실마진율 계산'); }
+    const d = await anGet(Object.assign({ action: 'profit_sales', start_date: s, end_date: e }, force ? { nocache: 1 } : {}));
+    pfSales.raw = d; pfSales.view = null;
+    $('pf-rev').value = d.revenue; $('pf-orders').value = d.orders;
+    pfSalesRender(); renderProfit();
+    showToast(`매출 구성을 읽었어요 — 결제 매출 ${fmt(d.revenue)}원 · 주문 ${fmt(d.orders)}건`);
+    return d;
+  } catch (e2) { box.innerHTML = `<span style="color:#b91c1c;">매출 구성을 읽지 못했어요 — ${escHtml(e2.message)}</span>`; return null; }
 }
-function pfRealRender() {
-  const d = pfRealData;
-  if (!d) return;
-  const box = $('pf-real');
-  const unit = Number($('pf-ship-unit').value) || 1850;
-  const shipCost = d.orders * unit;
-  const discRate = d.gross > 0 ? d.own_discount / d.gross * 100 : 0;
-  const tile = (label, val, sub) => `<div style="background:#fff;border:1px solid #fde5c8;border-radius:10px;padding:9px 12px;">
+function pfSalesRender() {
+  const box = $('pf-sales'); if (!box) return;
+  const r = pfSalesData();
+  if (!r) { box.innerHTML = `'데이터 자동 수집'을 누르면 판매가 매출·상품 할인·쿠폰·적립금·배송비 수입을 읽어 와 손익계산서에 줄별로 보여 줘요. 안 읽은 상태에서는 결제 매출을 판매가 매출로 보고 계산해요.`; return; }
+  const won = v => fmt(Math.round(v)) + '원', pc = v => r.list > 0 ? (v / r.list * 100).toFixed(1) + '%' : '';
+  const tile = (label, val, sub, color) => `<div style="background:#fff;border:1px solid #fde5c8;border-radius:10px;padding:9px 12px;">
     <div style="font-size:.7rem;color:#6b7280;font-weight:600;">${label}</div>
-    <div style="font-size:.95rem;font-weight:800;color:#1e1b4b;margin-top:2px;">${val}</div>
+    <div style="font-size:.95rem;font-weight:800;color:${color || '#1e1b4b'};margin-top:2px;">${val}</div>
     ${sub ? `<div style="font-size:.66rem;color:#6b7280;margin-top:2px;">${sub}</div>` : ''}</div>`;
-  let html = `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:8px;">`
-    + tile('정가 매출 (결제일 기준)', fmt(Math.round(d.gross)) + '원', `주문 ${fmt(d.orders)}건`)
-    + tile('자사 할인 (매출 차감)', '− ' + fmt(d.own_discount) + '원', `쿠폰 ${fmt(Math.round(d.coupon))} · 적립금 ${fmt(Math.round(d.points))}${d.credits ? ' · 예치금 ' + fmt(Math.round(d.credits)) : ''}${d.member ? ' · 회원 ' + fmt(Math.round(d.member)) : ''} (${discRate.toFixed(1)}%)`)
-    + tile('실매출', fmt(d.net) + '원', '정가 − 자사 할인')
-    + tile('택배 발송비', fmt(shipCost) + '원', `${fmt(d.orders)}건 × ${fmt(unit)}원`);
-  if (isFinite(d._m0) && d._m0 > 0 && d.net > 0) {
-    const cost = d.gross * (1 - d._m0 / 100);                     // 정가 마진율로 원가 역산 (판매 성과와 동일 기준)
-    const mReal = (d.net - cost) / d.net * 100;                   // 상품 실마진율 (할인만 반영)
-    const base = d.net + d.ship_income;
-    const mShip = base > 0 ? (base - cost - shipCost) / base * 100 : 0;   // 참고: 택배·배송비 수입까지 반영
-    html += tile('상품 실마진율', mReal.toFixed(1) + '%', `정가 마진율 ${d._m0.toFixed(1)}% → 할인 반영`)
-      + tile('택배 포함 실마진율 (참고)', mShip.toFixed(1) + '%', `배송비 수입 ${fmt(Math.round(d.ship_income))}원 포함`);
-    html += `</div>
-      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;align-items:center;">
-        <button onclick="pfRealApplyMargin(${mReal.toFixed(2)})" style="border:none;background:#c2410c;color:#fff;border-radius:99px;padding:6px 15px;font-size:.76rem;font-weight:700;cursor:pointer;">마진율 칸에 ${mReal.toFixed(1)}% 적용</button>
-        <button onclick="pfRealApplyShip(${shipCost})" style="border:1.5px solid #fed7aa;background:#fff;color:#c2410c;border-radius:99px;padding:6px 15px;font-size:.76rem;font-weight:700;cursor:pointer;">택배비 칸에 ${fmt(shipCost)}원 적용</button>
-        <span style="font-size:.68rem;color:#6b7280;">${d.naver > 0 ? `네이버 부담 할인 ${fmt(Math.round(d.naver))}원은 정산 보전이라 차감하지 않았습니다 · ` : ''}마진율에는 할인만, 택배비는 비용 칸에 — 이중 차감 방지</span>
-      </div>`;
-  } else {
-    html += `</div><div style="margin-top:8px;font-size:.74rem;color:#c2410c;">마진율 칸이 비어 있어 원가를 역산할 수 없습니다 — 먼저 '데이터 자동 수집'으로 마진율을 채운 뒤 다시 계산해 주세요. (할인 내역은 위에 표시됨)</div>`;
-  }
-  box.innerHTML = html;
+  const own = r.coupon + r.points + r.credits + r.member + r.set + r.app;
+  box.innerHTML = `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:8px;">`
+    + tile('판매가 매출', won(r.list), `주문 ${fmt(r.orders)}건 · 상품 ${fmt(r.qty)}개 · ${escHtml(r.period ? r.period.start + ' ~ ' + r.period.end : '')}`)
+    + tile('(−) 상품 할인', '− ' + won(r.item_disc + r.item_code_disc), `추가할인 ${won(r.item_disc)}${r.item_code_disc ? ' · 할인코드 ' + won(r.item_code_disc) : ''} (${pc(r.item_disc + r.item_code_disc)})`, '#b45309')
+    + tile('(−) 쿠폰·적립금 등 자사 할인', '− ' + won(own), `쿠폰 ${won(r.coupon)} · 적립금 ${won(r.points)}${r.credits ? ' · 예치금 ' + won(r.credits) : ''}${r.member ? ' · 회원등급 ' + won(r.member) : ''}${r.set ? ' · 세트 ' + won(r.set) : ''}${r.app ? ' · 앱 ' + won(r.app) : ''} (${pc(own)})`, '#b45309')
+    + tile('(+) 배송비 수입', '+ ' + won(r.ship_income), `받은 배송비 ${won(r.ship_fee)} − 배송비 쿠폰 ${won(r.coupon_ship)}`, '#15803d')
+    + tile('= 결제 매출', won(r.revenue), `참고: 카페24 결제액 + 네이버 포인트 ${won(r.paid_plus_naver)}${Math.abs(r.revenue - r.paid_plus_naver) > r.revenue * 0.02 ? ' (차이 큼 — 네이버 즉시할인 등 확인)' : ''}`, '#4338ca')
+    + `</div><div style="margin-top:8px;font-size:.7rem;color:#6b7280;">${pfSales.view ? '불러온 기록의 매출 구성이에요(수정 불가). ' : ''}네이버 포인트는 네이버가 정산 때 보전하므로 매출에 포함했어요${r.naver ? ` · 네이버 부담 할인 ${won(r.naver)}도 보전이라 차감하지 않았어요` : ''}. 결제 매출 칸을 손으로 바꾸면 이 구성이 같은 비율로 따라가요.</div>`;
 }
-function pfRealApplyMargin(v) { $('pf-margin').value = v.toFixed(1); renderProfit(); showToast(`마진율 ${v.toFixed(1)}% 적용 — 쿠폰·적립금 반영값`); }
-function pfRealApplyShip(v) { $('pf-ship').value = v; profitSaveCosts(); renderProfit(); showToast(`택배비 ${fmt(v)}원 적용`); }
+/* ── 가정(세율·요율·단가) — DB profit_settings ── */
+const pfSet = { rows: [], loaded: false, view: null };
+function pfSetValues() { const o = {}; for (const r of (pfSet.view ? pfSet.view.rows : pfSet.rows)) o[r.key] = Number(r.value) || 0; return o; }
+async function pfSetLoad(force) {
+  if (!pfSet.loaded || force) {
+    try { pfSet.rows = (await dbProxy('profit_settings?select=*&order=sort_order.asc')) || []; pfSet.loaded = true; }
+    catch (e) { showToast('가정 값을 불러오지 못했어요 — ' + e.message); }
+  }
+  pfSetRender(); renderProfit();
+}
+function pfSetRender() {
+  const el = $('pf-set-table'); if (!el) return;
+  const rows = pfSet.view ? pfSet.view.rows : pfSet.rows, ro = !!pfSet.view;
+  if (!rows.length) { el.innerHTML = '<div style="font-size:.8rem;color:#6b7280;">가정 값을 불러오지 못했어요.</div>'; return; }
+  const inp = 'border:1px solid #d1d5db;border-radius:6px;padding:4px 6px;font-size:.8rem;background:#fff;width:90px;text-align:right;';
+  const v = pfSetValues(), insSum = (v.ins_pension + v.ins_health + v.ins_care + v.ins_employ + v.ins_accident).toFixed(3);
+  el.innerHTML = `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:4px 24px;">${rows.map(r => `<div style="display:flex;align-items:center;gap:8px;padding:4px 0;border-bottom:1px solid #eef0f6;font-size:.8rem;">
+      <div style="flex:1;"><span style="font-weight:600;color:#374151;">${escHtml(r.label)}</span>${r.note ? `<div style="font-size:.68rem;color:#6b7280;">${escHtml(r.note)}</div>` : ''}</div>
+      <input type="number" step="${r.unit === '원' ? '10' : '0.001'}" min="0" value="${Number(r.value) || 0}" ${ro ? 'disabled' : ''} onchange="pfSetEdit('${escHtml(r.key)}',this)" style="${inp}" /><span style="font-size:.72rem;color:#6b7280;width:18px;">${escHtml(r.unit)}</span></div>`).join('')}</div>
+    <div style="font-size:.72rem;color:#6b7280;margin-top:6px;">직원 4대보험 회사 부담 합계 ${insSum}% · 법인세는 세전이익을 연 환산해 2억 이하 9% · 2억~200억 19% · 초과 21% 구간세율로 계산한 뒤 기간분으로 나누고 지방소득세를 더해요(이월결손·세액공제 미반영).</div>`;
+}
+async function pfSetEdit(key, el) {
+  if (pfSet.view) return;
+  const r = pfSet.rows.find(x => x.key === key); if (!r) return;
+  const v = Math.max(0, Math.round((parseFloat(el.value) || 0) * 1000) / 1000);
+  const before = r.value; r.value = v; el.value = v;
+  pfSetRender(); renderProfit();
+  try { await dbProxy(`profit_settings?key=eq.${encodeURIComponent(key)}`, { method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: JSON.stringify({ value: v, updated_at: new Date().toISOString() }) }); }
+  catch (e) { r.value = before; pfSetRender(); renderProfit(); showToast('저장 실패 — ' + e.message); }
+}
 
 /* ── ESC로 모달 닫기 (2026-09-02 UI 점검) — 열려 있는 모달·서랍 메뉴를 ESC 한 번으로 닫는다.
    대상 = id가 -modal로 끝나는 오버레이(배경 클릭 닫기와 같은 패턴) 중 화면에 떠 있는 것. 입력 중 IME 조합은 방해 안 함. */
@@ -15862,13 +15899,18 @@ async function fetchLaborFromWM() {
   if (!s || !e) { showToast('기간을 먼저 선택해주세요'); return; }
   try {
     const r = await wmApi({ action: 'labor_total', start_date: s, end_date: e });
-    $('pf-labor').value = Math.round(r.total);
-    profitSaveCosts(); renderProfit();
+    pfApplyLabor(r);
     const ymTxt = (r.months || []).map(m => m.ym).join(', ');
-    showToast(`근무관리 인건비 ${fmt(Math.round(r.total))}원 반영 (직원 ${r.employee_count}명 · ${ymTxt} 월 급여 합계 — 기간이 월 일부라면 조정하세요)`);
+    showToast(`근무관리 급여 반영 — 직원 ${fmt(Math.round(r.by_type?.employee || 0))}원 · 알바 ${fmt(Math.round(r.by_type?.parttime || 0))}원 (${ymTxt} 월 급여 합계 — 기간이 월 일부라면 조정하세요)`);
   } catch (err) {
-    showToast('인건비를 불러오지 못했어요 — ' + err.message);
+    showToast('급여를 불러오지 못했어요 — ' + err.message);
   }
+}
+function pfApplyLabor(r) {
+  const bt = r.by_type || {};
+  $('pf-labor-emp').value = Math.round(bt.employee ?? r.total ?? 0);
+  $('pf-labor-part').value = Math.round(bt.parttime ?? 0);
+  profitSaveCosts(); renderProfit();
 }
 
 async function fetchProfitData() {
@@ -15878,17 +15920,21 @@ async function fetchProfitData() {
   const btn = $('btn-pf-fetch');
   btnBusy(btn, '수집 중');
   try {
-    const [rev, mix, claims, perf, meta] = await Promise.all([
-      anGet({ action: 'revenue', start_date: s, end_date: e }).catch(err => ({ __err: '매출: ' + err.message })),
+    const [rev, mix, sales, labor, claims, perf, meta] = await Promise.all([
+      anGet({ action: 'revenue', start_date: s, end_date: e }).catch(err => ({ __err: '매출통계: ' + err.message })),
       anGet({ action: 'paymix', start_date: s, end_date: e }).catch(err => ({ __err: '결제 비중: ' + err.message })),
+      anGet({ action: 'profit_sales', start_date: s, end_date: e }).catch(err => ({ __err: '매출 구성: ' + err.message })),
+      wmApi({ action: 'labor_total', start_date: s, end_date: e }).catch(err => ({ __err: '급여: ' + err.message })),
       fetch(fnUrl('cafe24-claims', { start_date: s, end_date: e }), { headers: sbHeaders() }).then(r => r.json()).catch(err => ({ __err: '취소반품: ' + err.message })),
       anGet({ action: 'performance', start_date: s, end_date: e }).catch(err => ({ __err: '마진율: ' + err.message })),
       metaGet({ action: 'summary', start_date: s, end_date: e }).catch(err => ({ __err: '광고비: ' + err.message })),
     ]);
-    const errs = [rev, mix, claims, perf, meta].filter(x => x && x.__err).map(x => x.__err);
+    const errs = [rev, mix, sales, labor, claims, perf, meta].filter(x => x && x.__err).map(x => x.__err);
     if (mix && !mix.__err) { pfPayMixSet(mix); pfFeeRender(); }
-
-    if (rev && !rev.__err) $('pf-rev').value = rev.revenue;
+    // 결제 매출 = 매출 구성(결제일 기준 주문 시점 금액: 정가 − 자사 할인 + 배송비 수입). 매출통계(revenue, 주문 접수 기준·미입금 포함)는 참고로만.
+    if (sales && !sales.__err) { pfSales.raw = sales; pfSales.view = null; $('pf-rev').value = sales.revenue; $('pf-orders').value = sales.orders; pfSalesRender(); }
+    else if (rev && !rev.__err) $('pf-rev').value = rev.revenue;
+    if (labor && !labor.__err) pfApplyLabor(labor);
     if (claims && !claims.__err && claims.cancel) {
       let claimsAmt = (claims.cancel.amount || 0) + (claims.return.amount || 0);
       // 취소&반품 메뉴에 같은 기간의 네이버페이 CSV가 업로드되어 있으면 합산 (메뉴 합계와 동일해짐)
@@ -15898,6 +15944,7 @@ async function fetchProfitData() {
         if (npAmt > 0) { claimsAmt += npAmt; npIncluded = true; }
       }
       $('pf-claims').value = Math.round(claimsAmt);
+      $('pf-returns').value = Number(claims.return.count || 0);
       if (!npIncluded) showToast('ℹ취소반품 금액은 카페24 기준이에요 — 네이버 분까지 합치려면 취소&반품 메뉴에서 같은 기간으로 네이버 CSV를 업로드한 뒤 다시 수집하세요');
     }
     if (perf && !perf.__err && perf.rows) {
@@ -15914,7 +15961,7 @@ async function fetchProfitData() {
     if (meta && !meta.__err && meta.error !== 'not_connected') $('pf-ad').value = Math.round(meta.spend);
 
     renderProfit();
-    showToast(errs.length ? '일부 수집 실패: ' + errs.join(' / ') : '5개 지표(매출·취소반품·마진율·광고비·결제 비중) 자동 수집 완료 — 값은 직접 수정할 수 있어요');
+    showToast(errs.length ? '일부 수집 실패: ' + errs.join(' / ') : '자동 수집 완료 — 매출 구성·취소반품·마진율·광고비·결제 비중·급여(직원/알바). 값은 직접 수정할 수 있어요');
   } finally {
     btnIdle(btn, '<i class="fa-solid fa-cloud-arrow-down"></i> 데이터 자동 수집');
   }
@@ -15925,7 +15972,7 @@ function pfCurrent() {
   const claimsAmt = toNum($('pf-claims').value);
   const margin = parseFloat($('pf-margin').value) || 0;
   const ad = toNum($('pf-ad').value);
-  return { rev, claimsAmt, margin, ad,
+  return { rev, claimsAmt, margin, ad, orders: toNum($('pf-orders').value), returns: toNum($('pf-returns').value),
     crPct: rev > 0 ? claimsAmt / rev * 100 : 0,
     roas: ad > 0 ? rev / ad * 100 : 0 };
 }
@@ -15952,21 +15999,35 @@ function renderProfit() {
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:16px;">
       <div style="background:#fff;border:1.5px solid #e5e7eb;border-radius:12px;padding:14px 18px;">
         <div style="font-size:.82rem;font-weight:800;color:#4338ca;margin-bottom:6px;">손익 계산서</div>
-        ${row('결제 매출', won(cur.rev))}
-        ${row('(−) 취소·반품', '−' + won(cur.claimsAmt), `${cur.crPct.toFixed(1)}%`, { color: '#b45309' })}
+        ${(() => { const sl = costs.sales; if (!sl) return row('결제 매출', won(cur.rev), '매출 구성 미수집 — 판매가 매출로 봄');
+          const own = sl.coupon + sl.points + sl.credits + sl.member + sl.set + sl.app;
+          return row('판매가 매출', won(sl.list), `주문 ${fmt(sl.orders)}건 · 상품 ${fmt(sl.qty)}개`)
+            + row('(−) 상품 할인', '−' + won(sl.item_disc + sl.item_code_disc), `추가할인${sl.item_code_disc ? '·할인코드' : ''}`, { color: '#b45309' })
+            + row('(−) 쿠폰 할인', '−' + won(sl.coupon), '', { color: '#b45309' })
+            + row('(−) 적립금 사용', '−' + won(sl.points), '', { color: '#b45309' })
+            + (sl.credits + sl.member + sl.set + sl.app > 0 ? row('(−) 예치금·회원등급·세트·앱 할인', '−' + won(sl.credits + sl.member + sl.set + sl.app), '', { color: '#b45309' }) : '')
+            + row('(+) 배송비 수입', '+' + won(sl.ship_income), `배송비 쿠폰 ${fmtEok(sl.coupon_ship)} 뺀 값`, { color: '#15803d' })
+            + row('결제 매출', won(cur.rev), sl.k && Math.abs(sl.k - 1) > 0.001 ? `구성 비율 유지 × ${sl.k.toFixed(3)}` : '정가 − 자사 할인 + 배송비 수입', { strong: true }); })()}
+        ${row('(−) 취소·반품 환불', '−' + won(cur.claimsAmt), `${cur.crPct.toFixed(1)}%`, { color: '#b45309' })}
         ${row('순매출', won(d.netR))}
-        ${row('(−) 상품 원가', '−' + won(d.netR - d.gp), `마진율 ${cur.margin}%`, { color: '#6b7280' })}
-        ${row('매출이익', won(d.gp))}
-        ${row('(−) 광고비 (Meta)', '−' + won(cur.ad), `ROAS ${cur.roas.toFixed(0)}%`, { color: '#6366f1' })}
+        ${row('(−) 상품 원가', '−' + won(d.cogs), `${costs.sales ? '판매가 매출' : '순매출'} × (1 − ${cur.margin}%)${costs.sales ? ` × (1 − ${cur.crPct.toFixed(1)}%)` : ''}`, { color: '#6b7280' })}
+        ${row('매출이익', won(d.gp), `순매출 대비 ${d.netR > 0 ? (d.gp / d.netR * 100).toFixed(1) : 0}%`, { strong: true })}
+        ${row('(−) 광고비 (Meta)', '−' + won(cur.ad), `ROAS ${cur.roas.toFixed(0)}% · 부가세 ${fmtEok(d.adVat)} 별도(공제)`, { color: '#6366f1' })}
         ${row('(−) 결제 수수료 (PG·네이버페이)', '−' + won(d.fee), `순매출 × 가중 ${((costs.feeRate || 0) * 100).toFixed(2)}%${costs.feeBasis === 'card' ? ' · 결제 비중 미수집 — 카드 수수료율로' : ''}`, { color: '#0e7490' })}
-        ${row('(−) 인건비', '−' + won(costs.labor), '', { color: '#b45309' })}
+        ${row('(−) 택배 발송비', '−' + won(d.ship), `${fmt(costs.orders)}건 × ${fmt(costs.set.ship_unit || 0)}원 (면세)`, { color: '#0e7490' })}
+        ${row('(−) 반품 회수비', '−' + won(d.ret), `${fmt(costs.returns)}건 × ${fmt(costs.set.return_unit || 0)}원`, { color: '#0e7490' })}
+        ${costs.set.pack_unit > 0 ? row('(−) 포장재·소모품', '−' + won(d.pack), `${fmt(costs.orders)}건 × ${fmt(costs.set.pack_unit)}원`, { color: '#0e7490' }) : ''}
+        ${row('(−) 직원 급여', '−' + won(d.laborEmp), '4대보험 대상', { color: '#b45309' })}
+        ${row('(−) 4대보험 회사 부담', '−' + won(d.ins), `직원 급여 × ${(d.insRate * 100).toFixed(2)}%`, { color: '#7c3aed' })}
+        ${row('(−) 퇴직급여 충당', '−' + won(d.retire), `직원 급여 × ${costs.set.retire || 0}%`, { color: '#7c3aed' })}
+        ${row('(−) 알바·프리랜서 급여', '−' + won(d.laborPart), '3.3%는 받는 사람 공제', { color: '#b45309' })}
+        ${d.laborCeo > 0 ? row('(−) 대표 급여 + 4대보험', '−' + won(d.laborCeo + d.ceoIns), `급여 ${fmtEok(d.laborCeo)} + 보험 ${fmtEok(d.ceoIns)}`, { color: '#b45309' }) : ''}
         ${row('(−) 월 고정비 · 과세', '−' + won(costs.etcVat), `${costs.fixed.monthsText} × (공급가 ${fmtEok(costs.fixed.taxable)} + 부가세 10%)`, { color: '#6b7280' })}
         ${row('(−) 월 고정비 · 부가세 없음', '−' + won(costs.etcNoVat), `${costs.fixed.monthsText} × ${fmtEok(costs.fixed.none)}`, { color: '#6b7280' })}
-        ${row('(−) 택배비', '−' + won(costs.ship), '면세', { color: '#6b7280' })}
         ${row('세전이익', won(d.pretax), '', { strong: true, color: d.pretax >= 0 ? '#1e1b4b' : '#b91c1c' })}
         ${row('(−) 부가세 (자동)', '−' + won(d.vat), `매출세액 ${fmtEok(d.salesVat)} − 매입세액 ${fmtEok(d.purchaseVat)}`, { color: '#9333ea' })}
-        ${row('(−) 법인세 (자동)', '−' + won(d.corp), '구간세율', { color: '#9333ea' })}
-        ${row('최종 순이익', won(d.net), '', { strong: true, color: netColor })}
+        ${row('(−) 법인세 + 지방소득세 (자동)', '−' + won(d.corp), d.pretax > 0 ? `연 환산 ${fmtEok(d.pretax / d.months * 12)} 구간세율 → 기간분 + 지방소득세 ${costs.set.local_tax || 0}%` : '세전이익 0 이하', { color: '#9333ea' })}
+        ${row('최종 순이익', won(d.net), '', { strong: true, color: netColor })}        ${row('최종 순이익', won(d.net), '', { strong: true, color: netColor })}
       </div>
       <div style="display:flex;flex-direction:column;gap:12px;">
         <div style="border-radius:13px;padding:20px;color:#fff;background:${d.net >= 0 ? '#16a34a' : '#dc2626'};">
@@ -16022,7 +16083,7 @@ async function saveProfitArchive() {
         period_start: s, period_end: e,
         label: $('pf-arc-label').value.trim() || `${s} ~ ${e}`,
         memo: $('pf-arc-memo').value.trim(),
-        inputs: { rev: cur.rev, claims: cur.claimsAmt, margin: cur.margin, ad: cur.ad, costs, fixedItems: pfFixedRows().map(r => ({ name: r.name, amount: Number(r.amount) || 0, vat: r.vat, note: r.note || '', active: r.active !== false })),
+        inputs: { rev: cur.rev, claims: cur.claimsAmt, margin: cur.margin, ad: cur.ad, orders: cur.orders, returns: cur.returns, costs, sales: pfSalesData() || null, settings: (pfSet.view ? pfSet.view.rows : pfSet.rows).map(r => ({ key: r.key, value: Number(r.value) || 0, label: r.label, unit: r.unit, note: r.note || '' })), fixedItems: pfFixedRows().map(r => ({ name: r.name, amount: Number(r.amount) || 0, vat: r.vat, note: r.note || '', active: r.active !== false })),
           feeRates: (pfFeeRate().rates || []).map(r => ({ method: r.method, label: r.label, rate_pct: Number(r.rate_pct) || 0, note: r.note || '' })), payMix: pfFeeRate().mix || null },
         result: { pretax: Math.round(d.pretax), vat: Math.round(d.vat), corp: Math.round(d.corp), net: Math.round(d.net) },
       }),
@@ -16065,7 +16126,11 @@ function applyProfitArchive(id) {
   $('pf-rev').value = i.rev || ''; $('pf-claims').value = i.claims || '';
   $('pf-margin').value = i.margin || ''; $('pf-ad').value = i.ad || '';
   const c = i.costs || {};
-  $('pf-labor').value = c.labor || ''; $('pf-ship').value = c.ship || '';
+  $('pf-labor-emp').value = c.laborEmp ?? c.labor ?? ''; $('pf-labor-part').value = c.laborPart || ''; $('pf-labor-ceo').value = c.laborCeo || '';
+  $('pf-orders').value = i.orders || ''; $('pf-returns').value = i.returns || '';
+  pfSales.view = i.sales || null; pfSalesRender();
+  // 가정(세율·단가): 기록의 스냅샷(없는 옛 기록은 0 — 그때 계산과 같게: 보험·택배 단가 등 미반영)
+  pfSet.view = Array.isArray(i.settings) ? { rows: i.settings } : { rows: pfSet.rows.map(r => ({ ...r, value: 0 })), legacy: true }; pfSetRender();
   // 고정비: 기록에 항목 스냅샷이 있으면 그대로(수정 불가), 옛 기록(수동 칸)은 칸별 금액을 항목으로 바꿔 보여 준다(부가세 포함 금액 → 공급가 ÷1.1)
   if (Array.isArray(i.fixedItems)) pfFixed.view = { label: r.label, rows: i.fixedItems.map((x, k) => ({ id: -(k + 1), ...x })) };
   else {
@@ -16076,7 +16141,7 @@ function applyProfitArchive(id) {
   // 결제 수수료: 기록의 수수료율·결제 비중 스냅샷(없는 옛 기록은 수수료 0으로 — 그때 계산과 같게)
   pfFee.view = Array.isArray(i.feeRates) ? { rates: i.feeRates, mix: i.payMix || null } : { rates: [], mix: null, legacy: true };
   pfFixedRender(); pfFeeRender(); renderProfit();
-  showToast(`"${r.label}" 기록을 불러왔습니다`);
+  showToast(`"${r.label}" 기록을 불러왔습니다 — 고정비·수수료·가정은 그때 저장된 값(수정 불가)`);
 }
 
 async function deleteProfitArchive(id) {
@@ -17130,7 +17195,7 @@ function showMenu(key) {
     if (!isAdmin()) { admgrState.view = 'test'; if (!admgrState.test.loaded) admgrTestFetch(); else admgrRender(); }
     else if (!admgrState.data) admgrFetch();
   }
-  if (key === 'profit' && isAdmin()) { loadProfitArchive(); pfFixedLoad(false); pfFeeLoad(false); }
+  if (key === 'profit' && isAdmin()) { loadProfitArchive(); pfFixedLoad(false); pfFeeLoad(false); pfSetLoad(false); }
   if (key === 'rwatch') rwInit();
   if (key === 'rscan') rscanInit();
   if (key === 'unship') unshipInit();
@@ -19618,7 +19683,6 @@ function bootApp() {
   $('pfDateEnd').value   = fmtD(pfEnd);
   profitLoadCosts();
   loadOwnPeriod();
-  pfShipUnitLoad();   // 택배 발송 단가 (기본 1,850원, 브라우저 저장)
   $('np-pw').value = localStorage.getItem(NP_PW_KEY) || '';
 
   // 세션 확인 → 로그인 화면 또는 대시보드 시작
