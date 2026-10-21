@@ -14318,7 +14318,7 @@ async function pfPayMixLoad(force) {
   const s = $('pfDateStart').value, e = $('pfDateEnd').value;
   if (!s || !e) { showToast('기간을 먼저 선택해주세요'); return null; }
   try {
-    const d = await anGet(Object.assign({ action: 'paymix', start_date: s, end_date: e }, force ? { nocache: 1 } : {}));
+    const d = await pfFetchChunked('paymix', s, e, force);
     pfPayMixSet(d); pfFeeRender(); renderProfit();
     showToast(`결제 비중을 읽었어요 — 주문 ${fmt(d.orders)}건 · 실결제 ${fmt(d.total)}원`);
     return d;
@@ -14391,6 +14391,44 @@ function pfCalc(rev, crPct, marginPct, ad, costs) {
   return { netR, gp, cogs, listBase, adVat, fee, ship, ret, pack, laborEmp, laborPart, laborCeo, ins, insRate, retire, ceoIns, labor, fixedSum, pretax, salesVat, purchaseVat, vat, corpBase, corp, months, net: pretax - vat - corp };
 }
 
+/* ── 긴 기간은 달 단위로 나눠 차례로 읽는다 (2026-10-21 밤 — 7/1~9/30 조회가 카페24 429 "요청 한도"로 실패: 여러 3개월 스캔이 동시에 돌아 한도를 넘김) ──
+   서버는 달마다 30분 캐시를 두므로 같은 달을 다시 읽을 때 빠르다. 매출 구성(profit_sales)·결제 비중(paymix)은 합산 가능한 칸을 더한 뒤 파생값을 다시 계산한다. */
+function pfMonthChunks(s, e) {
+  const out = []; let a = new Date(s + 'T00:00:00'); const end = new Date(e + 'T00:00:00');
+  if (!(end >= a)) return [[s, e]];
+  while (a <= end) {
+    const last = new Date(a.getFullYear(), a.getMonth() + 1, 0); const b = last < end ? last : end;
+    const f = d => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+    out.push([f(a), f(b)]); a = new Date(b.getFullYear(), b.getMonth(), b.getDate() + 1);
+  }
+  return out;
+}
+async function pfFetchChunked(action, s, e, force, onProgress) {
+  const chunks = pfMonthChunks(s, e), parts = [];
+  for (let i = 0; i < chunks.length; i++) {
+    if (onProgress) onProgress(i, chunks.length, chunks[i]);
+    parts.push(await anGet(Object.assign({ action, start_date: chunks[i][0], end_date: chunks[i][1] }, force ? { nocache: 1 } : {})));
+  }
+  return parts.length === 1 ? parts[0] : (action === 'profit_sales' ? pfSalesMerge(parts, s, e) : pfPayMixMerge(parts, s, e));
+}
+const PF_SALES_SUM_KEYS = ['orders', 'list', 'item_disc', 'item_code_disc', 'gross', 'coupon', 'points', 'credits', 'member', 'set', 'app', 'coupon_ship', 'naver', 'ship_fee', 'ship_disc', 'paid', 'naver_point', 'qty', 'cancel_list', 'return_list', 'naver_cancel_list', 'naver_return_list', 'cancel_orders', 'return_orders', 'naver_orders', 'naver_list'];
+function pfSalesMerge(parts, s, e) {   // 서버 profit_sales의 파생값 계산과 같은 식
+  const o = { period: { start: s, end: e }, basis: parts[0].basis, chunks: parts.length };
+  for (const k of PF_SALES_SUM_KEYS) o[k] = parts.reduce((t, p) => t + (Number(p[k]) || 0), 0);
+  o.own_discount = o.coupon + o.points + o.credits + o.member + o.set + o.app;
+  o.ship_income = Math.max(0, o.ship_fee - o.ship_disc - o.coupon_ship);
+  o.revenue = Math.round(o.gross - o.own_discount + o.ship_income); o.paid_plus_naver = o.paid + o.naver_point;
+  const ratio = o.list > 0 ? o.revenue / o.list : 1; o.claims_ratio = ratio;
+  o.claims_amount = Math.round((o.cancel_list + o.return_list) * ratio); o.cancel_amount = Math.round(o.cancel_list * ratio); o.return_amount = Math.round(o.return_list * ratio);
+  o.naver_claims_amount = Math.round((o.naver_cancel_list + o.naver_return_list) * ratio);
+  return o;
+}
+function pfPayMixMerge(parts, s, e) {
+  const o = { period: { start: s, end: e }, basis: parts[0].basis, orders: 0, total: 0, buckets: {}, chunks: parts.length };
+  for (const p of parts) { o.orders += Number(p.orders) || 0; o.total += Number(p.total) || 0; for (const [k, v] of Object.entries(p.buckets || {})) o.buckets[k] = (o.buckets[k] || 0) + (Number(v) || 0); }
+  return o;
+}
+
 /* ── 매출 구성 (2026-10-21 사용자 요청 "쿠폰할인·적립금 등 매출 차감 비용도 수식에 반영") — 서버 profit_sales(결제일 기준 주문 시점 금액) ──
    pfSales.raw = 서버 응답(기간 원값). 손익에는 입력한 결제 매출에 맞춰 비례 조정(pfSalesScaled)한 값을 쓴다 — 매출을 손으로 바꿔도 구성 비율은 유지. */
 const pfSales = { raw: null, view: null };
@@ -14407,7 +14445,7 @@ async function pfSalesLoad(force) {
   const box = $('pf-sales');
   box.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> 카페24 주문을 읽는 중… (한 달치 20초 안팎)';
   try {
-    const d = await anGet(Object.assign({ action: 'profit_sales', start_date: s, end_date: e }, force ? { nocache: 1 } : {}));
+    const d = await pfFetchChunked('profit_sales', s, e, force, (i, n, c) => { if (n > 1) box.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> 카페24 주문을 읽는 중… ${i + 1}/${n} (${c[0]} ~ ${c[1]}, 한 달치 20초 안팎)`; });
     pfSales.raw = d; pfSales.view = null;
     $('pf-rev').value = d.revenue; $('pf-orders').value = d.orders;
     if (d.claims_amount > 0) { $('pf-claims').value = d.claims_amount; $('pf-returns').value = Number(d.return_orders || 0); }
@@ -15922,16 +15960,24 @@ async function fetchProfitData() {
   const btn = $('btn-pf-fetch');
   btnBusy(btn, '수집 중');
   try {
-    const [rev, mix, sales, labor, claims, perf, meta] = await Promise.all([
+    // 가벼운 조회(매출통계·급여·Meta)는 동시에, 카페24 주문을 훑는 조회(마진율·매출 구성·결제 비중)는 **차례로** — 동시에 돌리면 3개월 조회에서 카페24 429(요청 한도)가 난다(2026-10-21 실측)
+    const progress = txt => { btnBusy(btn, txt); };
+    const [rev, labor, meta] = await Promise.all([
       anGet({ action: 'revenue', start_date: s, end_date: e }).catch(err => ({ __err: '매출통계: ' + err.message })),
-      anGet({ action: 'paymix', start_date: s, end_date: e }).catch(err => ({ __err: '결제 비중: ' + err.message })),
-      anGet({ action: 'profit_sales', start_date: s, end_date: e }).catch(err => ({ __err: '매출 구성: ' + err.message })),
       wmApi({ action: 'labor_total', start_date: s, end_date: e }).catch(err => ({ __err: '급여: ' + err.message })),
-      fetch(fnUrl('cafe24-claims', { start_date: s, end_date: e }), { headers: sbHeaders() }).then(r => r.json()).catch(err => ({ __err: '취소반품: ' + err.message })),
-      anGet({ action: 'performance', start_date: s, end_date: e }).catch(err => ({ __err: '마진율: ' + err.message })),
       metaGet({ action: 'summary', start_date: s, end_date: e }).catch(err => ({ __err: '광고비: ' + err.message })),
     ]);
+    progress('마진율 수집 중');
+    const perf = await anGet({ action: 'performance', start_date: s, end_date: e }).catch(err => ({ __err: '마진율: ' + err.message }));
+    const salesBox = $('pf-sales');
+    const sales = await pfFetchChunked('profit_sales', s, e, false, (i, n, c) => { progress(`매출 구성 ${i + 1}/${n}`); salesBox.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> 카페24 주문을 읽는 중… ${i + 1}/${n} (${c[0]} ~ ${c[1]}, 한 달치 20초 안팎)`; }).catch(err => ({ __err: '매출 구성: ' + err.message }));
+    progress('결제 비중 수집 중');
+    const mix = await pfFetchChunked('paymix', s, e, false).catch(err => ({ __err: '결제 비중: ' + err.message }));
+    // 취소·반품: 매출 구성이 실패했을 때만 옛 방식(카페24 claims + 네이버 CSV)으로
+    let claims = null;
+    if (sales && sales.__err) { progress('취소반품 수집 중'); claims = await fetch(fnUrl('cafe24-claims', { start_date: s, end_date: e }), { headers: sbHeaders() }).then(r => r.json()).catch(err => ({ __err: '취소반품: ' + err.message })); }
     const errs = [rev, mix, sales, labor, claims, perf, meta].filter(x => x && x.__err).map(x => x.__err);
+    if (sales && sales.__err) pfSalesRender();
     if (mix && !mix.__err) { pfPayMixSet(mix); pfFeeRender(); }
     // 결제 매출 = 매출 구성(결제일 기준 주문 시점 금액: 정가 − 자사 할인 + 배송비 수입). 매출통계(revenue, 주문 접수 기준·미입금 포함)는 참고로만.
     if (sales && !sales.__err) { pfSales.raw = sales; pfSales.view = null; $('pf-rev').value = sales.revenue; $('pf-orders').value = sales.orders; pfSalesRender(); }
