@@ -26,6 +26,7 @@ const TABLE_ROLES: Record<string, string[]> = {
   best_ads: ["admin", "staff"],   // 베스트소재 모음 — 광고세트 단위. MD·마케터도 열람·제거 가능 (2026-08-28 사용자 지정 — 담기는 광고세트 탭이 admin 전용이라 admin만)
   profit_archive: ["admin"],    // 순익 시나리오 기간별 기록
   profit_fixed_costs: ["admin"],   // 순익 시나리오 월 고정비 항목표 (2026-10-21, migrations/0058)
+  profit_fee_rates: ["admin"],     // 순익 시나리오 결제 수수료율 (2026-10-21, migrations/0059)
   project_tasks: ["admin"],     // 프로젝트 관리 업무 (관리자 전용 — 사용자 결정 2026-08-19)
   board_topics: ["admin"],      // 대표 회의보드 안건 (관리자 전용 — 사용자 결정 2026-08-19, 대표끼리 서로 수정 가능이라 AUTHOR_FIELDS 미적용)
   made_products: ["admin", "staff"],

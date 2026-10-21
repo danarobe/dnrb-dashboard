@@ -2826,6 +2826,34 @@ Deno.serve(async (req) => {
       return json({ period: { start: s, end: e }, revenue, order_count: orderCount });
     }
 
+    // ── 결제 수단 비중 (2026-10-21 사용자 요청 "PG·네이버페이 수수료 알아서 반영") — 순익 시나리오 결제 수수료용, 관리자, 30분 캐시 ──
+    //   결제일 기준 주문의 실결제액(actual_order_amount.payment_amount — 부분취소 반영)을 자사몰/네이버페이(NCHECKOUT) × 결제 수단으로 나눈다.
+    //   쿠폰·적립금·마일리지는 보조 수단이라 빼고 첫 번째 주 결제 수단으로 분류. 화면이 profit_fee_rates의 수단별 수수료율을 곱해 수수료를 낸다.
+    if (action === "paymix") {
+      if (authed.role !== "admin") return json({ error: "접근 권한이 없습니다" }, 403);
+      const s = url.searchParams.get("start_date");
+      const e = url.searchParams.get("end_date");
+      if (!s || !e) return json({ error: "start_date, end_date 필수 (YYYY-MM-DD)" }, 400);
+      const hit = await fromCache(); if (hit) return json(hit);
+      const AUX = new Set(["coupon", "point", "mileage"]);
+      // 실측(2026-09, 11,080건): 자사몰 card 51%·prepaid(간편결제 선불금 — 카카오페이·네이버페이머니 등) 8.4%·tcash 5.4%·cash+icash(무통장·가상계좌) 2.7% / 네이버페이 card 30%·tcash 1.2%·cell 0.4%
+      const buckets: Record<string, number> = { card: 0, tcash: 0, cash: 0, prepaid: 0, cell: 0, other: 0, naver_card: 0, naver_tcash: 0, naver_prepaid: 0, naver_other: 0 };
+      let orders = 0, total = 0;
+      await eachOrder(token, "date_type=pay_date&fields=order_id,payment_method,order_place_id,market_id,actual_order_amount", s, e, (list) => {
+        for (const o of list as Record<string, any>[]) {
+          const amt = num((o.actual_order_amount ?? {}).payment_amount);
+          if (amt <= 0) continue;
+          const pay = ((o.payment_method ?? []) as unknown[]).map(String).filter((m) => !AUX.has(m));
+          const m = pay[0] ?? "other";
+          const naver = o.order_place_id === "NCHECKOUT" || o.market_id === "NCHECKOUT";
+          const key = naver ? (m === "card" ? "naver_card" : m === "tcash" ? "naver_tcash" : m === "prepaid" ? "naver_prepaid" : "naver_other")
+            : (m === "card" ? "card" : m === "tcash" ? "tcash" : (m === "cash" || m === "icash") ? "cash" : m === "prepaid" ? "prepaid" : m === "cell" ? "cell" : "other");
+          buckets[key] += amt; total += amt; orders++;
+        }
+      });
+      return respond({ period: { start: s, end: e }, basis: "pay_date", orders, total: Math.round(total), buckets: Object.fromEntries(Object.entries(buckets).map(([k, v]) => [k, Math.round(v)])) });
+    }
+
     // ── 실마진 집계 (2026-09-02 사용자 요청) — 결제일 기준 주문의 실결제·할인 내역 (관리자 전용, 10분 캐시) ──
     // actual_order_amount 사용(부분취소 반영). **자사 부담 할인(쿠폰·적립금·예치금·회원·세트·앱)만 차감 대상**으로 집계하고,
     // 네이버 부담(market_other_discount_amount)은 정산 때 보전되므로 참고로만 반환 (A안 — 사용자 확정 2026-09-02).

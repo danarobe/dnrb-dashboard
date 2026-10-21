@@ -2174,6 +2174,17 @@
           <div id="pf-fx-note"></div>
           <div id="pf-fx-table"></div>
         </div>
+        <!-- 결제 수수료 (2026-10-21 사용자 요청 — PG·네이버페이 수수료: 기간 결제 비중(서버 paymix) × 수단별 수수료율(DB profit_fee_rates)) -->
+        <div style="margin-top:14px;border-top:1px dashed #c7d2fe;padding-top:12px;">
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px;">
+            <span style="font-size:.82rem;font-weight:800;color:#0e7490;">결제 수수료 (PG · 네이버페이)</span>
+            <span id="pf-fee-sum" style="font-size:.78rem;color:#374151;"></span>
+            <span style="flex:1;"></span>
+            <button onclick="pfPayMixLoad(true)" style="border:1px solid #a5f3fc;background:#ecfeff;color:#0e7490;border-radius:6px;padding:3px 10px;font-size:.72rem;font-weight:700;cursor:pointer;"><i class="fa-solid fa-rotate"></i> 결제 비중 다시 읽기</button>
+          </div>
+          <div style="font-size:.72rem;color:#6b7280;margin-bottom:8px;line-height:1.6;">기간 주문(결제일 기준)의 실결제액을 자사몰·네이버페이 × 결제 수단으로 나눠 비중을 구하고('데이터 자동 수집' 때 같이 읽어요), 수단별 <b>수수료율(부가세 포함)</b>을 곱해요. 수수료는 세금계산서를 받으니 그 10/110은 매입세액으로 공제돼요. <b>수수료율 기본값은 일반 가맹점 추정치</b>예요 — 카페24 PG 계약서와 네이버페이센터 정산 수수료로 확인해서 고쳐 주세요(바꾸면 바로 저장).</div>
+          <div id="pf-fee-table"></div>
+        </div>
       </div>
 
       <!-- 결과 -->
@@ -14192,9 +14203,10 @@ function pfCorpTax(base) {
    pfCalc에는 예전 모양 그대로 넘긴다: etcVat = 과세 항목 합 × 1.1(부가세 포함 금액 — pfCalc가 10/110으로 매입세액을 떼므로 공급가 × 10%와 같음) × 기간 개월,
    etcNoVat = 부가세 없음 항목 합 × 기간 개월. buying·rent·mgmt는 0(항목표에 들어 있음). */
 function pfCosts() {
-  const fx = pfFixedTotals();
+  const fx = pfFixedTotals(), fee = pfFeeRate();
   return { labor: toNum($('pf-labor').value), buying: 0, rent: 0, mgmt: 0,
-           ship: toNum($('pf-ship').value), etcVat: Math.round(fx.taxable * 1.1 * fx.months), etcNoVat: Math.round(fx.none * fx.months), fixed: fx };
+           ship: toNum($('pf-ship').value), etcVat: Math.round(fx.taxable * 1.1 * fx.months), etcNoVat: Math.round(fx.none * fx.months), fixed: fx,
+           feeRate: fee.rate, feeBasis: fee.basis };
 }
 function profitSaveCosts() { localStorage.setItem(PF_COST_KEY, JSON.stringify({ labor: toNum($('pf-labor').value), ship: toNum($('pf-ship').value) })); }
 function profitLoadCosts() {
@@ -14273,7 +14285,63 @@ async function pfFixedDelete(id) {
   try { await dbProxy(`profit_fixed_costs?id=eq.${id}`, { method: 'DELETE', headers: { Prefer: 'return=minimal' } }); await pfFixedLoad(true); }
   catch (e) { showToast('삭제 실패 — ' + e.message); }
 }
-function pfFixedExitView() { pfFixed.view = null; pfFixedRender(); renderProfit(); }
+function pfFixedExitView() { pfFixed.view = null; pfFee.view = null; pfFixedRender(); pfFeeRender(); renderProfit(); }
+/* ── 결제 수수료 (2026-10-21): 서버 paymix(결제 비중) × profit_fee_rates(수단별 수수료율, 부가세 포함) ── */
+const PF_PAYMIX_KEY = 'dnrb_pf_paymix';
+const pfFee = { rates: [], loaded: false, mix: null, view: null };   // view = 불러온 기록의 스냅샷 { rates, mix, legacy }
+async function pfFeeLoad(force) {
+  if (!pfFee.loaded || force) {
+    try { pfFee.rates = (await dbProxy('profit_fee_rates?select=*&order=sort_order.asc')) || []; pfFee.loaded = true; }
+    catch (e) { showToast('수수료율을 불러오지 못했어요 — ' + e.message); }
+  }
+  if (!pfFee.mix) { try { pfFee.mix = JSON.parse(localStorage.getItem(PF_PAYMIX_KEY) || 'null'); } catch { pfFee.mix = null; } }
+  pfFeeRender(); renderProfit();
+}
+function pfPayMixSet(d) {
+  pfFee.mix = { period: d.period, total: Number(d.total) || 0, orders: Number(d.orders) || 0, buckets: d.buckets || {} };
+  try { localStorage.setItem(PF_PAYMIX_KEY, JSON.stringify(pfFee.mix)); } catch {}
+}
+async function pfPayMixLoad(force) {
+  const s = $('pfDateStart').value, e = $('pfDateEnd').value;
+  if (!s || !e) { showToast('기간을 먼저 선택해주세요'); return null; }
+  try {
+    const d = await anGet(Object.assign({ action: 'paymix', start_date: s, end_date: e }, force ? { nocache: 1 } : {}));
+    pfPayMixSet(d); pfFeeRender(); renderProfit();
+    showToast(`결제 비중을 읽었어요 — 주문 ${fmt(d.orders)}건 · 실결제 ${fmt(d.total)}원`);
+    return d;
+  } catch (e2) { showToast('결제 비중을 읽지 못했어요 — ' + e2.message); return null; }
+}
+function pfFeeRate() {
+  const rates = pfFee.view ? pfFee.view.rates : pfFee.rates, mix = pfFee.view ? pfFee.view.mix : pfFee.mix;
+  const rate = m => (Number(((rates || []).find(r => r.method === m) || {}).rate_pct) || 0) / 100;
+  if (!mix || !(mix.total > 0)) return { rate: rate('card'), basis: 'card', mix: null, rates };
+  let fee = 0; for (const [k, v] of Object.entries(mix.buckets || {})) fee += (Number(v) || 0) * rate(k);
+  return { rate: fee / mix.total, basis: 'mix', mix, rates };
+}
+function pfFeeRender() {
+  const el = $('pf-fee-table'); if (!el) return;
+  const f = pfFeeRate(), ro = !!pfFee.view, won = v => fmt(Math.round(v)) + '원', rates = f.rates || [];
+  const mix = f.mix, total = mix ? mix.total : 0;
+  $('pf-fee-sum').innerHTML = `가중 수수료율 <b>${(f.rate * 100).toFixed(2)}%</b> <span style="color:#6b7280;">${mix ? `· ${escHtml(mix.period ? mix.period.start + ' ~ ' + mix.period.end : '')} 실결제 ${won(total)} · 주문 ${fmt(mix.orders || 0)}건 기준` : '· 결제 비중을 아직 안 읽어 카드 수수료율로 계산해요'}</span>`;
+  if (!rates.length) { el.innerHTML = '<div style="font-size:.8rem;color:#6b7280;padding:8px 0;">수수료율 표를 불러오지 못했어요.</div>'; return; }
+  const inp = 'border:1px solid #d1d5db;border-radius:6px;padding:4px 6px;font-size:.8rem;background:#fff;';
+  el.innerHTML = `<div class="table-wrap"><table style="width:100%;font-size:.8rem;"><thead><tr><th style="text-align:left;">결제 수단</th><th style="text-align:right;">기간 실결제액</th><th style="text-align:right;">비중</th><th style="width:110px;">수수료율 %<div class="cn-sub">부가세 포함</div></th><th style="text-align:right;">수수료</th><th style="text-align:left;">메모</th></tr></thead><tbody>${rates.map(r => {
+    const amt = mix ? (Number((mix.buckets || {})[r.method]) || 0) : 0, pct = Number(r.rate_pct) || 0;
+    return `<tr style="${mix && !amt ? 'opacity:.55;' : ''}"><td style="text-align:left;font-weight:600;">${escHtml(r.label || r.method)}</td>
+      <td style="text-align:right;">${mix ? won(amt) : '—'}</td><td style="text-align:right;">${mix && total ? (amt / total * 100).toFixed(1) + '%' : '—'}</td>
+      <td><input type="number" step="0.01" min="0" max="20" value="${pct}" ${ro ? 'disabled' : ''} onchange="pfFeeEdit('${escHtml(r.method)}',this)" style="${inp}width:100%;text-align:right;" /></td>
+      <td style="text-align:right;">${mix ? won(amt * pct / 100) : '—'}</td><td style="text-align:left;font-size:.72rem;color:#6b7280;">${escHtml(r.note || '')}</td></tr>`; }).join('')}</tbody>
+    <tfoot><tr style="font-weight:700;background:#f8f9ff;"><td style="text-align:left;">합계</td><td style="text-align:right;">${mix ? won(total) : '—'}</td><td style="text-align:right;">${mix ? '100%' : '—'}</td><td style="text-align:right;">${(f.rate * 100).toFixed(2)}%</td><td style="text-align:right;">${mix ? won(total * f.rate) : '—'}</td><td style="text-align:left;font-size:.72rem;color:#6b7280;">${mix ? '손익에서는 순매출 × 가중 수수료율' : ''}</td></tr></tfoot></table></div>`;
+}
+async function pfFeeEdit(method, el) {
+  if (pfFee.view) return;
+  const r = pfFee.rates.find(x => x.method === method); if (!r) return;
+  const v = Math.max(0, Math.min(20, Math.round((parseFloat(el.value) || 0) * 100) / 100));
+  const before = r.rate_pct; r.rate_pct = v; el.value = v;
+  pfFeeRender(); renderProfit();
+  try { await dbProxy(`profit_fee_rates?method=eq.${encodeURIComponent(method)}`, { method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: JSON.stringify({ rate_pct: v, updated_at: new Date().toISOString() }) }); }
+  catch (e) { r.rate_pct = before; pfFeeRender(); renderProfit(); showToast('저장 실패 — ' + e.message); }
+}
 
 /* 핵심 계산 — rev·ad·비용은 원 단위, cr·margin은 %
    부가세 = 매출세액 − 매입세액:
@@ -14287,14 +14355,16 @@ function pfCalc(rev, crPct, marginPct, ad, costs) {
   const netR = rev * (1 - crPct / 100);                 // 순매출 (취소·반품 차감)
   const gp = netR * (marginPct / 100);                  // 매출이익
   const cogs = netR - gp;                               // 상품 원가 (부가세 포함 기준)
+  const fee = netR * (costs.feeRate || 0);              // 결제 수수료(PG·네이버페이, 부가세 포함 — 2026-10-21): 순매출 × 가중 수수료율
   const fixedSum = costs.labor + costs.buying + costs.rent + costs.mgmt + costs.ship + costs.etcVat + costs.etcNoVat;
-  const pretax = gp - ad - fixedSum;                    // 세전이익
+  const pretax = gp - ad - fee - fixedSum;              // 세전이익
   const salesVat = netR * 10 / 110;
   const purchaseVat = cogs * 10 / 110 + ad * 0.1
-    + (costs.buying + costs.rent + costs.mgmt + costs.etcVat) * 10 / 110;
+    + (costs.buying + costs.rent + costs.mgmt + costs.etcVat) * 10 / 110
+    + fee * 10 / 110;                                    // 결제 수수료는 세금계산서(부가세 포함) → 매입세액
   const vat = Math.max(0, salesVat - purchaseVat);
   const corp = pfCorpTax(pretax);                       // 법인세
-  return { netR, gp, cogs, fixedSum, pretax, salesVat, purchaseVat, vat, corp, net: pretax - vat - corp };
+  return { netR, gp, cogs, fee, fixedSum, pretax, salesVat, purchaseVat, vat, corp, net: pretax - vat - corp };
 }
 
 
@@ -15808,13 +15878,15 @@ async function fetchProfitData() {
   const btn = $('btn-pf-fetch');
   btnBusy(btn, '수집 중');
   try {
-    const [rev, claims, perf, meta] = await Promise.all([
+    const [rev, mix, claims, perf, meta] = await Promise.all([
       anGet({ action: 'revenue', start_date: s, end_date: e }).catch(err => ({ __err: '매출: ' + err.message })),
+      anGet({ action: 'paymix', start_date: s, end_date: e }).catch(err => ({ __err: '결제 비중: ' + err.message })),
       fetch(fnUrl('cafe24-claims', { start_date: s, end_date: e }), { headers: sbHeaders() }).then(r => r.json()).catch(err => ({ __err: '취소반품: ' + err.message })),
       anGet({ action: 'performance', start_date: s, end_date: e }).catch(err => ({ __err: '마진율: ' + err.message })),
       metaGet({ action: 'summary', start_date: s, end_date: e }).catch(err => ({ __err: '광고비: ' + err.message })),
     ]);
-    const errs = [rev, claims, perf, meta].filter(x => x && x.__err).map(x => x.__err);
+    const errs = [rev, mix, claims, perf, meta].filter(x => x && x.__err).map(x => x.__err);
+    if (mix && !mix.__err) { pfPayMixSet(mix); pfFeeRender(); }
 
     if (rev && !rev.__err) $('pf-rev').value = rev.revenue;
     if (claims && !claims.__err && claims.cancel) {
@@ -15842,7 +15914,7 @@ async function fetchProfitData() {
     if (meta && !meta.__err && meta.error !== 'not_connected') $('pf-ad').value = Math.round(meta.spend);
 
     renderProfit();
-    showToast(errs.length ? '일부 수집 실패: ' + errs.join(' / ') : '4개 지표 자동 수집 완료 — 값은 직접 수정할 수 있어요');
+    showToast(errs.length ? '일부 수집 실패: ' + errs.join(' / ') : '5개 지표(매출·취소반품·마진율·광고비·결제 비중) 자동 수집 완료 — 값은 직접 수정할 수 있어요');
   } finally {
     btnIdle(btn, '<i class="fa-solid fa-cloud-arrow-down"></i> 데이터 자동 수집');
   }
@@ -15886,6 +15958,7 @@ function renderProfit() {
         ${row('(−) 상품 원가', '−' + won(d.netR - d.gp), `마진율 ${cur.margin}%`, { color: '#6b7280' })}
         ${row('매출이익', won(d.gp))}
         ${row('(−) 광고비 (Meta)', '−' + won(cur.ad), `ROAS ${cur.roas.toFixed(0)}%`, { color: '#6366f1' })}
+        ${row('(−) 결제 수수료 (PG·네이버페이)', '−' + won(d.fee), `순매출 × 가중 ${((costs.feeRate || 0) * 100).toFixed(2)}%${costs.feeBasis === 'card' ? ' · 결제 비중 미수집 — 카드 수수료율로' : ''}`, { color: '#0e7490' })}
         ${row('(−) 인건비', '−' + won(costs.labor), '', { color: '#b45309' })}
         ${row('(−) 월 고정비 · 과세', '−' + won(costs.etcVat), `${costs.fixed.monthsText} × (공급가 ${fmtEok(costs.fixed.taxable)} + 부가세 10%)`, { color: '#6b7280' })}
         ${row('(−) 월 고정비 · 부가세 없음', '−' + won(costs.etcNoVat), `${costs.fixed.monthsText} × ${fmtEok(costs.fixed.none)}`, { color: '#6b7280' })}
@@ -15949,7 +16022,8 @@ async function saveProfitArchive() {
         period_start: s, period_end: e,
         label: $('pf-arc-label').value.trim() || `${s} ~ ${e}`,
         memo: $('pf-arc-memo').value.trim(),
-        inputs: { rev: cur.rev, claims: cur.claimsAmt, margin: cur.margin, ad: cur.ad, costs, fixedItems: pfFixedRows().map(r => ({ name: r.name, amount: Number(r.amount) || 0, vat: r.vat, note: r.note || '', active: r.active !== false })) },
+        inputs: { rev: cur.rev, claims: cur.claimsAmt, margin: cur.margin, ad: cur.ad, costs, fixedItems: pfFixedRows().map(r => ({ name: r.name, amount: Number(r.amount) || 0, vat: r.vat, note: r.note || '', active: r.active !== false })),
+          feeRates: (pfFeeRate().rates || []).map(r => ({ method: r.method, label: r.label, rate_pct: Number(r.rate_pct) || 0, note: r.note || '' })), payMix: pfFeeRate().mix || null },
         result: { pretax: Math.round(d.pretax), vat: Math.round(d.vat), corp: Math.round(d.corp), net: Math.round(d.net) },
       }),
     });
@@ -15999,7 +16073,9 @@ function applyProfitArchive(id) {
       .filter(x => Number(x[1]) > 0).map((x, k) => ({ id: -(k + 1), name: x[0], amount: x[2] === 'taxable' ? Math.round(Number(x[1]) / 1.1) : Number(x[1]), vat: x[2], note: '옛 기록의 칸 금액', active: true }));
     pfFixed.view = { label: r.label, rows: legacy, legacy: true };
   }
-  pfFixedRender(); renderProfit();
+  // 결제 수수료: 기록의 수수료율·결제 비중 스냅샷(없는 옛 기록은 수수료 0으로 — 그때 계산과 같게)
+  pfFee.view = Array.isArray(i.feeRates) ? { rates: i.feeRates, mix: i.payMix || null } : { rates: [], mix: null, legacy: true };
+  pfFixedRender(); pfFeeRender(); renderProfit();
   showToast(`"${r.label}" 기록을 불러왔습니다`);
 }
 
@@ -17054,7 +17130,7 @@ function showMenu(key) {
     if (!isAdmin()) { admgrState.view = 'test'; if (!admgrState.test.loaded) admgrTestFetch(); else admgrRender(); }
     else if (!admgrState.data) admgrFetch();
   }
-  if (key === 'profit' && isAdmin()) { loadProfitArchive(); pfFixedLoad(false); }
+  if (key === 'profit' && isAdmin()) { loadProfitArchive(); pfFixedLoad(false); pfFeeLoad(false); }
   if (key === 'rwatch') rwInit();
   if (key === 'rscan') rscanInit();
   if (key === 'unship') unshipInit();
