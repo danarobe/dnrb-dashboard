@@ -2122,9 +2122,9 @@
       <!-- STEP 1: 기간 + 자동 수집 -->
       <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:14px;">
         <label style="font-size:.82rem;font-weight:700;color:#4b5563;"><i class="fa-regular fa-calendar"></i> 기간</label>
-        <input type="date" id="pfDateStart" style="padding:7px 11px;border:1.5px solid #e5e7eb;border-radius:8px;font-size:.82rem;font-family:inherit;" />
+        <input type="date" id="pfDateStart" onchange="if (typeof pfFixedRender === 'function') { pfFixedRender(); renderProfit(); }" style="padding:7px 11px;border:1.5px solid #e5e7eb;border-radius:8px;font-size:.82rem;font-family:inherit;" />
         <span class="date-sep">~</span>
-        <input type="date" id="pfDateEnd" style="padding:7px 11px;border:1.5px solid #e5e7eb;border-radius:8px;font-size:.82rem;font-family:inherit;" />
+        <input type="date" id="pfDateEnd" onchange="if (typeof pfFixedRender === 'function') { pfFixedRender(); renderProfit(); }" style="padding:7px 11px;border:1.5px solid #e5e7eb;border-radius:8px;font-size:.82rem;font-family:inherit;" />
         <label style="display:flex;align-items:center;gap:5px;font-size:.75rem;color:#6b7280;cursor:pointer;font-weight:600;white-space:nowrap;" title="체크하면 홈 대시보드의 '카페24 불러오기'가 이 메뉴의 기간을 덮어쓰지 않습니다">
           <input type="checkbox" id="own-period-profit" onchange="saveOwnPeriod()" /> 이 메뉴만 별도 기간</label>
         <button class="btn-analyze" id="btn-pf-fetch" onclick="fetchProfitData()">
@@ -2154,17 +2154,25 @@
 
       <!-- STEP 3: 고정비 입력 -->
       <div style="background:#f8f9ff;border:1.5px solid #e0e7ff;border-radius:12px;padding:12px 16px;margin-bottom:14px;">
-        <div style="font-size:.82rem;font-weight:700;color:#4338ca;margin-bottom:10px;">기간 비용 입력 <span style="font-weight:400;color:#6b7280;font-size:.75rem;">— 입력값은 이 브라우저에 저장돼 다음에도 유지됩니다</span></div>
+        <div style="font-size:.82rem;font-weight:700;color:#4338ca;margin-bottom:10px;">기간 비용 입력 <span style="font-weight:400;color:#6b7280;font-size:.75rem;">— 인건비·택배비는 이 브라우저에, 월 고정비 표는 DB에 저장돼요(관리자 공용)</span></div>
         <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;font-size:.82rem;color:#374151;">
           <label>인건비
             <button onclick="event.preventDefault();fetchLaborFromWM()" style="margin-left:6px;border:1px solid #c7d2fe;background:#eef2ff;color:#4338ca;border-radius:6px;padding:2px 8px;font-size:.7rem;font-weight:700;cursor:pointer;">근무관리에서 불러오기</button>
             <input type="number" id="pf-labor" oninput="profitSaveCosts();renderProfit()" style="width:100%;margin-top:3px;border:1.5px solid #d1d5db;border-radius:8px;padding:7px 10px;" /></label>
-          <label>사입삼촌 비용 <span style="color:#9333ea;font-weight:400;">(부가세 포함)</span><input type="number" id="pf-buying" oninput="profitSaveCosts();renderProfit()" style="width:100%;margin-top:3px;border:1.5px solid #d1d5db;border-radius:8px;padding:7px 10px;" /></label>
-          <label>사무실 월세 <span style="color:#9333ea;font-weight:400;">(부가세 포함)</span><input type="number" id="pf-rent" oninput="profitSaveCosts();renderProfit()" style="width:100%;margin-top:3px;border:1.5px solid #d1d5db;border-radius:8px;padding:7px 10px;" /></label>
-          <label>관리비 <span style="color:#9333ea;font-weight:400;">(부가세 포함)</span><input type="number" id="pf-mgmt" oninput="profitSaveCosts();renderProfit()" style="width:100%;margin-top:3px;border:1.5px solid #d1d5db;border-radius:8px;padding:7px 10px;" /></label>
-          <label>택배비<input type="number" id="pf-ship" oninput="profitSaveCosts();renderProfit()" style="width:100%;margin-top:3px;border:1.5px solid #d1d5db;border-radius:8px;padding:7px 10px;" /></label>
-          <label>기타 비용 <span style="color:#9333ea;font-weight:400;">(부가세 포함 — 청소 등)</span><input type="number" id="pf-etcvat" oninput="profitSaveCosts();renderProfit()" style="width:100%;margin-top:3px;border:1.5px solid #d1d5db;border-radius:8px;padding:7px 10px;" /></label>
-          <label>기타 비용 <span style="color:#6b7280;font-weight:400;">(부가세 미포함)</span><input type="number" id="pf-etcnovat" oninput="profitSaveCosts();renderProfit()" style="width:100%;margin-top:3px;border:1.5px solid #d1d5db;border-radius:8px;padding:7px 10px;" /></label>
+          <label>택배비 <span style="color:#6b7280;font-weight:400;">(면세)</span><input type="number" id="pf-ship" oninput="profitSaveCosts();renderProfit()" style="width:100%;margin-top:3px;border:1.5px solid #d1d5db;border-radius:8px;padding:7px 10px;" /></label>
+        </div>
+        <!-- 월 고정비 표 (2026-10-21 사용자 요청 — 항목별, 금액은 부가세 미포함 공급가, DB profit_fixed_costs) -->
+        <div style="margin-top:14px;border-top:1px dashed #c7d2fe;padding-top:12px;">
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px;">
+            <span style="font-size:.82rem;font-weight:800;color:#4338ca;">월 고정비</span>
+            <span id="pf-fx-sum" style="font-size:.78rem;color:#374151;"></span>
+            <span style="flex:1;"></span>
+            <button onclick="pfFixedAdd()" style="border:1px solid #c7d2fe;background:#eef2ff;color:#4338ca;border-radius:6px;padding:3px 10px;font-size:.72rem;font-weight:700;cursor:pointer;"><i class="fa-solid fa-plus"></i> 항목 추가</button>
+            <button onclick="pfFixedLoad(true)" style="border:1px solid #d1d5db;background:#f3f4f6;border-radius:6px;padding:3px 10px;font-size:.72rem;cursor:pointer;">새로고침</button>
+          </div>
+          <div style="font-size:.72rem;color:#6b7280;margin-bottom:8px;line-height:1.6;">금액은 <b>부가세 미포함(공급가)</b>으로 적어요. '부가세 10% 별도'는 손익에 부가세를 더해 빼고 그만큼 매입세액으로 공제, '부가세 없음'은 해외 결제·면세·3.3% 원천징수 같은 건. 금액이 0이면 계산에 안 들어가요(미정 항목). 직원 급여는 위 인건비 칸에 따로.</div>
+          <div id="pf-fx-note"></div>
+          <div id="pf-fx-table"></div>
         </div>
       </div>
 
@@ -14180,24 +14188,92 @@ function pfCorpTax(base) {
   return 2e8 * 0.09 + (2e10 - 2e8) * 0.19 + (base - 2e10) * 0.21;
 }
 
+/* 비용: 인건비·택배비는 입력 칸(브라우저 저장), 월 고정비는 항목표(DB profit_fixed_costs, 2026-10-21) — 금액 = 부가세 미포함 공급가.
+   pfCalc에는 예전 모양 그대로 넘긴다: etcVat = 과세 항목 합 × 1.1(부가세 포함 금액 — pfCalc가 10/110으로 매입세액을 떼므로 공급가 × 10%와 같음) × 기간 개월,
+   etcNoVat = 부가세 없음 항목 합 × 기간 개월. buying·rent·mgmt는 0(항목표에 들어 있음). */
 function pfCosts() {
-  return { labor: toNum($('pf-labor').value), buying: toNum($('pf-buying').value),
-           rent: toNum($('pf-rent').value), mgmt: toNum($('pf-mgmt').value),
-           ship: toNum($('pf-ship').value), etcVat: toNum($('pf-etcvat').value), etcNoVat: toNum($('pf-etcnovat').value) };
+  const fx = pfFixedTotals();
+  return { labor: toNum($('pf-labor').value), buying: 0, rent: 0, mgmt: 0,
+           ship: toNum($('pf-ship').value), etcVat: Math.round(fx.taxable * 1.1 * fx.months), etcNoVat: Math.round(fx.none * fx.months), fixed: fx };
 }
-function profitSaveCosts() { localStorage.setItem(PF_COST_KEY, JSON.stringify(pfCosts())); }
+function profitSaveCosts() { localStorage.setItem(PF_COST_KEY, JSON.stringify({ labor: toNum($('pf-labor').value), ship: toNum($('pf-ship').value) })); }
 function profitLoadCosts() {
   try {
     const c = JSON.parse(localStorage.getItem(PF_COST_KEY) || '{}');
     if (c.labor) $('pf-labor').value = c.labor;
-    if (c.buying) $('pf-buying').value = c.buying;
-    if (c.rent) $('pf-rent').value = c.rent;
-    if (c.mgmt) $('pf-mgmt').value = c.mgmt;
     if (c.ship) $('pf-ship').value = c.ship;
-    if (c.etcVat) $('pf-etcvat').value = c.etcVat;
-    if (c.etcNoVat) $('pf-etcnovat').value = c.etcNoVat;
   } catch {}
 }
+/* ── 월 고정비 항목표 ── */
+const pfFixed = { rows: [], loaded: false, view: null };   // view = 불러온 기록의 고정비 스냅샷(수정 불가) { rows, label }
+function pfFixedRows() { return pfFixed.view ? pfFixed.view.rows : pfFixed.rows; }
+function pfMonths() {
+  const s = ($('pfDateStart') || {}).value, e = ($('pfDateEnd') || {}).value;
+  if (!s || !e) return { months: 1, text: '기간 미선택 — 1개월로 계산' };
+  const a = new Date(s + 'T00:00:00'), b = new Date(e + 'T00:00:00');
+  if (!(b >= a)) return { months: 1, text: '기간이 잘못돼 1개월로 계산' };
+  const lastDay = new Date(b.getFullYear(), b.getMonth() + 1, 0).getDate();
+  if (a.getDate() === 1 && b.getDate() === lastDay) { const m = (b.getFullYear() - a.getFullYear()) * 12 + (b.getMonth() - a.getMonth()) + 1; return { months: m, text: `${m}개월(달 단위)` }; }
+  const days = Math.round((b - a) / 86400000) + 1, m = Math.round(days / 30.4167 * 100) / 100;
+  return { months: m, text: `${days}일 = ${m}개월` };
+}
+function pfFixedTotals() {
+  const rows = pfFixedRows().filter(r => r.active !== false);
+  const sum = v => rows.filter(r => r.vat === v).reduce((t, r) => t + (Number(r.amount) || 0), 0);
+  const taxable = sum('taxable'), none = sum('none'), mo = pfMonths();
+  return { taxable, none, monthly: Math.round(taxable * 1.1) + none, months: mo.months, monthsText: mo.text, pending: rows.filter(r => !(Number(r.amount) > 0)).length, count: rows.length };
+}
+async function pfFixedLoad(force) {
+  if (pfFixed.loaded && !force) { pfFixedRender(); return; }
+  try {
+    pfFixed.rows = (await dbProxy('profit_fixed_costs?select=*&order=sort_order.asc,id.asc')) || [];
+    pfFixed.loaded = true;
+  } catch (e) { showToast('월 고정비를 불러오지 못했어요 — ' + e.message); }
+  pfFixedRender(); renderProfit();
+}
+function pfFixedRender() {
+  const el = $('pf-fx-table'); if (!el) return;
+  const rows = pfFixedRows(), t = pfFixedTotals(), ro = !!pfFixed.view, won = v => fmt(Math.round(v)) + '원';
+  $('pf-fx-note').innerHTML = ro ? `<div style="background:#fef3c7;color:#92400e;border-radius:8px;padding:8px 12px;font-size:.78rem;margin-bottom:8px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;"><i class="fa-solid fa-clock-rotate-left"></i> '${escHtml(pfFixed.view.label || '')}' 기록에 저장된 고정비를 보고 있어요(수정 불가)${pfFixed.view.legacy ? ' — 옛 기록이라 칸별 금액을 항목으로 바꿔 보여 줘요' : ''}. <button onclick="pfFixedExitView()" style="border:1px solid #fcd34d;background:#fff;color:#92400e;border-radius:6px;padding:2px 10px;font-size:.72rem;font-weight:700;cursor:pointer;">지금 고정비 표로 돌아가기</button></div>` : '';
+  $('pf-fx-sum').innerHTML = `월 합계(부가세 포함) <b>${won(t.monthly)}</b> <span style="color:#6b7280;">· 과세 공급가 ${won(t.taxable)} + 부가세 ${won(t.taxable * 0.1)} · 부가세 없음 ${won(t.none)}${t.pending ? ` · 금액 미정 ${t.pending}개` : ''}</span> → 기간 ${escHtml(t.monthsText)} × 월 합계 = <b>${won(t.monthly * t.months)}</b>`;
+  if (!rows.length) { el.innerHTML = '<div style="font-size:.8rem;color:#6b7280;padding:8px 0;">항목이 없어요. [항목 추가]로 넣어 주세요.</div>'; return; }
+  const inp = 'border:1px solid #d1d5db;border-radius:6px;padding:4px 6px;font-size:.8rem;background:#fff;';
+  el.innerHTML = `<div class="table-wrap"><table style="width:100%;font-size:.8rem;"><thead><tr><th style="width:36px;">사용</th><th style="text-align:left;">항목</th><th style="text-align:right;width:150px;">월 금액<div class="cn-sub">부가세 미포함</div></th><th style="width:130px;">부가세</th><th style="text-align:left;">메모</th><th style="width:32px;"></th></tr></thead><tbody>${rows.map(r => `<tr style="${r.active === false ? 'opacity:.5;' : ''}">
+      <td><input type="checkbox" ${r.active === false ? '' : 'checked'} ${ro ? 'disabled' : ''} onchange="pfFixedEdit(${Number(r.id)},'active',this)" title="끄면 계산에서 빠져요" /></td>
+      <td style="text-align:left;"><input type="text" value="${escHtml(r.name || '')}" ${ro ? 'disabled' : ''} onchange="pfFixedEdit(${Number(r.id)},'name',this)" style="${inp}width:100%;min-width:160px;font-weight:600;" /></td>
+      <td style="text-align:right;"><input type="number" value="${Number(r.amount) > 0 ? Number(r.amount) : ''}" placeholder="금액 미정" ${ro ? 'disabled' : ''} onchange="pfFixedEdit(${Number(r.id)},'amount',this)" style="${inp}width:100%;text-align:right;${Number(r.amount) > 0 ? '' : 'border-color:#fcd34d;background:#fffbeb;'}" /></td>
+      <td><select ${ro ? 'disabled' : ''} onchange="pfFixedEdit(${Number(r.id)},'vat',this)" style="${inp}width:100%;"><option value="taxable" ${r.vat === 'none' ? '' : 'selected'}>10% 별도</option><option value="none" ${r.vat === 'none' ? 'selected' : ''}>부가세 없음</option></select></td>
+      <td style="text-align:left;"><input type="text" value="${escHtml(r.note || '')}" ${ro ? 'disabled' : ''} onchange="pfFixedEdit(${Number(r.id)},'note',this)" style="${inp}width:100%;min-width:140px;color:#6b7280;" /></td>
+      <td>${ro ? '' : `<button onclick="pfFixedDelete(${Number(r.id)})" title="삭제" style="border:none;background:none;color:#dc2626;cursor:pointer;"><i class="fa-solid fa-trash"></i></button>`}</td></tr>`).join('')}</tbody>
+    <tfoot><tr style="font-weight:700;background:#f8f9ff;"><td></td><td style="text-align:left;">합계(사용 항목)</td><td style="text-align:right;">${won(t.taxable + t.none)}</td><td style="font-size:.72rem;color:#6b7280;">부가세 +${won(t.taxable * 0.1)}</td><td style="text-align:left;font-size:.72rem;color:#6b7280;">월 ${won(t.monthly)}(부가세 포함) · 기간 ${escHtml(t.monthsText)}</td><td></td></tr></tfoot></table></div>`;
+}
+async function pfFixedEdit(id, field, el) {
+  if (pfFixed.view) return;
+  const r = pfFixed.rows.find(x => Number(x.id) === id); if (!r) return;
+  const v = field === 'active' ? !!el.checked : field === 'amount' ? Math.max(0, Math.round(toNum(el.value))) : String(el.value || '').trim();
+  if (field === 'name' && !v) { el.value = r.name || ''; return; }
+  const before = r[field]; r[field] = v;
+  pfFixedRender(); renderProfit();
+  try { await dbProxy(`profit_fixed_costs?id=eq.${id}`, { method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: JSON.stringify({ [field]: v, updated_at: new Date().toISOString() }) }); }
+  catch (e) { r[field] = before; pfFixedRender(); renderProfit(); showToast('저장 실패 — ' + e.message); }
+}
+async function pfFixedAdd() {
+  if (pfFixed.view) { showToast('기록 보기 중에는 추가할 수 없어요 — 먼저 지금 고정비 표로 돌아가세요'); return; }
+  const name = prompt('고정비 항목 이름', ''); if (name === null) return;
+  const nm = String(name).trim(); if (!nm) return;
+  const sort = pfFixed.rows.reduce((m, r) => Math.max(m, Number(r.sort_order) || 0), 0) + 1;
+  try {
+    await dbProxy('profit_fixed_costs', { method: 'POST', headers: { Prefer: 'return=minimal' }, body: JSON.stringify({ name: nm, amount: 0, vat: 'taxable', note: '', active: true, sort_order: sort }) });
+    await pfFixedLoad(true); showToast(`'${nm}' 항목을 넣었어요 — 금액을 적어 주세요`);
+  } catch (e) { showToast('추가 실패 — ' + e.message); }
+}
+async function pfFixedDelete(id) {
+  const r = pfFixed.rows.find(x => Number(x.id) === id); if (!r) return;
+  if (!confirm(`'${r.name}' 항목을 지울까요? (계산에서만 빼려면 '사용' 체크를 끄세요)`)) return;
+  try { await dbProxy(`profit_fixed_costs?id=eq.${id}`, { method: 'DELETE', headers: { Prefer: 'return=minimal' } }); await pfFixedLoad(true); }
+  catch (e) { showToast('삭제 실패 — ' + e.message); }
+}
+function pfFixedExitView() { pfFixed.view = null; pfFixedRender(); renderProfit(); }
 
 /* 핵심 계산 — rev·ad·비용은 원 단위, cr·margin은 %
    부가세 = 매출세액 − 매입세액:
@@ -15811,12 +15887,9 @@ function renderProfit() {
         ${row('매출이익', won(d.gp))}
         ${row('(−) 광고비 (Meta)', '−' + won(cur.ad), `ROAS ${cur.roas.toFixed(0)}%`, { color: '#6366f1' })}
         ${row('(−) 인건비', '−' + won(costs.labor), '', { color: '#b45309' })}
-        ${row('(−) 사입삼촌 비용', '−' + won(costs.buying), '', { color: '#6b7280' })}
-        ${row('(−) 사무실 월세', '−' + won(costs.rent), '', { color: '#6b7280' })}
-        ${row('(−) 관리비', '−' + won(costs.mgmt), '부가세 포함', { color: '#6b7280' })}
-        ${row('(−) 택배비', '−' + won(costs.ship), '', { color: '#6b7280' })}
-        ${row('(−) 기타 (부가세 포함)', '−' + won(costs.etcVat), '', { color: '#6b7280' })}
-        ${row('(−) 기타 (부가세 미포함)', '−' + won(costs.etcNoVat), '', { color: '#6b7280' })}
+        ${row('(−) 월 고정비 · 과세', '−' + won(costs.etcVat), `${costs.fixed.monthsText} × (공급가 ${fmtEok(costs.fixed.taxable)} + 부가세 10%)`, { color: '#6b7280' })}
+        ${row('(−) 월 고정비 · 부가세 없음', '−' + won(costs.etcNoVat), `${costs.fixed.monthsText} × ${fmtEok(costs.fixed.none)}`, { color: '#6b7280' })}
+        ${row('(−) 택배비', '−' + won(costs.ship), '면세', { color: '#6b7280' })}
         ${row('세전이익', won(d.pretax), '', { strong: true, color: d.pretax >= 0 ? '#1e1b4b' : '#b91c1c' })}
         ${row('(−) 부가세 (자동)', '−' + won(d.vat), `매출세액 ${fmtEok(d.salesVat)} − 매입세액 ${fmtEok(d.purchaseVat)}`, { color: '#9333ea' })}
         ${row('(−) 법인세 (자동)', '−' + won(d.corp), '구간세율', { color: '#9333ea' })}
@@ -15876,7 +15949,7 @@ async function saveProfitArchive() {
         period_start: s, period_end: e,
         label: $('pf-arc-label').value.trim() || `${s} ~ ${e}`,
         memo: $('pf-arc-memo').value.trim(),
-        inputs: { rev: cur.rev, claims: cur.claimsAmt, margin: cur.margin, ad: cur.ad, costs },
+        inputs: { rev: cur.rev, claims: cur.claimsAmt, margin: cur.margin, ad: cur.ad, costs, fixedItems: pfFixedRows().map(r => ({ name: r.name, amount: Number(r.amount) || 0, vat: r.vat, note: r.note || '', active: r.active !== false })) },
         result: { pretax: Math.round(d.pretax), vat: Math.round(d.vat), corp: Math.round(d.corp), net: Math.round(d.net) },
       }),
     });
@@ -15918,10 +15991,15 @@ function applyProfitArchive(id) {
   $('pf-rev').value = i.rev || ''; $('pf-claims').value = i.claims || '';
   $('pf-margin').value = i.margin || ''; $('pf-ad').value = i.ad || '';
   const c = i.costs || {};
-  $('pf-labor').value = c.labor || ''; $('pf-buying').value = c.buying || '';
-  $('pf-rent').value = c.rent || ''; $('pf-mgmt').value = c.mgmt || '';
-  $('pf-ship').value = c.ship || ''; $('pf-etcvat').value = c.etcVat || ''; $('pf-etcnovat').value = c.etcNoVat || '';
-  renderProfit();
+  $('pf-labor').value = c.labor || ''; $('pf-ship').value = c.ship || '';
+  // 고정비: 기록에 항목 스냅샷이 있으면 그대로(수정 불가), 옛 기록(수동 칸)은 칸별 금액을 항목으로 바꿔 보여 준다(부가세 포함 금액 → 공급가 ÷1.1)
+  if (Array.isArray(i.fixedItems)) pfFixed.view = { label: r.label, rows: i.fixedItems.map((x, k) => ({ id: -(k + 1), ...x })) };
+  else {
+    const legacy = [['사입삼촌 비용', c.buying, 'taxable'], ['사무실 월세', c.rent, 'taxable'], ['관리비', c.mgmt, 'taxable'], ['기타 (부가세 포함)', c.etcVat, 'taxable'], ['기타 (부가세 미포함)', c.etcNoVat, 'none']]
+      .filter(x => Number(x[1]) > 0).map((x, k) => ({ id: -(k + 1), name: x[0], amount: x[2] === 'taxable' ? Math.round(Number(x[1]) / 1.1) : Number(x[1]), vat: x[2], note: '옛 기록의 칸 금액', active: true }));
+    pfFixed.view = { label: r.label, rows: legacy, legacy: true };
+  }
+  pfFixedRender(); renderProfit();
   showToast(`"${r.label}" 기록을 불러왔습니다`);
 }
 
@@ -16976,7 +17054,7 @@ function showMenu(key) {
     if (!isAdmin()) { admgrState.view = 'test'; if (!admgrState.test.loaded) admgrTestFetch(); else admgrRender(); }
     else if (!admgrState.data) admgrFetch();
   }
-  if (key === 'profit' && isAdmin()) loadProfitArchive();
+  if (key === 'profit' && isAdmin()) { loadProfitArchive(); pfFixedLoad(false); }
   if (key === 'rwatch') rwInit();
   if (key === 'rscan') rscanInit();
   if (key === 'unship') unshipInit();
