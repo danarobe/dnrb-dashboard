@@ -2836,13 +2836,20 @@ Deno.serve(async (req) => {
       const e = url.searchParams.get("end_date");
       if (!s || !e) return json({ error: "start_date, end_date 필수 (YYYY-MM-DD)" }, 400);
       const hit = await fromCache(); if (hit) return json(hit);
-      const sum = { orders: 0, list: 0, item_disc: 0, item_code_disc: 0, gross: 0, coupon: 0, points: 0, credits: 0, member: 0, set: 0, app: 0, coupon_ship: 0, naver: 0, ship_fee: 0, ship_disc: 0, paid: 0, naver_point: 0, qty: 0 };
-      await eachOrder(token, "date_type=pay_date&fields=order_id,initial_order_amount,naver_point,items&embed=items", s, e, (orders) => {
+      // 취소·반품(2026-10-21 밤 사용자 지적 "9월 순이익 1.1억 이상함" → 원인: cafe24-claims가 네이버페이 주문을 빼고 집계(네이버 CSV 별도) — 9월 실측 취소·반품의 32%가 네이버페이):
+      //   같은 주문들의 품목 상태(C40 취소완료 / R00·R10·R30·R34·R40 반품)를 판매가×수량으로 모아 네이버페이까지 포함하고, 결제 매출÷판매가 매출 비율로 환불액을 추정한다.
+      const RET = new Set(["R00", "R10", "R30", "R34", "R40"]);
+      const sum = { orders: 0, list: 0, item_disc: 0, item_code_disc: 0, gross: 0, coupon: 0, points: 0, credits: 0, member: 0, set: 0, app: 0, coupon_ship: 0, naver: 0, ship_fee: 0, ship_disc: 0, paid: 0, naver_point: 0, qty: 0,
+        cancel_list: 0, return_list: 0, naver_cancel_list: 0, naver_return_list: 0, cancel_orders: 0, return_orders: 0, naver_orders: 0, naver_list: 0 };
+      await eachOrder(token, "date_type=pay_date&fields=order_id,order_place_id,market_id,initial_order_amount,naver_point,items&embed=items", s, e, (orders) => {
         for (const o of orders as Record<string, any>[]) {
           const i = (o.initial_order_amount ?? {}) as Record<string, unknown>;
           const gross = num(i.order_price_amount);
           if (gross <= 0 && num(i.payment_amount) <= 0) continue;
           sum.orders++;
+          const nv = o.order_place_id === "NCHECKOUT" || o.market_id === "NCHECKOUT";
+          if (nv) sum.naver_orders++;
+          let anyC = false, anyR = false;
           sum.gross += gross;
           sum.coupon += num(i.coupon_discount_price); sum.points += num(i.points_spent_amount); sum.credits += num(i.credits_spent_amount);
           sum.member += num(i.membership_discount_amount); sum.set += num(i.set_product_discount_amount); sum.app += num(i.app_discount_amount);
@@ -2850,20 +2857,29 @@ Deno.serve(async (req) => {
           sum.ship_fee += num(i.shipping_fee); sum.ship_disc += num(i.shipping_fee_discount_amount);
           sum.paid += num(i.payment_amount); sum.naver_point += num(o.naver_point);
           for (const it of (o.items ?? []) as Record<string, any>[]) {
-            const q = Number(it.quantity ?? 0) || 0;
-            sum.list += (num(it.product_price) + num(it.option_price)) * q; sum.qty += q;
+            const q = Number(it.quantity ?? 0) || 0, lp = (num(it.product_price) + num(it.option_price)) * q, st = String(it.order_status ?? "");
+            sum.list += lp; sum.qty += q; if (nv) sum.naver_list += lp;
             sum.item_disc += num(it.additional_discount_price); sum.item_code_disc += num(it.app_item_discount_amount);
+            if (st === "C40") { sum.cancel_list += lp; anyC = true; if (nv) sum.naver_cancel_list += lp; }
+            else if (RET.has(st)) { sum.return_list += lp; anyR = true; if (nv) sum.naver_return_list += lp; }
           }
+          if (anyC) sum.cancel_orders++;
+          if (anyR) sum.return_orders++;
         }
       });
       const own = sum.coupon + sum.points + sum.credits + sum.member + sum.set + sum.app;
       const shipIncome = Math.max(0, sum.ship_fee - sum.ship_disc - sum.coupon_ship);
+      const revenue = sum.gross - own + shipIncome;
+      const ratio = sum.list > 0 ? revenue / sum.list : 1;   // 판매가 → 결제 매출 비율(할인·배송비 수입 반영)
       return respond({
         period: { start: s, end: e }, basis: "pay_date·initial",
         ...Object.fromEntries(Object.entries(sum).map(([k, v]) => [k, Math.round(v)])),
         own_discount: Math.round(own), ship_income: Math.round(shipIncome),
         // 결제 매출(고객이 치른 돈) = 정가 − 자사 할인 + 배송비 수입. 참고로 카페24 payment_amount + 네이버 포인트도 같이 준다(네이버 즉시할인 등 차이 확인용)
-        revenue: Math.round(sum.gross - own + shipIncome), paid_plus_naver: Math.round(sum.paid + sum.naver_point),
+        revenue: Math.round(revenue), paid_plus_naver: Math.round(sum.paid + sum.naver_point),
+        // 취소·반품 환불 추정 = (취소 + 반품 판매가) × 비율 — 네이버페이 포함
+        claims_amount: Math.round((sum.cancel_list + sum.return_list) * ratio), cancel_amount: Math.round(sum.cancel_list * ratio), return_amount: Math.round(sum.return_list * ratio),
+        naver_claims_amount: Math.round((sum.naver_cancel_list + sum.naver_return_list) * ratio), claims_ratio: ratio,
       });
     }
 

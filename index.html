@@ -2136,7 +2136,7 @@
       <!-- STEP 2: 수집값 (수정 가능) — 2026-10-21 개편: 결제 매출은 매출 구성(profit_sales) 기준, 주문·반품 건수 추가 -->
       <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin-bottom:14px;">
         <label style="font-size:.82rem;font-weight:700;color:#4b5563;">결제 매출 (원)<input type="number" id="pf-rev" oninput="renderProfit()" style="width:100%;margin-top:4px;border:1.5px solid #c7d2fe;border-radius:8px;padding:8px 10px;font-size:.88rem;" /><span style="font-size:.68rem;color:#6b7280;font-weight:400;">정가 − 자사 할인 + 배송비 수입 (결제일 기준)</span></label>
-        <label style="font-size:.82rem;font-weight:700;color:#4b5563;">취소·반품 환불 (원)<input type="number" id="pf-claims" oninput="renderProfit()" style="width:100%;margin-top:4px;border:1.5px solid #c7d2fe;border-radius:8px;padding:8px 10px;font-size:.88rem;" /><span style="font-size:.68rem;color:#6b7280;font-weight:400;">카페24 + 네이버 CSV(취소&반품 메뉴)</span></label>
+        <label style="font-size:.82rem;font-weight:700;color:#4b5563;">취소·반품 환불 (원)<input type="number" id="pf-claims" oninput="renderProfit()" style="width:100%;margin-top:4px;border:1.5px solid #c7d2fe;border-radius:8px;padding:8px 10px;font-size:.88rem;" /><span style="font-size:.68rem;color:#6b7280;font-weight:400;">주문 품목 상태 기준 추정 — 네이버페이 포함</span></label>
         <label style="font-size:.82rem;font-weight:700;color:#4b5563;">마진율 (%)<input type="number" id="pf-margin" step="0.1" oninput="renderProfit()" style="width:100%;margin-top:4px;border:1.5px solid #c7d2fe;border-radius:8px;padding:8px 10px;font-size:.88rem;" /><span style="font-size:.68rem;color:#6b7280;font-weight:400;">판매가 기준 (판매가 − 공급가×1.1) ÷ 판매가</span></label>
         <label style="font-size:.82rem;font-weight:700;color:#4b5563;">광고비 (원, Meta)<input type="number" id="pf-ad" oninput="renderProfit()" style="width:100%;margin-top:4px;border:1.5px solid #c7d2fe;border-radius:8px;padding:8px 10px;font-size:.88rem;" /><span style="font-size:.68rem;color:#6b7280;font-weight:400;">부가세 별도</span></label>
         <label style="font-size:.82rem;font-weight:700;color:#4b5563;">주문 건수<input type="number" id="pf-orders" oninput="renderProfit()" style="width:100%;margin-top:4px;border:1.5px solid #c7d2fe;border-radius:8px;padding:8px 10px;font-size:.88rem;" /><span style="font-size:.68rem;color:#6b7280;font-weight:400;">택배 발송비·포장재 계산용 (결제 주문)</span></label>
@@ -14398,7 +14398,7 @@ function pfSalesData() { return pfSales.view || pfSales.raw; }
 function pfSalesScaled(rev) {
   const r = pfSalesData(); if (!r || !(r.revenue > 0) || !(rev > 0)) return null;
   const k = rev / r.revenue, out = { k, orders: r.orders, qty: r.qty };
-  for (const key of ['list', 'item_disc', 'item_code_disc', 'gross', 'coupon', 'points', 'credits', 'member', 'set', 'app', 'coupon_ship', 'ship_income', 'own_discount', 'revenue', 'paid_plus_naver']) out[key] = Math.round((Number(r[key]) || 0) * k);
+  for (const key of ['list', 'item_disc', 'item_code_disc', 'gross', 'coupon', 'points', 'credits', 'member', 'set', 'app', 'coupon_ship', 'ship_income', 'own_discount', 'revenue', 'paid_plus_naver', 'claims_amount', 'cancel_amount', 'return_amount', 'naver_claims_amount']) out[key] = Math.round((Number(r[key]) || 0) * k);
   return out;
 }
 async function pfSalesLoad(force) {
@@ -14410,8 +14410,9 @@ async function pfSalesLoad(force) {
     const d = await anGet(Object.assign({ action: 'profit_sales', start_date: s, end_date: e }, force ? { nocache: 1 } : {}));
     pfSales.raw = d; pfSales.view = null;
     $('pf-rev').value = d.revenue; $('pf-orders').value = d.orders;
+    if (d.claims_amount > 0) { $('pf-claims').value = d.claims_amount; $('pf-returns').value = Number(d.return_orders || 0); }
     pfSalesRender(); renderProfit();
-    showToast(`매출 구성을 읽었어요 — 결제 매출 ${fmt(d.revenue)}원 · 주문 ${fmt(d.orders)}건`);
+    showToast(`매출 구성을 읽었어요 — 결제 매출 ${fmt(d.revenue)}원 · 주문 ${fmt(d.orders)}건 · 취소·반품 ${fmt(d.claims_amount || 0)}원(네이버페이 포함)`);
     return d;
   } catch (e2) { box.innerHTML = `<span style="color:#b91c1c;">매출 구성을 읽지 못했어요 — ${escHtml(e2.message)}</span>`; return null; }
 }
@@ -14431,6 +14432,7 @@ function pfSalesRender() {
     + tile('(−) 쿠폰·적립금 등 자사 할인', '− ' + won(own), `쿠폰 ${won(r.coupon)} · 적립금 ${won(r.points)}${r.credits ? ' · 예치금 ' + won(r.credits) : ''}${r.member ? ' · 회원등급 ' + won(r.member) : ''}${r.set ? ' · 세트 ' + won(r.set) : ''}${r.app ? ' · 앱 ' + won(r.app) : ''} (${pc(own)})`, '#b45309')
     + tile('(+) 배송비 수입', '+ ' + won(r.ship_income), `받은 배송비 ${won(r.ship_fee)} − 배송비 쿠폰 ${won(r.coupon_ship)}`, '#15803d')
     + tile('= 결제 매출', won(r.revenue), `참고: 카페24 결제액 + 네이버 포인트 ${won(r.paid_plus_naver)}${Math.abs(r.revenue - r.paid_plus_naver) > r.revenue * 0.02 ? ' (차이 큼 — 네이버 즉시할인 등 확인)' : ''}`, '#4338ca')
+    + (r.claims_amount != null ? tile('(−) 취소·반품 환불 (네이버페이 포함)', '− ' + won(r.claims_amount), `취소 ${won(r.cancel_amount)}(${fmt(r.cancel_orders)}건) · 반품 ${won(r.return_amount)}(${fmt(r.return_orders)}건) · 네이버페이분 ${won(r.naver_claims_amount)} · 결제 매출의 ${r.revenue > 0 ? (r.claims_amount / r.revenue * 100).toFixed(1) : 0}%`, '#b91c1c') : '')
     + `</div><div style="margin-top:8px;font-size:.7rem;color:#6b7280;">${pfSales.view ? '불러온 기록의 매출 구성이에요(수정 불가). ' : ''}네이버 포인트는 네이버가 정산 때 보전하므로 매출에 포함했어요${r.naver ? ` · 네이버 부담 할인 ${won(r.naver)}도 보전이라 차감하지 않았어요` : ''}. 결제 매출 칸을 손으로 바꾸면 이 구성이 같은 비율로 따라가요.</div>`;
 }
 /* ── 가정(세율·요율·단가) — DB profit_settings ── */
@@ -15935,7 +15937,10 @@ async function fetchProfitData() {
     if (sales && !sales.__err) { pfSales.raw = sales; pfSales.view = null; $('pf-rev').value = sales.revenue; $('pf-orders').value = sales.orders; pfSalesRender(); }
     else if (rev && !rev.__err) $('pf-rev').value = rev.revenue;
     if (labor && !labor.__err) pfApplyLabor(labor);
-    if (claims && !claims.__err && claims.cancel) {
+    // 취소·반품: 매출 구성에서 네이버페이까지 포함해 추정한 환불액을 쓴다(2026-10-21 — cafe24-claims는 네이버페이 제외라 12.5%로 과소였음). 못 읽었을 때만 아래 카페24 claims(+네이버 CSV)로.
+    const claimsFromSales = sales && !sales.__err && sales.claims_amount > 0;
+    if (claimsFromSales) { $('pf-claims').value = sales.claims_amount; $('pf-returns').value = Number(sales.return_orders || 0); }
+    if (!claimsFromSales && claims && !claims.__err && claims.cancel) {
       let claimsAmt = (claims.cancel.amount || 0) + (claims.return.amount || 0);
       // 취소&반품 메뉴에 같은 기간의 네이버페이 CSV가 업로드되어 있으면 합산 (메뉴 합계와 동일해짐)
       let npIncluded = false;
@@ -16008,7 +16013,7 @@ function renderProfit() {
             + (sl.credits + sl.member + sl.set + sl.app > 0 ? row('(−) 예치금·회원등급·세트·앱 할인', '−' + won(sl.credits + sl.member + sl.set + sl.app), '', { color: '#b45309' }) : '')
             + row('(+) 배송비 수입', '+' + won(sl.ship_income), `배송비 쿠폰 ${fmtEok(sl.coupon_ship)} 뺀 값`, { color: '#15803d' })
             + row('결제 매출', won(cur.rev), sl.k && Math.abs(sl.k - 1) > 0.001 ? `구성 비율 유지 × ${sl.k.toFixed(3)}` : '정가 − 자사 할인 + 배송비 수입', { strong: true }); })()}
-        ${row('(−) 취소·반품 환불', '−' + won(cur.claimsAmt), `${cur.crPct.toFixed(1)}%`, { color: '#b45309' })}
+        ${row('(−) 취소·반품 환불', '−' + won(cur.claimsAmt), `${cur.crPct.toFixed(1)}%${costs.sales && costs.sales.claims_amount ? ' · 네이버페이 포함(품목 상태 기준 추정)' : ''}`, { color: '#b45309' })}
         ${row('순매출', won(d.netR))}
         ${row('(−) 상품 원가', '−' + won(d.cogs), `${costs.sales ? '판매가 매출' : '순매출'} × (1 − ${cur.margin}%)${costs.sales ? ` × (1 − ${cur.crPct.toFixed(1)}%)` : ''}`, { color: '#6b7280' })}
         ${row('매출이익', won(d.gp), `순매출 대비 ${d.netR > 0 ? (d.gp / d.netR * 100).toFixed(1) : 0}%`, { strong: true })}
