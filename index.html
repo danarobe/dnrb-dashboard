@@ -14670,7 +14670,7 @@ async function pfFeeEdit(method, el) {
    매출: 결제 매출 rev → 취소·반품(cr) 빼면 순매출. 매출 구성(costs.sales — 결제 매출에 맞춰 비례 조정된 판매가·할인·배송비 수입)이 있으면
      원가 = 판매가 매출 × (1−cr) × (1−마진율)   ← 마진율이 판매가 기준이므로 쿠폰·적립금 할인은 원가를 줄이지 않는다(= 할인만큼 매출이익이 줄어든다)
      없으면 원가 = 순매출 × (1−마진율) (옛 방식 — 할인 미반영)
-   변동비: 광고비 + 광고비 부가세(공제 안 됨 — 2026-10-22 사용자 지적, Meta는 부가세를 별도로 받지만 매입세액 공제가 안 되므로 그 10%도 비용) · 결제 수수료 = 순매출 × 가중 수수료율 · 택배 발송비 = 주문 건수 × 단가 · 반품 회수비 = 반품 건수 × 단가 · 포장재 = 주문 건수 × 단가
+   변동비: 광고비(Meta는 부가세를 청구하지 않음 — 공제할 부가세 없음, 2026-10-22 사용자 확인. 가정 ad_vat 기본 0, 부가세가 붙어 청구되면 그 %를 넣으면 공제 없이 비용으로 더함) · 결제 수수료 = 순매출 × 가중 수수료율 · 택배 발송비 = 주문 건수 × 단가 · 반품 회수비 = 반품 건수 × 단가 · 포장재 = 주문 건수 × 단가
    인건비: 직원 급여 + 4대보험 회사 부담(국민·건강·장기요양·고용·산재) + 퇴직급여 충당 · 알바 급여 · 대표 급여 + 대표 4대보험
    고정비: 월 고정비 과세(공급가×1.1) + 부가세 없음, 기간 개월 환산
    부가세 = 매출세액(순매출×10/110) − 매입세액(원가×10/110 + 수수료×10/110 + 포장재×10/110 + 과세 고정비×10/110). 광고비 부가세·급여·보험·택배(면세)는 공제 없음.
@@ -16373,7 +16373,7 @@ function renderProfit() {
         ${row('순매출', won(d.netR))}
         ${row('(−) 상품 원가', '−' + won(d.cogs), `${costs.sales ? '판매가 매출' : '순매출'} × (1 − ${cur.margin}%)${costs.sales ? ` × (1 − ${cur.crPct.toFixed(1)}%)` : ''}`, { color: '#6b7280' })}
         ${row('매출이익', won(d.gp), `순매출 대비 ${d.netR > 0 ? (d.gp / d.netR * 100).toFixed(1) : 0}%`, { strong: true })}
-        ${row('(−) 광고비 (Meta)', '−' + won(d.adCost), `광고비 ${fmtEok(cur.ad)} + 부가세 ${fmtEok(d.adVat)}(공제 안 됨) · ROAS ${cur.roas.toFixed(0)}%`, { color: '#6366f1' })}
+        ${row('(−) 광고비 (Meta)', '−' + won(d.adCost), (d.adVat > 0 ? `광고비 ${fmtEok(cur.ad)} + 부가세 ${fmtEok(d.adVat)}(공제 안 됨)` : '부가세 없음(공제할 매입세액 없음)') + ` · ROAS ${cur.roas.toFixed(0)}%`, { color: '#6366f1' })}
         ${row('(−) 결제 수수료 (PG·네이버페이)', '−' + won(d.fee), `순매출 × 가중 ${((costs.feeRate || 0) * 100).toFixed(2)}%${costs.feeBasis === 'card' ? ' · 결제 비중 미수집 — 카드 수수료율로' : ''}`, { color: '#0e7490' })}
         ${row('(−) 택배 발송비', '−' + won(d.ship), `${fmt(costs.orders)}건 × ${fmt(costs.set.ship_unit || 0)}원 (면세)`, { color: '#0e7490' })}
         ${row('(−) 반품 회수비', '−' + won(d.ret), `${fmt(costs.returns)}건 × ${fmt(costs.set.return_unit || 0)}원`, { color: '#0e7490' })}
@@ -16575,7 +16575,7 @@ function renderProfitDetail(cur, costs) {
         <button onclick="pfSel.roas=null;pfSel.cr=null;renderProfit()" style="margin-left:auto;border:1px solid #c7d2fe;background:#fff;border-radius:6px;padding:3px 10px;font-size:.75rem;cursor:pointer;color:#4338ca;">닫기</button>
       </div>
       <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;">
-        ${tile('광고비', won(ad), `ROAS ${pfSel.roas}% 역산 · 부가세 ${fmtEok(d.adVat)} 별도(공제 안 됨)`)}
+        ${tile('광고비', won(d.adCost), `ROAS ${pfSel.roas}% 역산${d.adVat > 0 ? ` · 부가세 ${fmtEok(d.adVat)} 포함(공제 안 됨)` : ' · 부가세 없음'}`)}
         ${tile('세전이익', won(d.pretax), '', d.pretax >= 0 ? '#1e1b4b' : '#b91c1c')}
         ${tile('부가세+법인세', '−' + won(d.vat + d.corp), '자동 계산')}
         ${tile('순이익 (세후)', fmtEok(d.net), won(d.net), d.net >= 0 ? '#15803d' : '#b91c1c')}
