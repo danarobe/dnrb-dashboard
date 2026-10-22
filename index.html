@@ -67,11 +67,18 @@
     /* ── 좌측 메뉴 레이아웃 ── */
     .layout { display: flex; align-items: flex-start; max-width: 1560px; margin: 0 auto; }
     .layout .container { flex: 1; min-width: 0; }
+    /* 메뉴 바 = 오른쪽 화면과 따로 스크롤(2026-10-22 사용자 요청 "오른쪽 창이 길면 메뉴 바를 내리는 데 한참 걸림").
+       상단 헤더(sticky) 바로 아래에 붙고, 높이는 화면 남은 높이까지 — 넘치면 메뉴 바 안에서만 스크롤.
+       --hdr-h = 헤더 실제 높이(menuBarFit()이 재서 넣음). 오른쪽 여백 10px = 선택 메뉴 그림자·스크롤바 자리. */
     .side-menu {
-      position: sticky; top: 20px; width: 208px; flex-shrink: 0;
+      position: sticky; top: var(--hdr-h, 0px); width: 218px; flex-shrink: 0;
       display: flex; flex-direction: column; gap: 6px;
-      padding: 28px 0 28px 20px;
+      padding: 28px 10px 28px 20px;
+      max-height: calc(100vh - var(--hdr-h, 0px)); overflow-y: auto; overscroll-behavior: contain;
+      scrollbar-width: thin; scrollbar-color: #c7cbe0 transparent;
     }
+    .side-menu::-webkit-scrollbar { width: 6px; }
+    .side-menu::-webkit-scrollbar-thumb { background: #c7cbe0; border-radius: 3px; }
     .menu-item {
       display: flex; align-items: center; gap: 10px;
       background: #fff; border: 1.5px solid #e5e7eb; border-radius: 12px;
@@ -152,7 +159,7 @@
          이제 ☰ 버튼으로 왼쪽에서 밀려 나오는 패널에 전부 담고, 항목을 누르면 자동으로 닫힌다. */
       .side-menu {
         position: fixed; top: 0; left: 0; z-index: 300;
-        width: 262px; max-width: 84vw; height: 100vh; overflow-y: auto;
+        width: 262px; max-width: 84vw; height: 100vh; max-height: none; overflow-y: auto;
         flex-direction: column; gap: 4px; padding: 16px 14px 28px;
         background: #eef0f8; box-shadow: 4px 0 24px rgba(15,23,42,.18);
         transform: translateX(-102%); transition: transform .22s ease;
@@ -20068,6 +20075,13 @@ function bootApp() {
   if (m) { m.style.zIndex = '220'; document.body.appendChild(m); }
 })();
 
+// 메뉴 바 높이 맞춤(2026-10-22): 상단 헤더 높이를 재서 --hdr-h에 — 메뉴 바가 헤더 바로 아래에 붙고 남은 높이 안에서만 스크롤.
+(function menuBarFit() {
+  const h = document.querySelector('.top-header'); if (!h) return;
+  const fit = () => document.documentElement.style.setProperty('--hdr-h', h.offsetHeight + 'px');
+  fit();
+  if (window.ResizeObserver) new ResizeObserver(fit).observe(h); else window.addEventListener('resize', fit);
+})();
 </script>
 </body>
 </html>
