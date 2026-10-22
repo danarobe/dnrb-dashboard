@@ -2783,6 +2783,11 @@
           <option value="daily">일일알바</option><option value="applicant">채용됨</option></select></label>
         <label class="hr-l">이름 *<input id="hire-p-name" class="hr-in" maxlength="40" /></label>
         <label class="hr-l">휴대폰 *<input id="hire-p-phone" class="hr-in" inputmode="tel" placeholder="010-1234-5678" /></label>
+        <div class="hr-l">성별 <span style="font-weight:400;color:#6b7280;">(기본 여)</span>
+          <div style="display:flex;gap:16px;margin-top:8px;font-weight:500;">
+            <label style="display:flex;align-items:center;gap:5px;cursor:pointer;"><input type="radio" name="hire-p-gender" value="F" checked /> 여</label>
+            <label style="display:flex;align-items:center;gap:5px;cursor:pointer;"><input type="radio" name="hire-p-gender" value="M" /> 남</label>
+          </div></div>
         <label class="hr-l full">주민등록번호 <span id="hire-p-rrn-note" style="font-weight:400;color:#6b7280;"></span>
           <input id="hire-p-rrn" class="hr-in" inputmode="numeric" placeholder="900101-1234567" autocomplete="off" oninput="hireAgeHint()" /></label>
         <div id="hire-p-age" class="full" style="display:none;font-size:.78rem;color:#b91c1c;background:#fef2f2;border-radius:8px;padding:8px 10px;"></div>
@@ -6777,11 +6782,11 @@ function hireRender() {
     const unpaid = r.pays.filter(p => !p.paid_on);
     const total = r.pays.reduce((s, p) => s + p.net, 0);
     return `<tr>
-      <td><b>${escHtml(r.name)}</b>${age != null && age < 18 ? ` <span class="hr-badge" style="color:#b91c1c;background:#fee2e2;" title="${escHtml(hireMinorNote(age))}">만 ${age}세</span>` : ''}${r.memo ? `<div style="font-size:.72rem;color:#6b7280;">${escHtml(r.memo)}</div>` : ''}</td>
+      <td><b>${escHtml(r.name)}</b> <span class="hr-badge" style="${r.gender === 'M' ? 'color:#1d4ed8;background:#dbeafe;' : 'color:#be185d;background:#fce7f3;'}">${r.gender === 'M' ? '남' : '여'}</span>${age != null && age < 18 ? ` <span class="hr-badge" style="color:#b91c1c;background:#fee2e2;" title="${escHtml(hireMinorNote(age))}">만 ${age}세</span>` : ''}${r.memo ? `<div style="font-size:.72rem;color:#6b7280;">${escHtml(r.memo)}</div>` : ''}</td>
       ${daily ? '' : `<td><span class="hr-badge" style="color:${sc};background:${sb};">${sl}</span>${r.employee_id ? '<div style="font-size:.7rem;color:#166534;">근무 관리 연결됨</div>' : ''}</td>`}
       <td>${escHtml(r.phone)}</td>
       <td>${r.rrn_mask ? escHtml(r.rrn_mask) : '<span style="color:#b45309;">미입력</span>'}</td>
-      <td>${r.account_mask ? escHtml((r.bank_name || '') + ' ' + r.account_mask) : '<span style="color:#b45309;">미입력</span>'}</td>
+      <td>${r.account_mask ? `${escHtml((r.bank_name || '') + ' ' + r.account_mask)} <button class="toggle-btn" style="font-size:.66rem;padding:1px 7px;" onclick="hireCopyAccount(${r.id})" title="은행 · 계좌번호 전체 · 예금주를 복사해요 (전체 보기 기록이 남아요)"><i class="fa-regular fa-copy"></i> 복사</button>` : '<span style="color:#b45309;">미입력</span>'}</td>
       <td>${r.interview_date || ''}${daily && r.pays[0]?.work_date ? `<div style="font-size:.7rem;color:#6b7280;">최근 근무 ${escHtml(String(r.pays[0].work_date).slice(5))}</div>` : ''}</td>
       <td>${r.pays.length ? `${hireWon(total)}${unpaid.length ? ` <span class="hr-badge" style="color:#b45309;background:#fef3c7;">미지급 ${unpaid.length}</span>` : ' <span style="color:#16a34a;font-size:.75rem;">완료</span>'}` : '<span style="color:#9ca3af;">-</span>'}</td>
       <td><div style="display:flex;gap:2px;justify-content:flex-end;">
@@ -6819,6 +6824,7 @@ function hireOpenPerson(id) {
   hireKindFields();
   $('hire-p-name').value = r?.name ?? '';
   $('hire-p-phone').value = r?.phone ?? '';
+  document.querySelector(`input[name="hire-p-gender"][value="${r?.gender === 'M' ? 'M' : 'F'}"]`).checked = true;   // 기본 여(2026-10-22)
   $('hire-p-rrn').value = ''; $('hire-p-acct').value = '';
   $('hire-p-rrn').placeholder = r?.rrn_mask ? `${r.rrn_mask} (바꿀 때만 입력)` : '900101-1234567';
   $('hire-p-acct').placeholder = r?.account_mask ? `${r.account_mask} (바꿀 때만 입력)` : '숫자만 입력해도 돼요';
@@ -6853,6 +6859,7 @@ function hireAgeHint(birth) {
 async function hireSavePerson() {
   const body = {
     action: 'upsert', kind: $('hire-p-kind').value, name: $('hire-p-name').value, phone: $('hire-p-phone').value,
+    gender: (document.querySelector('input[name="hire-p-gender"]:checked') || {}).value || 'F',
     bank_name: $('hire-p-bank').value, bank_holder: $('hire-p-holder').value || $('hire-p-name').value,
     status: $('hire-p-status').value, interview_date: $('hire-p-date').value, memo: $('hire-p-memo').value,
   };
@@ -6865,6 +6872,20 @@ async function hireSavePerson() {
     showToast('저장했어요');
     if (!body.id) { hireState.kind = body.kind; hireState.filter = 'all'; }   // 새로 등록한 사람이 보이는 탭으로
     hireLoad();
+  } catch (e) { showToast(e.message); }
+}
+
+/** 계좌 복사(2026-10-22 사용자 요청 — 일일알바 송금용): 서버 reveal(감사 기록)로 전체 계좌번호를 받아 '은행 계좌번호 예금주'를 클립보드에 */
+async function hireCopyAccount(id) {
+  const r = hireState.rows.find(x => x.id === id); if (!r) return;
+  try {
+    const d = await hireApi({ action: 'reveal', id });
+    if (!d.account) { showToast('계좌번호가 없어요'); return; }
+    const text = [r.bank_name || '', d.account, r.bank_holder || r.name || ''].filter(Boolean).join(' ');
+    let ok = false;
+    try { if (navigator.clipboard) { await navigator.clipboard.writeText(text); ok = true; } } catch {}
+    if (!ok) { const ta = document.createElement('textarea'); ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0'; document.body.appendChild(ta); ta.select(); try { ok = document.execCommand('copy'); } catch {} ta.remove(); }
+    showToast(ok ? `계좌 복사됨 — ${text}` : `복사가 막혔어요 — ${text}`);
   } catch (e) { showToast(e.message); }
 }
 

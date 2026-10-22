@@ -124,7 +124,7 @@ Deno.serve(async (req) => {
       const out = [];
       for (const h of hires) {
         out.push({
-          id: h.id, kind: h.kind, name: h.name, phone: h.phone, birth: h.birth, bank_name: h.bank_name, bank_holder: h.bank_holder,
+          id: h.id, kind: h.kind, name: h.name, phone: h.phone, birth: h.birth, bank_name: h.bank_name, bank_holder: h.bank_holder, gender: h.gender === 'M' ? 'M' : 'F',
           status: h.status, interview_date: h.interview_date, memo: h.memo, employee_id: h.employee_id,
           created_by: h.created_by, created_at: h.created_at,
           rrn_mask: maskRrn(await dec(h.rrn_enc)), account_mask: maskAcct(await dec(h.account_enc)),
@@ -168,6 +168,10 @@ Deno.serve(async (req) => {
         }
       }
       for (const k of ['bank_name', 'bank_holder', 'memo'] as const) if (k in b) row[k] = String(b[k] ?? '').trim().slice(0, 500) || null;
+      if ('gender' in b) {   // 성별 F 여(기본)/M 남 (2026-10-22 사용자 요청, migrations/0061)
+        if (b.gender !== 'F' && b.gender !== 'M') return json({ error: '성별 값이 올바르지 않아요' }, 400);
+        row.gender = b.gender;
+      }
       if ('kind' in b) {
         if (!KINDS.includes(b.kind)) return json({ error: '구분 값이 올바르지 않아요' }, 400);
         row.kind = b.kind;
