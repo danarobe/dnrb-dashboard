@@ -1498,6 +1498,7 @@
           · 상품 줄의 <b>▸</b>를 누르면 그 상품의 옵션이 펼쳐져요(<b>전체 펼치기</b>도 있어요). 실제 수량 칸에서 <b>Enter</b>를 누르면 저장하고 다음 칸으로 넘어가요. 전달 수량과 같으면 상품 줄의 <b>[전달 수량과 같음]</b>으로 한 번에 채울 수 있어요.<br>
           · <b>사입상품명</b>은 카페24 <b>공급사 상품명</b>과 같은 이름이에요 — 카페24에 등록되면 자동으로 '등록됨'으로 바뀌어요.
         </div>
+        <div id="cn-ship-board" style="margin-bottom:12px;"></div>
         <div id="cn-ship-bar" style="margin-bottom:10px;"></div>
         <div id="cn-check-summary" style="margin-bottom:10px;"></div>
         <div id="cn-check-controls" style="display:none;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px;">
@@ -5384,12 +5385,12 @@ const unshipOverdue = (m, today) => !!(m && m.arrival_date && String(m.arrival_d
    서버 cafe24-analytics cn_list / cn_upload / cn_check / cn_ship. 단가·비용은 관리자만(2026-10-02 — 서버가 MD·물류팀 응답에서 뺀다). CS팀은 메뉴 자체가 없음. 엑셀 올리기·입고 건 수정·삭제도 관리자·MD. */
 const CN_TABS_FX = ['fx', '원>달러>위안 환전', null, 'fa-solid fa-money-bill-transfer'];   // 2026-10-22 — 관리자만(can_price)
 const CN_TABS = [['check', '입고 검수', null, 'fa-solid fa-clipboard-check'], ['prod', '상품별 현황', null, 'fa-solid fa-layer-group'], ['order', '주문서', null, 'fa-solid fa-file-signature'], ['buy', '주문하기', null, 'fa-solid fa-cart-plus'], ['cost', '입고 비용', null, 'fa-solid fa-coins']];   // 주문하기 = 2026-10-20 사용자 요청(수량을 적으면 주문서 양식 엑셀로)   // 주문서 탭 = 2026-10-19 사용자 요청('전체' 보기 아래에 늘어서던 주문서 목록을 따로)
-const cnTabs = () => [...CN_TABS, CN_TABS_FX].filter(t => (t[0] !== 'cost' || !cnState.data || cnState.data.can_price) && (t[0] !== 'fx' || (cnState.data && cnState.data.can_price)) && (t[0] !== 'buy' || !cnState.data || cnState.data.can_edit));   // 입고 비용 = 관리자만, 주문하기 = 관리자·MD
+const cnTabs = () => [...CN_TABS, CN_TABS_FX].filter(t => (t[0] !== 'cost' || !cnState.data || cnState.data.can_price) && (t[0] !== 'fx' || (cnState.data && cnState.data.can_price)) && (t[0] !== 'buy' || !cnState.data || cnState.data.can_edit) && (t[0] !== 'order' || !cnState.data || cnState.data.can_edit));   // 물류팀 = 입고 검수·상품별 현황만(2026-10-22 — 주문서·주문하기·입고 비용·환전 숨김)   // 입고 비용 = 관리자만, 주문하기 = 관리자·MD
 const cnState = { data: null, loading: false, tab: 'check', shipId: 'all', costShipId: null, filter: 'all', prodFilter: 'all', lineFilter: 'all', pending: null, sales: null, salesLoading: false, open: { check: new Set(), prod: new Set() }, thumbs: {}, thumbAsked: new Set(), thumbWant: [], thumbT: null, thumbScroll: false };
 function cnTabRender() { const k = cnState.tab; if (k === 'check') cnCheckRender(); else if (k === 'cost') cnCostRender(); else if (k === 'fx') cnFxRender(); else if (k === 'order') cnOrderTabRender(); else if (k === 'buy') cnBuyRender(); else { cnProdRender(); cnSalesLoad(); } }
 function cnInit() { cnSetTab(cnState.tab); if (!cnState.data && !cnState.loading) cnLoad(false); }
 function cnSetTab(k) {
-  if (((k === 'cost' || k === 'fx') && cnState.data && !cnState.data.can_price) || (k === 'buy' && cnState.data && !cnState.data.can_edit) || ![...CN_TABS, CN_TABS_FX].some(t => t[0] === k)) k = 'check';   // 없어진 탭(미출고 잔여 — 2026-10-14)이면 입고 검수로
+  if (((k === 'cost' || k === 'fx') && cnState.data && !cnState.data.can_price) || ((k === 'buy' || k === 'order') && cnState.data && !cnState.data.can_edit) || ![...CN_TABS, CN_TABS_FX].some(t => t[0] === k)) k = 'check';   // 없어진 탭(미출고 잔여 — 2026-10-14)이면 입고 검수로
   cnState.tab = k; uiTabs('cn-tabs', cnTabs(), k, 'cnSetTab');
   document.querySelectorAll('.cn-pane').forEach(el => { el.style.display = 'none'; });
   $('cn-pane-' + k).style.display = 'block';
@@ -5458,6 +5459,19 @@ function cnParseGrid(grid) {
   for (const [k, set] of fab) if (inLines.has(k)) fabrics[k] = [...set].join(' / ').slice(0, 200);
   return { lines, skipped, headerFound: hr >= 0, rowNames, fabrics, fabricCol: col.fabric >= 0, doc: cnParseDoc(grid) };
 }
+// 출고 서류의 출고·도착 줄(2026-10-22): '09.25(금)출고 23박스-09.28(월) 한국 도착예정' → 중국 출고일·박스 수량·입고 예정일(올해, 12월→1월이면 다음 해)
+function cnParseArrival(grid) {
+  const out = { ship: null, arrival: null, boxes: null }, y = Number(cnToday().slice(0, 4)), pad = v => String(v).padStart(2, '0');
+  for (const row of grid) for (const c of (row || [])) {
+    const t = String(c == null ? '' : c).replace(/\s+/g, ' ');
+    const m = t.match(/(\d{1,2})[.\/](\d{1,2})\s*(?:\([^)]*\))?\s*출고\s*(\d{1,4})\s*박스(?:.*?(\d{1,2})[.\/](\d{1,2})\s*(?:\([^)]*\))?\s*(?:한국)?\s*도착)?/);
+    if (!m) continue;
+    out.ship = `${y}-${pad(m[1])}-${pad(m[2])}`; out.boxes = Number(m[3]);
+    if (m[4]) out.arrival = `${Number(m[4]) < Number(m[1]) ? y + 1 : y}-${pad(m[4])}-${pad(m[5])}`;
+    return out;
+  }
+  return out;
+}
 // 출고 서류 합계 블록(2026-10-22): '물건값 합계(위안)' ~ '총 합계(위안)' 사이의 줄들 — 라벨 바로 왼쪽(3칸 안)의 숫자. 사이에 든 '에이전시…'는 agency, 그 밖(경비·특송+택배 등)은 items.
 function cnParseDoc(grid) {
   const t = v => String(v == null ? '' : v).replace(/\s+/g, ' ').trim();
@@ -5492,9 +5506,10 @@ async function cnFilePick(input) {
     const title = file.name.replace(/\.(xlsx|xls)$/i, '').normalize('NFC');
     const dm = title.match(/(\d{1,2})[:.\/-](\d{1,2})/);   // 파일 이름의 '9:25'·'9.25' → 출고일 추정(올해)
     const guessDate = dm ? `${new Date().getFullYear()}-${String(dm[1]).padStart(2, '0')}-${String(dm[2]).padStart(2, '0')}` : '';
+    const arr = cnParseArrival(grid), fb = title.match(/(\d{1,4})\s*박스/);
     let costs = null; try { costs = cnCostSheet(wb, XLSX); } catch (e2) { costs = null; }
     let thumbs = {}; try { thumbs = await cnExtractThumbs(await file.arrayBuffer(), XLSX, parsed.rowNames); } catch (e3) { thumbs = {}; }
-    cnState.pending = { file_name: file.name.normalize('NFC'), sheet: sheetName, title, ship_date: guessDate, costs, thumbs, ...parsed };
+    cnState.pending = { file_name: file.name.normalize('NFC'), sheet: sheetName, title, ship_date: arr.ship || guessDate, arrival_date: arr.arrival || '', box_count: arr.boxes != null ? arr.boxes : fb ? Number(fb[1]) : '', costs, thumbs, ...parsed };
     cnUploadPanelRender();
   } catch (e) { panel.innerHTML = `<div style="border:1.5px solid #fca5a5;background:#fef2f2;border-radius:12px;padding:10px 14px;font-size:.82rem;color:#b91c1c;margin-bottom:12px;">엑셀을 읽지 못했어요 — ${escHtml(e.message)}</div>`; }
 }
@@ -5519,7 +5534,7 @@ function cnUploadPanelRender() {
       <div class="table-wrap" style="max-height:260px;overflow:auto;margin-top:6px;"><table style="width:100%;font-size:.76rem;"><thead><tr><th style="text-align:left;">사입상품명</th><th style="text-align:left;">색상</th><th style="text-align:left;">사이즈</th><th>전달(출고)</th>${showPrice ? '<th>단가</th>' : ''}</tr></thead>
       <tbody>${p.lines.map(l => `<tr><td style="text-align:left;">${escHtml(l.sname)}</td><td style="text-align:left;">${escHtml(l.color || '')}</td><td style="text-align:left;">${escHtml(l.size || '')}</td><td style="text-align:right;">${fmt(l.qty_sent)}</td>${showPrice ? `<td style="text-align:right;">${cnYuan(l.unit_price)}</td>` : ''}</tr>`).join('')}</tbody></table></div></details>
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;margin-bottom:10px;">
-      ${inp('cn-up-title', '입고 이름', p.title, '예: 1차입고 9/25 출고 23박스')}${inp('cn-up-round', '발주 차수', p.order_round, '예: 1차')}${inp('cn-up-date', '중국 출고일', p.ship_date, '', 'date')}${inp('cn-up-note', '메모', p.note, '예: 23박스, 9/28 한국 도착')}
+      ${inp('cn-up-title', '입고 이름', p.title, '예: 1차입고 9/25 출고 23박스')}${inp('cn-up-date', '중국 출고일', p.ship_date, '', 'date')}${inp('cn-up-arrival', '입고 예정일', p.arrival_date, '', 'date')}${inp('cn-up-boxes', '박스 수량', p.box_count, '예: 23', 'number')}${inp('cn-up-note', '메모', p.note, '')}
     </div>
     <div style="display:flex;gap:8px;"><button class="toggle-btn" id="cn-up-save" style="background:#4f46e5;color:#fff;border-color:#4f46e5;" onclick="cnUploadSave()"><i class="fa-solid fa-floppy-disk"></i> 이 내용으로 저장</button>
       <button class="toggle-btn" onclick="cnState.pending=null;cnUploadPanelRender()">취소</button></div>
@@ -5535,7 +5550,7 @@ function cnUploadFabricHtml(p) {   // 엑셀의 혼용률 열에서 읽은 값 �
 }
 async function cnUploadSave() {
   const p = cnState.pending; if (!p) return;
-  const body = { title: $('cn-up-title').value, order_round: $('cn-up-round').value, ship_date: $('cn-up-date').value || null, note: $('cn-up-note').value, file_name: p.file_name, lines: p.lines, costs: p.costs || null, doc: p.doc ? { ...p.doc, src: '출고 서류(' + p.file_name + ')' } : null, thumbs: p.thumbs || {}, fabrics: p.fabrics || {} };
+  const body = { title: $('cn-up-title').value, ship_date: $('cn-up-date').value || null, arrival_date: $('cn-up-arrival').value || null, box_count: $('cn-up-boxes').value === '' ? null : Number($('cn-up-boxes').value), note: $('cn-up-note').value, file_name: p.file_name, lines: p.lines, costs: p.costs || null, doc: p.doc ? { ...p.doc, src: '출고 서류(' + p.file_name + ')' } : null, thumbs: p.thumbs || {}, fabrics: p.fabrics || {} };
   if (!body.title.trim()) { showToast('입고 이름을 입력해 주세요'); return; }
   const dup = ((cnState.data || {}).ships || []).find(x => x.file_name === p.file_name);
   if (dup && !confirm(`같은 파일 이름의 입고 건이 이미 있어요 ("${dup.title}").\n그래도 새 입고 건으로 저장할까요?`)) return;
@@ -5568,6 +5583,53 @@ function cnWhoHtml(l) { return l.checked_by_name ? `${escHtml(l.checked_by_name)
    완료한 차수(cn_shipments.checked_done)는 실제 수량·메모를 못 고치고(서버도 거절), 입고 검수의 기본 보기 '검수할 입고'에서 빠진다(골라서 볼 수는 있음).
    예전 '전체' 보기(모든 입고 합침)는 없앴다 — 모든 차수를 합친 숫자는 '상품별 현황' 탭에서 본다. */
 const cnShipDone = x => !!(x && x.checked_done);
+/* 입고 상태(2026-10-22 사용자 요청): 입고 대기(arrived=false) → 입고 완료(실물 검수 중) → 검수 완료. 검수 완료는 입고 완료 뒤에만(서버도 막음). */
+const cnShipArrived = x => !!(x && (x.arrived || x.checked_done));
+const cnShipStage = x => cnShipDone(x) ? 'done' : cnShipArrived(x) ? 'arrived' : 'wait';
+const CN_STAGE = { wait: ['입고 대기', '#b45309', '#fef3c7', 'fa-truck'], arrived: ['입고 완료 · 검수 중', '#1d4ed8', '#dbeafe', 'fa-box-open'], done: ['검수 완료', '#166534', '#dcfce7', 'fa-circle-check'] };
+const cnToday = () => new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Seoul' });
+function cnDday(d) {   // 입고 예정일 → 'D-3' / '오늘' / '2일 지남'
+  if (!d) return '';
+  const n = Math.round((new Date(d + 'T00:00:00') - new Date(cnToday() + 'T00:00:00')) / 86400000);
+  return n > 0 ? `D-${n}` : n === 0 ? '오늘' : `${-n}일 지남`;
+}
+async function cnShipArrivedSet(id, on) {
+  const ship = ((cnState.data || {}).ships || []).find(x => x.id === id); if (!ship) return;
+  if (on && !confirm(`"${ship.title}" 입고 완료로 표시할까요?${ship.box_count != null ? `\n박스 ${ship.box_count}개가 다 들어왔는지 확인해 주세요.` : ''}\n입고 완료한 뒤에 실물 검수를 하고 [검수 완료]를 누를 수 있어요.`)) return;
+  if (!on && !confirm(`"${ship.title}" 입고 완료를 취소할까요? 다시 '입고 대기'로 돌아가요.`)) return;
+  try { const r = await cnPost('cn_ship', { id, arrived: on }); Object.assign(ship, r.shipment); showToast(on ? '입고 완료로 표시했어요 — 실물 검수 뒤 [검수 완료]를 눌러 주세요' : '입고 대기로 되돌렸어요'); cnCheckRender(); }
+  catch (e) { showToast('저장 실패: ' + e.message); }
+}
+// 입고 상태 보드 — 상태 칩(진행 중 / 입고 대기 / 검수 중 / 검수 완료 / 전체) + 입고 건 표. 줄의 [열기]로 아래 검수 화면에서 그 입고를 고른다.
+function cnShipBoardRender() {
+  const d = cnState.data, box = $('cn-ship-board'); if (!d || !box) return;
+  const ships = (d.ships || []).slice().sort((a, b) => String(a.arrival_date || a.ship_date || '9999').localeCompare(String(b.arrival_date || b.ship_date || '9999')) || a.id - b.id);
+  if (!ships.length) { box.innerHTML = ''; return; }
+  const st = cnState.stage || 'open', cnt = { wait: 0, arrived: 0, done: 0 };
+  for (const x of ships) cnt[cnShipStage(x)]++;
+  const pass = { open: x => cnShipStage(x) !== 'done', wait: x => cnShipStage(x) === 'wait', arrived: x => cnShipStage(x) === 'arrived', done: x => cnShipStage(x) === 'done', all: () => true };
+  const list = ships.filter(pass[st] || pass.open);
+  const chips = [['open', '진행 중', cnt.wait + cnt.arrived], ['wait', '입고 대기', cnt.wait], ['arrived', '검수 중', cnt.arrived], ['done', '검수 완료', cnt.done], ['all', '전체', ships.length]]
+    .map(([k, label, n]) => `<button class="${st === k ? 'active' : ''}" onclick="cnState.stage='${k}';cnShipBoardRender()">${label} ${fmt(n)}</button>`).join('');
+  const qtyOf = id => (d.lines || []).filter(l => l.shipment_id === id).reduce((t, l) => t + l.qty_sent, 0);
+  const canUndo = !!d.can_edit;
+  const rows = list.map(x => { const sg = cnShipStage(x), [lab, col, bg, ic] = CN_STAGE[sg], dd = sg === 'wait' ? cnDday(x.arrival_date) : '', late = sg === 'wait' && /지남/.test(dd), pr = cnShipProgress(x.id);
+    const act = sg === 'wait' ? `<button class="toggle-btn" style="font-size:.7rem;padding:3px 10px;background:#f59e0b;color:#fff;border-color:#f59e0b;" onclick="cnShipArrivedSet(${x.id},true)"><i class="fa-solid fa-truck-ramp-box"></i> 입고 완료</button>`
+      : sg === 'arrived' ? `<span class="cn-sub" style="display:inline;">실제 수량 ${fmt(pr.done)} / ${fmt(pr.n)}</span> <button class="toggle-btn" style="font-size:.7rem;padding:3px 10px;${pr.n && pr.done === pr.n ? 'background:#16a34a;color:#fff;border-color:#16a34a;' : 'color:#166534;'}" onclick="cnShipDoneSet(${x.id},true)"><i class="fa-solid fa-check"></i> 검수 완료</button>${canUndo ? ` <button class="toggle-btn" style="font-size:.66rem;padding:2px 7px;" onclick="cnShipArrivedSet(${x.id},false)" title="입고 대기로 되돌리기">입고 취소</button>` : ''}`
+      : `<span class="cn-sub" style="display:inline;">${escHtml(x.checked_done_by_name || '')} ${escHtml(unshipKst(x.checked_done_at || ''))}</span>`;
+    return `<tr${cnState.shipId === x.id ? ' style="background:#eef2ff;"' : ''}>
+      <td style="text-align:left;"><b>${escHtml(x.title)}</b>${x.note ? `<div class="cn-sub">${escHtml(x.note)}</div>` : ''}</td>
+      <td>${escHtml(x.ship_date ? String(x.ship_date).slice(5) : '—')}</td>
+      <td>${x.arrival_date ? `<b>${escHtml(String(x.arrival_date).slice(5))}</b>${dd ? ` <span style="font-size:.68rem;font-weight:800;color:${late ? '#b91c1c' : '#b45309'};">${dd}</span>` : ''}` : '<span style="color:#9ca3af;">—</span>'}</td>
+      <td style="text-align:right;">${x.box_count != null ? fmt(x.box_count) + '박스' : '—'}</td><td style="text-align:right;">${fmt(qtyOf(x.id))}장</td>
+      <td><span style="display:inline-flex;align-items:center;gap:4px;background:${bg};color:${col};border-radius:99px;padding:2px 9px;font-size:.7rem;font-weight:800;white-space:nowrap;"><i class="fa-solid ${ic}"></i> ${lab}</span>${sg !== 'wait' && x.arrived_at ? `<div class="cn-sub">입고 ${escHtml(x.arrived_by_name || '')} ${escHtml(unshipKst(x.arrived_at))}</div>` : ''}</td>
+      <td style="text-align:left;white-space:nowrap;">${act}</td>
+      <td><button class="toggle-btn" style="font-size:.68rem;padding:2px 9px;" onclick="cnState.shipId=${x.id};cnState.filter='all';cnCheckRender()">열기</button></td></tr>`; }).join('');
+  box.innerHTML = `<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:6px;"><b style="font-size:.86rem;"><i class="fa-solid fa-truck-fast" style="color:#4f46e5;"></i> 입고 현황</b><span class="qp">${chips}</span>
+      <span style="font-size:.72rem;color:#6b7280;">상자가 도착하면 [입고 완료] → 실물 검수(실제 수량 입력) → [검수 완료]</span></div>
+    ${list.length ? `<div class="table-wrap"><table style="width:100%;font-size:.8rem;"><thead><tr><th style="text-align:left;">입고</th><th>중국 출고일</th><th>입고 예정일</th><th style="text-align:right;">박스</th><th style="text-align:right;">수량</th><th>상태</th><th style="text-align:left;">할 일</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`
+      : `<div style="font-size:.8rem;color:#6b7280;padding:8px 2px;">${st === 'wait' ? '입고 대기 중인 건이 없어요.' : '해당하는 입고 건이 없어요.'}</div>`}`;
+}
 const cnPendingShips = () => (((cnState.data || {}).ships) || []).filter(x => !cnShipDone(x));
 const cnLineLocked = l => cnShipDone((((cnState.data || {}).ships) || []).find(x => x.id === l.shipment_id));
 /* ══ 주문서 (2026-10-19 다시 — 사용자 요청 "주문서 수량을 표기 안 하니 언제 얼마나 주문했는지 알 수 없다") ══
@@ -5815,6 +5877,7 @@ async function cnShipDoneSet(id, done) {
     const ls = ((cnState.data || {}).lines || []).filter(l => l.shipment_id === id), open = ls.filter(l => l.qty_actual == null).length;
     if (open) { alert(`"${ship.title}" — 아직 실제 수량을 안 적은 옵션이 ${open}개 있어요.\n모두 적은 뒤에 검수 완료할 수 있어요. (전달 수량과 같다면 상품 줄의 [전달 수량과 같음]으로 한 번에 채울 수 있어요)`); return; }
     const diff = ls.filter(l => l.qty_actual !== l.qty_sent).length;
+    if (!cnShipArrived(ship)) { alert(`"${ship.title}" — 먼저 [입고 완료]를 눌러 주세요. 입고된 뒤에 검수 완료할 수 있어요.`); return; }
     if (!confirm(`"${ship.title}" 검수를 완료할까요?\n옵션 ${ls.length}개 모두 실제 수량을 적었어요${diff ? ` (전달 수량과 다른 옵션 ${diff}개)` : ' (모두 전달 수량과 같음)'}.\n\n완료하면 이 차수의 실제 수량·메모를 더 고칠 수 없고, '검수할 입고' 보기에서 빠져요.\n(잘못 눌렀으면 관리자·MD가 완료를 취소할 수 있어요)`)) return;
   } else if (!confirm(`"${ship.title}" 검수 완료를 취소할까요?\n다시 실제 수량을 고칠 수 있고 '검수할 입고' 보기에 다시 나와요.`)) return;
   try {
@@ -5828,8 +5891,9 @@ async function cnShipDoneSet(id, done) {
 function cnShipProgress(id) { const ls = ((cnState.data || {}).lines || []).filter(l => l.shipment_id === id); return { n: ls.length, done: ls.filter(l => l.qty_actual != null).length }; }
 function cnShipDoneHtml(x, can) {   // 입고 한 건의 완료 표시/버튼
   if (cnShipDone(x)) return `<span style="display:inline-flex;align-items:center;gap:6px;"><span style="background:#dcfce7;color:#166534;border-radius:99px;padding:2px 10px;font-size:.72rem;font-weight:800;white-space:nowrap;"><i class="fa-solid fa-circle-check"></i> 검수 완료</span><span class="cn-sub" style="display:inline;">${escHtml(x.checked_done_by_name || '')} ${escHtml(unshipKst(x.checked_done_at || ''))}</span>${can ? `<button class="toggle-btn" style="font-size:.68rem;padding:2px 8px;" onclick="cnShipDoneSet(${x.id},false)">완료 취소</button>` : ''}</span>`;
+  if (!cnShipArrived(x)) return `<span style="display:inline-flex;align-items:center;gap:6px;flex-wrap:wrap;"><span style="background:#fef3c7;color:#b45309;border-radius:99px;padding:2px 10px;font-size:.72rem;font-weight:800;white-space:nowrap;"><i class="fa-solid fa-truck"></i> 입고 대기${x.arrival_date ? ' · 예정 ' + escHtml(String(x.arrival_date).slice(5)) + ' ' + cnDday(x.arrival_date) : ''}</span><button class="toggle-btn" style="font-size:.7rem;padding:3px 10px;background:#f59e0b;color:#fff;border-color:#f59e0b;" onclick="cnShipArrivedSet(${x.id},true)"><i class="fa-solid fa-truck-ramp-box"></i> 입고 완료</button><button class="toggle-btn" style="font-size:.7rem;padding:3px 10px;opacity:.45;cursor:not-allowed;" disabled title="먼저 [입고 완료]를 눌러 주세요"><i class="fa-solid fa-check"></i> 검수 완료</button></span>`;
   const pr = cnShipProgress(x.id), all = pr.n && pr.done === pr.n;
-  return `<span style="display:inline-flex;align-items:center;gap:6px;"><span class="cn-sub" data-cn-pr="${x.id}" style="display:inline;${all ? 'color:#166534;font-weight:700;' : ''}">실제 수량 ${fmt(pr.done)} / ${fmt(pr.n)} 옵션</span><button class="toggle-btn" style="font-size:.7rem;padding:3px 10px;${all ? 'background:#16a34a;color:#fff;border-color:#16a34a;' : 'color:#166534;'}" onclick="cnShipDoneSet(${x.id},true)" title="이 차수의 실물 파악이 끝났으면 눌러요 — 완료한 차수는 고칠 수 없고 '검수할 입고'에서 빠져요"><i class="fa-solid fa-check"></i> 검수 완료</button></span>`;
+  return `<span style="display:inline-flex;align-items:center;gap:6px;flex-wrap:wrap;"><span style="background:#dbeafe;color:#1d4ed8;border-radius:99px;padding:2px 10px;font-size:.72rem;font-weight:800;white-space:nowrap;" title="${escHtml((x.arrived_by_name || '') + ' ' + unshipKst(x.arrived_at || ''))}"><i class="fa-solid fa-box-open"></i> 입고 완료</span>${can ? `<button class="toggle-btn" style="font-size:.66rem;padding:2px 7px;" onclick="cnShipArrivedSet(${x.id},false)">입고 취소</button>` : ''}<span class="cn-sub" data-cn-pr="${x.id}" style="display:inline;${all ? 'color:#166534;font-weight:700;' : ''}">실제 수량 ${fmt(pr.done)} / ${fmt(pr.n)} 옵션</span><button class="toggle-btn" style="font-size:.7rem;padding:3px 10px;${all ? 'background:#16a34a;color:#fff;border-color:#16a34a;' : 'color:#166534;'}" onclick="cnShipDoneSet(${x.id},true)" title="이 차수의 실물 파악이 끝났으면 눌러요 — 완료한 차수는 고칠 수 없고 '검수할 입고'에서 빠져요"><i class="fa-solid fa-check"></i> 검수 완료</button></span>`;
 }
 function cnGroups(lines) {   // 사입상품명별 묶음(엑셀에 나온 순서)
   const m = new Map();
@@ -6130,6 +6194,7 @@ function cnGroupPriceCellsAll(g) {
 function cnCheckRender() {
   const d = cnState.data; if (!d) return;
   const ships = d.ships || [];
+  cnShipBoardRender();
   const bar = $('cn-ship-bar');
   if (!ships.length) {
     bar.innerHTML = ''; $('cn-check-summary').innerHTML = ''; $('cn-check-controls').style.display = 'none';
@@ -6144,8 +6209,8 @@ function cnCheckRender() {
   const canDone = true, canUndo = !!d.can_edit;   // 완료 = 관리자·MD·물류팀(메뉴를 보는 사람 모두), 완료 취소 = 관리자·MD
   bar.innerHTML = `<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
     <select onchange="cnState.shipId=this.value==='all'||this.value==='sum'?this.value:Number(this.value);cnState.filter='all';cnCheckRender()" style="border:1.5px solid #d1d5db;border-radius:8px;padding:6px 10px;font-size:.84rem;font-weight:700;max-width:100%;">
-      ${ships.length > 1 ? `<option value="sum"${isSum ? ' selected' : ''}>전체 — 입고 ${ships.length}건 합계 (같은 옵션끼리)</option>` : ''}${pend.length > 1 ? `<option value="all"${isAll ? ' selected' : ''}>검수할 입고 (완료 전 ${pend.length}건)</option>` : ''}${ships.map(x => `<option value="${x.id}"${!isAll && !isSum && x.id === ship.id ? ' selected' : ''}>${cnShipDone(x) ? '✓ ' : ''}${escHtml(x.title)}${x.ship_date ? ' · ' + escHtml(String(x.ship_date).slice(5)) + ' 출고' : ''}${cnShipDone(x) ? ' (검수 완료)' : ''}</option>`).join('')}</select>
-    ${isSum ? `<span style="font-size:.76rem;color:#6b7280;">입고 <b>${ships.length}건 전체</b>(검수 완료한 차수 포함)를 <b>같은 품번·옵션끼리 합쳐</b> 보여줘요 — 보기 전용이라 수량·불량·메모는 차수를 골라 고쳐요</span>` : isAll ? `<span style="font-size:.76rem;color:#6b7280;">검수 완료 전인 입고 <b>${pend.length}건</b>을 합쳐 보여줘요 — <b>완료한 차수는 빠져요</b>(위에서 골라 볼 수 있어요)${d.can_price ? " · <b>실질 단가</b> = 단가(KRW) + 100원당 추가 금액" : ''}</span>` : `<span style="font-size:.76rem;color:#6b7280;">${[ship.order_round ? '발주 <b>' + escHtml(ship.order_round) + '</b>' : '', ship.ship_date ? '출고 ' + escHtml(ship.ship_date) : '', '올린 사람 ' + escHtml(ship.created_by_name || '') + ' ' + escHtml(unshipKst(ship.created_at))].filter(Boolean).join(' · ')}${ship.note ? ' · ' + escHtml(ship.note) : ''}</span>`}
+      ${ships.length > 1 ? `<option value="sum"${isSum ? ' selected' : ''}>전체 — 입고 ${ships.length}건 합계 (같은 옵션끼리)</option>` : ''}${pend.length > 1 ? `<option value="all"${isAll ? ' selected' : ''}>검수할 입고 (완료 전 ${pend.length}건)</option>` : ''}${ships.map(x => `<option value="${x.id}"${!isAll && !isSum && x.id === ship.id ? ' selected' : ''}>${cnShipDone(x) ? '✓ ' : ''}${escHtml(x.title)}${x.ship_date ? ' · ' + escHtml(String(x.ship_date).slice(5)) + ' 출고' : ''}${cnShipDone(x) ? ' (검수 완료)' : cnShipArrived(x) ? ' (검수 중)' : ' (입고 대기)'}</option>`).join('')}</select>
+    ${isSum ? `<span style="font-size:.76rem;color:#6b7280;">입고 <b>${ships.length}건 전체</b>(검수 완료한 차수 포함)를 <b>같은 품번·옵션끼리 합쳐</b> 보여줘요 — 보기 전용이라 수량·불량·메모는 차수를 골라 고쳐요</span>` : isAll ? `<span style="font-size:.76rem;color:#6b7280;">검수 완료 전인 입고 <b>${pend.length}건</b>을 합쳐 보여줘요 — <b>완료한 차수는 빠져요</b>(위에서 골라 볼 수 있어요)${d.can_price ? " · <b>실질 단가</b> = 단가(KRW) + 100원당 추가 금액" : ''}</span>` : `<span style="font-size:.76rem;color:#6b7280;">${[ship.ship_date ? '중국 출고 ' + escHtml(ship.ship_date) : '', ship.arrival_date ? '입고 예정 <b>' + escHtml(ship.arrival_date) + '</b>' : '', ship.box_count != null ? '<b>' + fmt(ship.box_count) + '박스</b>' : '', '올린 사람 ' + escHtml(ship.created_by_name || '') + ' ' + escHtml(unshipKst(ship.created_at))].filter(Boolean).join(' · ')}${ship.note ? ' · ' + escHtml(ship.note) : ''}</span>`}
     ${d.can_edit && !isAll && !isSum ? `<label class="toggle-btn" style="font-size:.7rem;padding:3px 9px;cursor:pointer;" title="이 입고의 엑셀을 다시 고르면 상품 사진만 작게 줄여 넣어요(수량은 그대로)"><i class="fa-regular fa-image"></i> 사진 넣기<input type="file" accept=".xlsx" style="display:none;" onchange="cnThumbFilePick(this)" /></label><button class="toggle-btn" style="font-size:.7rem;padding:3px 9px;" onclick="cnShipEdit()">정보 수정</button><button class="toggle-btn" style="font-size:.7rem;padding:3px 9px;color:#dc2626;" onclick="cnShipDelete()">삭제</button>` : ''}</div>
     <div style="display:flex;flex-direction:column;gap:6px;margin-top:8px;">${(isSum ? [] : isAll ? pend : [ship]).map(x => `<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;border:1.5px solid ${cnShipDone(x) ? '#bbf7d0' : '#e0e7ff'};background:${cnShipDone(x) ? '#f0fdf4' : '#f8f9ff'};border-radius:10px;padding:6px 12px;">${isAll ? `<span style="font-size:.78rem;font-weight:700;color:#3730a3;">${escHtml(cnShipName(x))}</span>` : '<span style="font-size:.78rem;font-weight:700;color:#3730a3;">실물 검수</span>'}${cnShipDoneHtml(x, canUndo)}${cnShipDone(x) ? '<span class="cn-sub" style="display:inline;">이 차수는 고칠 수 없어요 — 고치려면 관리자·MD가 완료를 취소해요</span>' : ''}</div>`).join('')}</div>`;
   $('cn-check-summary').innerHTML = cnCheckSummaryHtml(lines);
@@ -6254,11 +6319,14 @@ async function cnShipEdit() {
   const ship = (cnState.data.ships || []).find(x => x.id === cnState.shipId); if (!ship) return;
   const ask = (label, cur) => { const v = prompt(label, cur || ''); return v === null ? undefined : v; };
   const title = ask('입고 이름', ship.title); if (title === undefined) return;
-  const round = ask('발주 차수 (예: 1차)', ship.order_round); if (round === undefined) return;
   const date = ask('중국 출고일 (YYYY-MM-DD, 비워도 돼요)', ship.ship_date); if (date === undefined) return;
+  const arrival = ask('입고 예정일 (YYYY-MM-DD, 비워도 돼요)', ship.arrival_date); if (arrival === undefined) return;
+  const boxes = ask('박스 수량 (숫자, 비워도 돼요)', ship.box_count == null ? '' : String(ship.box_count)); if (boxes === undefined) return;
   const note = ask('메모', ship.note); if (note === undefined) return;
   if (date && !/^\d{4}-\d{2}-\d{2}$/.test(date.trim())) { showToast('출고일은 2026-09-25 형식으로 적어 주세요'); return; }
-  try { const r = await cnPost('cn_ship', { id: ship.id, title, order_round: round, ship_date: date.trim() || null, note }); Object.assign(ship, r.shipment); cnCheckRender(); showToast('입고 건 정보를 저장했어요'); }
+  if (arrival && !/^\d{4}-\d{2}-\d{2}$/.test(arrival.trim())) { showToast('입고 예정일은 2026-09-28 형식으로 적어 주세요'); return; }
+  if (boxes.trim() && !/^\d+$/.test(boxes.trim())) { showToast('박스 수량은 숫자로 적어 주세요'); return; }
+  try { const r = await cnPost('cn_ship', { id: ship.id, title, ship_date: date.trim() || null, arrival_date: arrival.trim() || null, box_count: boxes.trim() === '' ? null : Number(boxes.trim()), note }); Object.assign(ship, r.shipment); cnCheckRender(); showToast('입고 건 정보를 저장했어요'); }
   catch (e) { showToast('저장 실패: ' + e.message); }
 }
 async function cnShipDelete() {

@@ -2532,6 +2532,7 @@ Deno.serve(async (req) => {
         }
         const [ship] = await sbRest("cn_shipments", { method: "POST", body: JSON.stringify({
           title, vendor: txt(b.vendor, 80), order_round: txt(b.order_round, 40), ship_date: dateOrNull(b.ship_date),
+          arrival_date: dateOrNull(b.arrival_date), box_count: Number.isNaN(intOrNull(b.box_count, 100000)) ? null : intOrNull(b.box_count, 100000),   // 입고 예정일·박스 수량(2026-10-22 — 발주 차수 대신)
           file_name: txt(b.file_name, 200), note: txt(b.note, 300), created_by: authed.id, created_by_name: authed.name,
           costs: "costs" in b ? (cleanCosts(b.costs) ?? null) : null,
           doc: cleanDoc(b.doc),   // 출고 서류 합계 블록(물건값·에이전시 10%·경비·총 합계 위안 — 2026-10-22)
@@ -2597,12 +2598,28 @@ Deno.serve(async (req) => {
       }
       // 차수별 검수 완료 (2026-10-14 사용자 요청) — { id, done: true | false }. 완료 = 관리자·MD·물류팀, 완료 취소 = 관리자·MD.
       //   완료는 그 입고의 모든 옵션에 실제 수량이 적혀 있을 때만(빠짐없이 센 차수만 '끝'으로). 완료한 차수의 줄은 cn_check가 거절한다.
+      // 입고 완료(2026-10-22 사용자 요청 — "입고 완료 버튼 추가, 입고 완료 후 검수 완료"): 표시 = 메뉴를 보는 사람 모두(물류팀 포함), 취소 = 관리자·MD이고 검수 완료 전만
+      if (action === "cn_ship" && "arrived" in b) {
+        if (typeof b.arrived !== "boolean") return json({ error: "입고 완료 값이 올바르지 않아요" }, 400);
+        const sidA = Number(b.id);
+        if (!Number.isInteger(sidA) || sidA < 1) return json({ error: "입고 건 번호가 올바르지 않아요" }, 400);
+        const [cur] = ((await sbRest(`cn_shipments?id=eq.${sidA}&select=id,checked_done`)) ?? []) as Record<string, any>[];
+        if (!cur) return json({ error: "입고 건을 찾지 못했어요" }, 404);
+        if (!b.arrived) {
+          if (!canEdit) return json({ error: "입고 완료 취소는 관리자·MD만 할 수 있어요" }, 403);
+          if (cur.checked_done) return json({ error: "검수 완료한 입고는 입고 완료를 취소할 수 없어요 — 먼저 검수 완료를 취소해 주세요" }, 400);
+        }
+        const [rowA] = ((await sbRest(`cn_shipments?id=eq.${sidA}`, { method: "PATCH", body: JSON.stringify(b.arrived ? { arrived: true, arrived_by_name: authed.name, arrived_at: now } : { arrived: false, arrived_by_name: null, arrived_at: null }) })) ?? []) as Record<string, any>[];
+        return json({ ok: true, shipment: hideCosts(rowA) });
+      }
       if (action === "cn_ship" && "done" in b) {
         if (typeof b.done !== "boolean") return json({ error: "완료 값이 올바르지 않아요" }, 400);
         const sid0 = Number(b.id);
         if (!Number.isInteger(sid0) || sid0 < 1) return json({ error: "입고 건 번호가 올바르지 않아요" }, 400);
         if (!b.done && !canEdit) return json({ error: "검수 완료 취소는 관리자·MD만 할 수 있어요" }, 403);
         if (b.done) {
+          const [sh0] = ((await sbRest(`cn_shipments?id=eq.${sid0}&select=arrived`)) ?? []) as Record<string, any>[];
+          if (sh0 && !sh0.arrived) return json({ error: "먼저 [입고 완료]를 눌러 주세요 — 입고된 뒤에 검수 완료할 수 있어요" }, 400);
           const all = ((await sbRest(`cn_lines?shipment_id=eq.${sid0}&select=id,qty_actual`)) ?? []) as Record<string, any>[];
           if (!all.length) return json({ error: "옵션 줄이 없는 입고 건이에요" }, 400);
           const open = all.filter((r) => r.qty_actual === null || r.qty_actual === undefined).length;
@@ -2629,6 +2646,8 @@ Deno.serve(async (req) => {
         patch.order_id = b.order_id === null ? null : Number(b.order_id);
       }
       if ("ship_date" in b) patch.ship_date = dateOrNull(b.ship_date);
+      if ("arrival_date" in b) patch.arrival_date = dateOrNull(b.arrival_date);
+      if ("box_count" in b) { const bc = intOrNull(b.box_count, 100000); if (Number.isNaN(bc)) return json({ error: "박스 수량은 0 이상의 숫자예요" }, 400); patch.box_count = bc; }
       if ("note" in b) patch.note = txt(b.note, 300);
       if ("costs" in b) {
         if (!canPrice) return json({ error: "비용 내용은 관리자만 바꿀 수 있어요" }, 403);
