@@ -875,12 +875,16 @@ function cnFxModel(ships: Record<string, any>[], lines: Record<string, any>[], b
     avg_rate: avgAll, fallback: CN_FX_FALLBACK,
   };
 }
-function cnLineWon(fx: ReturnType<typeof cnFxModel>, shipId: unknown, unitPrice: unknown): { won: number; ratio: number | null } {
+// 마진율용 부가세(2026-10-22 사용자 지적 — "실질 단가 × 1.1은 모든 부대비용에 부가세를 붙이는 셈, 물건값의 부가세만 더해야"):
+//   vat = 그 줄 몫의 **실제 수입 부가세** = 단가 × 물건값 1위안당 원화(base) × (비용 시트 부가세 ÷ 물건값 원화). 실측 10.42~10.73%(수입 부가세는 물건값 + 운임 + 관세에 10%).
+//   비용 시트가 없으면 물건값 원화의 10%. 마진 원가 = 실질 단가 + vat (일반 상품의 공급가 × 1.1에 해당).
+function cnLineWon(fx: ReturnType<typeof cnFxModel>, shipId: unknown, unitPrice: unknown): { won: number; ratio: number | null; vat: number } {
   const sh = fx.ships[String(Number(shipId))], base = Number(unitPrice) * (sh ? sh.base : CN_FX_FALLBACK * 1.1), r = sh ? sh.ratio : null;
-  return { won: Math.round(r != null ? base * (1 + r) : base), ratio: r };
+  const vr = sh && sh.vat_ratio != null ? sh.vat_ratio : 0.1;
+  return { won: Math.round(r != null ? base * (1 + r) : base), ratio: r, vat: Math.round(base * vr) };
 }
 
-async function cnRealCostByProduct(token: string, noCache: boolean): Promise<Map<number, { won: number; snames: string[]; qty: number; with_cost: boolean }>> {
+async function cnRealCostByProduct(token: string, noCache: boolean): Promise<Map<number, { won: number; vat: number; snames: string[]; qty: number; with_cost: boolean }>> {
   const [ships, lines, prodRows, buys, remits] = await Promise.all([
     sbRest("cn_shipments?select=id,costs,ship_date,doc&limit=500"),
     sbRest("cn_lines?select=shipment_id,sname,qty_sent,unit_price&limit=20000"),
@@ -889,33 +893,33 @@ async function cnRealCostByProduct(token: string, noCache: boolean): Promise<Map
     sbRest("cn_remits?select=*&limit=5000"),
   ]) as [Record<string, any>[], Record<string, any>[], Record<string, any>[], Record<string, any>[], Record<string, any>[]];
   const fx = cnFxModel(ships, lines, buys, remits);   // 2026-10-22: 고정 200원 → 환전 내역 선입선출 1위안 원가 × 출고 서류 총 합계(에이전시 10% 등 포함)
-  const by = new Map<string, { cost: { sum: number; qty: number }; all: { sum: number; qty: number } }>();
+  const by = new Map<string, { cost: { sum: number; qty: number; vat: number }; all: { sum: number; qty: number; vat: number } }>();
   for (const l of lines ?? []) {
     const name = String(l.sname ?? ""), q = Number(l.qty_sent) || 0;
     if (!name || l.unit_price == null || q <= 0) continue;
-    const g = by.get(name) ?? { cost: { sum: 0, qty: 0 }, all: { sum: 0, qty: 0 } };
-    const { won, ratio: r } = cnLineWon(fx, l.shipment_id, l.unit_price);
-    g.all.sum += q * won; g.all.qty += q;
-    if (r != null) { g.cost.sum += q * won; g.cost.qty += q; }
+    const g = by.get(name) ?? { cost: { sum: 0, qty: 0, vat: 0 }, all: { sum: 0, qty: 0, vat: 0 } };
+    const { won, ratio: r, vat } = cnLineWon(fx, l.shipment_id, l.unit_price);
+    g.all.sum += q * won; g.all.qty += q; g.all.vat += q * vat;
+    if (r != null) { g.cost.sum += q * won; g.cost.qty += q; g.cost.vat += q * vat; }
     by.set(name, g);
   }
   const manual = new Map((prodRows ?? []).map((r) => [String(r.sname), Array.isArray(r.c24_nos) ? r.c24_nos : null]));
   const { c24 } = cnMatchC24([...by.keys()], (n) => manual.get(n) ?? null, await cnC24LoadShared(token, noCache));
-  const acc = new Map<number, { cost: { sum: number; qty: number }; all: { sum: number; qty: number }; snames: string[] }>();
+  const acc = new Map<number, { cost: { sum: number; qty: number; vat: number }; all: { sum: number; qty: number; vat: number }; snames: string[] }>();
   for (const [sname, hits] of Object.entries(c24)) {
     const g = by.get(sname); if (!g) continue;
     for (const h of hits) {
       const no = Number(h.product_no);
-      const a = acc.get(no) ?? { cost: { sum: 0, qty: 0 }, all: { sum: 0, qty: 0 }, snames: [] };
-      a.cost.sum += g.cost.sum; a.cost.qty += g.cost.qty; a.all.sum += g.all.sum; a.all.qty += g.all.qty;
+      const a = acc.get(no) ?? { cost: { sum: 0, qty: 0, vat: 0 }, all: { sum: 0, qty: 0, vat: 0 }, snames: [] };
+      a.cost.sum += g.cost.sum; a.cost.qty += g.cost.qty; a.cost.vat += g.cost.vat; a.all.sum += g.all.sum; a.all.qty += g.all.qty; a.all.vat += g.all.vat;
       if (!a.snames.includes(sname)) a.snames.push(sname);
       acc.set(no, a);
     }
   }
-  const out = new Map<number, { won: number; snames: string[]; qty: number; with_cost: boolean }>();
+  const out = new Map<number, { won: number; vat: number; snames: string[]; qty: number; with_cost: boolean }>();
   for (const [no, a] of acc) {
     const use = a.cost.qty > 0 ? a.cost : a.all;
-    if (use.qty > 0) out.set(no, { won: Math.round(use.sum / use.qty), snames: a.snames, qty: use.qty, with_cost: a.cost.qty > 0 });
+    if (use.qty > 0) out.set(no, { won: Math.round(use.sum / use.qty), vat: Math.round(use.vat / use.qty), snames: a.snames, qty: use.qty, with_cost: a.cost.qty > 0 });
   }
   return out;
 }
@@ -1287,7 +1291,7 @@ Deno.serve(async (req) => {
     // performance는 역할에 따라 응답이 달라서(비관리자 order_amount=0) 키에 역할 포함.
     const qsKey = new URLSearchParams(url.search);
     qsKey.delete("nocache"); qsKey.sort();
-    const cacheKey = `an:${qsKey.toString()}` + (action === "performance" ? `:${authed.role}:cn3` : "");   // cn3 = 환전 내역·출고 서류 총 합계 반영(2026-10-22)   // cn1 = 중국 사입 실질 단가 반영(2026-10-16) 전 캐시를 쓰지 않게
+    const cacheKey = `an:${qsKey.toString()}` + (action === "performance" ? `:${authed.role}:cn4` : "");   // cn3 = 환전 내역·출고 서류 총 합계 반영(2026-10-22)   // cn1 = 중국 사입 실질 단가 반영(2026-10-16) 전 캐시를 쓰지 않게
     const noCache = url.searchParams.get("nocache") === "1";
     // 저장 시간: 분석용 조회는 30분(2026-10-01 사용자 결정 — 첫 조회가 6~35초라 다시 기다리는 일을 줄임, 그동안 새 주문·취소는 미반영),
     //   미발송 목록은 10분 그대로(물류팀 실시간 작업 — 화면 새로고침 버튼은 nocache). api_cache 행은 1시간 뒤 자동 삭제.
@@ -3850,6 +3854,7 @@ Deno.serve(async (req) => {
           for (const row of map.values()) {
             const c = cn.get(row.product_no); if (!c) continue;
             row.supply_c24 = row.supply_price; row.supply_price = c.won; row.cost_src = "cn"; row.cn_snames = c.snames; row.cn_with_cost = c.with_cost;
+            row.cn_vat = c.vat; row.cost_vat = c.won + c.vat;   // 마진율 원가 = 실질 단가 + 실제 수입 부가세 몫(2026-10-22 — 실질 단가 × 1.1 아님)
           }
         } catch (e) { cnCostError = "중국 사입 실질 단가를 읽지 못해 공급가로 계산했어요 — " + String(e).slice(0, 120); }
       }
@@ -3923,6 +3928,7 @@ Deno.serve(async (req) => {
         for (const r of rows) {
           const c = cn.get(r.product_no); if (!c || r.supply_price === undefined) continue;
           r.supply_c24 = r.supply_price; r.supply_price = c.won; r.cost_src = "cn"; r.cn_snames = c.snames; r.cn_with_cost = c.with_cost;
+          r.cn_vat = c.vat; r.cost_vat = c.won + c.vat;   // 마진율 원가 = 실질 단가 + 실제 수입 부가세 몫(2026-10-22 — 실질 단가 × 1.1 아님)
         }
       }
     } catch (e) { costError = "마진율 계산용 상품 정보를 읽지 못했어요 — " + String(e).slice(0, 120); }
