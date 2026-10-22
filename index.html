@@ -5560,7 +5560,7 @@ async function cnUploadSave() {
     if (Object.keys(p.thumbs || {}).length) Object.assign(cnState.thumbs, p.thumbs);
     cnState.pending = null; cnUploadPanelRender();
     cnState.shipId = r.shipment.id; cnState.filter = 'all';
-    showToast(`입고 건 저장 완료 — 옵션 ${fmt(r.line_count)}줄`);
+    showToast(`입고 건 저장 완료 — 옵션 ${fmt(r.line_count)}줄${r.notified ? ` · 물류팀 ${r.notified}명에게 알림을 보냈어요` : ''}`);
     cnState.loading = false; await cnLoad(false); cnSetTab('check');
   } catch (e) { btn.disabled = false; showToast('저장 실패: ' + e.message); }
 }

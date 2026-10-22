@@ -2545,6 +2545,22 @@ Deno.serve(async (req) => {
         }
         let thumbs_saved = 0;
         try { thumbs_saved = await saveThumbs(b.thumbs); } catch { /* 사진 저장 실패는 입고 건 저장을 막지 않는다 */ }
+        // 물류팀 알림(2026-10-22 사용자 요청 "신규 입고 엑셀이 등록되면 물류팀 직원에게 알림"): 로그인 막히지 않은 logistics 계정 전원(올린 사람 제외)에게
+        //   앱 종 알림 + 휴대폰 푸시 — notify 함수를 올린 사람의 토큰 그대로 부른다(발신자 = 올린 사람, notify의 시간당 60건 제한도 그대로). 실패해도 입고 저장은 그대로.
+        let notified = 0;
+        try {
+          const users = ((await sbRest("app_users?role=eq.logistics&select=id,login_blocked&limit=50")) ?? []) as Record<string, any>[];
+          const targets = users.filter((u) => !u.login_blocked && String(u.id) !== authed.id).map((u) => String(u.id));
+          if (targets.length) {
+            const md = (d: unknown) => { const v = String(d ?? ""); return /^\d{4}-\d{2}-\d{2}$/.test(v) ? `${Number(v.slice(5, 7))}/${Number(v.slice(8, 10))}` : ""; };
+            const msg = `새 입고 등록: ${title}${ship.box_count != null ? ` · ${ship.box_count}박스` : ""}${md(ship.arrival_date) ? ` · 입고 예정 ${md(ship.arrival_date)}` : ""} — 도착하면 [입고 완료]를 눌러 주세요`;
+            const key = Deno.env.get("SUPABASE_ANON_KEY") ?? Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+            const r = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/notify`, { method: "POST",
+              headers: { "Content-Type": "application/json", apikey: key, Authorization: `Bearer ${key}`, "x-auth-token": req.headers.get("x-auth-token") ?? "" },
+              body: JSON.stringify({ targets, message: msg.slice(0, 200), link_menu: "cnbuy", title: "중국 사입 새 입고" }) });
+            if (r.ok) notified = targets.length;
+          }
+        } catch { /* 알림 실패는 입고 건 저장을 막지 않는다 */ }
         // 엑셀에 혼용률 열이 있으면 같이 저장 — 이번에 올린 줄에 있는 사입상품명만(2026-10-12)
         let fabrics_saved = 0;
         try {
@@ -2554,7 +2570,7 @@ Deno.serve(async (req) => {
           const have = new Set((((await sbRest("cn_products?select=sname,fabric&fabric=not.is.null&limit=5000")) ?? []) as Record<string, any>[]).filter((r) => String(r.fabric ?? "").trim()).map((r) => String(r.sname)));
           fabrics_saved = await saveFabrics(Object.fromEntries(Object.entries(src2).filter(([k]) => { const n = String(txt(k, 100)); return inFile.has(n) && !have.has(n); })));
         } catch { /* 혼용률 저장 실패는 입고 건 저장을 막지 않는다 */ }
-        return json({ ok: true, shipment: hideCosts(ship), line_count: rows.length, thumbs_saved, fabrics_saved });
+        return json({ ok: true, shipment: hideCosts(ship), line_count: rows.length, thumbs_saved, fabrics_saved, notified });
       }
       if (action === "cn_check") {
         // items: [{ line_id, qty_actual?(0 이상 정수 | null = 확인 취소), qty_defect?(0 이상 정수 | null), memo? }] — 한 번에 500줄까지('전달 수량과 같음' 일괄 기입)
