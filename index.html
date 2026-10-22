@@ -6603,11 +6603,29 @@ function cnFxPastePreview() {
   box.innerHTML = `<div style="font-size:.78rem;margin:6px 0;">${r.ok.length ? `<b>${fmt(r.ok.length)}줄</b> 읽음${r.ok.filter(x => have.has(x.order_no)).length ? ` (이미 있는 주문번호 ${r.ok.filter(x => have.has(x.order_no)).length}줄은 덮어써요)` : ''} — ${r.ok.map(x => `${escHtml(x.traded_at.slice(5, 10))} $${x.usd.toLocaleString('en-US')} × ${x.rate}`).join(' · ')}` : '<span style="color:#b45309;">읽은 환전 내역이 없어요 — 은행 내역 엑셀에서 머리글 줄과 함께 복사해 붙여넣어 주세요</span>'}
     ${r.skipped.length ? `<div style="color:#b45309;">빼고 읽음: ${r.skipped.map(escHtml).join(' · ')}</div>` : ''}</div>
     ${r.ok.length ? `<button class="toggle-btn" style="background:#4f46e5;color:#fff;border-color:#4f46e5;font-size:.76rem;" onclick="cnFxPasteSave()"><i class="fa-solid fa-plus"></i> ${fmt(r.ok.length)}줄 추가</button>` : ''}`;
+  cnState.fxPasteMsg = null;
 }
 async function cnFxPasteSave() {
-  const r = cnState.fxPaste; if (!r || !r.ok.length) return;
-  try { const j = await cnPost('cn_fx_buy_add', { rows: r.ok }); cnState.fxPaste = null; showToast(`환전 내역 ${fmt(j.saved)}줄을 저장했어요`); await cnLoad(true); }
-  catch (e) { showToast('저장 실패: ' + e.message); }
+  const r = cnState.fxPaste; if (!r || !r.ok.length || cnState.fxSaving) return;
+  cnState.fxSaving = true;
+  const have = new Set((((cnState.data || {}).fx || {}).buys || []).map(x => String(x.order_no)));
+  const dup = r.ok.filter(x => have.has(x.order_no)).length;
+  try {
+    const j = await cnPost('cn_fx_buy_add', { rows: r.ok }); cnState.fxPaste = null;
+    // 다시 그린 뒤에도 남는 결과 한 줄(무엇을 넣고 무엇을 뺐는지)
+    cnState.fxPasteMsg = `<span style="color:#166534;"><i class="fa-solid fa-circle-check"></i> 환전 내역 <b>${fmt(j.saved - dup)}줄 추가</b>${dup ? ` · 이미 있던 ${fmt(dup)}줄은 같은 내용으로 덮어씀` : ''}</span>${r.skipped.length ? `<div style="color:#b45309;">빼고 읽음: ${r.skipped.map(escHtml).join(' · ')}</div>` : ''}`;
+    showToast(`환전 내역 ${fmt(j.saved - dup)}줄을 추가했어요${dup ? ` (이미 있던 ${dup}줄 제외)` : ''}`);
+    await cnLoad(true);
+  } catch (e) { showToast('저장 실패: ' + e.message); cnFxPastePreview(); }
+  finally { cnState.fxSaving = false; }
+}
+// 붙여넣기(2026-10-22 사용자 요청 "엑셀을 붙여넣으면 자동으로 인식해서 표에 추가"): 붙여넣는 순간 읽어서 읽힌 줄이 있으면 바로 저장. 손으로 타자 칠 때는 미리 보기만.
+function cnFxPasteAuto() {
+  setTimeout(() => {
+    cnFxPastePreview();
+    const r = cnState.fxPaste;
+    if (r && r.ok.length) cnFxPasteSave();
+  }, 0);
 }
 async function cnFxBuyDel(id) {
   const x = ((cnState.data.fx || {}).buys || []).find(b => b.id === id); if (!x) return;
@@ -6671,9 +6689,9 @@ function cnFxRender() {
       ${num(`<b style="color:#4338ca;">${r2(sh.rate)}원</b>`)}${num(`${r2(sh.base)}원`)}${num(sh.ratio != null ? (Math.round(sh.ratio * 10000) / 100).toFixed(2) + '%' : '<span style="color:#b45309;">비용 시트 없음</span>')}${num(`<b>${r2(k)}원</b>`)}</tr>`; }).join('');
   const ed = cnState.fxEdit ? remits.find(r => r.id === cnState.fxEdit) : null;
   box.innerHTML = tiles + `
-    <div style="font-size:.88rem;font-weight:800;margin-bottom:6px;"><span style="color:#4f46e5;">①</span> 원→달러 환전 <span style="font-size:.72rem;color:#6b7280;font-weight:500;">은행 바로환전 내역 — 엑셀에서 머리글 줄과 함께 복사해 붙여넣으세요</span></div>
-    <textarea id="cn-fx-paste" rows="3" placeholder="원주문번호	주문번호	주문상태	주문일시	… (엑셀에서 복사한 그대로 붙여넣기)" oninput="cnFxPastePreview()" style="width:100%;border:1.5px solid #c7d2fe;border-radius:8px;padding:8px 10px;font-size:.78rem;font-family:monospace;"></textarea>
-    <div id="cn-fx-paste-prev"></div>
+    <div style="font-size:.88rem;font-weight:800;margin-bottom:6px;"><span style="color:#4f46e5;">①</span> 원→달러 환전 <span style="font-size:.72rem;color:#6b7280;font-weight:500;">은행 바로환전 내역 — 엑셀에서 복사해 붙여넣으면 자동으로 읽어 표에 추가돼요(같은 주문번호는 한 번만)</span></div>
+    <textarea id="cn-fx-paste" rows="3" placeholder="여기에 붙여넣으면 바로 표에 추가돼요 — 은행 환전 내역 엑셀에서 머리글 줄과 함께 복사(원주문번호	주문번호	주문상태	…)" onpaste="cnFxPasteAuto()" oninput="if (!cnState.fxSaving) cnFxPastePreview()" style="width:100%;border:1.5px solid #c7d2fe;border-radius:8px;padding:8px 10px;font-size:.78rem;font-family:monospace;"></textarea>
+    <div id="cn-fx-paste-prev">${cnState.fxPasteMsg ? `<div style="font-size:.78rem;margin:6px 0;">${cnState.fxPasteMsg}</div>` : ''}</div>
     <div class="table-wrap" style="margin:8px 0 16px;"><table style="width:100%;font-size:.8rem;"><thead><tr><th style="text-align:left;">체결일시</th><th style="text-align:left;">주문번호</th><th>달러</th><th>원화</th><th>체결환율(원/달러)</th><th>송금에 쓴 것</th><th></th></tr></thead>
       <tbody>${buyRows || '<tr><td colspan="7" style="color:#9ca3af;">아직 환전 내역이 없어요</td></tr>'}</tbody></table></div>
     <div style="font-size:.88rem;font-weight:800;margin-bottom:6px;"><span style="color:#4f46e5;">②</span> 달러→위안 송금 <span style="font-size:.72rem;color:#6b7280;font-weight:500;">받은 위안 = 에이전시 통장에 들어온 금액(포워딩 100위안·에이전시 0.003% 뺀 값)</span></div>

@@ -3176,6 +3176,15 @@ Deno.serve(async (req) => {
         };
         await Promise.all(Array.from({ length: Math.min(8, out.length) }, worker));
       }
+      // 중국 사입 마진 원가(2026-10-22 사용자 요청 "에이전트 마진율에도 똑같이"): supply_price(카페24 공급가)는 그대로 두고(카테고리별 진열이 직접 씀)
+      //   cost_src·cn_real_cost(실질 단가)·cn_vat(실제 수입 부가세 몫)·cost_vat(= 마진율 원가)를 덧붙인다 — 에이전트 marginRate가 cost_vat를 쓴다.
+      try {
+        const cn = await cnRealCostByProduct(token, noCache);
+        for (const p of out) {
+          const c = cn.get(Number(p.product_no)); if (!c) continue;
+          Object.assign(p, { cost_src: "cn", cn_real_cost: c.won, cn_vat: c.vat, cost_vat: c.won + c.vat, cn_snames: c.snames, cn_with_cost: c.with_cost });
+        }
+      } catch { /* 실질 단가를 못 읽으면 공급가 × 1.1 그대로 */ }
       return json({ products: out });
     }
 
