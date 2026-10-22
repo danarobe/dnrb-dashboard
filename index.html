@@ -1531,9 +1531,18 @@
       <div id="cn-pane-cost" class="cn-pane" style="display:none;">
         <div style="font-size:.8rem;color:#6b7280;margin-bottom:10px;line-height:1.7;">
           · 입고 엑셀의 <b>두 번째 시트</b>(물류비·검품비·관세·부가세 등 들여오는 비용, 물건 결제)를 <b>입고 차수별</b>로 보여줘요. 관리자만 볼 수 있어요.<br>
-          · <b>물건 결제 대비</b> = 부가세를 뺀 들여오는 비용 ÷ 물건 결제 총합(마진 계산 참고). <b>실질 단가(원)</b> = 단가(위안) × 환율 200원 × (1 + 들여오는 비용 비율) — 부가세는 제외. <b>장당 들여오는 비용</b> = 부가세 제외 총합 ÷ 그 입고의 수량(참고용).
+          · <b>물건 결제 대비</b> = 부가세를 뺀 들여오는 비용 ÷ 물건 결제 총합(마진 계산 참고). <b>실질 단가(원)</b> = 단가(위안) × 물건값 1위안당 원가('원>달러>위안 환전' 탭 — 환전 내역 선입선출 × 출고 서류 총 합계) × (1 + 들여오는 비용 비율 = 부가세 제외 비용 ÷ 물건값 원화) — 부가세는 제외. <b>장당 들여오는 비용</b> = 부가세 제외 총합 ÷ 그 입고의 수량(참고용).
         </div>
         <div id="cn-cost-body"></div>
+      </div>
+      <!-- 원>달러>위안 환전 (2026-10-22 사용자 요청 — 관리자만) -->
+      <div id="cn-pane-fx" class="cn-pane" style="display:none;">
+        <div style="font-size:.8rem;color:#6b7280;margin-bottom:10px;line-height:1.7;">
+          · <b>① 원→달러</b>: 은행 '바로환전' 체결 내역을 엑셀에서 복사해 아래 칸에 붙여넣으면 추가돼요(같은 주문번호는 한 번만). <b>② 달러→위안</b>: 송금마다 보낸 달러와 <b>에이전시 통장에 들어온 위안</b>(포워딩 100위안·에이전시 0.003%를 뺀 금액)을 직접 적어요.<br>
+          · 달러 통장·위안 통장을 <b>들어온 순서대로 꺼내 쓴다(선입선출)</b>고 보고, 입고마다 <b>출고 서류 총 합계(위안)</b>를 꺼낸 송금들의 원가로 <b>1위안 원가</b>를 계산해요. 송금이 출고 서류와 딱 맞지 않아도(일부씩 송금) 그대로 맞춰져요.<br>
+          · <b>실질 단가</b> = 단가(위안) × 물건값 1위안당 원가(총 합계 × 1위안 원가 ÷ 물건값 — 에이전시 10%·경비 포함) × (1 + 들여오는 비용 비율). 종합 판매 데이터·상품 분석·순익 시나리오의 중국 사입 마진에도 이 값이 들어가요. 관리자만 볼 수 있어요.
+        </div>
+        <div id="cn-fx-body"></div>
       </div>
       <div id="cn-pane-prod" class="cn-pane" style="display:none;">
         <div style="font-size:.8rem;color:#6b7280;margin-bottom:10px;line-height:1.7;">
@@ -5373,13 +5382,14 @@ const unshipOverdue = (m, today) => !!(m && m.arrival_date && String(m.arrival_d
    중국에서 보낸 입고 엑셀(첫 시트: A 품번(=사입상품명=카페24 공급사 상품명) · C 색상 · D 사이즈 · E 출고 수량 · G 단가(위안) · H 총액 — F 미출고는 읽지 않음, 2026-10-14)을 올리면
    옵션별 '전달 수량'으로 저장(cn_shipments/cn_lines) → 현장에서 센 '실제 수량'을 적어 차이를 본다. 상품별 현황 = 입고 건을 사입상품명·옵션으로 합친 표 + 카페24 등록 여부·판매량.
    서버 cafe24-analytics cn_list / cn_upload / cn_check / cn_ship. 단가·비용은 관리자만(2026-10-02 — 서버가 MD·물류팀 응답에서 뺀다). CS팀은 메뉴 자체가 없음. 엑셀 올리기·입고 건 수정·삭제도 관리자·MD. */
+const CN_TABS_FX = ['fx', '원>달러>위안 환전', null, 'fa-solid fa-money-bill-transfer'];   // 2026-10-22 — 관리자만(can_price)
 const CN_TABS = [['check', '입고 검수', null, 'fa-solid fa-clipboard-check'], ['prod', '상품별 현황', null, 'fa-solid fa-layer-group'], ['order', '주문서', null, 'fa-solid fa-file-signature'], ['buy', '주문하기', null, 'fa-solid fa-cart-plus'], ['cost', '입고 비용', null, 'fa-solid fa-coins']];   // 주문하기 = 2026-10-20 사용자 요청(수량을 적으면 주문서 양식 엑셀로)   // 주문서 탭 = 2026-10-19 사용자 요청('전체' 보기 아래에 늘어서던 주문서 목록을 따로)
-const cnTabs = () => CN_TABS.filter(t => (t[0] !== 'cost' || !cnState.data || cnState.data.can_price) && (t[0] !== 'buy' || !cnState.data || cnState.data.can_edit));   // 입고 비용 = 관리자만, 주문하기 = 관리자·MD
+const cnTabs = () => [...CN_TABS, CN_TABS_FX].filter(t => (t[0] !== 'cost' || !cnState.data || cnState.data.can_price) && (t[0] !== 'fx' || (cnState.data && cnState.data.can_price)) && (t[0] !== 'buy' || !cnState.data || cnState.data.can_edit));   // 입고 비용 = 관리자만, 주문하기 = 관리자·MD
 const cnState = { data: null, loading: false, tab: 'check', shipId: 'all', costShipId: null, filter: 'all', prodFilter: 'all', lineFilter: 'all', pending: null, sales: null, salesLoading: false, open: { check: new Set(), prod: new Set() }, thumbs: {}, thumbAsked: new Set(), thumbWant: [], thumbT: null, thumbScroll: false };
-function cnTabRender() { const k = cnState.tab; if (k === 'check') cnCheckRender(); else if (k === 'cost') cnCostRender(); else if (k === 'order') cnOrderTabRender(); else if (k === 'buy') cnBuyRender(); else { cnProdRender(); cnSalesLoad(); } }
+function cnTabRender() { const k = cnState.tab; if (k === 'check') cnCheckRender(); else if (k === 'cost') cnCostRender(); else if (k === 'fx') cnFxRender(); else if (k === 'order') cnOrderTabRender(); else if (k === 'buy') cnBuyRender(); else { cnProdRender(); cnSalesLoad(); } }
 function cnInit() { cnSetTab(cnState.tab); if (!cnState.data && !cnState.loading) cnLoad(false); }
 function cnSetTab(k) {
-  if ((k === 'cost' && cnState.data && !cnState.data.can_price) || (k === 'buy' && cnState.data && !cnState.data.can_edit) || !CN_TABS.some(t => t[0] === k)) k = 'check';   // 없어진 탭(미출고 잔여 — 2026-10-14)이면 입고 검수로
+  if (((k === 'cost' || k === 'fx') && cnState.data && !cnState.data.can_price) || (k === 'buy' && cnState.data && !cnState.data.can_edit) || ![...CN_TABS, CN_TABS_FX].some(t => t[0] === k)) k = 'check';   // 없어진 탭(미출고 잔여 — 2026-10-14)이면 입고 검수로
   cnState.tab = k; uiTabs('cn-tabs', cnTabs(), k, 'cnSetTab');
   document.querySelectorAll('.cn-pane').forEach(el => { el.style.display = 'none'; });
   $('cn-pane-' + k).style.display = 'block';
@@ -5446,7 +5456,26 @@ function cnParseGrid(grid) {
   }
   const inLines = new Set(lines.map(l => l.sname)), fabrics = {};
   for (const [k, set] of fab) if (inLines.has(k)) fabrics[k] = [...set].join(' / ').slice(0, 200);
-  return { lines, skipped, headerFound: hr >= 0, rowNames, fabrics, fabricCol: col.fabric >= 0 };
+  return { lines, skipped, headerFound: hr >= 0, rowNames, fabrics, fabricCol: col.fabric >= 0, doc: cnParseDoc(grid) };
+}
+// 출고 서류 합계 블록(2026-10-22): '물건값 합계(위안)' ~ '총 합계(위안)' 사이의 줄들 — 라벨 바로 왼쪽(3칸 안)의 숫자. 사이에 든 '에이전시…'는 agency, 그 밖(경비·특송+택배 등)은 items.
+function cnParseDoc(grid) {
+  const t = v => String(v == null ? '' : v).replace(/\s+/g, ' ').trim();
+  const leftNum = (row, i) => { for (let j = i - 1; j >= Math.max(0, i - 3); j--) { const v = row[j]; if (typeof v === 'number') return v; const x = t(v).replace(/,/g, ''); if (/^-?\d+(\.\d+)?$/.test(x)) return Number(x); } return null; };
+  const find = re => { for (let r = 0; r < grid.length; r++) { const row = grid[r] || []; for (let i = 0; i < row.length; i++) if (re.test(t(row[i]))) return { r, i, v: leftNum(row, i) }; } return null; };
+  const g = find(/물건값\s*합계/), tot = find(/^총\s*합계/);
+  if (!tot || tot.v == null || !(tot.v > 0)) return null;
+  const doc = { goods: g ? g.v : null, agency: null, items: [], total: Math.round(tot.v * 100) / 100 };
+  for (let r = (g ? g.r + 1 : Math.max(0, tot.r - 6)); r < tot.r; r++) {
+    const row = grid[r] || [];
+    for (let i = 0; i < row.length; i++) {
+      const lab = t(row[i]); if (!lab || /^-?[\d.,]+$/.test(lab) || lab.length > 30) continue;
+      const v = leftNum(row, i); if (v == null) continue;
+      if (/에이전시/.test(lab)) doc.agency = Math.round(v * 100) / 100; else doc.items.push({ name: lab, cny: Math.round(v * 100) / 100 });
+      break;
+    }
+  }
+  return doc;
 }
 async function cnFilePick(input) {
   const file = input.files[0]; input.value = '';
@@ -5481,6 +5510,7 @@ function cnUploadPanelRender() {
     <div style="font-size:.9rem;font-weight:800;color:#3730a3;"><i class="fa-solid fa-file-excel"></i> 올릴 내용 확인 — ${escHtml(p.file_name)} <span style="font-weight:500;color:#6b7280;font-size:.74rem;">(시트 "${escHtml(p.sheet)}")</span></div>
     <div style="font-size:.82rem;color:#374151;margin:8px 0;">사입상품 <b>${fmt(names.length)}개</b> · 옵션 <b>${fmt(p.lines.length)}줄</b> · 전달 수량 <b>${fmt(qty)}장</b>${showPrice ? ` · 금액 <b>${cnYuan(amt)}</b>` : ''}</div>
     ${showPrice ? `<div style="font-size:.8rem;color:#374151;margin-bottom:8px;">${p.costs ? (() => { const cs = cnCostSums(p.costs); return `<i class="fa-solid fa-coins" style="color:#4f46e5;"></i> 비용 시트 "${escHtml(p.costs.sheet)}" — 비용 항목 <b>${p.costs.items.length}개</b> · 총합 <b>${cnWon(cs.sum)}</b> · 물건 결제 <b>${cnWon(cs.paySum)}</b> (입고 비용 탭에서 볼 수 있어요)`; })() : '<span style="color:#9ca3af;">비용 시트(두 번째 시트)는 없거나 읽지 못했어요 — 나중에 입고 비용 탭에서 넣을 수 있어요.</span>'}</div>` : ''}
+    ${showPrice ? `<div style="font-size:.8rem;color:#374151;margin-bottom:8px;">${p.doc ? `<i class="fa-solid fa-file-invoice" style="color:#4f46e5;"></i> 출고 서류 합계: 물건값 <b>${cnYuan(p.doc.goods)}</b>${p.doc.agency != null ? ` + 에이전시 <b>${cnYuan(p.doc.agency)}</b>` : ''}${(p.doc.items || []).map(x => ` + ${escHtml(x.name)} <b>${cnYuan(x.cny)}</b>`).join('')} = 총 합계 <b>${cnYuan(p.doc.total)}</b>${p.doc.goods != null && Math.abs(p.doc.goods - amt) > 1 ? ` <span style="color:#b45309;">· 옵션 줄 금액 합(${cnYuan(amt)})과 물건값이 달라요</span>` : ''}` : `<span style="color:#b45309;"><i class="fa-solid fa-triangle-exclamation"></i> 출고 서류의 '총 합계(위안)'를 못 찾았어요 — 물건값 × 1.1(에이전시 10%)로 계산하고, '원>달러>위안 환전' 탭에서 고칠 수 있어요.</span>`}</div>` : ''}
     <div style="font-size:.8rem;color:#374151;margin-bottom:8px;">${Object.keys(p.thumbs || {}).length ? `<i class="fa-regular fa-image" style="color:#4f46e5;"></i> 상품 사진 <b>${Object.keys(p.thumbs).length}장</b>을 작게 줄여 같이 저장해요 <span style="display:inline-flex;gap:3px;vertical-align:middle;margin-left:4px;">${Object.entries(p.thumbs).slice(0, 12).map(([n, u]) => `<img src="${u}" alt="" title="${escHtml(n)}" style="width:26px;height:26px;object-fit:cover;border-radius:4px;" />`).join('')}</span>` : '<span style="color:#9ca3af;">엑셀에서 상품 사진을 찾지 못했어요(사진 없이 저장돼요).</span>'}</div>
     <div style="font-size:.8rem;color:#374151;margin-bottom:8px;">${cnUploadFabricHtml(p)}</div>
     ${!p.headerFound ? '<div style="font-size:.76rem;color:#b45309;margin-bottom:6px;"><i class="fa-solid fa-triangle-exclamation"></i> 머리글(색상·출고)을 못 찾아 A~H 열 순서대로 읽었어요 — 아래 내용이 맞는지 확인해 주세요.</div>' : ''}
@@ -5505,7 +5535,7 @@ function cnUploadFabricHtml(p) {   // 엑셀의 혼용률 열에서 읽은 값 �
 }
 async function cnUploadSave() {
   const p = cnState.pending; if (!p) return;
-  const body = { title: $('cn-up-title').value, order_round: $('cn-up-round').value, ship_date: $('cn-up-date').value || null, note: $('cn-up-note').value, file_name: p.file_name, lines: p.lines, costs: p.costs || null, thumbs: p.thumbs || {}, fabrics: p.fabrics || {} };
+  const body = { title: $('cn-up-title').value, order_round: $('cn-up-round').value, ship_date: $('cn-up-date').value || null, note: $('cn-up-note').value, file_name: p.file_name, lines: p.lines, costs: p.costs || null, doc: p.doc ? { ...p.doc, src: '출고 서류(' + p.file_name + ')' } : null, thumbs: p.thumbs || {}, fabrics: p.fabrics || {} };
   if (!body.title.trim()) { showToast('입고 이름을 입력해 주세요'); return; }
   const dup = ((cnState.data || {}).ships || []).find(x => x.file_name === p.file_name);
   if (dup && !confirm(`같은 파일 이름의 입고 건이 이미 있어요 ("${dup.title}").\n그래도 새 입고 건으로 저장할까요?`)) return;
@@ -5952,7 +5982,7 @@ function cnNameCell(tab, sname, open, nOpt, line1, line2, line3) {
       <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-top:4px;">${cnFabricHtml(sname)}${cnInactiveHtml(sname)}${line2 || ''}</div>${line3 ? `<div style="margin-top:4px;min-width:0;">${line3}</div>` : ''}</div></div></td>`;
 }
 // 단가 칸 하나: 위안(굵게) + 아래 작은 글씨로 원(× 환율) — 예전의 단가(CHN)·단가(KRW) 두 열을 합침
-const cnPriceTd = (yuan, tag, tip) => `<td style="text-align:right;"${tip ? ` title="${escHtml(tip)}"` : ''}>${yuan == null ? '<span style="color:#9ca3af;">—</span>' : `<b>${cnYuan(yuan)}</b>${tag || ''}<div class="cn-sub">${fmt(Math.round(Number(yuan) * CN_FX))}원</div>`}</td>`;
+const cnPriceTd = (yuan, tag, tip) => `<td style="text-align:right;"${tip ? ` title="${escHtml(tip)}"` : ''}>${yuan == null ? '<span style="color:#9ca3af;">—</span>' : `<b>${cnYuan(yuan)}</b>${tag || ''}<div class="cn-sub" title="× 누적 평균 1위안 원가 ${Math.round(cnFxAvg() * 100) / 100}원(에이전시 10%·들여오는 비용 전)">${fmt(Math.round(Number(yuan) * cnFxAvg()))}원</div>`}</td>`;
 const cnShipName = x => String((x && (x.order_round || x.title)) || '');   // 입고 건의 짧은 이름(발주 차수)
 async function cnFabricSave(el) {
   const sname = el.dataset.s, v = el.value.replace(/\s+/g, ' ').trim();
@@ -6086,7 +6116,7 @@ function cnGroupPriceCells(g) {
 //   줄(옵션 × 입고)마다 그 입고의 비용 비율로 실질 단가를 구한 뒤 입고(전달) 수량으로 가중 평균(cnRealAvg — 상품별 현황과 같은 계산).
 function cnLineParts(rows) {
   const shipById = new Map((((cnState.data || {}).ships) || []).map(x => [x.id, x]));
-  return rows.filter(l => l.unit_price != null && l.qty_sent > 0).map(l => { const rw = cnRealWon(l.unit_price, l.shipment_id); return { ship: l.shipment_id, title: (shipById.get(l.shipment_id) || {}).title || '', qty: l.qty_sent, yuan: Number(l.unit_price), won: rw.won, hasCost: !!rw.r, rate: rw.r ? rw.r.cost : null }; });
+  return rows.filter(l => l.unit_price != null && l.qty_sent > 0).map(l => { const rw = cnRealWon(l.unit_price, l.shipment_id); return { ship: l.shipment_id, title: (shipById.get(l.shipment_id) || {}).title || '', qty: l.qty_sent, yuan: Number(l.unit_price), won: rw.won, hasCost: !!rw.r, rate: rw.r ? rw.r.cost : null, base: rw.base }; });
 }
 function cnGroupPriceCellsAll(g) {
   const priced = g.rows.filter(l => l.unit_price != null), r = cnRealAvg(cnLineParts(g.rows));
@@ -6401,18 +6431,25 @@ function cnCostSums(c) {   // 항목 합계와 엑셀에 적힌 총합 비교용
 // 실질 단가(원) (2026-10-01 사용자 요청): 단가(위안) × 환율 200원(계산하기 쉽게 고정 — 사용자 지정) × (1 + 들여오는 비용 비율).
 //   **부가세는 제외**(2026-10-02 사용자 요청 — 처음엔 부가세 비율도 더했다가 뺌). 비율 = 그 입고 비용 시트의 (부가세 제외 들여오는 비용 ÷ 물건 결제 총합).
 //   비용 시트가 없으면 환율만 곱한 값(비용 미반영 표시).
+// 2026-10-22 개편: 고정 200원 → 서버 환전 모델(cn_list의 fx — 관리자만). 입고마다 rate(1위안 원가)·base(물건값 1위안당 원화, 에이전시 10%·경비 포함)·ratio(들여오는 비용 ÷ 물건값 원화).
+//   모델이 없으면(관리자가 아니거나 옛 응답) 예전처럼 200원 × (1 + 비용 ÷ 물건 결제).
 const CN_FX = 200;
+const cnFxShip = shipId => { const fx = (cnState.data || {}).fx; return fx && fx.ships ? fx.ships[String(shipId)] || null : null; };
+const cnFxAvg = () => { const fx = (cnState.data || {}).fx; return fx && fx.avg_rate ? fx.avg_rate : CN_FX; };   // 단가 아래 작은 '원' 표시용 누적 평균 1위안 원가
+const cnShipBase = shipId => { const sh = cnFxShip(shipId); return sh ? sh.base : CN_FX; };
 function cnCostRatio(shipId) {
+  const sh = cnFxShip(shipId);
+  if (sh) return sh.ratio != null ? { cost: sh.ratio, vat: sh.vat_ratio } : null;
   const ship = ((cnState.data || {}).ships || []).find(x => x.id === shipId);
   if (!ship || !ship.costs) return null;
   const cs = cnCostSums(ship.costs);
   return cs.paySum > 0 ? { cost: cs.exVat / cs.paySum, vat: cs.vat / cs.paySum } : null;
 }
-const cnKrw = yuan => yuan == null ? '<span style="color:#9ca3af;">—</span>' : fmt(Math.round(Number(yuan) * CN_FX)) + '원';   // 단가(KRW) = 위안 × 환율(비용·부가세 미포함)
+const cnKrw = yuan => yuan == null ? '<span style="color:#9ca3af;">—</span>' : fmt(Math.round(Number(yuan) * cnFxAvg())) + '원';   // 단가(KRW) = 위안 × 누적 평균 1위안 원가(비용·부가세 미포함)
 function cnRealWon(yuan, shipId) {
   if (yuan == null) return null;
-  const r = cnCostRatio(shipId), base = Number(yuan) * CN_FX;
-  return { won: Math.round(r ? base * (1 + r.cost) : base), r };
+  const r = cnCostRatio(shipId), base = Number(yuan) * cnShipBase(shipId);
+  return { won: Math.round(r ? base * (1 + r.cost) : base), r, base };
 }
 // 실질 단가 아래 작은 글씨 — '100원당 N원 추가'(2026-10-07 사용자 요청: '입고 2건 평균'보다 직관적). rate = 들여오는 비용 ÷ 물건값(예 0.1196 → 11.96원)
 const cnAddNote = rate => rate == null || !isFinite(rate) ? '' : `<div style="font-size:.6rem;color:#6b7280;font-weight:500;white-space:nowrap;">100원당 ${(Math.round(rate * 10000) / 100).toFixed(2)}원 추가</div>`;
@@ -6420,8 +6457,9 @@ function cnRealHtml(yuan, shipId) {
   const x = cnRealWon(yuan, shipId);
   if (!x) return '<span style="color:#9ca3af;">—</span>';
   const pc = v => (Math.round(v * 10000) / 100).toFixed(2);
-  return x.r ? `<b title="¥${Number(yuan)} × ${CN_FX}원 × (1 + 들여오는 비용 ${pc(x.r.cost)}%) — 부가세는 제외">${fmt(x.won)}원</b>${cnAddNote(x.r.cost)}`
-             : `<span style="color:#6b7280;" title="이 입고에 비용 시트가 없어 환율(${CN_FX}원)만 곱했어요">${fmt(x.won)}원<span style="font-size:.62rem;color:#b45309;"> 비용 미반영</span></span>`;
+  const per = Math.round(cnShipBase(shipId) * 100) / 100;
+  return x.r ? `<b title="¥${Number(yuan)} × 물건값 1위안당 ${per}원(1위안 원가 × 총 합계 ÷ 물건값) × (1 + 들여오는 비용 ${pc(x.r.cost)}%) — 부가세는 제외">${fmt(x.won)}원</b>${cnAddNote(x.r.cost)}`
+             : `<span style="color:#6b7280;" title="이 입고에 비용 시트가 없어 물건값 1위안당 ${per}원만 곱했어요">${fmt(x.won)}원<span style="font-size:.62rem;color:#b45309;"> 비용 미반영</span></span>`;
 }
 // 부가세 제외 들여오는 비용 ÷ 물건 결제 총합 (2026-10-01 사용자 요청 — 마진 계산 참고: 물건값에 몇 %를 더 얹어야 하는지)
 const cnCostPct = (exVat, pay) => pay > 0 ? (Math.round(exVat / pay * 10000) / 100).toFixed(2) + '%' : '—';
@@ -6454,7 +6492,9 @@ function cnCostRender() {
         + admgrTile('물건 결제 대비 들여오는 비용', `<span style="color:#4338ca;">${cnCostPct(s.exVat, s.paySum)}</span> <span style="font-size:.7rem;color:#6b7280;">부가세 제외 ÷ 물건 결제</span>`, false)
         + admgrTile('장당 들여오는 비용', q ? `${cnWon(s.exVat / q)} <span style="font-size:.7rem;color:#6b7280;">부가세 제외 ÷ ${fmt(q)}장</span>` : '—', false)}</div>
       ${s.paySum > 0 ? `<div style="font-size:.78rem;color:#374151;background:#f8f9ff;border:1px solid #e0e7ff;border-radius:8px;padding:7px 11px;margin-bottom:8px;"><i class="fa-solid fa-calculator" style="color:#4f46e5;"></i> 부가세 제외 들여오는 비용 <b>${cnWon(s.exVat)}</b> ÷ 물건 결제 총합 <b>${cnWon(s.paySum)}</b> = <b style="color:#4338ca;">${cnCostPct(s.exVat, s.paySum)}</b> — 물건값 100원당 들여오는 데 약 <b>${(Math.round(s.exVat / s.paySum * 10000) / 100).toFixed(2)}원</b>이 더 들었어요(마진 계산 참고).<br>
-        <i class="fa-solid fa-won-sign" style="color:#4f46e5;"></i> <b>실질 단가(원)</b> = 단가(위안) × 환율 <b>${CN_FX}원</b> × (1 + 들여오는 비용 <b>${cnCostPct(s.exVat, s.paySum)}</b>) = 단가 × <b style="color:#4338ca;">${(Math.round(CN_FX * (1 + s.exVat / s.paySum) * 100) / 100).toLocaleString('ko-KR')}원</b> <span style="color:#6b7280;">(부가세는 제외)</span> — 입고 검수·상품별 현황의 '실질 단가' 열에 들어가요. 예: ¥100 → ${fmt(Math.round(100 * CN_FX * (1 + s.exVat / s.paySum)))}원</div>` : ''}
+        ${(() => { const sh = cnFxShip(ship.id); if (!sh) return `<i class="fa-solid fa-won-sign" style="color:#4f46e5;"></i> <b>실질 단가(원)</b> = 단가(위안) × 환율 <b>${CN_FX}원</b> × (1 + 들여오는 비용 <b>${cnCostPct(s.exVat, s.paySum)}</b>) <span style="color:#6b7280;">(부가세는 제외)</span>`;
+          const k = sh.base * (1 + (sh.ratio || 0)), r2 = v => (Math.round(v * 100) / 100).toLocaleString('ko-KR');
+          return `<i class="fa-solid fa-won-sign" style="color:#4f46e5;"></i> <b>실질 단가(원)</b> = 단가(위안) × 물건값 1위안당 <b>${r2(sh.base)}원</b>(1위안 원가 ${r2(sh.rate)}원 × 총 합계 ${cnYuan(sh.total)} ÷ 물건값 ${cnYuan(sh.goods)}) × (1 + 들여오는 비용 <b>${sh.ratio != null ? (Math.round(sh.ratio * 10000) / 100).toFixed(2) + '%' : '—'}</b>) = 단가 × <b style="color:#4338ca;">${r2(k)}원</b> <span style="color:#6b7280;">(부가세는 제외 · 들여오는 비용 비율 = 부가세 제외 비용 ÷ 물건값 원화)</span>${sh.estimated_cny > 0 ? ` <span style="color:#b45309;">· 송금 기록이 모자라 ${cnYuan(sh.estimated_cny)}는 추정 환율</span>` : ''} — '원>달러>위안 환전' 탭에서 계산. 예: ¥100 → ${fmt(Math.round(100 * k))}원`; })()}</div>` : ''}
       ${warn.length ? `<div style="font-size:.76rem;color:#92400e;background:#fffbeb;border:1px solid #fcd34d;border-radius:8px;padding:6px 10px;margin-bottom:8px;"><i class="fa-solid fa-triangle-exclamation"></i> ${warn.map(escHtml).join(' · ')}</div>` : ''}
       <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:14px;align-items:start;">
         <div><div style="font-size:.84rem;font-weight:800;margin-bottom:4px;">들여오는 비용 <span style="font-size:.7rem;color:#6b7280;font-weight:500;">${escHtml(c.title || '')}</span></div>
@@ -6495,6 +6535,143 @@ async function cnCostClear() {
   catch (e) { showToast('지우기 실패: ' + e.message); }
 }
 
+/* ── 원>달러>위안 환전 (2026-10-22 사용자 요청 — 관리자만) ──
+   ① 원→달러: 은행 '바로환전' 체결 내역을 엑셀에서 복사해 붙여넣기 → cnFxParsePaste → cn_fx_buy_add(같은 주문번호는 덮어씀)
+   ② 달러→위안: 송금마다 보낸 달러·에이전시 실수령 위안(포워딩 100위안·에이전시 0.003% 뺀 값)을 직접 입력 → cn_remit_save
+   ③ 서버 cnFxModel(cn_list의 fx)이 달러·위안 통장을 선입선출로 계산 → 입고마다 1위안 원가 → 실질 단가(cnRealWon). 출고 서류 총 합계는 [고치기](cn_doc_save). */
+function cnTsv(text) {   // 엑셀 복사 = 탭 구분 · 줄바꿈이 든 칸(체결일시 '2026-10-20 ↵ 13:01:45')은 큰따옴표로 감싸져 온다
+  const rows = []; let row = [], cell = '', q = false;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (q) { if (ch === '"') { if (text[i + 1] === '"') { cell += '"'; i++; } else q = false; } else cell += ch; }
+    else if (ch === '"' && cell === '') q = true;
+    else if (ch === '\t') { row.push(cell); cell = ''; }
+    else if (ch === '\n' || ch === '\r') { if (ch === '\r' && text[i + 1] === '\n') i++; row.push(cell); rows.push(row); row = []; cell = ''; }
+    else cell += ch;
+  }
+  if (cell !== '' || row.length) { row.push(cell); rows.push(row); }
+  return rows.filter(r => r.some(c => String(c).trim()));
+}
+function cnFxParsePaste(text) {
+  const norm = v => String(v == null ? '' : v).replace(/_x000d_/gi, ' ').replace(/\s+/g, ' ').trim();
+  const num = v => { const x = norm(v).replace(/[,\s원$]/g, ''); return /^-?\d+(\.\d+)?$/.test(x) ? Number(x) : null; };
+  const pad = v => String(v).padStart(2, '0');
+  const rows = cnTsv(String(text || ''));
+  const hi = rows.findIndex(r => r.some(c => norm(c) === '주문번호') && r.some(c => norm(c) === '체결환율'));
+  // 머리글이 없으면 은행 내역 엑셀의 열 순서(A 원주문번호 · B 주문번호 · C 주문상태 · D 주문일시 · … · G 매매구분 · H 거래통화 · I 거래금액 · J 상대통화 · K 체결상대금액 · L 체결환율 · … · O 체결일시)
+  let col = { order_no: 1, status: 2, ordered: 3, side: 6, cur: 7, amt: 8, cur2: 9, krw: 10, rate: 11, traded: 14 };
+  if (hi >= 0) { const h = rows[hi].map(norm), f = n => h.indexOf(n); col = { order_no: f('주문번호'), status: f('주문상태'), ordered: f('주문일시'), side: f('매매구분'), cur: f('거래통화'), amt: f('거래금액'), cur2: f('상대통화'), krw: f('체결상대금액'), rate: f('체결환율'), traded: f('체결일시') }; }
+  const ok = [], skipped = [];
+  (hi >= 0 ? rows.slice(hi + 1) : rows).forEach((r, i) => {
+    const g = k => col[k] >= 0 ? norm(r[col[k]]) : '';
+    const tag = `${i + 1}번째 줄${g('order_no') ? ` (주문번호 ${g('order_no')})` : ''}`;
+    if (g('status') && g('status') !== '체결완료') { skipped.push(`${tag}: ${g('status')}`); return; }
+    if (g('side') && g('side').toUpperCase() !== 'BUY') { skipped.push(`${tag}: 달러를 산 내역이 아님(${g('side')})`); return; }
+    if (g('cur') && g('cur').toUpperCase() !== 'USD') { skipped.push(`${tag}: 거래통화 ${g('cur')}`); return; }
+    if (g('cur2') && g('cur2').toUpperCase() !== 'KRW') { skipped.push(`${tag}: 상대통화 ${g('cur2')}`); return; }
+    const dt = (g('traded') || g('ordered')).match(/(\d{4})[-.\/](\d{1,2})[-.\/](\d{1,2})\D+(\d{1,2}):(\d{2})(?::(\d{2}))?/);
+    const usd = num(r[col.amt]), krw = num(r[col.krw]), rate = num(r[col.rate]), order_no = g('order_no');
+    if (!order_no || !dt || !(usd > 0) || !(krw > 0) || !(rate > 0)) { skipped.push(`${tag}: 읽지 못함`); return; }
+    ok.push({ order_no, traded_at: `${dt[1]}-${pad(dt[2])}-${pad(dt[3])}T${pad(dt[4])}:${dt[5]}:${dt[6] || '00'}+09:00`, usd, krw: Math.round(krw), rate });
+  });
+  return { ok, skipped, header: hi >= 0 };
+}
+function cnFxPastePreview() {
+  const box = $('cn-fx-paste-prev'), ta = $('cn-fx-paste'); if (!box || !ta) return;
+  if (!ta.value.trim()) { box.innerHTML = ''; cnState.fxPaste = null; return; }
+  const r = cnFxParsePaste(ta.value); cnState.fxPaste = r;
+  const have = new Set((((cnState.data || {}).fx || {}).buys || []).map(x => String(x.order_no)));
+  box.innerHTML = `<div style="font-size:.78rem;margin:6px 0;">${r.ok.length ? `<b>${fmt(r.ok.length)}줄</b> 읽음${r.ok.filter(x => have.has(x.order_no)).length ? ` (이미 있는 주문번호 ${r.ok.filter(x => have.has(x.order_no)).length}줄은 덮어써요)` : ''} — ${r.ok.map(x => `${escHtml(x.traded_at.slice(5, 10))} $${x.usd.toLocaleString('en-US')} × ${x.rate}`).join(' · ')}` : '<span style="color:#b45309;">읽은 환전 내역이 없어요 — 은행 내역 엑셀에서 머리글 줄과 함께 복사해 붙여넣어 주세요</span>'}
+    ${r.skipped.length ? `<div style="color:#b45309;">빼고 읽음: ${r.skipped.map(escHtml).join(' · ')}</div>` : ''}</div>
+    ${r.ok.length ? `<button class="toggle-btn" style="background:#4f46e5;color:#fff;border-color:#4f46e5;font-size:.76rem;" onclick="cnFxPasteSave()"><i class="fa-solid fa-plus"></i> ${fmt(r.ok.length)}줄 추가</button>` : ''}`;
+}
+async function cnFxPasteSave() {
+  const r = cnState.fxPaste; if (!r || !r.ok.length) return;
+  try { const j = await cnPost('cn_fx_buy_add', { rows: r.ok }); cnState.fxPaste = null; showToast(`환전 내역 ${fmt(j.saved)}줄을 저장했어요`); await cnLoad(true); }
+  catch (e) { showToast('저장 실패: ' + e.message); }
+}
+async function cnFxBuyDel(id) {
+  const x = ((cnState.data.fx || {}).buys || []).find(b => b.id === id); if (!x) return;
+  if (!confirm(`환전 내역(주문번호 ${x.order_no}, $${x.usd.toLocaleString('en-US')})을 지울까요?`)) return;
+  try { await cnPost('cn_fx_buy_del', { id }); showToast('지웠어요'); await cnLoad(true); } catch (e) { showToast('지우기 실패: ' + e.message); }
+}
+function cnRemitEdit(id) {
+  const x = ((cnState.data.fx || {}).remits || []).find(r => r.id === id); if (!x) return;
+  cnState.fxEdit = id; $('cn-rm-date').value = x.remit_date; $('cn-rm-usd').value = x.usd; $('cn-rm-cny').value = x.cny; $('cn-rm-memo').value = x.memo || '';
+  $('cn-rm-save').innerHTML = '<i class="fa-solid fa-floppy-disk"></i> 고친 내용 저장'; $('cn-rm-cancel').style.display = ''; $('cn-rm-date').focus();
+}
+function cnRemitCancel() { cnState.fxEdit = null; cnFxRender(); }
+async function cnRemitSave() {
+  const body = { remit_date: $('cn-rm-date').value, usd: Number(String($('cn-rm-usd').value).replace(/,/g, '')), cny: Number(String($('cn-rm-cny').value).replace(/,/g, '')), memo: $('cn-rm-memo').value };
+  if (!body.remit_date || !(body.usd > 0) || !(body.cny > 0)) { showToast('송금일·보낸 달러·받은 위안을 적어 주세요'); return; }
+  if (cnState.fxEdit) body.id = cnState.fxEdit;
+  try { await cnPost('cn_remit_save', body); cnState.fxEdit = null; showToast('송금을 저장했어요'); await cnLoad(true); } catch (e) { showToast('저장 실패: ' + e.message); }
+}
+async function cnRemitDel(id) {
+  const x = ((cnState.data.fx || {}).remits || []).find(r => r.id === id); if (!x) return;
+  if (!confirm(`${x.remit_date} 송금($${x.usd.toLocaleString('en-US')} → ¥${x.cny.toLocaleString('ko-KR')})을 지울까요?`)) return;
+  try { await cnPost('cn_remit_del', { id }); showToast('지웠어요'); await cnLoad(true); } catch (e) { showToast('지우기 실패: ' + e.message); }
+}
+async function cnDocEdit(id) {
+  const sh = cnFxShip(id), ship = ((cnState.data || {}).ships || []).find(x => x.id === id); if (!sh || !ship) return;
+  const v = prompt(`"${ship.title}" 출고 서류의 총 합계(위안)\n물건값 ${cnYuan(sh.goods)} + 에이전시·경비·특송 등을 더한 금액이에요.\n비우고 확인하면 물건값 × 1.1(에이전시 10%)로 계산해요.`, sh.doc ? sh.total : '');
+  if (v === null) return;
+  const t = Number(String(v).replace(/[,\s¥]/g, ''));
+  if (String(v).trim() && !(t > 0)) { showToast('숫자로 적어 주세요'); return; }
+  const doc = String(v).trim() ? { goods: sh.goods, agency: sh.agency, items: (sh.items || []).filter(x => x.cny), total: t, src: '직접 입력' } : null;
+  try { await cnPost('cn_doc_save', { id, doc }); showToast('총 합계를 저장했어요'); await cnLoad(true); } catch (e) { showToast('저장 실패: ' + e.message); }
+}
+function cnFxRender() {
+  const d = cnState.data, box = $('cn-fx-body'); if (!d || !box) return;
+  if (!d.can_price || !d.fx) { box.innerHTML = '<div class="empty-state"><p>환전 내역은 관리자만 볼 수 있어요.</p></div>'; return; }
+  const fx = d.fx, won = v => v == null ? '—' : fmt(Math.round(v)) + '원', usd = v => '$' + (Math.round(Number(v) * 100) / 100).toLocaleString('en-US'), r2 = v => v == null ? '—' : (Math.round(v * 100) / 100).toLocaleString('ko-KR');
+  const num = v => `<td style="text-align:right;white-space:nowrap;">${v}</td>`;
+  const remits = fx.remits || [], buys = fx.buys || [];
+  const rmName = new Map(remits.map((r, i) => [r.id, `${String(r.remit_date).slice(5)} 송금`]));
+  const ships = (d.ships || []).slice().sort((a, b) => String(a.ship_date || '9999').localeCompare(String(b.ship_date || '9999')) || a.id - b.id);
+  const tiles = `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:8px;margin-bottom:14px;">${
+    admgrTile('누적 평균 1위안 원가', fx.avg_rate ? `<b>${r2(fx.avg_rate)}원</b> <span style="font-size:.7rem;color:#6b7280;">고정 200원 대비 ${fx.avg_rate >= 200 ? '+' : ''}${(Math.round((fx.avg_rate / 200 - 1) * 1000) / 10).toFixed(1)}%</span>` : '<span style="color:#9ca3af;">송금 기록 없음</span>', false)
+    + admgrTile('에이전시 위안 잔액', `${cnYuan(fx.cny_left)} <span style="font-size:.7rem;color:#6b7280;">≈ ${won(fx.cny_left_krw)} · 다음 입고가 먼저 써요</span>`, false)
+    + admgrTile('송금 안 한 달러', `${usd(fx.usd_left)} <span style="font-size:.7rem;color:#6b7280;">≈ ${won(fx.usd_left_krw)}</span>`, false)
+    + admgrTile('기록', `환전 ${fmt(buys.length)}건 · 송금 ${fmt(remits.length)}건`, false)}</div>`;
+  const buyRows = buys.slice().reverse().map(x => `<tr>
+      <td style="text-align:left;white-space:nowrap;">${escHtml(new Date(x.traded_at).toLocaleString('sv-SE', { timeZone: 'Asia/Seoul' }).slice(0, 16))}</td><td style="text-align:left;font-family:monospace;">${escHtml(x.order_no)}</td>
+      ${num(usd(x.usd))}${num(won(x.krw))}${num(`<b>${r2(x.rate)}</b>`)}${num(x.used >= x.usd - 0.005 ? '<span style="color:#16a34a;">다 씀</span>' : `${usd(x.usd - x.used)} 남음`)}
+      <td><button class="toggle-btn" style="font-size:.68rem;padding:1px 7px;color:#dc2626;" onclick="cnFxBuyDel(${x.id})" title="지우기"><i class="fa-solid fa-trash"></i></button></td></tr>`).join('');
+  const remitRows = remits.slice().reverse().map(x => `<tr${cnState.fxEdit === x.id ? ' style="background:#eef2ff;"' : ''}>
+      <td style="text-align:left;white-space:nowrap;"><b>${escHtml(x.remit_date)}</b><div class="cn-sub">${escHtml(rmName.get(x.id) || '')}</div></td>
+      ${num(usd(x.usd))}${num(x.usd_rate ? r2(x.usd_rate) + (x.usd_short > 0 ? `<div class="cn-sub" style="color:#b45309;">환전 기록보다 ${usd(x.usd_short)} 많음 — 마지막 환율로</div>` : '') : '<span style="color:#b45309;">환전 기록 없음</span>')}${num(won(x.krw))}
+      ${num(`<b>${cnYuan(x.cny)}</b>`)}${num(x.cny_per_usd ? x.cny_per_usd.toFixed(4) : '—')}${num(x.rate ? `<b style="color:#4338ca;">${r2(x.rate)}원</b>` : '—')}${num(x.left > 0.005 ? cnYuan(x.left) : '<span style="color:#16a34a;">다 씀</span>')}
+      <td style="text-align:left;font-size:.74rem;color:#6b7280;">${escHtml(x.memo || '')}</td>
+      <td style="white-space:nowrap;"><button class="toggle-btn" style="font-size:.68rem;padding:1px 7px;" onclick="cnRemitEdit(${x.id})">수정</button> <button class="toggle-btn" style="font-size:.68rem;padding:1px 7px;color:#dc2626;" onclick="cnRemitDel(${x.id})" title="지우기"><i class="fa-solid fa-trash"></i></button></td></tr>`).join('');
+  const shipRows = ships.map(x => { const sh = fx.ships[String(x.id)]; if (!sh) return ''; const k = sh.base * (1 + (sh.ratio || 0));
+    const docTxt = sh.doc ? `${cnYuan(sh.goods)}${sh.agency != null ? ` + 에이전시 ${cnYuan(sh.agency)}` : ''}${(sh.items || []).map(i => ` + ${escHtml(i.name)} ${cnYuan(i.cny)}`).join('')}` : `<span style="color:#b45309;">출고 서류 없음 — 물건값 × 1.1로 추정</span>`;
+    return `<tr><td style="text-align:left;font-weight:700;">${escHtml(x.title)}<div class="cn-sub">${escHtml(x.ship_date || '출고일 없음')}</div></td>
+      ${num(cnYuan(sh.goods))}<td style="text-align:right;min-width:150px;"><b>${cnYuan(sh.total)}</b> <button class="toggle-btn" style="font-size:.64rem;padding:0 6px;" onclick="cnDocEdit(${x.id})">고치기</button><div class="cn-sub" style="white-space:normal;">${docTxt}</div></td>
+      <td style="text-align:left;font-size:.74rem;">${(sh.parts || []).map(pt => `${escHtml(rmName.get(pt.remit_id) || '송금')} ${cnYuan(pt.cny)}${pt.rate ? ` × ${r2(pt.rate)}` : ''}`).join('<br>') || '—'}${sh.estimated_cny > 0 ? `<div style="color:#b45309;">송금 기록이 모자라 ${cnYuan(sh.estimated_cny)}는 추정</div>` : ''}</td>
+      ${num(`<b style="color:#4338ca;">${r2(sh.rate)}원</b>`)}${num(`${r2(sh.base)}원`)}${num(sh.ratio != null ? (Math.round(sh.ratio * 10000) / 100).toFixed(2) + '%' : '<span style="color:#b45309;">비용 시트 없음</span>')}${num(`<b>${r2(k)}원</b>`)}</tr>`; }).join('');
+  const ed = cnState.fxEdit ? remits.find(r => r.id === cnState.fxEdit) : null;
+  box.innerHTML = tiles + `
+    <div style="font-size:.88rem;font-weight:800;margin-bottom:6px;"><span style="color:#4f46e5;">①</span> 원→달러 환전 <span style="font-size:.72rem;color:#6b7280;font-weight:500;">은행 바로환전 내역 — 엑셀에서 머리글 줄과 함께 복사해 붙여넣으세요</span></div>
+    <textarea id="cn-fx-paste" rows="3" placeholder="원주문번호	주문번호	주문상태	주문일시	… (엑셀에서 복사한 그대로 붙여넣기)" oninput="cnFxPastePreview()" style="width:100%;border:1.5px solid #c7d2fe;border-radius:8px;padding:8px 10px;font-size:.78rem;font-family:monospace;"></textarea>
+    <div id="cn-fx-paste-prev"></div>
+    <div class="table-wrap" style="margin:8px 0 16px;"><table style="width:100%;font-size:.8rem;"><thead><tr><th style="text-align:left;">체결일시</th><th style="text-align:left;">주문번호</th><th>달러</th><th>원화</th><th>체결환율(원/달러)</th><th>송금에 쓴 것</th><th></th></tr></thead>
+      <tbody>${buyRows || '<tr><td colspan="7" style="color:#9ca3af;">아직 환전 내역이 없어요</td></tr>'}</tbody></table></div>
+    <div style="font-size:.88rem;font-weight:800;margin-bottom:6px;"><span style="color:#4f46e5;">②</span> 달러→위안 송금 <span style="font-size:.72rem;color:#6b7280;font-weight:500;">받은 위안 = 에이전시 통장에 들어온 금액(포워딩 100위안·에이전시 0.003% 뺀 값)</span></div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin-bottom:8px;font-size:.76rem;color:#4b5563;font-weight:600;">
+      <label>송금일<input id="cn-rm-date" type="date" value="${escHtml(ed ? ed.remit_date : new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Seoul' }))}" style="display:block;margin-top:3px;border:1.5px solid #d1d5db;border-radius:8px;padding:6px 8px;" /></label>
+      <label>보낸 달러<input id="cn-rm-usd" inputmode="decimal" value="${ed ? ed.usd : ''}" placeholder="10872.90" style="display:block;margin-top:3px;width:120px;border:1.5px solid #d1d5db;border-radius:8px;padding:6px 8px;text-align:right;" /></label>
+      <label>받은 위안<input id="cn-rm-cny" inputmode="decimal" value="${ed ? ed.cny : ''}" placeholder="72006" style="display:block;margin-top:3px;width:120px;border:1.5px solid #d1d5db;border-radius:8px;padding:6px 8px;text-align:right;" /></label>
+      <label style="flex:1;min-width:160px;">메모<input id="cn-rm-memo" value="${escHtml(ed ? ed.memo || '' : '')}" placeholder="예: 3차 주문 선금" style="display:block;margin-top:3px;width:100%;border:1.5px solid #d1d5db;border-radius:8px;padding:6px 8px;" /></label>
+      <button class="toggle-btn" id="cn-rm-save" style="background:#4f46e5;color:#fff;border-color:#4f46e5;" onclick="cnRemitSave()">${ed ? '<i class="fa-solid fa-floppy-disk"></i> 고친 내용 저장' : '<i class="fa-solid fa-plus"></i> 송금 추가'}</button>
+      <button class="toggle-btn" id="cn-rm-cancel" style="${ed ? '' : 'display:none;'}" onclick="cnRemitCancel()">취소</button></div>
+    <div class="table-wrap" style="margin-bottom:16px;"><table style="width:100%;font-size:.8rem;"><thead><tr><th style="text-align:left;">송금일</th><th>보낸 달러</th><th>원/달러<div class="cn-sub">환전 선입선출</div></th><th>원화 원가</th><th>받은 위안</th><th>달러당 위안</th><th>1위안 원가</th><th>남은 위안</th><th style="text-align:left;">메모</th><th></th></tr></thead>
+      <tbody>${remitRows || '<tr><td colspan="10" style="color:#9ca3af;">아직 송금 기록이 없어요</td></tr>'}</tbody></table></div>
+    <div style="font-size:.88rem;font-weight:800;margin-bottom:6px;"><span style="color:#4f46e5;">③</span> 입고별 위안 사용 <span style="font-size:.72rem;color:#6b7280;font-weight:500;">중국 출고일 순으로 위안 통장에서 꺼내 써요(선입선출)</span></div>
+    <div class="table-wrap"><table style="width:100%;font-size:.8rem;"><thead><tr><th style="text-align:left;">입고</th><th>물건값</th><th>출고 서류 총 합계</th><th style="text-align:left;">꺼내 쓴 송금</th><th>1위안 원가</th><th>물건값 1위안당<div class="cn-sub">1위안 원가 × 총 합계 ÷ 물건값</div></th><th>들여오는 비용<div class="cn-sub">÷ 물건값 원화</div></th><th>실질 단가 계수<div class="cn-sub">단가(위안) × 이 값</div></th></tr></thead>
+      <tbody>${shipRows || '<tr><td colspan="8" style="color:#9ca3af;">입고 건이 없어요</td></tr>'}</tbody></table></div>`;
+}
+
 /* ── 상품별 현황: 입고 건을 사입상품명·옵션으로 합침(모든 차수의 전달·실제 수량 합) ── */
 // 실질 단가 가중 평균: 비용 시트가 있는 입고만으로 Σ(수량 × 실질 단가) ÷ Σ수량. 비용 시트 있는 입고가 하나도 없으면 환율만 곱한 값의 평균(비용 미반영).
 function cnRealAvg(parts) {
@@ -6502,7 +6679,7 @@ function cnRealAvg(parts) {
   const withCost = parts.filter(x => x.hasCost), use = withCost.length ? withCost : parts;
   const qty = use.reduce((t, x) => t + x.qty, 0);
   const yuanQty = parts.reduce((t, x) => t + x.qty, 0);
-  const baseSum = use.reduce((t, x) => t + x.qty * x.yuan * CN_FX, 0);   // 같은 줄들의 단가(KRW) 합 — 100원당 추가 금액 계산용
+  const baseSum = use.reduce((t, x) => t + x.qty * (x.base != null ? x.base : x.yuan * CN_FX), 0);   // 같은 줄들의 물건값 원화 합 — 100원당 추가 금액 계산용
   return { won: Math.round(use.reduce((t, x) => t + x.qty * x.won, 0) / qty), hasCost: withCost.length > 0, skipped: withCost.length ? parts.length - withCost.length : 0,
     // 100원당 추가 금액: 한 입고에서만 들어왔으면 그 입고의 비율 그대로(반올림 오차 없이), 여러 입고에 걸치면 실제로 얹힌 비율(실질 단가 합 ÷ 단가(KRW) 합 − 1)
     rate: !withCost.length ? null : new Set(use.map(x => x.ship)).size === 1 && use[0].rate != null ? use[0].rate : baseSum > 0 ? use.reduce((t, x) => t + x.qty * x.won, 0) / baseSum - 1 : null,
@@ -6511,7 +6688,7 @@ function cnRealAvg(parts) {
 function cnRealAvgHtml(r, bold) {
   if (!r) return '<span style="color:#9ca3af;">—</span>';
   const by = new Map();   // 입고별로 묶어 말풍선에
-  for (const x of r.parts) { const k = x.ship, c = by.get(k) || { title: x.title, qty: 0, sum: 0, base: 0, hasCost: x.hasCost }; c.qty += x.qty; c.sum += x.qty * x.won; c.base += x.qty * x.yuan * CN_FX; by.set(k, c); }
+  for (const x of r.parts) { const k = x.ship, c = by.get(k) || { title: x.title, qty: 0, sum: 0, base: 0, hasCost: x.hasCost }; c.qty += x.qty; c.sum += x.qty * x.won; c.base += x.qty * (x.base != null ? x.base : x.yuan * CN_FX); by.set(k, c); }
   const tip = [...by.values()].map(c => `${escHtml(c.title)}: ${fmt(c.qty)}장 × ${fmt(Math.round(c.sum / c.qty))}원${c.hasCost ? (c.base > 0 ? ` (100원당 ${(Math.round((c.sum / c.base - 1) * 10000) / 100).toFixed(2)}원 추가)` : '') : ' (비용 미반영 — 평균에서 제외)'}`).join('&#10;')   // 입고 이름은 사람이 적는 값 — 속성에 넣기 전에 escHtml
     + (by.size > 1 ? `&#10;→ 들어온 수량 전체로 보면 한 장에 ${fmt(r.won)}원` : '');
   return r.hasCost ? `<span style="${bold ? 'font-weight:800;' : 'font-weight:700;'}cursor:help;" title="${tip}">${fmt(r.won)}원</span>${cnAddNote(r.rate)}${r.skipped ? '<div style="font-size:.6rem;color:#b45309;">비용 없는 입고 제외</div>' : ''}`
@@ -6602,14 +6779,14 @@ async function cnCheckXlsx(btn) {
   const canPrice = !!d.can_price, ships = new Map((d.ships || []).map(x => [x.id, x]));
   const ord = l => { const x = ships.get(l.shipment_id) || {}; return String(x.ship_date || '9999') + String(l.shipment_id).padStart(9, '0') + String(l.seq).padStart(6, '0'); };
   if (!cnIsSum()) rows.sort((a, b) => ord(a) < ord(b) ? -1 : 1);
-  const head = ['입고(차수)', '중국 출고일', '검수 완료', '사입상품명', '색상', '사이즈', '라인', '혼용률', '라벨', '주문', '중국출고(엑셀 출고)', '실입고', '잔여(주문−중국출고)', '차이(중국출고−실입고)', '입고중불량', '확인한 사람', '확인 시각', '메모', ...(canPrice ? ['단가(위안)', `단가(원, ×${CN_FX})`, '실질 단가(원)', '금액(위안)'] : [])];
+  const head = ['입고(차수)', '중국 출고일', '검수 완료', '사입상품명', '색상', '사이즈', '라인', '혼용률', '라벨', '주문', '중국출고(엑셀 출고)', '실입고', '잔여(주문−중국출고)', '차이(중국출고−실입고)', '입고중불량', '확인한 사람', '확인 시각', '메모', ...(canPrice ? ['단가(위안)', '단가(원, × 그 입고 1위안 원가)', '실질 단가(원)', '금액(위안)'] : [])];
   const out = rows.map(l => {
     const x = ships.get(l.shipment_id) || {}, rw = !canPrice ? null : l._sum ? cnRealAvg(cnLineParts(l._raw)) : cnRealWon(l.unit_price, l.shipment_id);
     const ox = cnOrdOf(l);
     const sumWhere = l._sum ? l._raw.map(r => { const y = ships.get(r.shipment_id) || {}; return `${y.order_round || y.title || ''} ${r.qty_sent}`; }).join(' · ') : '';
     return [l._sum ? sumWhere : x.title || '', l._sum ? '' : x.ship_date || '', l._sum ? '' : cnShipDone(x) ? `완료 (${x.checked_done_by_name || ''})` : '', l.sname, l.color || '', l.size || '', cnLineLabel(l.sname), cnFabricOf(l.sname), cnLabelOf(l.sname) ? '라벨 제작' : '',
       ox ? ox.ordered : '', l.qty_sent, l.qty_actual == null ? '' : l.qty_actual, ox ? ox.remain : '', l._ordOnly ? '' : l.qty_actual == null ? '미확인' : l._unchecked ? `${cnSentCk(l) - l.qty_actual} (미확인 입고 ${l._unchecked}건)` : cnSentCk(l) - l.qty_actual, l.qty_defect == null ? '' : l.qty_defect, l.checked_by_name || '', l.checked_at ? unshipKst(l.checked_at) : '', l.memo || '',
-      ...(canPrice ? [l.unit_price == null ? '' : Number(l.unit_price), l.unit_price == null ? '' : Math.round(Number(l.unit_price) * CN_FX), rw ? rw.won : '', l.unit_price == null ? '' : Math.round(l.qty_sent * Number(l.unit_price) * 100) / 100] : [])];
+      ...(canPrice ? [l.unit_price == null ? '' : Number(l.unit_price), l.unit_price == null ? '' : Math.round(Number(l.unit_price) * ((cnFxShip(l.shipment_id) || {}).rate || CN_FX)), rw ? rw.won : '', l.unit_price == null ? '' : Math.round(l.qty_sent * Number(l.unit_price) * 100) / 100] : [])];
   });
   const checked = rows.filter(l => l.qty_actual != null), osx = cnOrdSums(rows);
   const totals = ['합계', '', '', `옵션 ${rows.length}개`, '', '', '', '', '', osx.any ? osx.ordered : '', rows.reduce((t, l) => t + l.qty_sent, 0), checked.reduce((t, l) => t + l.qty_actual, 0), osx.any ? osx.net : '', checked.reduce((t, l) => t + cnSentCk(l) - l.qty_actual, 0), rows.reduce((t, l) => t + (l.qty_defect || 0), 0), `미확인 ${rows.filter(l => !l._ordOnly && (l.qty_actual == null || l._unchecked)).length}개`, '', '', ...(canPrice ? ['', '', '', Math.round(rows.reduce((t, l) => t + l.qty_sent * (Number(l.unit_price) || 0), 0) * 100) / 100] : [])];
@@ -18989,7 +19166,7 @@ function renderPerfResult() {
         const m = ((cd.salePrice - vatCost) / cd.salePrice) * 100;
         const c = (vatCost / cd.salePrice) * 100;
         mg = marginBadge(m); cr = costBadge(c); sc = fmt(cd.supplyCost)+'원';
-        if (cd.cn) sc += `<div style="margin-top:2px;line-height:1;"><span title="중국 사입/제작 관리의 실질 단가 = 위안 × 환율 200원 × (1 + 들여오는 비용 비율), 부가세 제외${cd.cnWithCost === false ? ' (비용 시트가 없어 환율만 곱한 값)' : ''}&#10;사입상품명: ${escHtml((cd.cnNames || []).join(', '))}" style="display:inline-block;background:#fef3c7;color:#92400e;border-radius:5px;padding:0 6px;font-size:.66rem;font-weight:800;cursor:help;white-space:nowrap;">중국 사입 실질 단가</span></div>${cd.c24 > 0 && cd.c24 !== cd.supplyCost ? `<div style="font-size:.66rem;color:#9ca3af;white-space:nowrap;">카페24 공급가 ${fmt(cd.c24)}원</div>` : ''}`;
+        if (cd.cn) sc += `<div style="margin-top:2px;line-height:1;"><span title="중국 사입/제작 관리의 실질 단가 = 위안 × 물건값 1위안당 원가(환전 내역 선입선출 × 출고 서류 총 합계 — 에이전시 10%·경비 포함) × (1 + 들여오는 비용 비율), 부가세 제외${cd.cnWithCost === false ? ' (비용 시트가 없어 들여오는 비용은 빠진 값)' : ''}&#10;사입상품명: ${escHtml((cd.cnNames || []).join(', '))}" style="display:inline-block;background:#fef3c7;color:#92400e;border-radius:5px;padding:0 6px;font-size:.66rem;font-weight:800;cursor:help;white-space:nowrap;">중국 사입 실질 단가</span></div>${cd.c24 > 0 && cd.c24 !== cd.supplyCost ? `<div style="font-size:.66rem;color:#9ca3af;white-space:nowrap;">카페24 공급가 ${fmt(cd.c24)}원</div>` : ''}`;
       }
       html += `<tr>
         <td class="m-hide">${row.rank}</td>

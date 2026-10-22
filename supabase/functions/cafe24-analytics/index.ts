@@ -793,28 +793,108 @@ function cnMatchC24(names: string[], manualOf: (name: string) => unknown, cps: R
 // 카페24 상품별 실질 단가(원, 부가세 제외) — 중국 사입 관리 화면의 '실질 단가'와 같은 계산(cn_export와 같음):
 //   줄마다 위안 × 환율 200 × (1 + 그 입고의 들여오는 비용 비율)을 원 단위로 반올림 → 입고(전달) 수량으로 가중 평균, 비용 시트가 있는 입고가 하나라도 있으면 그 줄들만으로.
 //   한 카페24 상품에 사입상품명이 여럿 붙으면(6800 + 6800短款) 그 줄들을 합쳐 가중 평균. 연결은 직접 연결·확실·몸통 일치만(헷갈림 후보는 안 씀).
+// ── 중국 사입 환전 모델 (2026-10-22 사용자 요청 — '원>달러>위안 환전' 소메뉴, migrations/0062) ──
+//   ① 달러 통장(선입선출): 원→달러 환전(cn_fx_buys, 체결 원화 ÷ 달러)이 쌓이고, 달러→위안 송금(cn_remits)이 차례로 꺼내 쓴다 → 송금마다 원화 원가.
+//   ② 위안 통장(선입선출): 송금마다 에이전시 실수령 위안(포워딩 100위안·에이전시 0.003% 뺀 값 — 사용자 입력)이 쌓이고,
+//      입고(출고 서류 '총 합계' 위안 = 물건값 + 에이전시 10% + 경비·특송 등, cn_shipments.doc)가 중국 출고일 순으로 꺼내 쓴다 → 입고마다 1위안 원가.
+//   송금이 출고 서류와 1:1로 맞지 않아도(일부씩 송금 — 사용자 지적) 이 방식은 매칭이 필요 없다(외화 통장 선입선출과 같음).
+//   위안이 모자라면(아직 송금 기록이 없거나 모자람) 모자란 만큼은 마지막 1위안 원가(없으면 200원)로 '추정'하고 표시한다.
+//   입고의 물건값 1위안당 원가 base = 총 합계 × 1위안 원가 ÷ 물건값, 들여오는 비용 비율 ratio = 부가세 제외 비용 ÷ (총 합계 × 1위안 원가).
+//   실질 단가 = 단가(위안) × base × (1 + ratio) — 화면 cnRealWon·종합 판매 데이터(cnRealCostByProduct)·상품관리 내보내기(cn_export)가 모두 이 값.
+const CN_FX_FALLBACK = 200;
+function cnCostExVat(costs: Record<string, any> | null) {
+  const items = ((costs?.items ?? []) as Record<string, any>[]);
+  const sum = items.reduce((t, x) => t + (Number(x.amount) || 0), 0), vat = items.filter((x) => /부가세/.test(String(x.name ?? ""))).reduce((t, x) => t + (Number(x.amount) || 0), 0);
+  return { has: !!costs, exVat: sum - vat, vat };
+}
+function cnFxModel(ships: Record<string, any>[], lines: Record<string, any>[], buysIn: Record<string, any>[], remitsIn: Record<string, any>[]) {
+  const n = (v: unknown) => Number(v ?? 0) || 0, r2 = (v: number) => Math.round(v * 100) / 100;
+  const buys = [...(buysIn ?? [])].sort((a, b) => String(a.traded_at).localeCompare(String(b.traded_at)) || n(a.id) - n(b.id));
+  const remits = [...(remitsIn ?? [])].sort((a, b) => String(a.remit_date).localeCompare(String(b.remit_date)) || n(a.id) - n(b.id));
+  // ① 달러 통장
+  const usdQ = buys.map((x) => ({ id: n(x.id), left: n(x.usd), rate: n(x.usd) > 0 ? n(x.krw) / n(x.usd) : 0 }));
+  let lastUsdRate: number | null = null;
+  const remitOut = remits.map((x) => {
+    const usd = n(x.usd), cny = n(x.cny);
+    let need = usd, krw = 0;
+    const from: { buy_id: number; usd: number; rate: number }[] = [];
+    while (need > 1e-9 && usdQ.length) {
+      const q = usdQ[0], take = Math.min(need, q.left);
+      krw += take * q.rate; q.left -= take; need -= take; lastUsdRate = q.rate; from.push({ buy_id: q.id, usd: r2(take), rate: q.rate });
+      if (q.left <= 1e-9) usdQ.shift();
+    }
+    const short = need > 1e-9 ? need : 0;
+    if (short && lastUsdRate != null) krw += short * lastUsdRate;
+    const known = !short || lastUsdRate != null;
+    return { id: n(x.id), remit_date: x.remit_date, usd, cny, memo: x.memo ?? null, created_by_name: x.created_by_name ?? null,
+      krw: known ? Math.round(krw) : null, usd_rate: known && usd > 0 ? krw / usd : null, rate: known && cny > 0 ? krw / cny : null,
+      cny_per_usd: usd > 0 ? cny / usd : null, usd_short: r2(short), from };
+  });
+  // ② 위안 통장
+  const cnyQ = remitOut.map((x) => ({ id: x.id, left: x.cny, rate: x.rate }));
+  const goodsBy = new Map<number, number>();
+  for (const l of lines ?? []) { if (l.unit_price == null) continue; const k = n(l.shipment_id); goodsBy.set(k, (goodsBy.get(k) ?? 0) + n(l.qty_sent) * n(l.unit_price)); }
+  const shipsSorted = [...(ships ?? [])].sort((a, b) => String(a.ship_date ?? "9999").localeCompare(String(b.ship_date ?? "9999")) || n(a.id) - n(b.id));
+  const known = remitOut.filter((x) => x.rate != null);
+  const avgAll = known.reduce((t, x) => t + x.cny, 0) > 0 ? known.reduce((t, x) => t + (x.krw ?? 0), 0) / known.reduce((t, x) => t + x.cny, 0) : null;
+  let lastRate: number | null = null;
+  const shipOut: Record<string, any> = {};
+  for (const sh of shipsSorted) {
+    const id = n(sh.id), goods = goodsBy.get(id) ?? 0;
+    const d = (sh.doc ?? null) as Record<string, any> | null;
+    const docGoods = d && n(d.goods) > 0 ? n(d.goods) : null;
+    const agency = d && d.agency != null ? n(d.agency) : r2(goods * 0.1);
+    const items = d && Array.isArray(d.items) ? (d.items as Record<string, any>[]).map((x) => ({ name: String(x.name ?? ""), cny: n(x.cny) })) : [];
+    const total = d && n(d.total) > 0 ? n(d.total) : r2(goods + agency + items.reduce((t, x) => t + x.cny, 0));
+    let need = total, krw = 0, est = 0;
+    const parts: { remit_id: number; cny: number; rate: number | null }[] = [];
+    while (need > 1e-9 && cnyQ.length) {
+      const q = cnyQ[0], take = Math.min(need, q.left);
+      const rt = q.rate ?? lastRate ?? avgAll ?? CN_FX_FALLBACK;
+      if (q.rate == null) est += take;
+      krw += take * rt; q.left -= take; need -= take; lastRate = q.rate ?? lastRate; parts.push({ remit_id: q.id, cny: r2(take), rate: q.rate });
+      if (q.left <= 1e-9) cnyQ.shift();
+    }
+    if (need > 1e-9) { est += need; krw += need * (lastRate ?? avgAll ?? CN_FX_FALLBACK); }
+    const rate = total > 0 ? krw / total : (lastRate ?? avgAll ?? CN_FX_FALLBACK);
+    const c = cnCostExVat((sh.costs ?? null) as Record<string, any> | null);
+    const goodsKrw = total * rate;
+    shipOut[String(id)] = {
+      goods, doc_goods: docGoods, agency, items, total, doc: !!d, rate, krw: Math.round(krw), parts, estimated_cny: r2(est),
+      base: goods > 0 ? goodsKrw / goods : rate * 1.1,   // 물건값 1위안당 원화(에이전시·경비 포함, 들여오는 비용 전)
+      ratio: c.has && goodsKrw > 0 ? c.exVat / goodsKrw : null, vat_ratio: c.has && goodsKrw > 0 ? c.vat / goodsKrw : null, ex_vat: c.has ? c.exVat : null,
+    };
+  }
+  return {
+    buys: buys.map((x) => ({ id: n(x.id), order_no: x.order_no, traded_at: x.traded_at, usd: n(x.usd), krw: n(x.krw), rate: n(x.rate), created_by_name: x.created_by_name ?? null,
+      used: r2(n(x.usd) - (usdQ.find((q) => q.id === n(x.id))?.left ?? 0)) })),
+    remits: remitOut.map((x) => ({ ...x, left: r2(cnyQ.find((q) => q.id === x.id)?.left ?? 0) })),
+    ships: shipOut,
+    usd_left: r2(usdQ.reduce((t, q) => t + q.left, 0)), usd_left_krw: Math.round(usdQ.reduce((t, q) => t + q.left * q.rate, 0)),
+    cny_left: r2(cnyQ.reduce((t, q) => t + q.left, 0)), cny_left_krw: Math.round(cnyQ.reduce((t, q) => t + q.left * (q.rate ?? avgAll ?? CN_FX_FALLBACK), 0)),
+    avg_rate: avgAll, fallback: CN_FX_FALLBACK,
+  };
+}
+function cnLineWon(fx: ReturnType<typeof cnFxModel>, shipId: unknown, unitPrice: unknown): { won: number; ratio: number | null } {
+  const sh = fx.ships[String(Number(shipId))], base = Number(unitPrice) * (sh ? sh.base : CN_FX_FALLBACK * 1.1), r = sh ? sh.ratio : null;
+  return { won: Math.round(r != null ? base * (1 + r) : base), ratio: r };
+}
+
 async function cnRealCostByProduct(token: string, noCache: boolean): Promise<Map<number, { won: number; snames: string[]; qty: number; with_cost: boolean }>> {
-  const [ships, lines, prodRows] = await Promise.all([
-    sbRest("cn_shipments?select=id,costs&limit=500"),
+  const [ships, lines, prodRows, buys, remits] = await Promise.all([
+    sbRest("cn_shipments?select=id,costs,ship_date,doc&limit=500"),
     sbRest("cn_lines?select=shipment_id,sname,qty_sent,unit_price&limit=20000"),
     sbRest("cn_products?select=sname,c24_nos&limit=5000"),
-  ]) as [Record<string, any>[], Record<string, any>[], Record<string, any>[]];
-  const CN_FX = 200;
-  const ratio = new Map<number, number | null>();
-  for (const sh of ships ?? []) {
-    const c = sh.costs as Record<string, any> | null;
-    const items = ((c?.items ?? []) as Record<string, any>[]), pays = ((c?.payments ?? []) as Record<string, any>[]);
-    const sum = items.reduce((t, x) => t + (Number(x.amount) || 0), 0), vat = items.filter((x) => /부가세/.test(String(x.name ?? ""))).reduce((t, x) => t + (Number(x.amount) || 0), 0);
-    const paySum = pays.reduce((t, x) => t + (Number(x.krw) || 0), 0);
-    ratio.set(Number(sh.id), c && paySum > 0 ? (sum - vat) / paySum : null);
-  }
+    sbRest("cn_fx_buys?select=*&limit=5000"),
+    sbRest("cn_remits?select=*&limit=5000"),
+  ]) as [Record<string, any>[], Record<string, any>[], Record<string, any>[], Record<string, any>[], Record<string, any>[]];
+  const fx = cnFxModel(ships, lines, buys, remits);   // 2026-10-22: 고정 200원 → 환전 내역 선입선출 1위안 원가 × 출고 서류 총 합계(에이전시 10% 등 포함)
   const by = new Map<string, { cost: { sum: number; qty: number }; all: { sum: number; qty: number } }>();
   for (const l of lines ?? []) {
     const name = String(l.sname ?? ""), q = Number(l.qty_sent) || 0;
     if (!name || l.unit_price == null || q <= 0) continue;
     const g = by.get(name) ?? { cost: { sum: 0, qty: 0 }, all: { sum: 0, qty: 0 } };
-    const r = ratio.get(Number(l.shipment_id)) ?? null, base = Number(l.unit_price) * CN_FX;
-    const won = Math.round(r != null ? base * (1 + r) : base);
+    const { won, ratio: r } = cnLineWon(fx, l.shipment_id, l.unit_price);
     g.all.sum += q * won; g.all.qty += q;
     if (r != null) { g.cost.sum += q * won; g.cost.qty += q; }
     by.set(name, g);
@@ -1207,7 +1287,7 @@ Deno.serve(async (req) => {
     // performance는 역할에 따라 응답이 달라서(비관리자 order_amount=0) 키에 역할 포함.
     const qsKey = new URLSearchParams(url.search);
     qsKey.delete("nocache"); qsKey.sort();
-    const cacheKey = `an:${qsKey.toString()}` + (action === "performance" ? `:${authed.role}:cn2` : "");   // cn1 = 중국 사입 실질 단가 반영(2026-10-16) 전 캐시를 쓰지 않게
+    const cacheKey = `an:${qsKey.toString()}` + (action === "performance" ? `:${authed.role}:cn3` : "");   // cn3 = 환전 내역·출고 서류 총 합계 반영(2026-10-22)   // cn1 = 중국 사입 실질 단가 반영(2026-10-16) 전 캐시를 쓰지 않게
     const noCache = url.searchParams.get("nocache") === "1";
     // 저장 시간: 분석용 조회는 30분(2026-10-01 사용자 결정 — 첫 조회가 6~35초라 다시 기다리는 일을 줄임, 그동안 새 주문·취소는 미반영),
     //   미발송 목록은 10분 그대로(물류팀 실시간 작업 — 화면 새로고침 버튼은 nocache). api_cache 행은 1시간 뒤 자동 삭제.
@@ -2049,12 +2129,12 @@ Deno.serve(async (req) => {
     //   cn_vendor POST — 사입상품명별 거래처명 수동 입력 (관리자·MD, 2026-10-01 — 입고 건 단위가 아니라 상품마다)
     //   cn_thumbs POST {get:[사입상품명…]} — 그 상품들의 작은 사진(전원, 한 번에 200개 — 화면에 보이는 것만 받게)
     //             POST {thumbs:{사입상품명:dataURL}} — 사진 저장(관리자·MD, 상품당 1장 — 같은 이름은 덮어씀). 목록과 따로 불러 표를 늦추지 않는다 (2026-10-02)
-    if (action === "cn_list" || action === "cn_upload" || action === "cn_check" || action === "cn_ship" || action === "cn_vendor" || action === "cn_line" || action === "cn_fabric" || action === "cn_label" || action === "cn_c24find" || action === "cn_c24set" || action === "cn_export" || action === "cn_thumbs" || action === "cn_order_upload" || action === "cn_order" || action === "cn_inactive" || action === "cn_manual_ship") {
+    if (action === "cn_list" || action === "cn_upload" || action === "cn_check" || action === "cn_ship" || action === "cn_vendor" || action === "cn_line" || action === "cn_fabric" || action === "cn_label" || action === "cn_c24find" || action === "cn_c24set" || action === "cn_export" || action === "cn_thumbs" || action === "cn_order_upload" || action === "cn_order" || action === "cn_inactive" || action === "cn_manual_ship" || action === "cn_fx_buy_add" || action === "cn_fx_buy_del" || action === "cn_remit_save" || action === "cn_remit_del" || action === "cn_doc_save") {
       // 관리자 + MD + 물류팀. **CS팀은 볼 필요 없음(2026-10-02 사용자 지정)** — 서버 역할은 logistics→cs로 합쳐져 있어 원래 역할을 다시 본다(soldoutRoleOk와 같은 방식)
       if (!(authed.role === "staff" || await soldoutRoleOk(authed))) return json({ error: "접근 권한이 없습니다" }, 403);
       const canPrice = authed.role === "admin";   // 단가·비용 = **관리자만** (2026-10-02 사용자 지정 — MD도 안 보이게. 물류팀은 원래 수량만)
       const canEdit = authed.role !== "cs";       // 엑셀 올리기·입고 건 수정·삭제·사진 넣기 = 관리자 + MD (MD는 올릴 수는 있지만 단가·비용은 응답에서 빠진다)
-      const hideCosts = <T extends Record<string, any>>(x: T): T => { if (canPrice) return x; const { costs: _c, ...rest } = x; return rest as T; };
+      const hideCosts = <T extends Record<string, any>>(x: T): T => { if (canPrice) return x; const { costs: _c, doc: _d, ...rest } = x; return rest as T; };   // 출고 서류 합계(doc, 위안)도 관리자만(2026-10-22)
       const txt = (v: unknown, n: number) => v == null ? null : String(v).trim().slice(0, n) || null;
       const intOrNull = (v: unknown, max: number) => {
         if (v === null || v === undefined || v === "") return null;
@@ -2071,20 +2151,14 @@ Deno.serve(async (req) => {
       //   비용 시트가 있는 입고가 하나라도 있으면 그 줄들만으로). 품번이 묶이는 경우(6800·6800短款)를 그쪽에서 다시 합칠 수 있게 합계(sum)·수량(qty)도 같이 준다.
       if (action === "cn_export") {
         if (!viaSecret) return json({ error: "접근 권한이 없습니다" }, 403);
-        const [ships, lines, prodRows] = await Promise.all([
-          sbRest("cn_shipments?select=id,costs&limit=500"),
+        const [ships, lines, prodRows, buys, remits] = await Promise.all([
+          sbRest("cn_shipments?select=id,costs,ship_date,doc&limit=500"),
           sbRest("cn_lines?select=shipment_id,seq,sname,color,size,qty_sent,unit_price&order=shipment_id.asc,seq.asc&limit=20000"),
           sbRest("cn_products?select=sname,fabric,line,label&limit=5000"),
-        ]) as [Record<string, any>[], Record<string, any>[], Record<string, any>[]];
-        const CN_FX = 200;   // 화면 CN_FX와 같은 값(환율 200원 고정 — 사용자 지정)
-        const ratio = new Map<number, number | null>();
-        for (const sh of ships) {
-          const c = sh.costs as Record<string, any> | null;
-          const items = ((c?.items ?? []) as Record<string, any>[]), pays = ((c?.payments ?? []) as Record<string, any>[]);
-          const sum = items.reduce((t, x) => t + (Number(x.amount) || 0), 0), vat = items.filter((x) => /부가세/.test(String(x.name ?? ""))).reduce((t, x) => t + (Number(x.amount) || 0), 0);
-          const paySum = pays.reduce((t, x) => t + (Number(x.krw) || 0), 0);
-          ratio.set(Number(sh.id), c && paySum > 0 ? (sum - vat) / paySum : null);
-        }
+          sbRest("cn_fx_buys?select=*&limit=5000"),
+          sbRest("cn_remits?select=*&limit=5000"),
+        ]) as [Record<string, any>[], Record<string, any>[], Record<string, any>[], Record<string, any>[], Record<string, any>[]];
+        const fx = cnFxModel(ships, lines, buys, remits);   // 2026-10-22: 화면 cnRealWon과 같은 계산(환전 내역 선입선출 + 출고 서류 총 합계)
         const meta = new Map(prodRows.map((r) => [String(r.sname), r]));
         const SIZE_ORDER = ["XS", "S", "M", "L", "XL", "XXL", "2XL", "3XL", "FREE", "F"];
         const koOnly = (v: unknown) => { const raw = String(v ?? "").trim(); const ko = raw.replace(/\p{Script=Han}/gu, "").replace(/\s+/g, " ").trim(); return ko || raw; };   // "黑灰검회" → "검회" (한글이 없으면 원래 글자 그대로)
@@ -2096,8 +2170,7 @@ Deno.serve(async (req) => {
           const sz = String(l.size ?? "").trim(); if (sz && !g.sizes.includes(sz)) g.sizes.push(sz);
           const q = Number(l.qty_sent) || 0; g.qty += q;
           if (l.unit_price != null && q > 0) {
-            const r = ratio.get(Number(l.shipment_id)) ?? null, base = Number(l.unit_price) * CN_FX;
-            const won = Math.round(r != null ? base * (1 + r) : base);
+            const { won, ratio: r } = cnLineWon(fx, l.shipment_id, l.unit_price);
             g.all.sum += q * won; g.all.qty += q;
             if (r != null) { g.cost.sum += q * won; g.cost.qty += q; }
           }
@@ -2137,12 +2210,74 @@ Deno.serve(async (req) => {
           const names = [...new Set([...lines, ...(orderLines ?? [])].map((l) => String(l.sname ?? "")).filter(Boolean))];   // 주문서에만 있는 품번(아직 입고 없음)도 같이
           ({ c24, c24_warn } = cnMatchC24(names, (name) => (prods[name] as Record<string, any> | undefined)?.c24_nos, await cnC24Load()));
         } catch (e) { c24_error = "카페24 상품 목록을 읽지 못했어요 — " + String(e).slice(0, 150); }
-        return json({ ships: outShips, lines: outLines, orders: orders ?? [], order_lines: orderLines ?? [], prods, c24, c24_warn, c24_error, can_price: canPrice, can_edit: canEdit });
+        // 환전 모델(관리자만 — 2026-10-22): 환전·송금 내역 + 입고마다 1위안 원가·물건값 1위안당 원화(base)·들여오는 비용 비율(ratio). 화면 실질 단가가 이 값을 쓴다.
+        let fx = null;
+        if (canPrice) {
+          const [buys, remits] = await Promise.all([sbRest("cn_fx_buys?select=*&limit=5000"), sbRest("cn_remits?select=*&limit=5000")]) as [Record<string, any>[], Record<string, any>[]];
+          fx = cnFxModel(ships, lines, buys, remits);
+        }
+        return json({ ships: outShips, lines: outLines, orders: orders ?? [], order_lines: orderLines ?? [], prods, c24, c24_warn, c24_error, can_price: canPrice, can_edit: canEdit, fx });
       }
       if (req.method !== "POST") return json({ error: "POST로 호출해주세요" }, 405);
       const b = await req.json().catch(() => ({})) as Record<string, any>;
       const now = new Date().toISOString();
       const dateOrNull = (v: unknown) => { const d = txt(v, 10); return d && /^\d{4}-\d{2}-\d{2}$/.test(d) ? d : null; };
+      // 출고 서류 합계 블록(위안) 검사 — {goods, agency, items[{name,cny}], total, src}. 값이 이상하면 null(저장 안 함)
+      const cleanDoc = (v: unknown): Record<string, unknown> | null => {
+        if (!v || typeof v !== "object" || Array.isArray(v)) return null;
+        const o = v as Record<string, any>, num = (x: unknown) => x === null || x === undefined || x === "" ? null : Number(x);
+        const total = num(o.total), goods = num(o.goods), agency = num(o.agency);
+        if (total == null || !(total > 0 && total < 1e9) || (goods != null && !(goods >= 0 && goods < 1e9)) || (agency != null && !(agency >= 0 && agency < 1e9))) return null;
+        const items = (Array.isArray(o.items) ? o.items : []).slice(0, 20).map((x: any) => ({ name: String(x?.name ?? "").trim().slice(0, 40), cny: Number(x?.cny) })).filter((x: any) => x.name && Number.isFinite(x.cny) && Math.abs(x.cny) < 1e9);
+        return { goods, agency, items, total, src: txt(o.src, 200) };
+      };
+      // ── 원>달러>위안 환전 (2026-10-22 사용자 요청) — 관리자만 ──
+      //   cn_fx_buy_add {rows:[{order_no, traded_at, usd, krw, rate}]} 붙여넣은 은행 환전 내역(같은 주문번호는 덮어씀) · cn_fx_buy_del {id}
+      //   cn_remit_save {id?, remit_date, usd, cny, memo} 달러→위안 송금(에이전시 실수령 위안 직접 입력) · cn_remit_del {id}
+      //   cn_doc_save {id, doc|null} 입고의 출고 서류 합계(위안) 직접 고치기
+      if (action === "cn_fx_buy_add" || action === "cn_fx_buy_del" || action === "cn_remit_save" || action === "cn_remit_del" || action === "cn_doc_save") {
+        if (!canPrice) return json({ error: "환전 내역은 관리자만 다룰 수 있어요" }, 403);
+        const posId = (v: unknown) => { const n = Number(v); return Number.isInteger(n) && n > 0 ? n : null; };
+        if (action === "cn_fx_buy_add") {
+          const src = Array.isArray(b.rows) ? b.rows as Record<string, any>[] : [];
+          if (!src.length || src.length > 500) return json({ error: "추가할 환전 내역이 없어요 (한 번에 500줄까지)" }, 400);
+          const rows: Record<string, unknown>[] = [];
+          for (let i = 0; i < src.length; i++) {
+            const r = src[i], order_no = String(r.order_no ?? "").trim(), at = String(r.traded_at ?? "");
+            const usd = Number(r.usd), krw = Number(r.krw), rate = Number(r.rate);
+            if (!/^[0-9A-Za-z_-]{1,40}$/.test(order_no) || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?\+09:00$/.test(at) || !(usd > 0 && usd < 1e8) || !(Number.isInteger(krw) && krw > 0 && krw < 1e12) || !(rate > 100 && rate < 5000)) {
+              return json({ error: `${i + 1}번째 줄 값이 올바르지 않아요 (주문번호·체결일시·달러·원화·환율 확인)` }, 400);
+            }
+            if (Math.abs(usd * rate - krw) > Math.max(1000, krw * 0.002)) return json({ error: `${i + 1}번째 줄: 달러 × 환율이 원화와 맞지 않아요 (주문번호 ${order_no})` }, 400);
+            rows.push({ order_no, traded_at: at, usd, krw, rate, created_by_name: authed.name });
+          }
+          await sbRest("cn_fx_buys?on_conflict=order_no", { method: "POST", headers: { Prefer: "resolution=merge-duplicates,return=minimal" }, body: JSON.stringify(rows) });
+          return json({ ok: true, saved: rows.length });
+        }
+        if (action === "cn_fx_buy_del" || action === "cn_remit_del") {
+          const id = posId(b.id); if (!id) return json({ error: "id 오류" }, 400);
+          await sbRest(`${action === "cn_fx_buy_del" ? "cn_fx_buys" : "cn_remits"}?id=eq.${id}`, { method: "DELETE", headers: { Prefer: "return=minimal" } });
+          return json({ ok: true });
+        }
+        if (action === "cn_remit_save") {
+          const remit_date = dateOrNull(b.remit_date), usd = Number(b.usd), cny = Number(b.cny);
+          if (!remit_date || !(usd > 0 && usd < 1e8) || !(cny > 0 && cny < 1e9)) return json({ error: "송금일·보낸 달러·받은 위안을 확인해 주세요" }, 400);
+          if (cny / usd < 4 || cny / usd > 10) return json({ error: `달러당 ${(cny / usd).toFixed(2)}위안이에요 — 달러·위안 칸이 바뀌지 않았는지 확인해 주세요` }, 400);
+          const row = { remit_date, usd: Math.round(usd * 100) / 100, cny: Math.round(cny * 100) / 100, memo: txt(b.memo, 200), updated_at: now };
+          const id = b.id == null ? null : posId(b.id);
+          if (b.id != null && !id) return json({ error: "id 오류" }, 400);
+          const out = id ? await sbRest(`cn_remits?id=eq.${id}`, { method: "PATCH", body: JSON.stringify(row) })
+            : await sbRest("cn_remits", { method: "POST", body: JSON.stringify({ ...row, created_by_name: authed.name }) });
+          return json({ ok: true, remit: (out as Record<string, any>[])[0] ?? null });
+        }
+        if (action === "cn_doc_save") {
+          const id = posId(b.id); if (!id) return json({ error: "id 오류" }, 400);
+          const doc = b.doc === null ? null : cleanDoc(b.doc);
+          if (b.doc !== null && !doc) return json({ error: "총 합계(위안)를 확인해 주세요" }, 400);
+          await sbRest(`cn_shipments?id=eq.${id}`, { method: "PATCH", headers: { Prefer: "return=minimal" }, body: JSON.stringify({ doc }) });
+          return json({ ok: true });
+        }
+      }
       // 사진 저장 — 브라우저가 줄여 보낸 JPEG data URL만(한 장 30KB 이하, 한 번에 400장). 형식이 다르면 그 장은 버린다.
       // 품번이 입고 내역이나 주문서에 있는지 — 혼용률·라벨·라인·카페24 연결 저장의 검사(주문서에만 있는 품번도 저장할 수 있게)
       const snameKnown = async (sname: string): Promise<unknown[]> => {
@@ -2395,6 +2530,7 @@ Deno.serve(async (req) => {
           title, vendor: txt(b.vendor, 80), order_round: txt(b.order_round, 40), ship_date: dateOrNull(b.ship_date),
           file_name: txt(b.file_name, 200), note: txt(b.note, 300), created_by: authed.id, created_by_name: authed.name,
           costs: "costs" in b ? (cleanCosts(b.costs) ?? null) : null,
+          doc: cleanDoc(b.doc),   // 출고 서류 합계 블록(물건값·에이전시 10%·경비·총 합계 위안 — 2026-10-22)
         }) }) as Record<string, any>[];
         try {
           await sbRest("cn_lines", { method: "POST", headers: { Prefer: "return=minimal" }, body: JSON.stringify(rows.map((r) => ({ ...r, shipment_id: ship.id }))) });
