@@ -108,6 +108,40 @@ function rscanJudge(entry: Record<string, any>, st: typeof RSCAN_DEFAULTS) {
   return null;
 }
 const rscanDigits = (v: unknown) => String(v ?? "").replace(/[^0-9A-Za-z]/g, "");
+// ── 변심인데 반품 배송비 차감이 없는 반품 → 수거 완료 막기 (2026-10-23 사용자 요청 "무조건 카페24 주문을 먼저 확인하도록")
+//   변심 = 자사몰 접수 사유 코드 A·O(카페24 '고객변심' — 사유 문구 '변심·단순변심·사이즈 미스' 등). 네이버페이는 카페24에서 수거 완료를 못 해서 대상 아님.
+//   차감액 = 반품 접수의 return_shipping_fee(카페24는 음수로 줌 — 환불 대조와 같은 기준, 절댓값). 이미 수거된 건·철회 건은 대상 아님.
+const RSCAN_FEE_HOLD_MSG = "변심인데 배송비 차감이 안되어있어요. 카페24에서 확인해주세요";
+const RSCAN_CHANGE_MIND = ["A", "O"];
+function rscanRetFee(c: Record<string, any>): number | null {
+  if (!c || !("return_shipping_fee" in c)) return null;
+  return Math.abs(Math.round(Number(c.return_shipping_fee ?? 0) || 0));
+}
+function rscanFeeHold(e: Record<string, any>): boolean {
+  if (e.kind !== "return" || e.naver || e.withdrawn) return false;
+  if (!RSCAN_CHANGE_MIND.includes(String(e.reason_type ?? ""))) return false;
+  const st = String(e.status ?? ""), ex = String(e.status_extra ?? "");
+  if (/철회/.test(st + ex) || st === "반품완료" || /환불전/.test(ex)) return false;
+  return e.ret_fee === 0;
+}
+// 막힐 후보(변심 반품인데 인덱스상 차감 0 또는 모름)는 카페24에서 주문을 다시 읽어 차감액·상태를 새로 고친다 —
+// 카페24에서 배송비를 고친 직후 다시 스캔하면 바로 풀리게(인덱스는 15분마다 갱신). 최대 max건.
+async function rscanFeeRefresh(hits: Record<string, any>[], token: string, max = 5): Promise<Record<string, any>[]> {
+  const cand = (e: Record<string, any>) => e.kind === "return" && !e.naver && !e.withdrawn && RSCAN_CHANGE_MIND.includes(String(e.reason_type ?? "")) && (e.ret_fee == null || e.ret_fee === 0)
+    && !(String(e.status ?? "") === "반품완료" || /환불전/.test(String(e.status_extra ?? "")));
+  const ids = [...new Set(hits.filter(cand).map((e) => String(e.order_id)))].slice(0, max);
+  const live = new Map<string, Record<string, any>>();
+  for (const id of ids) {
+    try { const o = ((await apiGet(`${API_BASE}/admin/orders/${id}?embed=items,return`, token)).order ?? {}) as Record<string, any>; live.set(id, o); } catch { /* 못 읽으면 인덱스 값 그대로 */ }
+  }
+  return hits.map((e) => {
+    const o = live.get(String(e.order_id)); if (!o || !cand(e)) return e;
+    const c = (((o.return ?? []) as Record<string, any>[]).find((x) => x.claim_code === e.claim_code)) ?? null;
+    if (!c) return e;
+    const its = ((o.items ?? []) as Record<string, any>[]).filter((it) => it.claim_code === e.claim_code);
+    return { ...e, ret_fee: rscanRetFee(c), reason_type: c.claim_reason_type ?? e.reason_type, status: its[0]?.status_text ?? e.status, status_extra: its[0]?.order_status_additional_info ?? e.status_extra, fee_live: true };
+  });
+}
 // 최근 days일 반품·교환 주문 → 인덱스 행. 창은 30일씩(카페24 조회 범위 제한), 페이지 200.
 // 기간은 '어제까지 최근 N일'(주문일 기준, 한국 시간) — 2026-09-22 사용자 요청. 오늘 주문은 반품 수거가 있을 수 없어 제외해도 무해.
 function rscanYesterday() {
@@ -208,6 +242,7 @@ function rscanEntriesOf(o: Record<string, any>, kind: "return" | "exchange", nrS
       kind, invoice: rscanDigits(c.return_invoice_no), company: c.return_shipping_company_name ?? null,
       order_id: o.order_id, order_date: String(o.order_date ?? "").slice(0, 10), place: o.order_place_name ?? "", naver,
       claim_code: c.claim_code ?? null, reason_type: c.claim_reason_type ?? null, reason: String(c.claim_reason ?? "").trim(),
+      ret_fee: kind === "return" ? rscanRetFee(c) : null,   // 반품 배송비 차감액(양수, 원) — 변심인데 0이면 수거 완료를 막음(2026-10-23)
       claim_date: String(its[0]?.return_request_date ?? its[0]?.exchange_request_date ?? c.claim_due_date ?? "").slice(0, 10),
       status: its[0]?.status_text ?? its[0]?.order_status ?? "", status_extra: its[0]?.order_status_additional_info ?? "",
       buyer: o.billing_name ?? "", receiver: recv.name ?? "",
@@ -2805,6 +2840,7 @@ Deno.serve(async (req) => {
             collected_by: collectedMap[`${e.kind}:${e.claim_code}`] ?? null,
             key: `${e.kind}:${e.order_id}:${e.claim_code ?? ""}`, claim_code: e.claim_code ?? "", claim_date: e.claim_date ?? "", status, status_extra: extra,
             reason: e.reason ?? "", reason_type: e.reason_type ?? null, naver_reason: nv?.reason ?? null, invoice: e.invoice ?? "", company: e.company ?? null,
+            ret_fee: e.ret_fee ?? null, fee_hold: rscanFeeHold(e),
             items: ((e.items ?? []) as Record<string, any>[]).map((it) => ({ name: it.name, option: it.option ?? "", qty: it.qty ?? 0, product_no: it.product_no ?? null, nr: it.nr ?? [] })), alert, collected, exchanged,
           };
           const gk = `${e.kind}:${e.order_id}`;
@@ -2903,6 +2939,10 @@ Deno.serve(async (req) => {
         if (!its.length) return json({ error: "이 주문에서 해당 접수 품목을 찾지 못했어요" }, 404);
         const stateOf = (list: Record<string, any>[]) => ({ status: String(list[0]?.status_text ?? ""), status_extra: String(list[0]?.order_status_additional_info ?? "") });
         if (collectedOf(its)) return json({ ok: true, already: true, ...stateOf(its) });
+        if (kind === "return") {   // 변심인데 반품 배송비 차감 없음 → 처리하지 않음(2026-10-23 사용자 요청) — 카페24에서 확인·수정 후 다시
+          const cl = (((order.return ?? []) as Record<string, any>[]).find((c) => c.claim_code === claimCode)) ?? {};
+          if (rscanFeeHold({ kind, naver: false, reason_type: cl.claim_reason_type ?? its[0]?.claim_reason_type ?? null, ret_fee: rscanRetFee(cl), ...stateOf(its) })) return json({ error: RSCAN_FEE_HOLD_MSG, fee_hold: true }, 409);
+        }
         const codes = its.map((it) => ({ order_item_code: String(it.order_item_code) }));
         // 반품 불가·확인 필요 품목이 섞여 있으면(최신 주문 기준) 확인(ack=1) 없이는 처리하지 않는다 — 화면이 목록을 보여 주고 다시 요청
         const nrSets = await rscanNrSets(token).catch(() => ({ acc: [], sale: {} } as NrSets));
@@ -2973,7 +3013,8 @@ Deno.serve(async (req) => {
           if (!pending) return false;
           return norm(e.buyer).includes(q) || norm(e.receiver).includes(q) || norm(e.address).includes(q) || (qd.length >= 4 && String(e.phone ?? "").includes(qd));
         }).slice(0, 30).map((e) => ({ ...e, collected_by: null, phone: e.phone ? String(e.phone).replace(/^(\d{3})(\d{3,4})(\d{4})$/, "$1-****-$3") : "", alert: rscanJudge(e, st) }));
-        return json({ q: url.searchParams.get("q"), hits, index: { built_at: fresh ? row!.built_at : new Date().toISOString(), row_count: payload.length, days, start_date: startDate } });
+        const hitsF = (await rscanFeeRefresh(hits, token)).map((e) => ({ ...e, fee_hold: rscanFeeHold(e) }));
+        return json({ q: url.searchParams.get("q"), hits: hitsF, index: { built_at: fresh ? row!.built_at : new Date().toISOString(), row_count: payload.length, days, start_date: startDate } });
       }
       // lookup
       const q = rscanDigits(url.searchParams.get("q"));
@@ -3016,6 +3057,7 @@ Deno.serve(async (req) => {
         hits = [...linked, ...hits.filter((e) => !isWithdrawn(e)), ...hits.filter(isWithdrawn).map((e) => ({ ...e, withdrawn: true }))];
       }
       const cmap = hits.length ? await rscanCollectedMap() : {};
+      hits = (await rscanFeeRefresh(hits, token)).map((e) => ({ ...e, fee_hold: rscanFeeHold(e) }));
       const result = hits.map((e) => ({ ...e, collected_by: cmap[`${e.kind}:${e.claim_code}`] ?? null, alert: rscanJudge({ ...e, reason: e.naver ? `${e.reason} ${e.naver_reason ?? ""}` : e.reason }, st) }));
       return json({ q, hits: result, naver_row: naverRow && !hits.length ? naverRow : null, index: { built_at: fresh ? row!.built_at : new Date().toISOString(), row_count: payload.length, days, start_date: startDate } });
     }

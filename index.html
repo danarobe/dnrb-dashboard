@@ -430,6 +430,12 @@
     .ts-unclip { overflow:visible !important; }
     .ts-clip { overflow:clip !important; }
     .ts-box { overflow:auto !important; max-height:calc(100vh - var(--hdr-h, 0px) - 24px); }
+    /* 반품 스캔 — 변심인데 배송비 차감 없는 반품의 수거 완료 버튼(눌리지 않음) + 마우스 올리면 안내(2026-10-23 사용자 요청) */
+    .rscan-hold { position:relative; display:inline-block; cursor:not-allowed; }
+    .rscan-hold > button { pointer-events:none; background:#e5e7eb !important; color:#9ca3af !important; border-color:#d1d5db !important; }
+    .rscan-hold::after { content:attr(data-tip); position:absolute; left:50%; bottom:calc(100% + 7px); transform:translateX(-50%); z-index:30; width:max-content; max-width:260px; white-space:normal;
+      background:#7f1d1d; color:#fff; font-size:.74rem; font-weight:700; line-height:1.45; padding:7px 10px; border-radius:8px; box-shadow:0 6px 18px rgba(0,0,0,.2); opacity:0; visibility:hidden; transition:opacity .12s; pointer-events:none; }
+    .rscan-hold:hover::after, .rscan-hold:focus-within::after { opacity:1; visibility:visible; }
     /* 필터 탭 */
     /* 안정재고 편성: 표 헤더 행 고정 (표 내부 스크롤 시) */
     #sec-stable .table-wrap thead th { position:sticky; top:0; background:#f8f9ff; z-index:2; }
@@ -8500,7 +8506,7 @@ function rscanIssuesRender() {
     const name = g.buyer && g.receiver && g.buyer !== g.receiver ? `${escHtml(g.buyer)} <span style="color:#6b7280;font-size:.72rem;">(수령 ${escHtml(g.receiver)})</span>` : escHtml(g.buyer || g.receiver || '—');
     const multi = g.claims.length > 1;
     const claims = g.claims.map(c => `<div style="${multi ? 'padding:4px 0;border-top:1px dashed #e5e7eb;' : ''}">
-        <div style="font-size:.7rem;color:#6b7280;display:flex;gap:6px;flex-wrap:wrap;align-items:center;">${multi ? badge(c.alert) : ''}<span>접수 ${escHtml(c.claim_code || '—')} · ${escHtml(c.claim_date || '')}</span>${stBadge(c)}${rscanCollectBtn({ order_id: g.order_id, claim_code: c.claim_code, kind: g.kind, naver: g.naver, status: c.status, status_extra: c.status_extra, alert: c.alert })}${rscanCollectedByHtml(c.collected_by)}</div>
+        <div style="font-size:.7rem;color:#6b7280;display:flex;gap:6px;flex-wrap:wrap;align-items:center;">${multi ? badge(c.alert) : ''}<span>접수 ${escHtml(c.claim_code || '—')} · ${escHtml(c.claim_date || '')}</span>${stBadge(c)}${rscanCollectBtn({ order_id: g.order_id, claim_code: c.claim_code, kind: g.kind, naver: g.naver, status: c.status, status_extra: c.status_extra, alert: c.alert, fee_hold: c.fee_hold })}${rscanCollectedByHtml(c.collected_by)}</div>
         ${(c.items || []).map(it => `<div style="${rscanNrRowStyle(it)}border-radius:6px;padding:0 3px;">${escHtml(it.name || '')}${it.option ? ` <span style="color:#6b7280;">${escHtml(it.option)}</span>` : ''}${it.qty > 1 ? ` <b>×${it.qty}</b>` : ''}${rscanNrChips(it)}</div>`).join('') || '<div>—</div>'}</div>`).join('').replace('border-top:1px dashed #e5e7eb;', '');
     const dim = done && !g.special ? 'opacity:.55;' : '';
     const reasons = g.claims.map(c => {
@@ -8829,8 +8835,11 @@ function rscanCanCollect(h) {
   if (/철회/.test(st + ex) || /수거완료/.test(ex)) return false;
   return h.kind === 'exchange' ? st !== '교환완료' : !(st === '반품완료' || /환불전/.test(ex));
 }
+const RSCAN_FEE_HOLD_MSG = '변심인데 배송비 차감이 안되어있어요. 카페24에서 확인해주세요';
 function rscanCollectBtn(h) {
   if (!rscanCanCollect(h)) return '';
+  // 변심 반품인데 반품 배송비 차감이 0원(서버 판정 fee_hold — 스캔·이름 찾기는 카페24를 바로 다시 읽은 값) → 누를 수 없게, 마우스를 올리면 안내
+  if (h.fee_hold) return `<span class="rscan-hold" data-tip="${escHtml(RSCAN_FEE_HOLD_MSG)}" tabindex="0" aria-label="${escHtml(RSCAN_FEE_HOLD_MSG)}"><button class="toggle-btn" disabled style="font-size:.7rem;padding:2px 9px;"><i class="fa-solid fa-lock"></i> 수거 완료</button></span>`;
   return `<button class="toggle-btn" style="font-size:.7rem;padding:2px 9px;background:#4f46e5;color:#fff;border-color:#4f46e5;" data-oid="${escHtml(h.order_id)}" data-claim="${escHtml(h.claim_code)}" data-kind="${escHtml(h.kind)}" data-defect="${h.alert && h.alert.type === '불량' ? '1' : '0'}" onclick="rscanCollect(this)" title="카페24에서 이 접수를 수거 완료로 바꿉니다"><i class="fa-solid fa-box-open"></i> 수거 완료</button>`;
 }
 async function rscanCollect(btn) {
@@ -8847,6 +8856,7 @@ async function rscanCollect(btn) {
       if (!confirm(`${block ? '⚠ 반품 불가 품목이 들어 있어요!' : '확인이 필요한 품목이 있어요.'}\n\n${lines}\n\n이 접수의 품목이 한꺼번에 수거 완료로 바뀝니다.\n그래도 수거 완료로 처리할까요?`)) { btn.disabled = false; btn.innerHTML = old; return; }
       res = await send(true); r = await res.json().catch(() => ({}));
     }
+    if (r.fee_hold) { btn.outerHTML = rscanCollectBtn({ fee_hold: true, claim_code: d.claim, kind: d.kind, order_id: d.oid }); showToast(RSCAN_FEE_HOLD_MSG); return; }
     if (!res.ok || r.error) throw new Error(r.error || ('오류 ' + res.status));
     const txt = `${r.status || ''}${r.status_extra ? ' · ' + r.status_extra : ''}`.trim();
     const cbNew = r.already ? null : { by: r.by || SESSION.name, at: r.at || new Date().toISOString(), recover: r.recover_inventory || null, defect: !!r.defect };
