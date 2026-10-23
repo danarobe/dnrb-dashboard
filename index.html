@@ -726,7 +726,7 @@
     <div class="menu-sec-body">
       <button class="menu-item" data-menu="stable" id="menu-stable" onclick="showMenu('stable')"><i class="fa-solid fa-warehouse" style="width:18px;text-align:center;color:#818cf8;"></i>안정재고 편성</button>
       <button class="menu-item" data-menu="cnbuy" id="menu-cnbuy" onclick="showMenu('cnbuy')"><i class="fa-solid fa-ship" style="width:18px;text-align:center;color:#818cf8;"></i>중국 사입/제작 관리</button>
-      <button class="menu-item" data-menu="madechk" id="menu-madechk" style="display:none;" onclick="showMenu('madechk')"><i class="fa-solid fa-industry" style="width:18px;text-align:center;color:#818cf8;"></i>자체제작 주문 점검</button>
+      <button class="menu-item" data-menu="madechk" id="menu-madechk" style="display:none;" onclick="showMenu('madechk')"><i class="fa-solid fa-industry" style="width:18px;text-align:center;color:#818cf8;"></i>중국 사입 / 제작 주문 점검</button>
     </div>
   </div>
   <div class="menu-sec" data-sec="logi">
@@ -2706,7 +2706,7 @@
        회의 때 이야기할 안건을 평소에 기록해두고, 회의 날 한 화면으로 보며 진행. 작성자 = 로그인 계정. -->
   <div class="section-card page-sec" id="sec-madechk">
     <div class="section-header" style="cursor:default;">
-      <h2><span><i class="fa-solid fa-industry" style="color:#4f46e5;font-size:.9em;"></i></span> 자체제작 주문 점검</h2>
+      <h2><span><i class="fa-solid fa-industry" style="color:#4f46e5;font-size:.9em;"></i></span> 중국 사입 / 제작 주문 점검</h2>
       <button class="toggle-btn" id="btn-madechk" onclick="madeFetch()"><i class="fa-solid fa-cloud-arrow-down"></i> 카페24 판매 수집</button>
     </div>
     <div class="section-body">
@@ -2722,16 +2722,16 @@
         <div id="made-file-status" style="display:flex;gap:16px;flex-wrap:wrap;margin-top:8px;font-size:.74rem;color:#6b7280;"></div>
       </div>
       <div id="made-pane-stk" class="made-pane">
-        <div style="font-size:.8rem;color:#6b7280;margin-bottom:10px;line-height:1.7;">
-          · 상품명에 <b>made</b>/<b>자체제작</b>이 든 상품과 아래에서 <b>직접 지정한 상품</b>을 옵션별로 점검합니다. 셀메이트 J열(바코드번호)과 이지픽 S열(쇼핑몰상품코드)이 같은 행을 같은 옵션으로 봅니다.<br>
-          · <b>가용</b> = 현재재고 − 미발송 주문 · <b>이지픽 미입고</b> = 주문했지만 아직 입고되지 않은 잔여수량 · <b>입고 후</b> = 가용 + 미입고 · <b>부족</b> = 현재 재고 기준 — 미발송 주문을 재고와 미입고로도 못 채우는 수량 · <b>주의</b> 배지 = 입고 후에도 5개 미만으로 남거나 셀메이트 안정재고에 못 미치는 옵션.
-        </div>
+        <!-- 분류(2026-10-23 사용자 요청): 제작 상품(이지픽 — 국내·자체제작) / 중국 상품(중국 사입/제작 관리에 등록된 상품 — 이름에 made·자체제작이 있어도 여기) -->
+        <div id="made-stk-kind" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px;"></div>
+        <div id="made-stk-desc" style="font-size:.8rem;color:#6b7280;margin-bottom:10px;line-height:1.7;"></div>
         <div id="made-stk-summary" style="display:none;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin-bottom:12px;"></div>
         <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px;">
           <div id="made-stk-chips" style="display:flex;gap:6px;flex-wrap:wrap;"></div>
           <input id="made-stk-q" placeholder="상품명·옵션 검색" oninput="renderSoon('madeStkRender')" style="border:1.5px solid #d1d5db;border-radius:8px;padding:6px 10px;font-size:.8rem;width:180px;" />
           <button class="toggle-btn" onclick="madeStkExport()" style="margin-left:auto;" title="지금 표에 보이는 옵션들을 엑셀로"><i class="fa-solid fa-file-excel" style="color:#15803d;"></i> 엑셀</button>
-          <button class="toggle-btn" onclick="madeWatchPanelToggle()"><i class="fa-solid fa-plus"></i> 지정 상품 관리</button>
+          <button class="toggle-btn" id="made-cn-buyall" style="display:none;" onclick="madeCnToBuy(null)" title="부족한 옵션의 부족 수량을 중국 사입/제작 관리 › 주문하기에 담아요"><i class="fa-solid fa-cart-plus" style="color:#4f46e5;"></i> 부족분 주문하기에 담기</button>
+          <button class="toggle-btn" id="made-watch-btn" onclick="madeWatchPanelToggle()"><i class="fa-solid fa-plus"></i> 지정 상품 관리</button>
         </div>
         <div id="made-watch-panel" style="display:none;margin-bottom:12px;"></div>
         <div id="made-stk-result"><div class="empty-state"><p>셀메이트 재고 CSV를 올리면 점검 결과가 여기에 표시됩니다.</p></div></div>
@@ -11998,7 +11998,8 @@ function stableSyncDays() {
    ══════════════════════════════════════ */
 const MADE_LEAD = { cn: 10, kr: 5 };   // 기본 리드타임(달력일) — 2026-09-07 사용자 지정: 중국 10일 / 국내 5일 (이전 9일)
 const MADE_ORIGIN = { cn: '중국', kr: '국내' };
-const madeState = { rows: null, tags: new Map(), stock: null, ez: null, loading: false, open: new Set(), tab: 'stk', files: {}, watch: new Map(), stkFilter: 'all', sales: null, salesLoading: false, salesErr: '' };   // sales = 재고·입고 점검 탭용 최근 7일 하루 평균 주문(madeavg scope=all, 2026-09-30)   // ez = 이지픽 제작상품 엑셀(옵션별 잔여수량 = 입고 예정), files = 서버에 저장된 공용 파일(cell/ez), watch = 지정 상품
+const madeState = { rows: null, rowsAll: null, tags: new Map(), stock: null, ez: null, loading: false, open: new Set(), tab: 'stk', files: {}, watch: new Map(), stkFilter: 'all', sales: null, salesLoading: false, salesErr: '',
+  stkKind: (() => { try { return localStorage.getItem('dnrb_made_kind') === 'cn' ? 'cn' : 'made'; } catch (e) { return 'made'; } })(), cn: null, cnLoading: false, cnErr: '', cnFilter: 'all', cnMapOpen: new Set() };   // stkKind·cn = 중국 상품 분류(2026-10-23)   // sales = 재고·입고 점검 탭용 최근 7일 하루 평균 주문(madeavg scope=all, 2026-09-30)   // ez = 이지픽 제작상품 엑셀(옵션별 잔여수량 = 입고 예정), files = 서버에 저장된 공용 파일(cell/ez), watch = 지정 상품
 const MADE_TABS = [['stk', '재고·입고 점검', null, 'fa-solid fa-boxes-stacked'], ['order', '주문 점검', null, 'fa-solid fa-clipboard-check']];
 function madeSetTab(k) {
   madeState.tab = k;
@@ -12007,7 +12008,7 @@ function madeSetTab(k) {
   const pane = $('made-pane-' + k); if (pane) pane.style.display = 'block';
   if (k === 'order' && !madeState.rows && !madeState.loading) {
     // 재고·입고 점검 탭이 이미 받은 판매 수치가 있으면 다시 읽지 않는다(같은 scope=all 조회)
-    if (madeState.sales && !madeState.salesLoading) { madeState.rows = madeState.sales.rows.filter(r => /자체제작|made/i.test(String(r.product_name || ''))); madeRender(); }
+    if (madeState.sales && !madeState.salesLoading) { madeOrderRowsSet(madeState.sales.rows.filter(r => /자체제작|made/i.test(String(r.product_name || '')))); madeRender(); }
     else if (!madeState.salesLoading) madeFetch();
     else madeState.orderPending = true;   // 판매 수치를 받는 중이면 끝난 뒤 그 결과로 그린다
   }
@@ -12058,6 +12059,20 @@ function madeToggleOpts(no) {
 function madeInit() {
   madeSetTab(madeState.tab);
   if (!madeState.filesLoaded) madeFilesLoad();
+  madeCnLoad(false);   // 중국 상품 분류용(2026-10-23) — 제작 상품에서 빼고, 중국 상품 보기·주문 점검 탭 제외에 쓴다
+}
+// 주문 점검 탭(이지픽 바로주문)은 자체제작만 — 중국 사입/제작 관리에 등록된 상품은 이름에 made가 있어도 뺀다(2026-10-23 사용자 지정)
+function madeOrderRowsSet(all) { madeState.rowsAll = all; const nos = madeCnNos(); madeState.rows = all.filter(r => !nos.has(r.product_no)); }
+function madeCnNos() { const d = madeState.cn, s = new Set(); if (!d) return s; for (const a of Object.values(d.c24 || {})) for (const h of a || []) s.add(h.product_no); return s; }
+async function madeCnLoad(force) {
+  if (madeState.cnLoading || (madeState.cn && !force)) return;
+  madeState.cnLoading = true; madeState.cnErr = ''; madeStkRender();
+  try { madeState.cn = (!force && cnState.data) ? cnState.data : await anGet(Object.assign({ action: 'cn_list' }, force ? { nocache: 1 } : {})); }
+  catch (e) { madeState.cnErr = e.message || String(e); }
+  finally {
+    madeState.cnLoading = false; madeStkRender();
+    if (madeState.rowsAll) { madeOrderRowsSet(madeState.rowsAll); if (madeState.tab === 'order') madeRender(); }
+  }
 }
 async function madeFetch() {
   if (madeState.loading) return;
@@ -12073,7 +12088,7 @@ async function madeFetch() {
       dbProxy('made_products?select=*'),
     ]);
     madeState.sales = { rows: d.rows || [], end: yd };
-    madeState.rows = (d.rows || []).filter(r => /자체제작|made/i.test(String(r.product_name || '')));
+    madeOrderRowsSet((d.rows || []).filter(r => /자체제작|made/i.test(String(r.product_name || ''))));
     madeState.tags = new Map((tags || []).map(t => [t.product_no, t]));
     madeRender(); madeStkRender();
   } catch (e) { showToast('수집 실패: ' + e.message); }
@@ -12278,9 +12293,11 @@ function madeStkCompute() {
   const cellCodes = new Set(cell.map(r => r.code).filter(Boolean));
   const salesIdx = madeSalesIndex(), salesUsed = new Set();
   const cellCount = new Map(); for (const r of cell) { const k = stkNorm(r.name); cellCount.set(k, (cellCount.get(k) || 0) + 1); }
+  const cn = madeCnCompute(cell, salesIdx, cellCount);   // 중국 상품(2026-10-23) — null이면 중국 사입 자료를 아직 못 받음
   const groups = new Map();
   for (const r of cell) {
     const key = stkNorm(r.name);
+    if (cn && cn.keys.has(key)) continue;   // 중국 사입/제작 관리에 등록된 상품은 이름에 made·자체제작이 있어도 '중국 상품'으로
     const watched = madeState.watch.has(key);
     if (!madeIsMade(r.name) && !watched) continue;
     const ez = r.code ? ezByCode.get(r.code) : null;
@@ -12305,17 +12322,36 @@ function madeStkCompute() {
   const noCode = ezRows.filter(r => !r.code);
   const unmatched = ezRows.filter(r => r.code && !cellCodes.has(r.code));
   // 카페24에서 최근 7일 팔렸는데 점검 목록(셀메이트 파일)의 어느 상품과도 안 맞은 자체제작 상품 — 이름이 달라 조용히 0으로 보이는 일을 막기 위해 표시
-  const salesOrphans = madeState.sales ? madeState.sales.rows.filter(r => madeIsMade(r.product_name) && r.avg7 > 0 && !salesUsed.has(r.product_no)) : [];
-  return { groups: [...groups.values()], noCode, unmatched, ezByCode, salesOrphans };
+  const cnNos = madeCnNos();
+  const salesOrphans = madeState.sales ? madeState.sales.rows.filter(r => madeIsMade(r.product_name) && r.avg7 > 0 && !salesUsed.has(r.product_no) && !cnNos.has(r.product_no)) : [];
+  return { groups: [...groups.values()], noCode, unmatched, ezByCode, salesOrphans, cn };
+}
+function madeStkKindSet(k) { madeState.stkKind = k; madeState.stkFilter = 'all'; madeState.cnFilter = 'all'; try { localStorage.setItem('dnrb_made_kind', k); } catch (e) { /* 기억 못 해도 그대로 */ } madeStkRender(); }
+function madeStkKindHeader(res) {
+  const k = madeState.stkKind, kb = $('made-stk-kind'); if (!kb) return;
+  const n1 = res ? res.groups.length : null, n2 = res && res.cn ? res.cn.groups.length : null;
+  const b = (key, label, icon, n) => `<button onclick="madeStkKindSet('${key}')" style="border:1.5px solid ${k === key ? 'transparent' : '#c7d2fe'};background:${k === key ? '#4f46e5' : '#fff'};color:${k === key ? '#fff' : '#4338ca'};border-radius:10px;padding:7px 16px;font-size:.84rem;font-weight:800;cursor:pointer;"><i class="${icon}"></i> ${label}${n != null ? ` <span style="opacity:.8;font-weight:700;">${n}</span>` : ''}</button>`;
+  kb.innerHTML = b('made', '제작 상품', 'fa-solid fa-industry', n1) + b('cn', '중국 상품', 'fa-solid fa-ship', n2) + (madeState.cnLoading ? ' <span style="font-size:.74rem;color:#6b7280;align-self:center;"><i class="fa-solid fa-spinner fa-spin"></i> 중국 사입 자료 불러오는 중…</span>' : madeState.cnErr ? ` <span style="font-size:.74rem;color:#b91c1c;align-self:center;">중국 사입 자료를 못 불러왔어요 — ${escHtml(madeState.cnErr)} <button class="toggle-btn" style="font-size:.7rem;padding:2px 8px;" onclick="madeCnLoad(true)">다시</button></span>` : '');
+  $('made-stk-desc').innerHTML = k === 'cn'
+    ? `· <b>중국 사입/제작 관리</b>에 등록된 상품이에요(상품명에 made·자체제작이 있어도 여기). 카페24 연결(또는 셀메이트 사입상품명이 품번으로 시작)로 셀메이트 재고 줄과 이어요.<br>
+       · <b>중국 입고 예정</b> = <b>미송</b>(주문 − 중국출고 − 폐기) + <b>운송 중</b>(출고됐지만 아직 [입고 완료] 전) + <b>셀메이트 반영 전</b>(올린 셀메이트 파일보다 나중에 [입고 완료]한 차수 — 파일 재고에 아직 없어서). 가용·입고 후·부족·주의는 제작 상품과 같은 기준이에요.<br>
+       · 중국 옵션(白아·深灰진회 …)은 색 약칭으로 셀메이트 옵션과 <b>자동으로 짝지어요</b> — 틀리거나 못 찾은 것은 <b>[옵션 짝]</b>에서 골라 주세요(팀 공유). 부족한 옵션은 <b>[주문하기에 담기]</b>로 중국 사입/제작 관리 › 주문하기에 수량을 넣을 수 있어요.`
+    : `· 상품명에 <b>made</b>/<b>자체제작</b>이 든 상품과 아래에서 <b>직접 지정한 상품</b>을 옵션별로 점검합니다(중국 사입/제작 관리에 등록된 상품은 '중국 상품'으로). 셀메이트 J열(바코드번호)과 이지픽 S열(쇼핑몰상품코드)이 같은 행을 같은 옵션으로 봅니다.<br>
+       · <b>가용</b> = 현재재고 − 미발송 주문 · <b>이지픽 미입고</b> = 주문했지만 아직 입고되지 않은 잔여수량 · <b>입고 후</b> = 가용 + 미입고 · <b>부족</b> = 현재 재고 기준 — 미발송 주문을 재고와 미입고로도 못 채우는 수량 · <b>주의</b> 배지 = 입고 후에도 5개 미만으로 남거나 셀메이트 안정재고에 못 미치는 옵션.`;
+  const wb = $('made-watch-btn'); if (wb) wb.style.display = k === 'cn' ? 'none' : '';
+  const wp = $('made-watch-panel'); if (wp && k === 'cn') wp.style.display = 'none';
 }
 function madeStkRender() {
   const box = $('made-stk-result'); if (!box) return;
+  if (madeState.stkKind === 'cn') { madeCnRender(); return; }
   if (!madeState.files.cell) {
+    madeStkKindHeader(null); $('made-cn-buyall').style.display = 'none';
     $('made-stk-summary').style.display = 'none'; $('made-stk-chips').innerHTML = ''; $('made-stk-extra').innerHTML = '';
     box.innerHTML = '<div class="empty-state"><p>셀메이트 재고 CSV(stk_stockList…)를 올리면 점검 결과가 여기에 표시됩니다. 이지픽 엑셀까지 올리면 미입고 수량이 반영돼요.</p></div>';
     return;
   }
-  const { groups, noCode, unmatched, salesOrphans } = madeStkCompute();
+  const res = madeStkCompute(), { groups, noCode, unmatched, salesOrphans } = res;
+  madeStkKindHeader(res); $('made-cn-buyall').style.display = 'none';
   const q = stkNorm(($('made-stk-q') || {}).value || '');
   const allOpts = groups.flatMap(g => g.rows);
   const shortOpts = allOpts.filter(o => o.shortage > 0);
@@ -12385,6 +12421,213 @@ function madeStkRender() {
       + exTable('상품코드 매칭 안 됨', '#6b7280', unmatched, '이지픽 코드는 있지만 올린 셀메이트 CSV에 같은 바코드번호가 없어요. 셀메이트 CSV가 일부 상품만 내려받은 것이거나 코드가 다를 수 있습니다.')
     : '';
 }
+/* ══ 중국 상품 (2026-10-23 사용자 요청 — "중국 사입/제작 제품도 자체제작처럼 발주 필요 시 발주. 재고·입고 점검을 제작 상품 / 중국 상품으로 나눠서.
+     중국 상품 = 중국 사입/제작 관리에 등록된 상품 — 그중 자체제작·made로 분류된 것도 중국 상품") ══
+   상품 연결: 중국 사입의 카페24 연결(cn_list c24 — 상품명, 셀메이트 수동 매칭 made_products.stk_name 우선) → 셀메이트 상품명(stkNorm), 없으면 셀메이트 사입상품명이 품번으로 시작(바로 뒤가 영문·숫자가 아님).
+   입고 예정(옵션별) = 미송(주문 − 중국출고 − 폐기, 0 미만은 0) + 운송 중(입고 완료 전 차수의 중국출고). 입고 완료한 차수는 셀메이트 재고에 들어간 것으로 본다.
+   옵션 짝: 중국 색상의 한글 약칭(白아 → 아)을 사전(MADE_CN_KO)으로 셀메이트 옵션과 맞추고(사이즈는 글자 그대로), 사람이 고른 짝(cn_products.cell_map — "색상\u0001사이즈": 셀메이트 옵션 | "__none")이 있으면 그것. */
+const MADE_CN_KO = { '아': ['아이보리', '화이트', '크림'], '아이': ['아이보리'], '검': ['블랙'], '회': ['그레이', '차콜'], '진회': ['다크그레이', '차콜', '그레이'], '연회': ['라이트그레이', '그레이'], '검회': ['차콜', '다크그레이'],
+  '곤': ['네이비'], '베': ['베이지'], '진베': ['카키', '다크베이지', '베이지', '카멜'], '오트': ['오트밀'], '밤': ['브라운', '모카', '카멜'], '밤색': ['브라운'], '연밤': ['라이트브라운', '베이지', '브라운'],
+  '빨': ['레드'], '소': ['소라', '스카이', '블루'], '연노': ['옐로우', '버터', '레몬', '크림'], '낙타': ['카멜', '브라운'] };
+const madeCnKo = c => String(c || '').replace(/\p{Script=Han}/gu, '').replace(/\s+/g, '');
+const madeCnNormS = v => String(v || '').replace(/\s+/g, '').toLowerCase();
+function madeCnSnameHit(cellSname, sn) { const a = madeCnNormS(cellSname), b = madeCnNormS(sn); if (!b || !a.startsWith(b)) return false; const nx = a.charAt(b.length); return !nx || !/[0-9a-z]/.test(nx); }
+// 셀메이트 재고 파일이 언제 기준인지 — 파일 이름의 'stk_stockList_20261022_200510'(한국 시각), 없으면 올린 시각
+function madeCellAsOf() {
+  const f = madeState.files.cell; if (!f) return null;
+  const m = String(f.file_name || '').match(/(20\d{6})_(\d{6})/);
+  if (m) { const t = Date.parse(`${m[1].slice(0, 4)}-${m[1].slice(4, 6)}-${m[1].slice(6, 8)}T${m[2].slice(0, 2)}:${m[2].slice(2, 4)}:${m[2].slice(4, 6)}+09:00`); if (Number.isFinite(t)) return t; }
+  const u = f.uploaded_at ? Date.parse(f.uploaded_at) : NaN; return Number.isFinite(u) ? u : null;
+}
+// 입고 예정 = 미송 + 운송 중(입고 완료 전) + 셀메이트 반영 전(셀메이트 파일 시각보다 늦게 [입고 완료]한 차수 — 파일 재고에 아직 없음, 2026-10-23)
+function madeCnIncoming(d) {
+  const m = new Map(), get = k => { let e = m.get(k); if (!e) { e = { ordered: 0, shipped: 0, disc: 0, transit: 0, late: 0 }; m.set(k, e); } return e; };
+  const asOf = madeCellAsOf(), ship = new Map((d.ships || []).map(x => [x.id, x]));
+  for (const l of d.order_lines || []) get(cnLKey(l)).ordered += l.qty;
+  for (const l of d.lines || []) {
+    const e = get(cnLKey(l)), x = ship.get(l.shipment_id) || {};
+    e.shipped += l.qty_sent;
+    if (!x.arrived) e.transit += l.qty_sent;
+    else if (asOf != null && x.arrived_at && Date.parse(x.arrived_at) > asOf) e.late += l.qty_sent;
+  }
+  for (const x of d.discards || []) get(cnLKey(x)).disc += x.qty;
+  for (const e of m.values()) { e.pend = Math.max(0, e.ordered - e.shipped - e.disc); e.inc = e.pend + e.transit + e.late; }
+  return m;
+}
+function madeCnAutoMap(cnOpts, cellRows) {   // 중국 옵션 키 → 셀메이트 줄 번호
+  const res = new Map(), used = new Set(), low = v => String(v || '').replace(/\s+/g, '').toLowerCase();
+  const sizeOk = (r, z) => !z || new RegExp(`(^|[^a-z0-9])${z.toLowerCase().replace(/[^a-z0-9]/g, '')}([^a-z0-9]|$)`).test(String(r.opt || '').toLowerCase());
+  const choices = cnOpts.map(o => { const ko = madeCnKo(o.color), words = [ko, ...(MADE_CN_KO[ko] || [])].filter(Boolean).map(low);
+    return { o, opts: cellRows.map((r, i) => { const n = low(r.opt); const rank = words.findIndex(w => n.includes(w)); return rank >= 0 && sizeOk(r, o.size) ? { i, rank } : null; }).filter(Boolean).sort((a, b) => a.rank - b.rank) }; });
+  choices.sort((a, b) => a.opts.length - b.opts.length);
+  for (const c of choices) { const pick = c.opts.find(x => !used.has(x.i)); if (pick) { res.set(c.o.k, pick.i); used.add(pick.i); } }
+  return res;
+}
+function madeCnCompute(cell, salesIdx, cellCount) {
+  const d = madeState.cn; if (!d) return null;
+  const prods = d.prods || {}, inact = sn => !!(prods[sn] || {}).inactive, inc = madeCnIncoming(d), hasSales = !!madeState.sales;
+  const optsBy = new Map();
+  for (const l of [...(d.lines || []), ...(d.order_lines || [])]) {
+    if (!l.sname || inact(l.sname)) continue;
+    const m = optsBy.get(l.sname) || new Map(), k = cnLKey(l);
+    if (!m.has(k)) m.set(k, { sname: l.sname, color: l.color || '', size: l.size || '', k, mk: `${l.color || ''}\u0001${l.size || ''}` });
+    optsBy.set(l.sname, m);
+  }
+  const cellBy = new Map(); for (const r of cell) { const k = stkNorm(r.name); if (!cellBy.has(k)) cellBy.set(k, []); cellBy.get(k).push(r); }
+  const groups = new Map(), keys = new Set();
+  for (const [sn, om] of optsBy) {
+    let ks = [];
+    for (const h of (d.c24 || {})[sn] || []) { const t = madeState.tags.get(h.product_no); for (const nm of [t && t.stk_name, h.product_name]) { const k = nm ? stkNorm(nm) : ''; if (k && cellBy.has(k)) { ks.push(k); break; } } }
+    if (!ks.length) for (const [k, rows] of cellBy) if (rows.some(r => madeCnSnameHit(r.sname, sn))) ks.push(k);
+    ks = [...new Set(ks)]; ks.forEach(k => keys.add(k));
+    const gk = ks[0] || 'cn:' + sn, cr = ks[0] ? cellBy.get(ks[0]) : [];
+    const g = groups.get(gk) || { key: gk, linked: !!ks[0], name: ks[0] ? cr[0].name : sn, sname: ks[0] ? cr[0].sname : '', snames: [], cellRows: cr, cnOpts: [], made: ks[0] ? madeIsMade(cr[0].name) : false };
+    g.snames.push(sn);
+    for (const o of om.values()) g.cnOpts.push({ ...o, inc: inc.get(o.k) || { ordered: 0, shipped: 0, disc: 0, transit: 0, late: 0, pend: 0, inc: 0 } });
+    groups.set(gk, g);
+  }
+  for (const g of groups.values()) {
+    const auto = madeCnAutoMap(g.cnOpts, g.cellRows);
+    for (const o of g.cnOpts) {
+      const man = ((prods[o.sname] || {}).cell_map || {})[o.mk];
+      const mi = man && man !== '__none' ? g.cellRows.findIndex(r => r.opt === man) : -1;
+      o.idx = man === '__none' ? -1 : mi >= 0 ? mi : auto.has(o.k) ? auto.get(o.k) : -1;
+      o.how = man === '__none' ? 'none' : mi >= 0 ? 'manual' : o.idx >= 0 ? 'auto' : 'miss';
+    }
+    const sr = g.linked ? (salesIdx.get(g.key) || null) : null;
+    g.avg7 = sr ? sr.avg7 : (g.linked && hasSales ? 0 : null); g.days7 = sr ? sr.days7 : null; g.firstSale = sr ? sr.first_sale : null;
+    g.rows = g.cellRows.map((r, i) => {
+      const mine = g.cnOpts.filter(o => o.idx === i), incoming = mine.reduce((t, o) => t + o.inc.inc, 0);
+      const avail = r.stock - r.unshipped, after = avail + incoming, shortage = Math.max(0, -after);
+      const warnLow = after < 5, warnSafe = r.safe != null && r.safe > 0 && after < r.safe;
+      return { ...r, cnOpts: mine, incoming, pend: mine.reduce((t, o) => t + o.inc.pend, 0), transit: mine.reduce((t, o) => t + o.inc.transit, 0), late: mine.reduce((t, o) => t + o.inc.late, 0), avail, after, shortage, warn: warnLow || warnSafe, warnLow, warnSafe,
+        avg7: sr ? madeSalesOpt(sr, r.opt, cellCount.get(g.key) || 0) : (g.linked && hasSales ? 0 : null) };
+    });
+    g.unmapped = g.linked ? g.cnOpts.filter(o => o.idx < 0 && o.how !== 'none' && o.inc.inc > 0) : [];   // 셀메이트 미등록 상품은 '옵션 미연결'이 아니라 '셀메이트 미등록'으로만
+    const sum = k => g.rows.reduce((t, r) => t + r[k], 0);
+    g.stock = sum('stock'); g.unshipped = sum('unshipped'); g.incoming = sum('incoming') + (g.linked ? 0 : g.cnOpts.reduce((t, o) => t + o.inc.inc, 0)); g.shortage = sum('shortage'); g.warn = g.rows.filter(r => r.warn).length;
+    g.unmappedInc = g.unmapped.reduce((t, o) => t + o.inc.inc, 0);
+  }
+  return { groups: [...groups.values()], keys };
+}
+const madeCnOptName = o => [o.color, o.size].filter(Boolean).join(' / ') || '단일';
+function madeCnRender() {
+  const box = $('made-stk-result'); if (!box) return;
+  const cell = (madeState.files.cell || {}).rows || [];
+  if (!madeState.cn) { madeStkKindHeader(null); $('made-stk-summary').style.display = 'none'; $('made-stk-chips').innerHTML = ''; $('made-stk-extra').innerHTML = ''; $('made-cn-buyall').style.display = 'none';
+    box.innerHTML = `<div class="empty-state"><p>${madeState.cnLoading ? '<i class="fa-solid fa-spinner fa-spin"></i> 중국 사입/제작 관리 자료를 불러오는 중…' : madeState.cnErr ? '중국 사입/제작 관리 자료를 불러오지 못했어요.' : '중국 사입/제작 관리 자료가 없어요.'}</p></div>`; if (!madeState.cnLoading && !madeState.cnErr) madeCnLoad(false); return; }
+  const res = madeStkCompute(), groups = res.cn.groups;
+  madeStkKindHeader(res);
+  const canEdit = !!madeState.cn.can_edit, allRows = groups.flatMap(g => g.rows), short = allRows.filter(r => r.shortage > 0);
+  $('made-stk-summary').style.display = 'grid';
+  $('made-stk-summary').innerHTML =
+    admgrTile('중국 상품', `${groups.length}개 <span style="font-size:.7rem;color:#6b7280;">셀메이트 연결 ${groups.filter(g => g.linked).length}</span>`, false) +
+    admgrTile(admgrDot('#ef4444') + '부족 옵션', `${short.length}개`, false) +
+    admgrTile('부족 합계', fmt(short.reduce((t, r) => t + r.shortage, 0)) + '장', false) +
+    admgrTile(admgrDot('#f59e0b') + '주의 옵션', `${allRows.filter(r => r.warn).length}개`, false) +
+    admgrTile('미발송 주문', fmt(allRows.reduce((t, r) => t + r.unshipped, 0)) + '장', false) +
+    admgrTile(admgrDot('#0ea5e9') + '중국 입고 예정', `${fmt(groups.reduce((t, g) => t + g.incoming + (g.linked ? g.unmappedInc : 0), 0))}장 <span style="font-size:.7rem;color:#6b7280;">운송 중 ${fmt(groups.reduce((t, g) => t + g.cnOpts.reduce((a, o) => a + o.inc.transit, 0), 0))} · 셀메이트 반영 전 ${fmt(groups.reduce((t, g) => t + g.cnOpts.reduce((a, o) => a + o.inc.late, 0), 0))}</span>`, false) +
+    admgrTile(admgrDot('#dc2626') + '옵션 미연결', `${groups.reduce((t, g) => t + g.unmapped.length, 0)}개`, false);
+  const F = { all: () => true, short: g => g.shortage > 0, warn: g => g.warn > 0, unmapped: g => g.unmapped.length > 0, unlinked: g => !g.linked };
+  const chip = (k, label) => `<button onclick="madeState.cnFilter='${k}';madeStkRender()" style="border:1.5px solid ${madeState.cnFilter === k ? 'transparent' : '#d1d5db'};background:${madeState.cnFilter === k ? '#4f46e5' : '#fff'};color:${madeState.cnFilter === k ? '#fff' : '#4b5563'};border-radius:99px;padding:5px 13px;font-size:.78rem;font-weight:700;cursor:pointer;">${label} ${groups.filter(F[k]).length}</button>`;
+  $('made-stk-chips').innerHTML = chip('all', '전체') + chip('short', '부족 있음') + chip('warn', '주의 있음') + chip('unmapped', '옵션 미연결') + chip('unlinked', '셀메이트 미등록');
+  $('made-cn-buyall').style.display = canEdit && short.some(r => r.cnOpts.length) ? '' : 'none';
+  $('made-stk-extra').innerHTML = '';
+  const q = stkNorm(($('made-stk-q') || {}).value || '');
+  let list = groups.filter(F[madeState.cnFilter] || F.all);
+  if (q) list = list.filter(g => stkNorm(g.name).includes(q) || g.snames.some(sn => madeCnNormS(sn).includes(madeCnNormS(($('made-stk-q') || {}).value || ''))) || g.rows.some(r => stkNorm(r.opt).includes(q)));
+  list.sort((a, b) => b.shortage - a.shortage || b.warn - a.warn || (b.linked - a.linked) || b.unmapped.length - a.unmapped.length || a.name.localeCompare(b.name, 'ko', { numeric: true }));
+  if (!list.length) { box.innerHTML = '<div class="empty-state"><p>조건에 맞는 상품이 없습니다.</p></div>'; return; }
+  const numCell = (v, st) => `<td style="text-align:right;${st || ''}">${v}</td>`;
+  const avgCell = (v, bold) => madeState.salesLoading && !madeState.sales ? '<span style="color:#9ca3af;">…</span>' : v == null ? '<span style="color:#9ca3af;">—</span>' : `<span style="${bold ? 'font-weight:800;' : ''}color:${v > 0 ? '#4338ca' : '#9ca3af'};">${madeAvgFmt(v)}</span>`;
+  const incCell = (inc, pend, transit, late) => inc ? `<b style="color:#0369a1;">+${fmt(inc)}</b><div style="font-size:.6rem;color:#6b7280;">${[pend ? `미송 ${fmt(pend)}` : '', transit ? `운송 중 ${fmt(transit)}` : '', late ? `<span title="셀메이트 파일보다 나중에 [입고 완료] — 파일 재고에 아직 없어서 입고 예정으로 셈">입고 완료·셀메이트 반영 전 ${fmt(late)}</span>` : ''].filter(Boolean).join(' · ')}</div>` : '<span style="color:#9ca3af;">0</span>';
+  const warnBadge = r => `<span title="${r.warnLow ? '입고 후 5개 미만' : ''}${r.warnLow && r.warnSafe ? ' · ' : ''}${r.warnSafe ? `안정재고 ${fmt(r.safe)} 미달` : ''}" style="display:inline-block;background:#fef3c7;color:#92400e;border:1px solid #fcd34d;border-radius:5px;padding:1px 6px;font-size:.64rem;font-weight:800;margin-left:4px;white-space:nowrap;"><i class="fa-solid fa-triangle-exclamation" style="font-size:.6rem;"></i> 주의</span>`;
+  const cnTag = o => `<span title="중국 사입 옵션 (${o.how === 'manual' ? '직접 고른 짝' : '자동 짝'}) · 주문 ${fmt(o.inc.ordered)} · 출고 ${fmt(o.inc.shipped)}${o.inc.disc ? ` · ${o.inc.disc > 0 ? '폐기' : '초과 인정'} ${fmt(Math.abs(o.inc.disc))}` : ''}" style="display:inline-block;background:${o.how === 'manual' ? '#ede9fe' : '#f1f5f9'};color:${o.how === 'manual' ? '#5b21b6' : '#475569'};border-radius:5px;padding:0 5px;font-size:.62rem;font-weight:700;margin-left:4px;white-space:nowrap;">← ${escHtml(o.sname)} ${escHtml(madeCnOptName(o))}</span>`;
+  let html = `<div class="table-wrap"><table>
+    <thead><tr><th style="text-align:left;">상품 / 옵션</th><th>하루 평균 주문<div style="font-size:.62rem;font-weight:500;color:#6b7280;">최근 7일·어제까지</div></th><th>현재재고</th><th>미발송</th><th>가용<div style="font-size:.62rem;font-weight:500;color:#6b7280;">재고−미발송</div></th>
+      <th>중국 입고 예정<div style="font-size:.62rem;font-weight:500;color:#6b7280;">미송 + 운송 중</div></th><th>입고 후<div style="font-size:.62rem;font-weight:500;color:#6b7280;">가용+입고 예정</div></th><th class="m-hide">안정재고<div style="font-size:.62rem;font-weight:500;color:#6b7280;">셀메이트</div></th><th>부족<div style="font-size:.62rem;font-weight:500;color:#6b7280;">미발송−재고−입고 예정</div></th></tr></thead><tbody>`;
+  for (const g of list) {
+    const gk = escHtml(g.key), open = madeState.cnMapOpen.has(g.key), buyable = canEdit && g.rows.some(r => r.shortage > 0 && r.cnOpts.length);
+    html += `<tr style="background:#f8f9ff;"><td style="text-align:left;font-weight:700;">${escHtml(g.name)}${g.made ? ' <span style="background:#ede9fe;color:#5b21b6;border-radius:5px;padding:1px 6px;font-size:.62rem;font-weight:700;" title="카페24 상품명에 made·자체제작이 있지만 중국 사입/제작 관리에 등록된 상품이라 중국 상품으로 봐요">made</span>' : ''}${!g.linked ? ' <span style="background:#f3f4f6;color:#6b7280;border-radius:5px;padding:1px 6px;font-size:.62rem;font-weight:700;">셀메이트·카페24 미등록</span>' : ''}${g.warn ? `<span style="display:inline-block;background:#fef3c7;color:#92400e;border:1px solid #fcd34d;border-radius:5px;padding:1px 6px;font-size:.64rem;font-weight:800;margin-left:4px;">주의 ${g.warn}옵션</span>` : ''}${g.unmapped.length ? `<span style="display:inline-block;background:#fee2e2;color:#b91c1c;border-radius:5px;padding:1px 6px;font-size:.64rem;font-weight:800;margin-left:4px;" title="셀메이트 옵션과 짝을 못 지은 중국 옵션 — 입고 예정이 옵션에 안 붙어요">옵션 미연결 ${g.unmapped.length}</span>` : ''}
+        <div style="font-size:.64rem;color:#6b7280;font-weight:500;">품번 ${g.snames.map(escHtml).join(', ')}${g.sname ? ` · 사입명 ${escHtml(g.sname)}` : ''}</div>
+        <div style="display:flex;gap:5px;margin-top:4px;flex-wrap:wrap;">${g.linked ? `<button class="toggle-btn" style="font-size:.68rem;padding:2px 8px;" data-k="${gk}" onclick="madeCnMapToggle(this.dataset.k)"><i class="fa-solid fa-link"></i> 옵션 짝${open ? ' 닫기' : ''}</button>` : ''}${buyable ? `<button class="toggle-btn" style="font-size:.68rem;padding:2px 8px;color:#4338ca;" data-k="${gk}" onclick="madeCnToBuy(this.dataset.k)"><i class="fa-solid fa-cart-plus"></i> 주문하기에 담기 (부족 ${fmt(g.shortage)})</button>` : ''}</div></td>
+      ${numCell(avgCell(g.avg7, true) + (g.avg7 != null && g.days7 != null && g.days7 < 7 ? `<div style="font-size:.6rem;color:#6b7280;">판매 ${g.days7}일</div>` : ''))}
+      ${numCell(g.linked ? `<b>${fmt(g.stock)}</b>` : '—')}${numCell(g.linked ? fmt(g.unshipped) : '—')}${numCell(g.linked ? fmt(g.stock - g.unshipped) : '—')}${numCell(incCell(g.incoming, 0, 0, 0))}${numCell(g.linked ? fmt(g.stock - g.unshipped + g.incoming) : '—')}
+      <td class="m-hide"></td>${numCell(!g.linked ? '<span style="color:#9ca3af;">—</span>' : g.shortage ? `<b style="color:#b91c1c;">부족 ${fmt(g.shortage)}</b>` : (g.warn ? '<span style="color:#b45309;font-weight:700;">주의</span>' : '<span style="color:#15803d;font-weight:700;">충분</span>'))}</tr>`;
+    if (open) html += `<tr><td colspan="9" style="text-align:left;background:#faf5ff;padding:8px 12px;">${madeCnMapPanel(g, canEdit)}</td></tr>`;
+    for (const r of g.rows) {
+      html += `<tr><td style="text-align:left;padding-left:22px;${r.warn ? 'background:#fffbeb;' : ''}">${escHtml(r.opt || '단일')}${r.soldout ? ' <span style="color:#b91c1c;font-size:.64rem;font-weight:700;">품절</span>' : ''}${r.warn ? warnBadge(r) : ''}${r.cnOpts.map(cnTag).join('')}</td>
+        ${numCell(avgCell(r.avg7, false))}${numCell(fmt(r.stock))}${numCell(r.unshipped ? `<b style="color:#c2410c;">${fmt(r.unshipped)}</b>` : '0')}${numCell(r.avail < 0 ? `<b style="color:#b91c1c;">${fmt(r.avail)}</b>` : fmt(r.avail))}
+        ${numCell(incCell(r.incoming, r.pend, r.transit, r.late))}${numCell(fmt(r.after))}<td class="m-hide" style="text-align:right;color:#6b7280;">${r.safe != null ? fmt(r.safe) : '—'}</td>
+        ${numCell(r.shortage ? `<b style="color:#b91c1c;">${fmt(r.shortage)}</b>${!r.cnOpts.length ? '<div style="font-size:.6rem;color:#b91c1c;">중국 옵션 짝 없음</div>' : ''}` : `<span style="color:${r.warn ? '#b45309' : '#15803d'};">${r.warn ? (r.warnLow ? `${fmt(Math.max(0, r.after))}개 남음` : '안정재고 미달') : '충분'}</span>`)}</tr>`;
+    }
+    for (const o of (g.linked ? g.unmapped : g.cnOpts.filter(o => o.inc.inc > 0))) {
+      html += `<tr><td style="text-align:left;padding-left:22px;background:${g.linked ? '#fef2f2' : '#f9fafb'};">${escHtml(o.sname)} ${escHtml(madeCnOptName(o))} <span style="font-size:.64rem;color:${g.linked ? '#b91c1c' : '#6b7280'};font-weight:700;">${g.linked ? '셀메이트 옵션 짝 없음 — [옵션 짝]에서 골라 주세요' : '중국 옵션'}</span></td>
+        <td></td><td></td><td></td><td></td>${numCell(incCell(o.inc.inc, o.inc.pend, o.inc.transit, o.inc.late))}<td></td><td class="m-hide"></td><td></td></tr>`;
+    }
+  }
+  box.innerHTML = html + '</tbody></table></div>';
+}
+function madeCnMapPanel(g, canEdit) {   // 중국 옵션 ↔ 셀메이트 옵션 짝 고르기(팀 공유 — cn_cellmap)
+  const autoMap = madeCnAutoMap(g.cnOpts, g.cellRows);
+  const rows = g.cnOpts.slice().sort((a, b) => (a.sname + a.color + a.size).localeCompare(b.sname + b.color + b.size)).map(o => {
+    const ai = autoMap.has(o.k) ? autoMap.get(o.k) : -1, man = ((madeState.cn.prods || {})[o.sname] || {}).cell_map || {}, cur = man[o.mk] || '';
+    const opts = [`<option value=""${!cur ? ' selected' : ''}>자동${ai >= 0 ? ` (${escHtml(g.cellRows[ai].opt || '단일')})` : ' (못 찾음)'}</option>`, ...g.cellRows.map(r => `<option value="${escHtml(r.opt || '')}"${cur === r.opt ? ' selected' : ''}>${escHtml(r.opt || '단일')}</option>`), `<option value="__none"${cur === '__none' ? ' selected' : ''}>셀메이트에 없음</option>`].join('');
+    return `<tr><td style="text-align:left;padding:3px 8px;white-space:nowrap;"><b>${escHtml(o.sname)}</b> ${escHtml(madeCnOptName(o))}</td><td style="text-align:right;padding:3px 8px;">${o.inc.inc ? `입고 예정 ${fmt(o.inc.inc)}` : '<span style="color:#9ca3af;">입고 예정 0</span>'}</td>
+      <td style="text-align:left;padding:3px 8px;">${canEdit ? `<select data-s="${escHtml(o.sname)}" data-m="${escHtml(o.mk)}" onchange="madeCnMapSet(this)" style="border:1.5px solid ${o.how === 'miss' ? '#fca5a5' : '#d1d5db'};border-radius:7px;padding:3px 6px;font-size:.76rem;">${opts}</select>` : escHtml(o.idx >= 0 ? (g.cellRows[o.idx].opt || '단일') : '짝 없음')}</td></tr>`;
+  }).join('');
+  return `<div style="font-size:.74rem;color:#5b21b6;font-weight:700;margin-bottom:4px;"><i class="fa-solid fa-link"></i> 중국 옵션 → 셀메이트 옵션 (자동은 색 약칭으로 짝지은 것 — 틀리면 골라 주세요, 팀 전체에 적용)</div><table style="font-size:.76rem;"><tbody>${rows}</tbody></table>`;
+}
+function madeCnMapToggle(k) { madeState.cnMapOpen.has(k) ? madeState.cnMapOpen.delete(k) : madeState.cnMapOpen.add(k); madeCnRender(); }
+async function madeCnMapSet(sel) {
+  const sname = sel.dataset.s, key = sel.dataset.m, opt = sel.value || null;
+  sel.disabled = true;
+  try {
+    const r = await cnPost('cn_cellmap', { sname, key, opt });
+    const prods = madeState.cn.prods = madeState.cn.prods || {}; prods[sname] = Object.assign({}, prods[sname] || {}, { cell_map: r.cell_map });
+    if (cnState.data && cnState.data !== madeState.cn) { const p2 = cnState.data.prods = cnState.data.prods || {}; p2[sname] = Object.assign({}, p2[sname] || {}, { cell_map: r.cell_map }); }
+    showToast(opt ? (opt === '__none' ? '셀메이트에 없는 옵션으로 표시했어요' : '옵션 짝을 저장했어요') : '자동 짝으로 되돌렸어요');
+    madeCnRender();
+  } catch (e) { showToast('저장 실패: ' + e.message); sel.disabled = false; }
+}
+// 부족 수량을 중국 사입/제작 관리 › 주문하기에 담는다(그 브라우저의 임시 저장 — 주문하기 탭과 같은 저장소). 옵션 하나에 중국 옵션이 여럿 붙었으면 첫 옵션에.
+function madeCnToBuy(gkey) {
+  if (!madeState.cn) return;
+  const res = madeStkCompute(), groups = res.cn.groups.filter(g => gkey == null || g.key === gkey);
+  const st = cnBuyState(); let n = 0, qty = 0, skipped = 0;
+  for (const g of groups) for (const r of g.rows) {
+    if (!(r.shortage > 0)) continue;
+    if (!r.cnOpts.length) { skipped++; continue; }
+    const o = r.cnOpts[0]; st.qty[o.k] = r.shortage; n++; qty += r.shortage;
+  }
+  if (!n) { showToast(skipped ? '부족한 옵션에 짝지은 중국 옵션이 없어요 — [옵션 짝]에서 먼저 골라 주세요' : '담을 부족 수량이 없어요'); return; }
+  cnBuySave();
+  if (confirm(`부족 ${n}옵션 · ${fmt(qty)}장을 중국 사입/제작 관리 › 주문하기에 담았어요${skipped ? `\n(중국 옵션 짝이 없는 ${skipped}옵션은 빠졌어요)` : ''}.\n주문하기로 가서 수량을 확인할까요?`)) { cnState.tab = 'buy'; showMenu('cnbuy'); }
+}
+async function madeCnExport() {
+  if (!madeState.cn) { showToast('중국 사입 자료를 아직 불러오지 못했어요'); return; }
+  const groups = madeStkCompute().cn.groups;
+  const lines = [];
+  for (const g of groups) {
+    for (const r of g.rows) lines.push([g.name, g.snames.join(', '), r.opt || '단일', r.cnOpts.map(o => `${o.sname} ${madeCnOptName(o)}`).join(', '), r.avg7 == null ? '' : Math.round(r.avg7 * 10) / 10, r.stock, r.unshipped, r.avail, r.pend, r.transit + r.late, r.incoming, r.after, r.safe != null ? r.safe : '', r.shortage, r.warn ? ['주의', r.warnLow ? '5개 미만' : '', r.warnSafe ? '안정재고 미달' : ''].filter(Boolean).join(' ') : '']);
+    for (const o of (g.linked ? g.unmapped : g.cnOpts.filter(o => o.inc.inc > 0))) lines.push([g.name, g.snames.join(', '), g.linked ? '(셀메이트 옵션 짝 없음)' : '(셀메이트 미등록)', `${o.sname} ${madeCnOptName(o)}`, '', '', '', '', o.inc.pend, o.inc.transit + o.inc.late, o.inc.inc, '', '', '', '']);
+  }
+  if (!lines.length) { showToast('내보낼 행이 없어요'); return; }
+  try {
+    await loadXlsxPopulate();
+    const wb = await XlsxPopulate.fromBlankAsync(), ws = wb.sheet(0).name('중국상품');
+    const today = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Seoul' });
+    ws.cell(1, 1).value(`중국 상품 재고·입고 점검 (${today})`).style({ bold: true, fontSize: 14 });
+    ws.cell(2, 1).value(`셀메이트 ${(madeState.files.cell || {}).file_name || ''} · 가용=재고−미발송 · 중국 입고 예정=미송(주문−중국출고−폐기)+운송 중(입고 완료 전)+셀메이트 반영 전(파일보다 나중에 입고 완료) · 입고 후=가용+입고 예정 · 부족=미발송−재고−입고 예정`).style({ fontColor: '6B7280', fontSize: 9 });
+    ['상품명', '품번', '셀메이트 옵션', '중국 옵션', '하루 평균 주문(최근 7일)', '현재재고', '미발송', '가용', '미송', '운송 중·셀메이트 반영 전', '중국 입고 예정', '입고 후', '안정재고', '부족', '주의'].forEach((h, i) => ws.cell(4, i + 1).value(h).style({ bold: true, fill: 'EEF2FF', horizontalAlignment: 'center' }));
+    lines.forEach((row, ri) => row.forEach((v, ci) => { if (v !== '' && v != null) ws.cell(5 + ri, ci + 1).value(v); }));
+    [34, 14, 18, 22, 12, 9, 8, 8, 8, 8, 12, 9, 9, 8, 14].forEach((w, i) => ws.column(i + 1).width(w));
+    const blob = await wb.outputAsync(), url = URL.createObjectURL(blob);
+    const a = document.createElement('a'); a.href = url; a.download = `중국상품_재고입고점검_${today}.xlsx`; document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
+  } catch (e) { showToast('엑셀 만들기 실패: ' + e.message); }
+}
+
 /* 지정 상품 관리 — made/자체제작이 아닌 셀메이트 상품을 함께 점검 목록에 넣는다 (made_watch_products, 팀 공유) */
 function madeWatchPanelToggle() {
   const p = $('made-watch-panel');
@@ -12413,6 +12656,7 @@ async function madeWatchToggle(key, name) {
   } catch (e) { showToast('저장 실패: ' + e.message); }
 }
 async function madeStkExport() {
+  if (madeState.stkKind === 'cn') { madeCnExport(); return; }
   if (!madeState.files.cell) { showToast('먼저 셀메이트 CSV를 올려주세요'); return; }
   const { groups } = madeStkCompute();
   let list = groups;
@@ -12428,7 +12672,7 @@ async function madeStkExport() {
     const wb = await XlsxPopulate.fromBlankAsync();
     const ws = wb.sheet(0).name('재고입고점검');
     const today = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Seoul' });
-    ws.cell(1, 1).value(`자체제작 재고·입고 점검 (${today})`).style({ bold: true, fontSize: 14 });
+    ws.cell(1, 1).value(`제작 상품 재고·입고 점검 (${today})`).style({ bold: true, fontSize: 14 });
     ws.cell(2, 1).value(`셀메이트 ${(madeState.files.cell || {}).file_name || ''} · 이지픽 ${(madeState.files.ez || {}).file_name || '없음'} · 가용=재고−미발송 · 입고 후=가용+이지픽 미입고 · 부족=미발송−재고−미입고(현재 재고 기준) · 주의=입고 후 5개 미만 또는 안정재고 미달`).style({ fontColor: '6B7280', fontSize: 9 });
     ['상품명', '옵션', '코드', '하루 평균 주문(최근 7일)', '현재재고', '미발송', '가용', '이지픽 미입고', '입고 후', '안정재고', '부족', '주의', '구분', '이지픽 주문', '이지픽 입고', `최근 ${MADE_RECENT_DAYS}일 주문`].forEach((h, i) => ws.cell(4, i + 1).value(h).style({ bold: true, fill: 'EEF2FF', horizontalAlignment: 'center' }));
     lines.forEach((row, ri) => row.forEach((v, ci) => ws.cell(5 + ri, ci + 1).value(v)));
