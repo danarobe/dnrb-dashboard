@@ -5838,12 +5838,14 @@ function cnOrdCalc() {
   cnState._oc = { d, c };
   return c;
 }
-function cnOrdOfLine(l) {   // 입고 줄 하나 — 잔여 = 주문 − 이 차수까지 중국출고 누적
+function cnOrdOfLine(l) {   // 입고 줄 하나 — 잔여 = 주문 − 이 차수까지 중국출고 누적 (− 폐기: 그 옵션이 마지막으로 나온 차수 줄에서만, 2026-10-23)
   const c = cnOrdCalc(); if (!c.has) return null;
-  const k = cnLKey(l), r = c.rank.get(l.shipment_id);
-  const parts = (c.sent.get(k) || []).filter(p => p.r <= r).sort((a, b) => a.r - b.r);
+  const k = cnLKey(l), r = c.rank.get(l.shipment_id), all = c.sent.get(k) || [];
+  const parts = all.filter(p => p.r <= r).sort((a, b) => a.r - b.r);
   const ordered = c.total.get(k) || 0, cum = parts.reduce((t, p) => t + p.qty, 0);
-  return { ordered, cum, remain: ordered - cum, notIn: !c.total.has(k), parts, uk: k, r };
+  // 폐기·초과 인정은 '지금' 정리한 것이라 마지막 차수 줄에만 반영한다(앞 차수 줄은 그때 시점 숫자 그대로 — 거기서 빼면 엉뚱하게 마이너스·플러스가 됨)
+  const isLast = all.every(p => p.r <= r), disc = isLast ? cnDiscQty(k) : 0;
+  return { ordered, cum, disc, remain: ordered - cum - disc, notIn: !c.total.has(k), parts, uk: k, r };
 }
 function cnOrdOfKey(k) {   // 합친 줄·상품별 현황 — 모든 입고 합. 잔여 = 주문 − 중국출고 − 폐기(2026-10-23)
   const c = cnOrdCalc(); if (!c.has) return null;
@@ -5877,7 +5879,7 @@ function cnRemainHtml(v, tip) {
 function cnRemainCell(l) {
   const o = cnOrdOf(l); if (!o) return cnRemainHtml(null);
   const tip = o.parts ? `주문 ${o.ordered} − 이 차수까지 중국출고 ${o.cum}${o.parts.length > 1 ? ` (${o.parts.map(p => `${p.ship.order_round || p.ship.title || ''} ${p.qty}`).join(' + ')})` : ''}` : `주문 ${o.ordered} − 모든 입고의 중국출고 ${o.cum}`;
-  return cnRemainHtml(o.remain, tip + (o.remain < 0 ? ' — 주문보다 더 출고됨' : ''));
+  return cnRemainHtml(o.remain, tip + (o.disc ? ` − ${cnDiscTxt(o.disc)}` : '') + (o.remain < 0 ? ' — 주문보다 더 출고됨' : '')) + (o.disc ? `<div class="cn-sub">${cnDiscTxt(o.disc)}</div>` : '');
 }
 // 같은 옵션이 여러 줄(검수할 입고 보기의 차수별 줄)에 나와도 주문·잔여는 한 번만 센다 — 잔여는 가장 늦은 차수 기준
 function cnOrdSums(lines) {
@@ -7222,8 +7224,11 @@ function cnFlowBtn(sname) {   // 상품 줄 — 수량 흐름(주문·출고·�
 }
 function cnLeftSub(l) {   // 입고 검수 — 전달 칸 아래 그 출고 서류의 미출고(F열)
   if (l._sum || l.qty_left == null) return '';
-  const e = cnFlowOf(cnLKey(l)), r = e && e.rows.find(x => x.ship.id === l.shipment_id), bad = r && r.diff != null && r.diff !== 0;
-  return `<div class="cn-sub" style="${bad ? 'color:#b91c1c;font-weight:700;' : ''}" title="출고 서류 F열${r ? ` · 이 서류까지 주문 ${r.upTo} − 출고 누적 ${r.cum} − 미출고 ${r.F} = ${r.diff}` : ''}">${l.qty_left === 0 ? '출완' : '미출고 ' + fmt(l.qty_left)}${bad ? ` · 차이 ${r.diff > 0 ? '+' : ''}${r.diff}` : ''}</div>`;
+  const e = cnFlowOf(cnLKey(l)), r = e && e.rows.find(x => x.ship.id === l.shipment_id), off = r && r.diff != null && r.diff !== 0;
+  // 2026-10-23: 미송 점검에서 폐기·초과 인정으로 정리한 옵션(fixed)이나 그 뒤 서류에서 맞춰진 옵션(ok)은 빨간 '차이'로 보이지 않게 — 회색 '정리됨'만(말풍선에 원래 차이)
+  const bad = off && e.status === 'bad', done = off && !bad;
+  const tip = `출고 서류 F열${r ? ` · 이 서류까지 주문 ${r.upTo} − 출고 누적 ${r.cum} − 미출고 ${r.F} = ${r.diff}` : ''}${done ? (e.status === 'fixed' ? ` · 미송 점검에서 정리함(${cnDiscTxt(e.disc)})` : ' · 뒤 출고 서류에서 맞춰짐') : ''}`;
+  return `<div class="cn-sub" style="${bad ? 'color:#b91c1c;font-weight:700;' : ''}" title="${escHtml(tip)}">${l.qty_left === 0 ? '출완' : '미출고 ' + fmt(l.qty_left)}${bad ? ` · 차이 ${r.diff > 0 ? '+' : ''}${r.diff}` : done ? ' · 정리됨' : ''}</div>`;
 }
 const CN_FLOW_ST = { ok: ['일치', '#15803d', '#dcfce7'], fixed: ['폐기로 정리', '#6b7280', '#f3f4f6'], bad: ['수량 확인', '#b91c1c', '#fee2e2'], nof: ['미출고 정보 없음', '#9ca3af', '#f9fafb'], noship: ['출고 서류 없음', '#c2410c', '#ffedd5'] };
 const cnFlowStHtml = e => { const s = CN_FLOW_ST[e.status]; return `<span style="font-size:.68rem;font-weight:700;color:${s[1]};background:${s[2]};border-radius:99px;padding:1px 8px;white-space:nowrap;">${s[0]}${e.status === 'bad' ? ` ${e.raw > 0 ? '+' : ''}${fmt(e.raw)}` : ''}</span>`; };
