@@ -10,7 +10,7 @@
 //   delete      { id }                     사람 + 지급 기록 삭제(파기). 지급 기록이 있으면 관리자만
 //   hire        { id, hourly_rate }        채용 처리 → 근무관리 알바(wm_employees, type=parttime) 생성·연결
 //   pay_upsert  { id?, hire_id, work_date, start_time?, end_time?, minutes, hourly_rate, fixed_amount?, emp_ins?, note? }
-//                                          금액은 서버 calcPay로 계산 (화면 값 무시)
+//                                          금액은 서버 calcPay로 계산 (화면 값 무시). 일일알바가 12~13시를 끼면 minutes − 60분 + 식대 8,000(meal_amount) — 2026-10-23
 //   pay_paid    { id, paid_on|null }       입금 완료 표시/취소
 //   pay_delete  { id }
 //   export      { ym, kind? }              그 달(근무일 기준) 지급 내역 — kind 주면 그 구분만. 주민번호·계좌 전체 포함 (감사 로그)
@@ -18,7 +18,7 @@
 // 비밀값: HIRE_ENC_KEY = base64 32바이트 (openssl rand -base64 32). 바꾸면 기존 암호문을 못 푼다.
 // ═══════════════════════════════════════════════════════════════
 import { handleOptions, json, verifyAuthToken } from '../_shared/util.ts';
-import { calcPay, normAccount, normPhone, parseRrn } from './calc.ts';
+import { calcPay, lunchRule, LUNCH_MIN, LUNCH_MEAL, normAccount, normPhone, parseRrn } from './calc.ts';
 
 const SB_URL = Deno.env.get('SUPABASE_URL')!;
 const SB_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
@@ -91,7 +91,7 @@ const D_RE = /^\d{4}-\d{2}-\d{2}$/;
 const T_RE = /^\d{2}:\d{2}$/;
 const STATUSES = ['interview', 'hired', 'rejected'];
 const KINDS = ['applicant', 'daily'];
-const PAY_COLS = 'id,hire_id,work_date,start_time,end_time,minutes,hourly_rate,fixed_amount,emp_ins,gross,income_tax,local_tax,emp_ins_amt,net,paid_on,note';
+const PAY_COLS = 'id,hire_id,work_date,start_time,end_time,minutes,hourly_rate,fixed_amount,emp_ins,meal_amount,gross,income_tax,local_tax,emp_ins_amt,net,paid_on,note';   // meal_amount = 식대(2026-10-23)
 const int = (v: unknown) => Number.isInteger(Number(v)) && Number(v) >= 0 ? Number(v) : NaN;
 
 async function hireRow(id: number) {
@@ -240,10 +240,14 @@ Deno.serve(async (req) => {
       if (Number.isNaN(minutes) || Number.isNaN(hourly_rate) || Number.isNaN(fixed_amount as number)) return json({ error: '시간·시급·금액은 0 이상 정수예요' }, 400);
       if (fixed_amount == null && !(minutes > 0 && hourly_rate > 0)) return json({ error: '근무 시간과 시급을 넣거나 정액 금액을 넣어 주세요' }, 400);
       const emp_ins = b.emp_ins === true;
+      // 점심시간 규칙(2026-10-23): 일일알바가 12:00~13:00을 끼고 일하면 60분 빼고 식대 8,000원 — 화면이 보낸 minutes(시작~종료 − 휴게)에서 서버가 직접 뺀다
+      const owner = await hireRow(b.id ? Number((await rest(`wm_hire_pays?id=eq.${id}&select=hire_id`))[0]?.hire_id) : hireId);
+      const lunch = !!owner && lunchRule(owner.kind, b.start_time, b.end_time, fixed_amount);
+      const paidMin = lunch ? Math.max(0, minutes - LUNCH_MIN) : minutes, meal_amount = lunch ? LUNCH_MEAL : 0;
       const row = {
         work_date: b.work_date, start_time: b.start_time || null, end_time: b.end_time || null,
-        minutes, hourly_rate, fixed_amount, emp_ins,
-        ...calcPay({ minutes, hourly_rate, fixed_amount, emp_ins }),
+        minutes: paidMin, hourly_rate, fixed_amount, emp_ins, meal_amount,
+        ...calcPay({ minutes: paidMin, hourly_rate, fixed_amount, emp_ins, meal: meal_amount }),
         note: String(b.note ?? '').trim().slice(0, 500) || null,
       };
       if (b.id) {

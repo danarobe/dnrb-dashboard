@@ -2887,6 +2887,17 @@
       <div class="hr-dlg-f"><button class="toggle-btn" onclick="hireSavePay()" style="background:#4f46e5;color:#fff;border-color:#4f46e5;">지급 기록 저장</button></div>
     </dialog>
 
+    <!-- 지급 명세서 이미지 (2026-10-23 사용자 요청 — "명세서도 바로 이미지로 떠서 복사해서 카톡으로 보낼 수 있게") -->
+    <dialog id="hire-dlg-slip">
+      <div class="hr-dlg-h"><span id="hire-slip-title">지급 명세서</span><button class="toggle-btn" onclick="this.closest('dialog').close()">닫기</button></div>
+      <div style="padding:12px 20px 0;text-align:center;"><img id="hire-slip-img" alt="지급 명세서" style="max-width:100%;width:360px;border:1px solid #e5e7eb;border-radius:12px;box-shadow:0 4px 14px rgba(15,23,42,.08);" /></div>
+      <div style="padding:6px 20px 0;font-size:.74rem;color:#6b7280;text-align:center;">[이미지 복사]를 누른 뒤 카톡 대화창에 붙여넣기(Ctrl+V / ⌘V) 하세요. 휴대폰에서는 이미지를 길게 눌러 저장·공유할 수 있어요.</div>
+      <div class="hr-dlg-f">
+        <button class="toggle-btn" onclick="hireSlipDownload()"><i class="fa-solid fa-download"></i> 이미지 저장</button>
+        <button class="toggle-btn" onclick="hireSlipCopy()" style="background:#4f46e5;color:#fff;border-color:#4f46e5;"><i class="fa-solid fa-copy"></i> 이미지 복사</button>
+      </div>
+    </dialog>
+
     <!-- 프리랜서 업무위탁계약서 (채용된 채용 지원자) -->
     <dialog id="hire-dlg-ct">
       <div class="hr-dlg-h"><span>프리랜서 업무위탁계약서</span><button class="toggle-btn" onclick="this.closest('dialog').close()">닫기</button></div>
@@ -7409,8 +7420,8 @@ const hireState = { rows: [], kind: 'applicant', filter: 'all', canDeletePaid: f
 const hireAllowed = () => !!SESSION && (isAdmin() || SESSION.role === 'logistics' || hireAccessState.me);   // 관리자·물류팀 + 허용 목록(hire_users — hireAccessLoad가 확인, 2026-10-14)
 
 /** 서버 calc.ts calcPay와 같은 식 (dev/dev-server.mjs --test가 일치 확인) */
-function hireCalc(minutes, rate, fixed, empIns) {
-  const gross = fixed != null ? fixed : Math.round(rate * minutes / 60);
+function hireCalc(minutes, rate, fixed, empIns, meal) {
+  const gross = (fixed != null ? fixed : Math.round(rate * minutes / 60)) + (meal || 0);   // 식대(2026-10-23)는 세전에 더함 — 3.3%도 식대 포함
   const income_tax = Math.floor(gross * 3 / 1000) * 10;    // 엑셀 ROUNDDOWN(세전*3%,-1)
   const local_tax = Math.floor(gross * 3 / 10000) * 10;    // 엑셀 ROUNDDOWN(세전*0.3%,-1)
   const emp_ins_amt = empIns ? Math.floor(gross * 9 / 1000) : 0;
@@ -7635,7 +7646,7 @@ async function hireDoHire(id) {
 function hireOpenPay(id) {
   const r = hireState.rows.find(x => x.id === id);
   $('hire-pay-title').textContent = `${r.name} — ${r.kind === 'daily' ? '일일알바 일당' : '면접비·시범근무'} 지급`;
-  $('hire-pay-hire').value = id;
+  $('hire-pay-hire').value = id; hireState.payKind = r.kind;
   $('hire-pay-date').value = (r.kind === 'daily' ? '' : r.interview_date) || hireToday();
   $('hire-pay-rate').value = HIRE_PAY_RATE;
   $('hire-pay-start').value = ''; $('hire-pay-end').value = ''; $('hire-pay-break').value = 0;
@@ -7649,12 +7660,12 @@ function hireRenderPays(r) {
   $('hire-pay-list').innerHTML = !r.pays.length ? '<div style="font-size:.8rem;color:#9ca3af;">아직 지급 기록이 없어요</div>'
     : `<table><thead><tr><th>근무일</th><th>내용</th><th>지급액</th><th>공제</th><th>실지급</th><th>입금</th><th></th></tr></thead><tbody>${r.pays.map(p => `<tr>
         <td>${p.work_date}</td>
-        <td>${p.fixed_amount != null ? '정액' : `${hireHm(p.minutes)} × ${p.hourly_rate.toLocaleString()}`}${p.note ? `<div style="font-size:.72rem;color:#6b7280;">${escHtml(p.note)}</div>` : ''}</td>
+        <td>${p.fixed_amount != null ? '정액' : `${hireHm(p.minutes)} × ${p.hourly_rate.toLocaleString()}`}${p.meal_amount ? `<div style="font-size:.72rem;color:#b45309;">+ 식대 ${hireWon(p.meal_amount)} (점심 1시간 제외)</div>` : ''}${p.note ? `<div style="font-size:.72rem;color:#6b7280;">${escHtml(p.note)}</div>` : ''}</td>
         <td>${hireWon(p.gross)}</td>
         <td title="소득세 ${hireWon(p.income_tax)} · 지방세 ${hireWon(p.local_tax)} · 고용보험 ${hireWon(p.emp_ins_amt)}">${hireWon(p.gross - p.net)}</td>
         <td><b>${hireWon(p.net)}</b></td>
         <td><label style="display:flex;gap:4px;align-items:center;font-size:.75rem;"><input type="checkbox" ${p.paid_on ? 'checked' : ''} onchange="hirePayPaid(${p.id}, this.checked)" />${p.paid_on || '미지급'}</label></td>
-        <td><button class="toggle-btn" onclick="hirePayDel(${p.id})" style="color:#dc2626;"><i class="fa-solid fa-trash"></i></button></td></tr>`).join('')}</tbody></table>`;
+        <td style="white-space:nowrap;"><button class="toggle-btn" onclick="hireSlipOpen(${r.id}, ${p.id})" title="명세서 이미지 — 복사해서 카톡으로 보내요"><i class="fa-solid fa-receipt"></i> 명세서</button> <button class="toggle-btn" onclick="hirePayDel(${p.id})" style="color:#dc2626;"><i class="fa-solid fa-trash"></i></button></td></tr>`).join('')}</tbody></table>`;
 }
 
 /** 입력값 → { minutes, rate, fixed, ins } (근무 시간 못 구하면 minutes null) */
@@ -7662,9 +7673,12 @@ function hirePayInput() {
   const s = $('hire-pay-start').value, e = $('hire-pay-end').value;
   const toMin = t => Number(t.slice(0, 2)) * 60 + Number(t.slice(3));
   const m = s && e ? toMin(e) - toMin(s) - (Number($('hire-pay-break').value) || 0) : null;
-  const f = $('hire-pay-fixed').value;
-  return { minutes: m != null && m >= 0 ? m : null, rate: Number($('hire-pay-rate').value) || 0, fixed: f === '' ? null : Number(f), ins: $('hire-pay-ins').checked, bad: m != null && m < 0 };
+  const f = $('hire-pay-fixed').value, fixed = f === '' ? null : Number(f);
+  const lunch = hireLunch(hireState.payKind, s, e, fixed);
+  return { minutes: m != null && m >= 0 ? m : null, paidMin: m != null && m >= 0 ? Math.max(0, m - (lunch ? 60 : 0)) : null, lunch, meal: lunch ? 8000 : 0, rate: Number($('hire-pay-rate').value) || 0, fixed, ins: $('hire-pay-ins').checked, bad: m != null && m < 0 };
 }
+/** 점심시간 규칙(2026-10-23 사용자 지정) — 서버 calc.ts lunchRule과 같은 식: 일일알바·시간제·시작 < 12:00·종료 ≥ 13:00 → 60분 빼고 식대 8,000원 */
+function hireLunch(kind, s, e, fixed) { return kind === 'daily' && fixed == null && /^\d{2}:\d{2}$/.test(s || '') && /^\d{2}:\d{2}$/.test(e || '') && s < '12:00' && e >= '13:00'; }
 
 function hirePayPreview() {
   const p = hirePayInput();
@@ -7672,10 +7686,11 @@ function hirePayPreview() {
     $('hire-pay-sum').innerHTML = `<span style="color:#9ca3af;">${p.bad ? '종료 시간이 시작보다 빨라요' : '시작·종료 시간 또는 정액 금액을 넣으면 바로 계산돼요'}</span>`;
     return;
   }
-  const c = hireCalc(p.minutes ?? 0, p.rate, p.fixed, p.ins);
+  const c = hireCalc(p.paidMin ?? 0, p.rate, p.fixed, p.ins, p.meal);
   const low = p.fixed == null && p.rate < HIRE_MIN_WAGE;
   $('hire-pay-sum').innerHTML = `
-    ${p.fixed == null ? `근무 ${hireHm(p.minutes)} × ${p.rate.toLocaleString()}원` : '정액'} <b>${hireWon(c.gross)}</b><br>
+    ${p.lunch ? `<span style="font-size:.76rem;color:#b45309;">점심시간(12~13시)을 끼고 일해서 1시간을 빼고 식대 8,000원을 더해요</span><br>근무 ${hireHm(p.paidMin)} × ${p.rate.toLocaleString()}원 <b>${hireWon(c.gross - p.meal)}</b><br>식대 <b>+${hireWon(p.meal)}</b><br>지급액(세전) <b>${hireWon(c.gross)}</b><br>`
+      : `${p.fixed == null ? `근무 ${hireHm(p.minutes)} × ${p.rate.toLocaleString()}원` : '정액'} <b>${hireWon(c.gross)}</b><br>`}
     사업소득세 3% <b>−${hireWon(c.income_tax)}</b><br>
     지방소득세 0.3% <b>−${hireWon(c.local_tax)}</b><br>
     ${p.ins ? `고용보험 0.9% <b>−${hireWon(c.emp_ins_amt)}</b><br>` : ''}
@@ -7689,14 +7704,15 @@ async function hireSavePay() {
   if (p.fixed == null && p.rate < HIRE_MIN_WAGE && !confirm('시급이 최저시급보다 낮아요. 그래도 저장할까요?')) return;
   const hireId = Number($('hire-pay-hire').value);
   try {
-    await hireApi({
+    const saved = await hireApi({
       action: 'pay_upsert', hire_id: hireId, work_date: $('hire-pay-date').value,
       start_time: $('hire-pay-start').value, end_time: $('hire-pay-end').value,
       minutes: p.minutes ?? 0, hourly_rate: p.rate, fixed_amount: p.fixed, emp_ins: p.ins, note: $('hire-pay-note').value,
     });
-    showToast('지급 기록을 저장했어요');
+    showToast('지급 기록을 저장했어요 — 명세서 이미지를 복사해 카톡으로 보낼 수 있어요');
     await hireLoad();
     hireOpenPay(hireId);
+    if (saved && saved.id) hireSlipOpen(hireId, saved.id);   // 저장하자마자 명세서 이미지(2026-10-23 사용자 요청)
   } catch (e) { showToast(e.message); }
 }
 
@@ -7709,6 +7725,80 @@ async function hirePayDel(pid) {
   if (!confirm('이 지급 기록을 삭제할까요?')) return;
   try { await hireApi({ action: 'pay_delete', id: pid }); await hireLoad(); hireOpenPay(Number($('hire-pay-hire').value)); }
   catch (e) { showToast(e.message); }
+}
+
+/* ── 지급 명세서 이미지 (2026-10-23 사용자 요청 — 저장하자마자 이미지로 띄우고 [이미지 복사] → 카톡 붙여넣기) ──
+   canvas로 직접 그린다(외부 라이브러리 없음, 2배 해상도). 계좌는 가린 값(••••1234)만 — 남에게 보내는 이미지라 전체 번호는 넣지 않는다. */
+function hireSlipCanvas(r, p) {
+  const W = 360, S = 2, pad = 20, F = '"Apple SD Gothic Neo","Malgun Gothic","Noto Sans KR",-apple-system,sans-serif';
+  const meal = p.meal_amount || 0, base = p.gross - meal, rows = [];
+  const dow = '일월화수목금토'[new Date(p.work_date + 'T00:00:00').getDay()];
+  rows.push(['근무일', `${p.work_date} (${dow})`]);
+  if (p.start_time && p.end_time) rows.push(['근무 시간', `${String(p.start_time).slice(0, 5)} ~ ${String(p.end_time).slice(0, 5)}`]);
+  if (p.fixed_amount == null) {
+    rows.push(['인정 시간', `${hireHm(p.minutes)}${meal ? ' (점심 1시간 제외)' : ''}`]);
+    rows.push(['시급', hireWon(p.hourly_rate)]);
+  }
+  rows.push(null);
+  rows.push([p.fixed_amount != null ? '지급액(정액)' : '기본급', hireWon(base)]);
+  if (meal) rows.push(['식대', '+' + hireWon(meal)]);
+  rows.push(['지급액(세전)', hireWon(p.gross), 'b']);
+  rows.push(['사업소득세 3%', '−' + hireWon(p.income_tax), 'm']);
+  rows.push(['지방소득세 0.3%', '−' + hireWon(p.local_tax), 'm']);
+  if (p.emp_ins_amt) rows.push(['고용보험 0.9%', '−' + hireWon(p.emp_ins_amt), 'm']);
+  const acct = [r.bank_name, r.account_mask, r.bank_holder && r.bank_holder !== r.name ? `(예금주 ${r.bank_holder})` : ''].filter(Boolean).join(' ');
+  const H = 132 + rows.length * 26 + 96 + (acct ? 22 : 0) + (p.note ? 22 : 0);
+  const cv = document.createElement('canvas'); cv.width = W * S; cv.height = H * S;
+  const g = cv.getContext('2d'); g.scale(S, S);
+  g.fillStyle = '#ffffff'; g.fillRect(0, 0, W, H);
+  g.fillStyle = '#4f46e5'; g.fillRect(0, 0, W, 6);
+  g.textBaseline = 'alphabetic';
+  g.fillStyle = '#1e1b4b'; g.font = `800 19px ${F}`; g.fillText(r.kind === 'daily' ? '일일 아르바이트 지급 명세서' : '면접비·시범근무 지급 명세서', pad, 40);
+  g.fillStyle = '#6b7280'; g.font = `500 12px ${F}`; g.fillText(`${(typeof CERT_COMPANY !== 'undefined' && CERT_COMPANY.name) || '주식회사 디앤알비'} · 발행 ${hireToday()}`, pad, 60);
+  g.fillStyle = '#111827'; g.font = `800 17px ${F}`; g.fillText(`${r.name} 님`, pad, 94);
+  let y = 124;
+  const line = yy => { g.strokeStyle = '#e5e7eb'; g.lineWidth = 1; g.beginPath(); g.moveTo(pad, yy); g.lineTo(W - pad, yy); g.stroke(); };
+  line(y - 16);
+  for (const row of rows) {
+    if (!row) { line(y - 8); y += 8; continue; }
+    const [k, v, st] = row;
+    g.fillStyle = st === 'm' ? '#6b7280' : '#374151'; g.font = `${st === 'b' ? 700 : 500} 13.5px ${F}`; g.textAlign = 'left'; g.fillText(k, pad, y);
+    g.fillStyle = st === 'm' ? '#b91c1c' : '#111827'; g.font = `${st === 'b' ? 800 : 600} 13.5px ${F}`; g.textAlign = 'right'; g.fillText(v, W - pad, y);
+    g.textAlign = 'left'; y += 26;
+  }
+  g.fillStyle = '#eef2ff'; g.beginPath(); (g.roundRect ? g.roundRect(pad - 6, y - 8, W - 2 * pad + 12, 50, 10) : g.rect(pad - 6, y - 8, W - 2 * pad + 12, 50)); g.fill();
+  g.fillStyle = '#3730a3'; g.font = `800 15px ${F}`; g.fillText('실지급액', pad + 6, y + 23);
+  g.font = `900 22px ${F}`; g.textAlign = 'right'; g.fillText(hireWon(p.net), W - pad - 6, y + 25); g.textAlign = 'left';
+  y += 66;
+  g.font = `500 12px ${F}`; g.fillStyle = '#4b5563';
+  if (acct) { g.fillText(`입금 계좌: ${acct}`, pad, y); y += 22; }
+  g.fillText(p.paid_on ? `입금 완료 ${p.paid_on}` : '입금 예정', pad, y); y += 22;
+  if (p.note) { g.fillStyle = '#6b7280'; g.fillText(`메모: ${String(p.note).slice(0, 34)}`, pad, y); }
+  g.fillStyle = '#9ca3af'; g.font = `500 10.5px ${F}`; g.fillText('3.3% 사업소득 원천징수 후 지급', pad, H - 12);
+  return cv;
+}
+function hireSlipOpen(hireId, payId) {
+  const r = hireState.rows.find(x => x.id === hireId), p = r && (r.pays || []).find(x => x.id === payId);
+  if (!r || !p) { showToast('지급 기록을 찾지 못했어요 — 새로고침해 주세요'); return; }
+  const cv = hireSlipCanvas(r, p);
+  hireState.slip = { cv, blob: null, name: `${r.name}_${p.work_date}_명세서.png` };
+  cv.toBlob(b => { if (hireState.slip && hireState.slip.cv === cv) hireState.slip.blob = b; }, 'image/png');
+  $('hire-slip-img').src = cv.toDataURL('image/png');
+  $('hire-slip-title').textContent = `${r.name} — ${p.work_date} 지급 명세서`;
+  $('hire-dlg-slip').showModal();
+}
+async function hireSlipCopy() {
+  const s = hireState.slip; if (!s) return;
+  try {
+    if (!navigator.clipboard || typeof ClipboardItem === 'undefined') throw new Error('이 브라우저는 이미지 복사를 지원하지 않아요');
+    const blob = s.blob || await new Promise(res => s.cv.toBlob(res, 'image/png'));
+    await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
+    showToast('명세서 이미지를 복사했어요 — 카톡 대화창에 붙여넣기 하세요');
+  } catch (e) { showToast('복사하지 못했어요(' + e.message + ') — [이미지 저장]으로 받아서 보내 주세요'); }
+}
+function hireSlipDownload() {
+  const s = hireState.slip; if (!s) return;
+  const a = document.createElement('a'); a.href = s.cv.toDataURL('image/png'); a.download = s.name; document.body.appendChild(a); a.click(); a.remove();
 }
 
 /* ── 월별 리스트 엑셀 — 시트1 사람별 합계, 시트2 근무일별 상세 (세무사 전달·간이지급명세서용). 현재 탭의 구분만 ── */
@@ -7748,10 +7838,10 @@ async function hireExport() {
       [10, 16, 15, 10, 18, 10, 9, 12, 12, 12, 10, 12], 6);
     // 시트2: 근무일별 상세
     sheet(wb.addSheet('근무일별 상세'), '근무일별 상세',
-      ['근무일', '이름', '주민등록번호', '시작', '종료', '근무시간', '시급', '세전금액', '사업소득세', '지방소득세', '고용보험', '실 지급액', '입금일', '메모'],
-      [...rows.map(r => [r.work_date, r.name, r.rrn, r.start_time, r.end_time, r.fixed_amount != null ? '정액' : hireHm(r.minutes), r.fixed_amount != null ? '' : r.hourly_rate, ...S.map(k => r[k]), r.paid_on || '미지급', r.note]),
-       ['합계', `${rows.length}건`, '', '', '', '', '', ...sumRow(rows), '', '']],
-      [12, 10, 16, 7, 7, 11, 9, 12, 12, 12, 10, 12, 12, 20], 6);
+      ['근무일', '이름', '주민등록번호', '시작', '종료', '근무시간', '시급', '식대', '세전금액', '사업소득세', '지방소득세', '고용보험', '실 지급액', '입금일', '메모'],
+      [...rows.map(r => [r.work_date, r.name, r.rrn, r.start_time, r.end_time, r.fixed_amount != null ? '정액' : hireHm(r.minutes) + (r.meal_amount ? ' (점심 1시간 제외)' : ''), r.fixed_amount != null ? '' : r.hourly_rate, r.meal_amount || '', ...S.map(k => r[k]), r.paid_on || '미지급', r.note]),
+       ['합계', `${rows.length}건`, '', '', '', '', '', rows.reduce((t, r) => t + (r.meal_amount || 0), 0) || '', ...sumRow(rows), '', '']],
+      [12, 10, 16, 7, 7, 18, 9, 9, 12, 12, 12, 10, 12, 12, 20], 6);
     const a = document.createElement('a');
     a.href = URL.createObjectURL(await wb.outputAsync());
     a.download = `${y}년_${m}월_${label}_지급리스트.xlsx`;

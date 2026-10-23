@@ -158,6 +158,27 @@ async function call(as, body) {
   const exd = (await call('log1', { action: 'export', ym: '2026-10', kind: 'daily' })).body.rows;
   assert.deepEqual(exd.map(r => [r.name, r.gross, r.income_tax, r.local_tax, r.net]), [['최일당', 31500, 940, 90, 30470]]);
   assert.equal((await call('log1', { action: 'export', ym: '2026-10', kind: 'applicant' })).body.rows.length, 2);
+  // 6-1) 점심시간 규칙(2026-10-23): 일일알바 09:00~18:00(540분) → 480분 + 식대 8,000 = 세전 90,560 / 3% 2,710 / 0.3% 270 / 실 87,580
+  //      (시험용 사람을 따로 만들고 끝나면 지급·사람을 지운다 — 아래 시험의 건수가 바뀌지 않게)
+  const ld = await call('log1', { action: 'upsert', kind: 'daily', name: '점심시험', phone: '01066665555' });
+  const la = await call('log1', { action: 'upsert', kind: 'applicant', name: '점심시험2', phone: '01066664444' });
+  const lp = await call('log1', { action: 'pay_upsert', hire_id: ld.body.id, work_date: '2026-10-20', start_time: '09:00', end_time: '18:00', minutes: 540, hourly_rate: 10320, gross: 1 });
+  assert.equal(lp.status, 200, JSON.stringify(lp.body));
+  assert.deepEqual([lp.body.minutes, lp.body.meal_amount, lp.body.gross, lp.body.income_tax, lp.body.local_tax, lp.body.net], [480, 8000, 90560, 2710, 270, 87580]);
+  // 13:00 시작(점심 안 낌)·12:30 종료·정액·채용됨 구분은 규칙 밖
+  const np = await call('log1', { action: 'pay_upsert', hire_id: ld.body.id, work_date: '2026-10-21', start_time: '13:00', end_time: '18:00', minutes: 300, hourly_rate: 10320 });
+  assert.deepEqual([np.body.minutes, np.body.meal_amount, np.body.gross], [300, 0, 51600]);
+  const ep = await call('log1', { action: 'pay_upsert', hire_id: ld.body.id, work_date: '2026-10-21', start_time: '09:00', end_time: '12:30', minutes: 210, hourly_rate: 10320 });
+  assert.deepEqual([ep.body.minutes, ep.body.meal_amount], [210, 0]);
+  const fp = await call('log1', { action: 'pay_upsert', hire_id: ld.body.id, work_date: '2026-10-22', start_time: '09:00', end_time: '18:00', minutes: 540, hourly_rate: 0, fixed_amount: 90000 });
+  assert.deepEqual([fp.body.meal_amount, fp.body.gross], [0, 90000]);
+  const ap = await call('log1', { action: 'pay_upsert', hire_id: la.body.id, work_date: '2026-10-22', start_time: '09:00', end_time: '18:00', minutes: 540, hourly_rate: 10320 });
+  assert.deepEqual([ap.body.minutes, ap.body.meal_amount], [540, 0]);
+  // 화면 hireLunch·hireCalc가 서버와 같은 답
+  assert.equal(ctx.hireLunch('daily', '09:00', '18:00', null), true); assert.equal(ctx.hireLunch('daily', '12:00', '18:00', null), false); assert.equal(ctx.hireLunch('daily', '09:00', '12:59', null), false); assert.equal(ctx.hireLunch('applicant', '09:00', '18:00', null), false);
+  assert.deepEqual({ ...calc.calcPay({ minutes: 480, hourly_rate: 10320, meal: 8000 }) }, { ...ctx.hireCalc(480, 10320, null, false, 8000) });
+  for (const x of [lp, np, ep, fp, ap]) assert.equal((await call('log1', { action: 'pay_delete', id: x.body.id })).status, 200);
+  for (const x of [ld, la]) assert.equal((await call('log1', { action: 'delete', id: x.body.id })).status, 200);
   assert.equal((await call('log1', { action: 'export', ym: '2026-10' })).body.rows.length, 3);
   const ex = (await call('log1', { action: 'export', ym: '2026-10', kind: 'applicant' })).body.rows;
   assert.equal(ex[0].rrn, '050315-4123456'); assert.equal(ex[0].account, '123-45-678901');

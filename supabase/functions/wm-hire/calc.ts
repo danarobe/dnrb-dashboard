@@ -6,12 +6,22 @@ export const MIN_WAGE = 10320;   // 2026년 최저시급. 해가 바뀌면 화�
  *    사업소득세 = ROUNDDOWN(세전×3%, -1), 지방소득세 = ROUNDDOWN(세전×0.3%, -1)  예: 31,500 → 940 / 90 / 실 30,470
  *  소액부징수(1,000원 미만 0원)는 적용하지 않는다. 근무관리 wmExportSalary와도 같은 식.
  *  고용보험 0.9%는 선택(원 미만 절사). 정수 연산만 — 0.03 같은 소수 곱은 절사 경계에서 틀린다. */
-export function calcPay(p: { minutes: number; hourly_rate: number; fixed_amount?: number | null; emp_ins?: boolean }) {
-  const gross = p.fixed_amount != null ? p.fixed_amount : Math.round(p.hourly_rate * p.minutes / 60);
+export function calcPay(p: { minutes: number; hourly_rate: number; fixed_amount?: number | null; emp_ins?: boolean; meal?: number }) {
+  // 식대(2026-10-23)는 세전 지급액에 더한다 — 3.3%도 식대 포함 금액에(근무 관리 급여 내보내기와 같은 방식)
+  const gross = (p.fixed_amount != null ? p.fixed_amount : Math.round(p.hourly_rate * p.minutes / 60)) + (p.meal || 0);
   const income_tax = Math.floor(gross * 3 / 1000) * 10;
   const local_tax = Math.floor(gross * 3 / 10000) * 10;
   const emp_ins_amt = p.emp_ins ? Math.floor(gross * 9 / 1000) : 0;
   return { gross, income_tax, local_tax, emp_ins_amt, net: gross - income_tax - local_tax - emp_ins_amt };
+}
+
+/** 점심시간 규칙(2026-10-23 사용자 지정 — "점심시간을 끼고 근무 시(12시~13시가 껴 있을 때) 시급 지급에서 1시간 제외하고 8,000원"):
+ *  일일알바(kind daily)이고 시간제(정액 아님)이고 시작 < 12:00 · 종료 ≥ 13:00 이면 → 근무 분에서 60분 빼고 식대 8,000원.
+ *  화면 hireLunch와 같은 식 — 바꾸면 둘 다(tools/hire_check.mjs). */
+export const LUNCH_MIN = 60, LUNCH_MEAL = 8000;
+export function lunchRule(kind: string, start: string | null | undefined, end: string | null | undefined, fixed: number | null | undefined): boolean {
+  const ok = (t: unknown) => typeof t === 'string' && /^\d{2}:\d{2}$/.test(t);
+  return kind === 'daily' && fixed == null && ok(start) && ok(end) && (start as string) < '12:00' && (end as string) >= '13:00';
 }
 
 /** 주민번호 → { digits, birth:'YYYY-MM-DD' } 또는 오류 문구.
