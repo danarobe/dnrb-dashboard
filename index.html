@@ -711,6 +711,7 @@
       <button class="menu-item" data-menu="an"   onclick="showMenu('an')"><i class="fa-solid fa-magnifying-glass-chart" style="width:18px;text-align:center;color:#818cf8;"></i>상품 분석</button>
       <button class="menu-item" data-menu="disp" id="menu-disp" onclick="showMenu('disp')"><i class="fa-solid fa-table-cells-large" style="width:18px;text-align:center;color:#818cf8;"></i>카테고리별 진열</button>
       <button class="menu-item" id="menu-npm" title="상품 관리 시스템 — 같은 계정으로 자동 로그인, 새 탭으로 열립니다" onclick="npmOpen()"><i class="fa-solid fa-box-open" style="width:18px;text-align:center;color:#818cf8;"></i>상품 관리<i class="fa-solid fa-arrow-up-right-from-square" style="font-size:.62rem;color:#9ca3af;margin-left:auto;"></i></button>
+      <button class="menu-item" data-menu="upcal" id="menu-upcal" style="display:none;" onclick="showMenu('upcal')"><i class="fa-solid fa-calendar-days" style="width:18px;text-align:center;color:#818cf8;"></i>업로드 캘린더</button>
     </div>
   </div>
   <div class="menu-sec" data-sec="returns">
@@ -1567,6 +1568,27 @@
         </div>
         <div id="cn-prod-list"></div>
       </div>
+    </div>
+  </div>
+
+  <!-- 업로드 캘린더 (2026-10-23 사용자 요청 — 상품관리 시스템의 업로드 캘린더를 물류팀도 워크스페이스에서, 보기 전용) -->
+  <div class="section-card page-sec" id="sec-upcal">
+    <div class="section-header" style="cursor:default;">
+      <h2><span><i class="fa-solid fa-calendar-days" style="color:#4f46e5;font-size:.9em;"></i></span> 업로드 캘린더</h2>
+      <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
+        <button class="toggle-btn" onclick="upcalMove(-1)" title="이전 달"><i class="fa-solid fa-chevron-left"></i></button>
+        <b id="upcal-title" style="min-width:96px;text-align:center;font-size:.9rem;color:#1e1b4b;"></b>
+        <button class="toggle-btn" onclick="upcalMove(1)" title="다음 달"><i class="fa-solid fa-chevron-right"></i></button>
+        <button class="toggle-btn" onclick="upcalMove(0)">이번 달</button>
+        <button class="toggle-btn" onclick="upcalLoad(true)" title="상품관리 시스템에서 다시 읽어요"><i class="fa-solid fa-rotate"></i> 새로고침</button>
+      </div>
+    </div>
+    <div class="section-body">
+      <div style="font-size:.8rem;color:#6b7280;margin-bottom:10px;line-height:1.7;">
+        · <b>상품관리 시스템의 업로드 캘린더</b>를 그대로 보여 줘요(<b>보기 전용</b>). 상품의 <b>업로드 예정일</b>과 <b>끌올(재진행)</b> 상품이 날짜별로 나와요.<br>
+        · 예정일 지정·끌올 등록은 상품관리 시스템에서 해요. 날짜를 누르면 아래 목록에서 그날 상품을 찾아 줘요.
+      </div>
+      <div id="upcal-body"></div>
     </div>
   </div>
 
@@ -3127,6 +3149,88 @@ async function npmOpen() {
     if (tab) tab.location.href = NPM + '/login'; else window.open(NPM + '/login', '_blank');
   }
 }
+/* ══ 업로드 캘린더 (#upcal, 2026-10-23 사용자 요청 "상품관리 시스템의 업로드 캘린더를 물류팀도 워크스페이스에서 볼 수 있게") ══
+   상품관리 시스템(newproduct-manager) /calendar와 같은 자료(업로드 예정일 upload_date + 끌올 calendar_reups)를
+   서버 함수 npm-calendar가 상품관리 /api/dnrb-calendar(연동 비밀키)에서 읽기 전용으로 가져온다.
+   보기 = 관리자·MD(마케터)·물류팀 — CS팀 제외(서버 npm-calendar도 같은 기준). 등록·삭제는 상품관리에서만. 달마다 한 번 읽고 [새로고침]으로 다시. */
+const upcalState = { ym: null, data: {}, loading: false, sel: null };
+function upcalAllowed() { return isAdmin() || isStaff() || SESSION?.role === 'logistics'; }
+function upcalToday() { return new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Seoul' }); }
+function upcalShift(ym, d) { const [y, m] = ym.split('-').map(Number); const t = y * 12 + (m - 1) + d; return `${Math.floor(t / 12)}-${String(t % 12 + 1).padStart(2, '0')}`; }
+function upcalInit() { if (!upcalState.ym) upcalState.ym = upcalToday().slice(0, 7); upcalLoad(false); }
+function upcalMove(d) { upcalState.ym = d === 0 ? upcalToday().slice(0, 7) : upcalShift(upcalState.ym, d); upcalState.sel = null; upcalLoad(false); }
+async function upcalLoad(force) {
+  const ym = upcalState.ym || (upcalState.ym = upcalToday().slice(0, 7));
+  if (!force && upcalState.data[ym] && !upcalState.data[ym].error) { upcalRender(); return; }
+  upcalState.loading = true; upcalRender();
+  try {
+    const res = await fetch(fnUrl('npm-calendar', { month: ym }), { headers: sbHeaders() });
+    const d = await res.json().catch(() => ({}));
+    if (!res.ok || d.error) throw new Error(d.error || `서버 오류 ${res.status}`);
+    upcalState.data[ym] = { products: d.products || [], reups: d.reups || [], at: Date.now() };
+  } catch (e) { upcalState.data[ym] = { error: e.message }; }
+  finally { upcalState.loading = false; if (upcalState.ym === ym) upcalRender(); }
+}
+function upcalPick(date) {
+  upcalState.sel = upcalState.sel === date ? null : date; upcalRender();
+  const row = upcalState.sel && document.getElementById('upcal-row-' + date);
+  if (row) row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
+// 단계 배지 색 — 상품관리 단계 체계(업로드 이후 초록 · 업로드 준비 파랑 · 촬영 보라 · 반납/폐기 빨강 · 그 밖 회색)
+function upcalBadge(p) {
+  const st = p.status || '';
+  const c = /^(uploaded|ad_)/.test(st) && st !== 'ad_discarded' ? ['#dcfce7', '#166534']
+    : ['cafe24_ready', 'detail_page', 'retouching', 'retouch_confirmed'].includes(st) ? ['#dbeafe', '#1e40af']
+    : ['shoot_scheduled', 'shot_complete'].includes(st) ? ['#ede9fe', '#5b21b6']
+    : ['returned', 'ad_discarded'].includes(st) ? ['#fee2e2', '#991b1b'] : ['#f3f4f6', '#374151'];
+  return `<span style="display:inline-block;background:${c[0]};color:${c[1]};border-radius:5px;padding:1px 6px;font-size:.66rem;font-weight:700;white-space:nowrap;">${escHtml(p.status_label || st)}</span>`;
+}
+function upcalRender() {
+  const ym = upcalState.ym, [y, m] = ym.split('-').map(Number), d = upcalState.data[ym], box = $('upcal-body');
+  $('upcal-title').textContent = `${y}년 ${m}월`;
+  if (!box) return;
+  if (upcalState.loading && !(d && !d.error)) { box.innerHTML = '<div style="padding:30px;text-align:center;color:#6b7280;font-size:.85rem;"><i class="fa-solid fa-spinner fa-spin"></i> 상품관리 시스템에서 캘린더를 읽는 중…</div>'; return; }
+  if (!d) { box.innerHTML = ''; return; }
+  if (d.error) { box.innerHTML = `<div style="padding:18px;border:1.5px solid #fecaca;background:#fef2f2;border-radius:10px;color:#991b1b;font-size:.83rem;">캘린더를 불러오지 못했어요 — ${escHtml(d.error)} <button class="toggle-btn" style="margin-left:8px;" onclick="upcalLoad(true)">다시 시도</button></div>`; return; }
+  const today = upcalToday(), byDate = {}, reupBy = {};
+  d.products.forEach(p => { if (p.upload_date) (byDate[p.upload_date] ||= []).push(p); });
+  d.reups.forEach(r => { if (r.reup_date) (reupBy[r.reup_date] ||= []).push(r); });
+  const first = new Date(y, m - 1, 1).getDay(), days = new Date(y, m, 0).getDate();
+  const cells = []; for (let i = 0; i < first; i++) cells.push(null); for (let k = 1; k <= days; k++) cells.push(k); while (cells.length % 7) cells.push(null);
+  const WD = ['일', '월', '화', '수', '목', '금', '토'], pad = n => String(n).padStart(2, '0');
+  const chip = (bg, fg, html) => `<div style="background:${bg};color:${fg};border-radius:5px;padding:2px 5px;font-size:.7rem;line-height:1.3;margin-top:3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${html}</div>`;
+  let grid = `<div style="display:grid;grid-template-columns:repeat(7,1fr);background:#f8f9ff;border-bottom:1.5px solid #e5e7eb;">${WD.map((w, i) => `<div style="padding:7px 0;text-align:center;font-size:.75rem;font-weight:700;color:${i === 0 ? '#dc2626' : i === 6 ? '#2563eb' : '#6b7280'};">${w}</div>`).join('')}</div><div style="display:grid;grid-template-columns:repeat(7,1fr);">`;
+  cells.forEach((day, idx) => {
+    const edge = `border-right:1px solid #f1f2f6;border-bottom:1px solid #f1f2f6;`;
+    if (day === null) { grid += `<div style="min-height:92px;background:#fafafa;${edge}"></div>`; return; }
+    const ds = `${ym}-${pad(day)}`, items = byDate[ds] || [], rs = reupBy[ds] || [], dow = idx % 7, isToday = ds === today, isSel = ds === upcalState.sel;
+    const num = `<span style="display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:50%;font-size:.75rem;font-weight:700;${isToday ? 'background:#4f46e5;color:#fff;' : `color:${dow === 0 ? '#dc2626' : dow === 6 ? '#2563eb' : '#374151'};`}">${day}</span>`;
+    let inner = items.slice(0, 3).map(p => chip('#ccfbf1', '#115e59', escHtml(p.name || ''))).join('');
+    if (items.length > 3) inner += `<div style="font-size:.68rem;color:#0f766e;font-weight:700;margin-top:3px;">+ ${items.length - 3}개 더</div>`;
+    if (rs.length) inner += chip('#fef3c7', '#92400e', `<b>[끌올]</b> ${escHtml(rs.length === 1 ? rs[0].title : rs.length + '개')}`);
+    const click = items.length || rs.length ? `onclick="upcalPick('${ds}')" style="cursor:pointer;` : `style="`;
+    grid += `<div ${click}min-height:92px;padding:5px;${edge}${isSel ? 'background:#eef2ff;box-shadow:inset 0 0 0 2px #818cf8;' : isToday ? 'background:#f5f3ff;' : ''}" title="${items.length ? `업로드 예정 ${items.length}개` : ''}${rs.length ? ` 끌올 ${rs.length}개` : ''}">${num}${inner}</div>`;
+  });
+  grid += '</div>';
+  const nP = d.products.length, nR = d.reups.length;
+  let html = `<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:10px;font-size:.8rem;color:#374151;">
+      <span style="background:#ccfbf1;color:#115e59;border-radius:8px;padding:4px 10px;font-weight:700;">업로드 예정 ${nP}개</span>
+      <span style="background:#fef3c7;color:#92400e;border-radius:8px;padding:4px 10px;font-weight:700;">끌올 ${nR}개</span>
+      <span style="color:#9ca3af;font-size:.72rem;">상품관리 시스템 기준 · ${new Date(d.at).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })}에 읽음</span></div>
+    <div style="overflow-x:auto;"><div style="min-width:640px;border:1.5px solid #e5e7eb;border-radius:12px;overflow:hidden;background:#fff;">${grid}</div></div>`;
+  const listTable = (title, map, rowHtml, empty) => {
+    const keys = Object.keys(map).sort();
+    if (!keys.length) return `<h3 style="font-size:.85rem;font-weight:800;color:#1e1b4b;margin:18px 0 8px;">${title}</h3><div style="padding:16px;text-align:center;color:#9ca3af;font-size:.8rem;border:1.5px dashed #e5e7eb;border-radius:10px;">${empty}</div>`;
+    return `<h3 style="font-size:.85rem;font-weight:800;color:#1e1b4b;margin:18px 0 8px;">${title}</h3><div class="table-wrap"><table style="width:100%;"><thead><tr><th style="text-align:left;width:120px;">날짜</th><th style="width:60px;">수량</th><th style="text-align:left;">상품</th></tr></thead><tbody>${keys.map(k => {
+      const dd = Number(k.slice(8, 10)), dw = WD[new Date(y, m - 1, dd).getDay()], hl = k === upcalState.sel ? 'background:#eef2ff;' : k === today ? 'background:#f5f3ff;' : '';
+      return `<tr id="upcal-row-${k}" style="${hl}"><td style="text-align:left;white-space:nowrap;font-weight:${k === today ? 800 : 600};">${m}월 ${dd}일 (${dw})${k === today ? ' <span style="color:#4f46e5;font-size:.7rem;">오늘</span>' : ''}</td><td>${map[k].length}개</td><td style="text-align:left;white-space:normal;"><div style="display:flex;flex-wrap:wrap;gap:5px;">${map[k].map(rowHtml).join('')}</div></td></tr>`;
+    }).join('')}</tbody></table></div>`;
+  };
+  html += listTable(`${m}월 업로드 예정 목록`, byDate, p => `<span style="display:inline-flex;align-items:center;gap:5px;border:1px solid #e5e7eb;background:#f9fafb;border-radius:6px;padding:3px 7px;font-size:.76rem;">${escHtml(p.name || '')} ${upcalBadge(p)}</span>`, '이번 달에 업로드 예정인 상품이 없어요');
+  html += listTable(`${m}월 끌올 목록`, reupBy, r => `<span style="display:inline-block;border:1px solid #fde68a;background:#fffbeb;border-radius:6px;padding:3px 7px;font-size:.76rem;color:#92400e;">${escHtml(r.title || '')}</span>`, '이번 달 끌올 상품이 없어요');
+  box.innerHTML = html;
+}
+
 /* AI 에이전트 앱(별도 저장소 ~/dnrb-agents, 2026-09-10) — 같은 Supabase·같은 계정.
    auth sso_issue로 **60초 일회용 코드**를 받아 #sso=코드 해시로 넘기고, 저쪽이 sso_redeem으로 정식 토큰과 바꾼다.
    (처음엔 7일 토큰을 해시에 실었다가 보안 검토 지적으로 교체 — 공용 PC 브라우저 기록에 토큰이 남는 문제) */
@@ -3451,7 +3555,7 @@ function applyRole() {
   document.body.classList.toggle('role-cs', isCS());
   // CS팀은 판매 성과 메뉴만 노출
   document.querySelectorAll('.menu-item').forEach(b => {
-    b.style.display = isCS() && !['perf', 'my', 'purch', 'rscan', 'unship', 'bigret', 'soldout', 'cnbuy', 'hire'].includes(b.dataset.menu) ? 'none' : '';   // CS팀·물류팀 = 판매 성과 + 마이페이지 + 구매요청 + 반품 스캔(2026-09-22) + 미발송 관리(2026-09-28)
+    b.style.display = isCS() && !['perf', 'my', 'purch', 'rscan', 'unship', 'bigret', 'soldout', 'cnbuy', 'hire', 'upcal'].includes(b.dataset.menu) ? 'none' : '';   // CS팀·물류팀 = 판매 성과 + 마이페이지 + 구매요청 + 반품 스캔(2026-09-22) + 미발송 관리(2026-09-28)
   });
   // 관리자 전용 메뉴는 버튼 자체를 숨김
   $('menu-users').style.display = isAdmin() ? '' : 'none';
@@ -3469,7 +3573,8 @@ function applyRole() {
   $('menu-addash').style.display = isAdmin() ? '' : 'none';   // 광고관리자(친구 광고 대시보드 SSO) = 관리자 + 허용 목록(ad_dashboard_users) — 목록은 adDashAccessLoad()가 확인해 켬 (2026-09-11 사용자 지정)
   $('menu-rwatch').style.display = (isAdmin() || isStaff()) && !isCS() ? '' : 'none'; // 반품 관리 = 관리자 + MD
   $('menu-madechk').style.display = (isAdmin() || isStaff()) && !isCS() ? '' : 'none'; // 자체제작 주문 점검 = 관리자 + MD (2026-09-03)
-  $('menu-npm').style.display = isAdmin() || isStaff() || SESSION?.role === 'logistics' ? '' : 'none';    // 상품 관리(SSO 링크) = 관리자 + MD + 물류팀(2026-09-07, 자체제작 관리만)
+  $('menu-npm').style.display = isAdmin() || isStaff() || SESSION?.role === 'logistics' ? '' : 'none';
+  $('menu-upcal').style.display = upcalAllowed() ? '' : 'none';   // 업로드 캘린더 = 관리자 + MD + 물류팀 (2026-10-23, CS팀 제외 — 서버 npm-calendar도 같은 기준)    // 상품 관리(SSO 링크) = 관리자 + MD + 물류팀(2026-09-07, 자체제작 관리만)
   $('menu-profit').style.display = isAdmin() && !isCS() ? '' : 'none';
   $('menu-agents').style.display = (isAdmin() || agentUserState.me) ? '' : 'none';   // AI 에이전트 앱(별도 저장소 dnrb-agents, SSO 링크) = 관리자 전용 — 매출 절대액 포함 (2026-09-10)
   $('menu-wm').style.display = isAdmin() && !isCS() ? '' : 'none';
@@ -17439,7 +17544,7 @@ async function myChangePw() {
   } catch (e) { showToast('변경 실패 — ' + e.message); }
 }
 
-const MENU_KEYS = ['home', 'cr', 'an', 'perf', 'rwatch', 'rscan', 'unship', 'soldout', 'disp', 'stable', 'adv', 'admgr', 'profit', 'wm', 'meet', 'board', 'proj', 'users', 'my', 'purch', 'madechk', 'cnbuy', 'cxl', 'hire', 'bigret'];
+const MENU_KEYS = ['home', 'cr', 'an', 'perf', 'rwatch', 'rscan', 'unship', 'soldout', 'disp', 'stable', 'adv', 'admgr', 'profit', 'wm', 'meet', 'board', 'proj', 'users', 'my', 'purch', 'madechk', 'cnbuy', 'cxl', 'hire', 'bigret', 'upcal'];
 
 /* 모바일 메뉴 서랍 (2026-08-27) — 열기/닫기. 데스크톱에선 ☰ 버튼이 숨겨져 호출되지 않는다. */
 /* ── 홈 접기 (2026-08-27 UI 정리) ──
@@ -17511,13 +17616,14 @@ function showMenu(key) {
   if (!MENU_KEYS.includes(key)) key = 'home';
   if (key === 'hire' && !hireAllowed() && !hireAccessState.loaded) { hireAccessState.pending = true; key = 'home'; }   // 허용 목록 확인 전 — 확인되면 hireAccessLoad가 다시 연다
   if (key === 'cxl' && !isAdmin() && !cxlAccessState.loaded) { cxlAccessState.pending = true; key = 'home'; }   // 허용 목록 확인 전 — 확인되면 cxlAccessLoad가 다시 연다
-  if (isCS() && !['my', 'purch', 'rscan', 'unship', 'bigret', 'soldout', 'cnbuy', 'hire'].includes(key) && !(key === 'cxl' && cxlAllowed())) key = 'perf';   // soldout은 물류팀만(아래 soldoutAllowed에서 CS팀은 홈으로)   // 미발송 관리(2026-09-28) 추가 — 위 applyRole 목록과 함께 고칠 것.   // CS팀·물류팀은 판매 성과 + 마이페이지 + 구매요청 + 반품 스캔(2026-09-22 — 메뉴는 보였는데 여기서 되돌려 보내던 버그 수정)
+  if (isCS() && !['my', 'purch', 'rscan', 'unship', 'bigret', 'soldout', 'cnbuy', 'hire', 'upcal'].includes(key) && !(key === 'cxl' && cxlAllowed())) key = 'perf';   // soldout은 물류팀만(아래 soldoutAllowed에서 CS팀은 홈으로)   // 미발송 관리(2026-09-28) 추가 — 위 applyRole 목록과 함께 고칠 것.   // CS팀·물류팀은 판매 성과 + 마이페이지 + 구매요청 + 반품 스캔(2026-09-22 — 메뉴는 보였는데 여기서 되돌려 보내던 버그 수정)
   // 권한 없는 메뉴는 홈으로 되돌린다 — 여기서 return하면 URL에 #disp 등을 달고 들어온
   // 권한 없는 사용자에게 아무 섹션도 표시되지 않아 화면이 비어버림
   const denied = (key === 'cr' && isStaff())
     || (key === 'rwatch' && isCS())                      // 반품 관리 = 관리자 + MD
     || (key === 'madechk' && isCS())                     // 자체제작 주문 점검 = 관리자 + MD (2026-09-03)
     || (key === 'cxl' && !cxlAllowed())                   // 취소·반품 접수 = 관리자 + 허용 목록 (2026-10-08)
+    || (key === 'upcal' && !upcalAllowed())               // 업로드 캘린더 = 관리자 + MD + 물류팀 (2026-10-23)
     || (['users', 'disp', 'stable', 'profit', 'board', 'proj', 'wm'].includes(key) && !isAdmin());   // admgr은 MD·마케터도 진입(테스트 소재 탭만, 2026-08-27), wm = 근무 관리 (급여·계좌 포함)
   if (denied) { showToast('접근 권한이 없습니다'); key = 'home'; }
   document.querySelectorAll('.page-sec').forEach(el => { el.style.display = 'none'; });
@@ -17561,6 +17667,7 @@ function showMenu(key) {
   if (key === 'rscan') rscanInit();
   if (key === 'unship') unshipInit();
   if (key === 'bigret') bigretInit();
+  if (key === 'upcal') upcalInit();
   if (key === 'cnbuy') cnInit();
   if (key === 'cxl') cxlInit();
   if (key === 'hire') hireInit();
