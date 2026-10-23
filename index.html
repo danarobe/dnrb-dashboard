@@ -5879,15 +5879,18 @@ function cnRemainHtml(v, tip) {
 function cnRemainCell(l) {
   const o = cnOrdOf(l); if (!o) return cnRemainHtml(null);
   const tip = o.parts ? `주문 ${o.ordered} − 이 차수까지 중국출고 ${o.cum}${o.parts.length > 1 ? ` (${o.parts.map(p => `${p.ship.order_round || p.ship.title || ''} ${p.qty}`).join(' + ')})` : ''}` : `주문 ${o.ordered} − 모든 입고의 중국출고 ${o.cum}`;
+  if (o.remain < 0 && cnOverDone(o)) return `<span style="color:#6b7280;" title="${escHtml(tip + ' — 주문보다 더 출고됐지만 미송 점검에서 정리함')}">−${fmt(-o.remain)}</span><div class="cn-sub">정리됨</div>`;   // 2026-10-23: 정리한 초과는 파란 글씨로 안 띄움
   return cnRemainHtml(o.remain, tip + (o.disc ? ` − ${cnDiscTxt(o.disc)}` : '') + (o.remain < 0 ? ' — 주문보다 더 출고됨' : '')) + (o.disc ? `<div class="cn-sub">${cnDiscTxt(o.disc)}</div>` : '');
 }
 // 같은 옵션이 여러 줄(검수할 입고 보기의 차수별 줄)에 나와도 주문·잔여는 한 번만 센다 — 잔여는 가장 늦은 차수 기준
 function cnOrdSums(lines) {
   const m = new Map();
   for (const l of lines) { const o = cnOrdOf(l); if (!o) continue; const e = m.get(o.uk); if (!e || o.r > e.r) m.set(o.uk, o); }
-  const v = [...m.values()];
-  return { any: v.length > 0, ordered: v.reduce((t, o) => t + o.ordered, 0), remain: v.reduce((t, o) => t + Math.max(0, o.remain), 0), over: v.filter(o => o.remain < 0).length, net: v.reduce((t, o) => t + o.remain, 0) };
+  const v = [...m.values()], ov = v.filter(o => o.remain < 0 && !cnOverDone(o));   // 주문보다 더 출고 — 미송 점검에서 초과 인정으로 정리한 옵션은 뺀다(2026-10-23 사용자 요청)
+  return { any: v.length > 0, ordered: v.reduce((t, o) => t + o.ordered, 0), remain: v.reduce((t, o) => t + Math.max(0, o.remain), 0), over: ov.length, overQty: ov.reduce((t, o) => t - o.remain, 0), net: v.reduce((t, o) => t + o.remain, 0) };
 }
+// 이 줄의 잔여가 마이너스(주문보다 더 출고)여도 지금 그 옵션의 미송(주문 − 출고 − 폐기·초과 인정)이 0 이상이면 미송 점검에서 정리된 것(2026-10-23)
+function cnOverDone(o) { const e = o && cnFlowOf(o.uk); return !!e && e.disc !== 0 && e.pend >= 0; }
 function cnShipOrderHtml(x) {   // 입고 카드 — 어느 주문서의 입고인지(관리자·MD는 바꿀 수 있음)
   const d = cnState.data || {}, orders = d.orders || [], o = orders.find(y => y.id === x.order_id);
   if (!d.can_edit) return `<span class="cn-sub" style="display:inline;"><i class="fa-solid fa-file-signature"></i> 주문서 ${o ? escHtml(cnOrdTitle(o)) : '연결 없음'}</span>`;
@@ -6336,7 +6339,7 @@ function cnCheckSummaryHtml(lines) {
     + admgrTile('주문', os.any ? fmt(os.ordered) + '장' : '<span style="font-size:.8rem;color:#9ca3af;">주문서 연결 없음</span>', false)
     + admgrTile('중국출고', fmt(sent) + '장', false)
     + admgrTile('실입고(확인분)', `${fmt(act)}장 <span style="font-size:.7rem;color:#6b7280;">/ 중국출고 ${fmt(sentChecked)}</span>`, false)
-    + admgrTile(admgrDot('#f97316') + '잔여(주문−중국출고)', os.any ? `${fmt(os.remain)}장${os.over ? ` <span style="font-size:.7rem;color:#1d4ed8;" title="잔여는 아직 덜 나온 수량만 더해요. 엑셀 합계는 옵션별 값(마이너스 포함)을 그대로 더해요">주문보다 더 출고 ${fmt(os.over)}옵션 · ${fmt(os.remain - os.net)}장</span>` : ''}` : '—', false)
+    + admgrTile(admgrDot('#f97316') + '잔여(주문−중국출고)', os.any ? `${fmt(os.remain)}장${os.over ? ` <span style="font-size:.7rem;color:#1d4ed8;" title="잔여는 아직 덜 나온 수량만 더해요. 엑셀 합계는 옵션별 값(마이너스 포함)을 그대로 더해요">주문보다 더 출고 ${fmt(os.over)}옵션 · ${fmt(os.overQty)}장</span>` : ''}` : '—', false)
     + admgrTile(admgrDot('#ef4444') + '차이 — 부족', fmt(short) + '장', false)
     + admgrTile(admgrDot('#3b82f6') + '차이 — 초과', fmt(over) + '장', false)
     + admgrTile(admgrDot('#b91c1c') + '입고중불량', fmt(defect) + '장', false)
