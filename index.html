@@ -5719,7 +5719,30 @@ function cnGapHtml(v) {
 function cnDiffHtml(l) {
   if (l._ordOnly) return '<span style="color:#9ca3af;">—</span>';
   if (l.qty_actual == null) return '<span style="color:#9ca3af;">미확인</span>';
-  return cnGapHtml(cnSentCk(l) - l.qty_actual) + (l._unchecked ? ` <span style="font-size:.66rem;color:#9ca3af;">미확인 입고 ${l._unchecked}건</span>` : '');
+  return cnGapHtml(cnSentCk(l) - l.qty_actual) + (l._unchecked ? ` <span style="font-size:.66rem;color:#9ca3af;">미확인 입고 ${l._unchecked}건</span>` : '') + cnGapTag(l);
+}
+// 차이 정리 표시·버튼(2026-10-23): 정리한 줄 = 회색 '정리 N'(누르면 취소 — 관리자·MD), 정리 안 한 차이 = [정리] 버튼(관리자·MD)
+function cnGapTag(l) {
+  const canEdit = !!(cnState.data && cnState.data.can_edit);
+  if (l._sum) return l._gapSum ? `<div class="cn-sub" title="차수별 줄에서 정리한 차이 합">정리 ${l._gapSum > 0 ? '부족 ' + fmt(l._gapSum) : '초과 ' + fmt(-l._gapSum)}</div>` : '';
+  const g = cnGapQ(l);
+  if (g) return `<div class="cn-sub" style="color:#6b7280;${canEdit ? 'cursor:pointer;' : ''}" title="${escHtml(`차이 정리 · ${l.gap_note || '메모 없음'} · ${l.gap_by_name || ''} ${l.gap_at ? unshipKst(l.gap_at) : ''}${canEdit ? '\n누르면 정리를 취소해요' : ''}`)}"${canEdit ? ` onclick="cnGapUndo(${l.id})"` : ''}><i class="fa-solid fa-check-double"></i> 정리 ${g > 0 ? '부족 ' + fmt(g) : '초과 ' + fmt(-g)}${l.gap_note ? ` · ${escHtml(l.gap_note.length > 14 ? l.gap_note.slice(0, 14) + '…' : l.gap_note)}` : ''}</div>`;
+  if (!canEdit || l.qty_actual == null || l.qty_actual === l.qty_sent) return '';
+  return `<div><button type="button" class="toggle-btn" style="font-size:.64rem;padding:1px 7px;margin-top:2px;" onclick="cnGapClose(${l.id})" title="이 차이를 정리로 표시해요(실입고 숫자는 그대로, 부족 합계·'차이 있음'에서 빠져요)">정리</button></div>`;
+}
+async function cnGapClose(id) {
+  const l = ((cnState.data || {}).lines || []).find(x => x.id === id); if (!l) return;
+  const gap = l.qty_sent - l.qty_actual;
+  const note = prompt(`${l.sname} ${cnOpt(l)} — 차이 ${gap > 0 ? '부족 ' + gap : '초과 ' + (-gap)}장을 정리로 표시할까요?\n이유(기록에 남아요):`, '');
+  if (note == null) return;
+  try { const r = await cnPost('cn_gap', { line_id: id, close: true, note: note.trim() || null }); Object.assign(l, r.line); cnTabRender(); showToast('차이를 정리로 표시했어요'); }
+  catch (e) { showToast('정리 실패: ' + e.message); }
+}
+async function cnGapUndo(id) {
+  const l = ((cnState.data || {}).lines || []).find(x => x.id === id); if (!l) return;
+  if (!confirm(`${l.sname} ${cnOpt(l)} — 차이 정리를 취소할까요? 다시 차이로 잡혀요.`)) return;
+  try { const r = await cnPost('cn_gap', { line_id: id, close: false }); Object.assign(l, r.line); cnTabRender(); showToast('차이 정리를 취소했어요'); }
+  catch (e) { showToast('취소 실패: ' + e.message); }
 }
 // 불량 수량(2026-10-19 사용자 요청 "전달, 실제 수량, 차이 옆에 불량") — 실제로 받은 것 중 불량 개수. 비어 있으면 '—'
 const cnDefShow = n => n == null ? '<span style="color:#9ca3af;">—</span>' : n > 0 ? `<b style="color:#b91c1c;">${fmt(n)}</b>` : '<span style="color:#6b7280;">0</span>';
@@ -6000,7 +6023,7 @@ function cnSumLines(raw, withOrders) {   // withOrders = 주문서에만 있고 
     let m = by.get(k);
     if (!m) { m = { id: 'sum' + by.size, sname: l.sname, color: l.color, size: l.size, seq: l.seq, qty_sent: 0, act: 0, actSent: 0, unchecked: 0, def: 0, defN: 0, memos: [], raw: [] }; by.set(k, m); }
     m.raw.push(l); m.qty_sent += l.qty_sent;
-    if (l.qty_actual == null) m.unchecked++; else { m.act += l.qty_actual; m.actSent += l.qty_sent; }
+    if (l.qty_actual == null) m.unchecked++; else { m.act += l.qty_actual; m.actSent += l.qty_sent; m.gap = (m.gap || 0) + cnGapQ(l); }
     if (l.qty_defect != null) { m.def += l.qty_defect; m.defN++; }
     if (l.memo) m.memos.push(l.memo);
   }
@@ -6008,7 +6031,7 @@ function cnSumLines(raw, withOrders) {   // withOrders = 주문서에만 있고 
     const priced = m.raw.filter(l => l.unit_price != null && l.qty_sent > 0), pq = priced.reduce((t, l) => t + l.qty_sent, 0);
     const anyChecked = m.unchecked < m.raw.length;
     return { id: m.id, sname: m.sname, color: m.color, size: m.size, seq: m.seq, qty_sent: m.qty_sent,
-      qty_actual: anyChecked ? m.act : null, _sentChecked: m.actSent, _unchecked: anyChecked ? m.unchecked : 0,
+      qty_actual: anyChecked ? m.act : null, _sentChecked: m.actSent, _gapSum: m.gap || 0, _unchecked: anyChecked ? m.unchecked : 0,
       qty_defect: m.defN ? m.def : null, memo: [...new Set(m.memos)].join(' / '),
       unit_price: pq ? Math.round(priced.reduce((t, l) => t + l.qty_sent * Number(l.unit_price), 0) / pq * 100) / 100 : null, _raw: m.raw, _sum: true, _ord: cnOrdOfKey(cnLKey(m)) };
   }).concat(withOrders ? cnOrderOnlyLines(new Set(by.keys())) : []);
@@ -6023,7 +6046,8 @@ function cnOrderOnlyLines(seen) {   // 주문서에만 있는 옵션(아직 중�
   }
   return out;
 }
-const cnSentCk = l => l._sentChecked ?? l.qty_sent;   // 차이를 볼 때 견줄 전달 수량 — 합친 줄은 '실제 수량을 적은 입고'의 전달 수량만   // '검수할 입고' 보기 = 완료 전인 입고(2건 이상일 때)를 합쳐 보기
+const cnGapQ = l => Number(l && l.gap_closed) || 0;   // 정리한 차이(2026-10-23 — 실입고는 그대로, 차이·부족 합계·'차이 있음'에서만 뺀다)
+const cnSentCk = l => (l._sentChecked ?? l.qty_sent) - (l._sum ? (l._gapSum || 0) : cnGapQ(l));   // 차이를 볼 때 견줄 전달 수량 — 합친 줄은 '실제 수량을 적은 입고'의 전달 수량만   // '검수할 입고' 보기 = 완료 전인 입고(2건 이상일 때)를 합쳐 보기
 function cnShipLines() { const all = (cnState.data || {}).lines || []; if (cnIsSum()) return all; if (cnIsAll()) { const ids = new Set(cnPendingShips().map(x => x.id)); return all.filter(l => ids.has(l.shipment_id)); } return all.filter(l => l.shipment_id === cnState.shipId); }
 function cnDefaultShip() { const ships = (cnState.data || {}).ships || [], pend = cnPendingShips(); return pend.length > 1 ? 'all' : pend.length ? pend[0].id : (ships.length ? ships[0].id : null); }   // 완료 전 2건↑ → 검수할 입고, 1건 → 그 입고, 다 끝났으면 가장 최근 입고
 async function cnShipDoneSet(id, done) {
@@ -6964,7 +6988,7 @@ function cnProducts() {
     const ok = cnOpt(l), o = p.opts.get(ok) || { opt: ok, sent: 0, act: 0, actSent: 0, unchecked: 0, def: 0, defN: 0, price: null, priceShip: -1 };
     if (l.qty_defect != null) { o.def += l.qty_defect; o.defN++; }
     o.sent += l.qty_sent;
-    if (l.qty_actual == null) o.unchecked++; else { o.act += l.qty_actual; o.actSent += l.qty_sent; }
+    if (l.qty_actual == null) o.unchecked++; else { o.act += l.qty_actual; o.actSent += l.qty_sent - cnGapQ(l); o.gapClosed = (o.gapClosed || 0) + cnGapQ(l); }
     if (l.unit_price != null && l.shipment_id > o.priceShip) { o.price = Number(l.unit_price); o.priceShip = l.shipment_id; }
     // 실질 단가 통합용(2026-10-01 사용자 요청): 입고마다 100원당 추가 비용이 달라 → 입고별 실질 단가를 입고(전달) 수량으로 가중 평균
     if (l.unit_price != null && l.qty_sent > 0) { const rw = cnRealWon(l.unit_price, l.shipment_id); (o.parts = o.parts || []).push({ ship: l.shipment_id, title: ship.title || '', qty: l.qty_sent, yuan: Number(l.unit_price), won: rw.won, hasCost: !!rw.r, rate: rw.r ? rw.r.cost : null }); }
@@ -7116,7 +7140,7 @@ function cnProdRender() {
       ${num(p.ordAny ? `<b>${fmt(p.ordered)}</b>` : '<span style="color:#9ca3af;">—</span>')}${num(`<b>${fmt(p.sent)}</b>`)}${num(p.act || p.actSent ? `<b>${fmt(p.act)}</b>` : '<span style="color:#9ca3af;">—</span>')}${num(p.ordAny ? cnRemainHtml(p.remain) : '<span style="color:#9ca3af;">—</span>')}${num(p.sent || p.act ? diffHtml(p.act, p.actSent, p.unchecked) : '<span style="color:#9ca3af;">—</span>')}${num(cnDefShow(p.defN ? p.def : null))}${canPrice ? cnPriceTd(p.real ? p.real.yuan : null) + num(cnRealAvgHtml(p.real, true)) : ''}
       <td style="text-align:left;">${c24Html}${showSales && salesHtml ? `<div class="cn-sub" style="margin-top:2px;">판매 ${salesHtml}</div>` : ''}</td></tr>`;
     for (const o of p.opts) {
-      html += `<tr data-cn-o="${escHtml(gi)}"${open ? '' : ' style="display:none;"'}><td style="text-align:left;padding-left:30px;">${escHtml(o.opt)}${cnFlowBadge(o.key)}</td>${num(o.ord ? (o.ord.notIn ? '<span style="color:#9ca3af;" title="주문서에 없는 옵션이에요">0</span>' : fmt(o.ord.ordered)) : '<span style="color:#9ca3af;">—</span>')}${num(fmt(o.sent))}${num(o.act || o.actSent ? fmt(o.act) : '<span style="color:#9ca3af;">—</span>')}${num(o.ord ? cnRemainHtml(o.ord.remain, `주문 ${o.ord.ordered} − 모든 입고의 중국출고 ${o.ord.cum}${o.ord.disc ? ` − 폐기 ${o.ord.disc}` : ''}`) + (o.ord.disc ? `<div class="cn-sub">폐기 ${fmt(o.ord.disc)}</div>` : '') : '<span style="color:#9ca3af;">—</span>')}${num(o.ordOnly ? '<span style="color:#c2410c;font-size:.7rem;">아직 출고 없음</span>' : diffHtml(o.act, o.actSent, o.unchecked))}${num(cnDefShow(o.defN ? o.def : null))}${canPrice ? cnPriceTd(o.real ? o.real.yuan : o.price) + num(cnRealAvgHtml(o.real, false)) : ''}<td></td></tr>`;
+      html += `<tr data-cn-o="${escHtml(gi)}"${open ? '' : ' style="display:none;"'}><td style="text-align:left;padding-left:30px;">${escHtml(o.opt)}${cnFlowBadge(o.key)}</td>${num(o.ord ? (o.ord.notIn ? '<span style="color:#9ca3af;" title="주문서에 없는 옵션이에요">0</span>' : fmt(o.ord.ordered)) : '<span style="color:#9ca3af;">—</span>')}${num(fmt(o.sent))}${num(o.act || o.actSent ? fmt(o.act) : '<span style="color:#9ca3af;">—</span>')}${num(o.ord ? cnRemainHtml(o.ord.remain, `주문 ${o.ord.ordered} − 모든 입고의 중국출고 ${o.ord.cum}${o.ord.disc ? ` − 폐기 ${o.ord.disc}` : ''}`) + (o.ord.disc ? `<div class="cn-sub">${cnDiscTxt(o.ord.disc)}</div>` : '') : '<span style="color:#9ca3af;">—</span>')}${num(o.ordOnly ? '<span style="color:#c2410c;font-size:.7rem;">아직 출고 없음</span>' : diffHtml(o.act, o.actSent, o.unchecked) + (o.gapClosed ? `<div class="cn-sub" style="color:#6b7280;">정리 ${o.gapClosed > 0 ? '부족 ' + fmt(o.gapClosed) : '초과 ' + fmt(-o.gapClosed)}</div>` : ''))}${num(cnDefShow(o.defN ? o.def : null))}${canPrice ? cnPriceTd(o.real ? o.real.yuan : o.price) + num(cnRealAvgHtml(o.real, false)) : ''}<td></td></tr>`;
     }
   }
   $('cn-prod-list').innerHTML = html + '</tbody></table></div>';
@@ -7198,48 +7222,81 @@ function cnFlowOpen(sname) {
   $('cn-flow-title').innerHTML = `<i class="fa-solid fa-timeline" style="color:#4f46e5;"></i> ${escHtml(sname)} — 수량 흐름`;
   const th = 'style="text-align:right;padding:4px 6px;font-size:.7rem;color:#6b7280;font-weight:700;border-bottom:1px solid #e5e7eb;white-space:nowrap;"';
   const td = 'style="text-align:right;padding:4px 6px;border-bottom:1px solid #f3f4f6;"';
-  $('cn-flow-body').innerHTML = !opts.length ? '<div class="empty-state"><p>주문서·출고 서류에 이 상품이 없어요.</p></div>' : `<div style="font-size:.76rem;color:#6b7280;margin-bottom:10px;line-height:1.6;">출고 서류마다 <b>그날까지의 주문 − 출고 누적 − 미출고 = 차이</b>(0이면 맞음). 주문서·출고 서류·폐기를 날짜순으로 보여 줘요.</div>` + opts.map(e => {
+  const swaps = cnSwapsOf(sname);
+  $('cn-flow-body').innerHTML = !opts.length ? '<div class="empty-state"><p>주문서·출고 서류에 이 상품이 없어요.</p></div>' : `<div style="font-size:.76rem;color:#6b7280;margin-bottom:10px;line-height:1.6;">출고 서류마다 <b>그날까지의 주문 − 출고 누적 − 미출고 = 차이</b>(0이면 맞음). 주문서·출고 서류·폐기를 날짜순으로 보여 줘요.</div>`
+    + (swaps.length ? `<div style="border:1.5px solid #fdba74;background:#fff7ed;border-radius:12px;padding:10px 12px;margin-bottom:10px;font-size:.8rem;color:#7c2d12;line-height:1.6;"><b><i class="fa-solid fa-shuffle"></i> 옵션이 바뀌어 나간 것 같아요</b> — ${swaps.map(p => `<b>${escHtml(cnOptName(p.short))}</b> ${fmt(p.n)}장 대신 <b>${escHtml(cnOptName(p.over))}</b> ${fmt(p.n)}장`).join(', ')}. 총 수량은 맞아요.${canEdit ? ` <button class="toggle-btn" style="font-size:.74rem;padding:3px 10px;margin-left:6px;" data-s="${escHtml(sname)}" onclick="cnSwapFix(this.dataset.s)"><i class="fa-solid fa-check"></i> 바뀜으로 정리</button><div style="font-size:.72rem;color:#9a3412;">덜 온 옵션은 폐기, 더 온 옵션은 초과 인정으로 기록돼요 — 미송·'주문보다 더 출고'에서 빠지고 되돌릴 수 있어요.</div>` : ''}</div>` : '')
+    + opts.map(e => {
     const evs = [...e.orders.map(o => ({ date: o.date || '', kind: 'o', o })), ...e.rows.map(r => ({ date: r.ship.ship_date || '9999-12-31', kind: 's', r })), ...cnDiscList(e.k).map(x => ({ date: String(x.created_at || '').slice(0, 10), kind: 'd', x }))]
       .sort((a, b) => String(a.date).localeCompare(String(b.date)) || ({ o: 0, s: 1, d: 2 })[a.kind] - ({ o: 0, s: 1, d: 2 })[b.kind]);
     let ordCum = 0;
     const body = evs.map(v => {
       if (v.kind === 'o') { ordCum += v.o.qty; return `<tr><td style="padding:4px 6px;border-bottom:1px solid #f3f4f6;white-space:nowrap;">${escHtml(v.o.date || '날짜 없음')}</td><td style="padding:4px 6px;border-bottom:1px solid #f3f4f6;"><i class="fa-solid fa-file-signature" style="color:#6366f1;"></i> 주문서 ${escHtml(v.o.title)}</td><td ${td}><b style="color:${v.o.qty < 0 ? '#b91c1c' : '#1e1b4b'};">${v.o.qty > 0 ? '+' : ''}${fmt(v.o.qty)}</b></td><td ${td}>${fmt(ordCum)}</td><td ${td}></td><td ${td}></td><td ${td}></td><td ${td}></td></tr>`; }
-      if (v.kind === 'd') return `<tr style="background:#f9fafb;"><td style="padding:4px 6px;border-bottom:1px solid #f3f4f6;white-space:nowrap;">${escHtml(v.date)}</td><td style="padding:4px 6px;border-bottom:1px solid #f3f4f6;" colspan="5"><i class="fa-solid fa-trash-can" style="color:#6b7280;"></i> <b>폐기 ${fmt(v.x.qty)}장</b> · ${escHtml(v.x.created_by_name || '')}${v.x.note ? ` · ${escHtml(v.x.note)}` : ''}</td><td ${td} colspan="2">${canEdit ? `<button class="toggle-btn" style="font-size:.7rem;padding:2px 8px;" onclick="cnDiscardUndo(${v.x.id})">되돌리기</button>` : ''}</td></tr>`;
+      if (v.kind === 'd') return `<tr style="background:#f9fafb;"><td style="padding:4px 6px;border-bottom:1px solid #f3f4f6;white-space:nowrap;">${escHtml(v.date)}</td><td style="padding:4px 6px;border-bottom:1px solid #f3f4f6;" colspan="5"><i class="fa-solid ${v.x.qty > 0 ? 'fa-trash-can' : 'fa-check'}" style="color:#6b7280;"></i> <b>${cnDiscTxt(v.x.qty)}장</b> · ${escHtml(v.x.created_by_name || '')}${v.x.note ? ` · ${escHtml(v.x.note)}` : ''}</td><td ${td} colspan="2">${canEdit ? `<button class="toggle-btn" style="font-size:.7rem;padding:2px 8px;" onclick="cnDiscardUndo(${v.x.id})">되돌리기</button>` : ''}</td></tr>`;
       const r = v.r, bad = r.diff != null && r.diff !== 0;
       return `<tr style="${bad ? 'background:#fef2f2;' : ''}"><td style="padding:4px 6px;border-bottom:1px solid #f3f4f6;white-space:nowrap;">${escHtml(r.ship.ship_date || '')}</td><td style="padding:4px 6px;border-bottom:1px solid #f3f4f6;"><i class="fa-solid fa-truck-fast" style="color:#0e7490;"></i> 출고 서류 ${escHtml(cnShipShort(r.ship))}</td><td ${td}></td><td ${td}>${fmt(r.upTo)}</td><td ${td}><b>${fmt(r.E)}</b></td><td ${td}>${fmt(r.cum)}</td><td ${td}>${r.F == null ? '<span style="color:#9ca3af;">빈칸</span>' : r.F === 0 ? '출완' : fmt(r.F)}</td><td ${td}>${r.diff == null ? '<span style="color:#9ca3af;">—</span>' : bad ? `<b style="color:#b91c1c;">${r.diff > 0 ? '+' : ''}${fmt(r.diff)}</b>` : '<span style="color:#15803d;font-weight:700;">0</span>'}</td></tr>`;
     }).join('');
     const opt = [e.color, e.size].filter(Boolean).join(' / ') || '단일', cause = cnFlowCause(e);
     return `<div style="border:1.5px solid ${e.status === 'bad' ? '#fca5a5' : '#e5e7eb'};border-radius:12px;padding:10px 12px;margin-bottom:10px;">
       <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px;"><b style="font-size:.88rem;">${escHtml(opt)}</b>${cnFlowStHtml(e)}
-        <span style="font-size:.76rem;color:#374151;">주문 <b>${fmt(e.ordered)}</b> · 중국출고 <b>${fmt(e.shipped)}</b>${e.disc ? ` · 폐기 <b>${fmt(e.disc)}</b>` : ''} · 미송 <b style="color:${e.pend > 0 ? '#c2410c' : e.pend < 0 ? '#1d4ed8' : '#15803d'};">${e.pend < 0 ? '−' + fmt(-e.pend) : fmt(e.pend)}</b>${e.last ? ` · 에이전시 미출고 <b>${e.last.F === 0 ? '출완' : fmt(e.last.F)}</b> (${escHtml(cnShipShort(e.last.ship))})` : ''}${e.after ? ` · <span style="color:#6366f1;">그 뒤 추가 주문 ${fmt(e.after)}장(출고 서류 반영 전)</span>` : ''}</span>
-        ${canEdit && e.pend > 0 ? `<button class="toggle-btn" style="margin-left:auto;font-size:.72rem;padding:3px 9px;color:#b91c1c;" data-s="${escHtml(e.sname)}" data-c="${escHtml(e.color)}" data-z="${escHtml(e.size)}" data-q="${cnDiscDefault(e)}" onclick="cnDiscardAsk(this)"><i class="fa-solid fa-trash-can"></i> 폐기</button>` : ''}</div>
+        <span style="font-size:.76rem;color:#374151;">주문 <b>${fmt(e.ordered)}</b> · 중국출고 <b>${fmt(e.shipped)}</b>${e.disc ? ` · ${cnDiscTxt(e.disc)}` : ''} · 미송 <b style="color:${e.pend > 0 ? '#c2410c' : e.pend < 0 ? '#1d4ed8' : '#15803d'};">${e.pend < 0 ? '−' + fmt(-e.pend) : fmt(e.pend)}</b>${e.last ? ` · 에이전시 미출고 <b>${e.last.F === 0 ? '출완' : fmt(e.last.F)}</b> (${escHtml(cnShipShort(e.last.ship))})` : ''}${e.after ? ` · <span style="color:#6366f1;">그 뒤 추가 주문 ${fmt(e.after)}장(출고 서류 반영 전)</span>` : ''}</span>
+        ${canEdit && e.pend !== 0 ? cnDiscBtn(e, 'margin-left:auto;font-size:.72rem;padding:3px 9px;') : ''}</div>
       ${cause ? `<div style="font-size:.76rem;color:#7f1d1d;background:#fef2f2;border-radius:8px;padding:6px 9px;margin-bottom:6px;line-height:1.6;">${cause}</div>` : ''}
       <div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:.76rem;"><thead><tr><th ${th} style="text-align:left;">날짜</th><th ${th} style="text-align:left;">내용</th><th ${th}>주문</th><th ${th}>그날까지 주문</th><th ${th}>출고(E)</th><th ${th}>출고 누적</th><th ${th}>미출고(F)</th><th ${th}>차이</th></tr></thead><tbody>${body}</tbody></table></div></div>`;
   }).join('');
   $('cn-flow-modal').style.display = 'flex';
 }
 const cnDiscList = k => (cnDiscMap().get(k) || {}).list || [];
-const cnDiscDefault = e => e.status === 'bad' && e.raw > 0 ? Math.min(e.raw - (e.disc || 0) > 0 ? e.raw - e.disc : e.raw, e.pend) : e.pend;
+const cnDiscTxt = v => v > 0 ? `폐기 ${fmt(v)}` : `초과 인정 ${fmt(-v)}`;   // 폐기 = 양수(더 받지 않음), 초과 인정 = 음수(주문보다 더 나온 수량을 받아들임) — 2026-10-23
+// 옵션 바뀜 찾기(2026-10-23 사용자 요청 — "2517 베이지가 1개 더, 다른 색이 1개 덜 들어와 총 수량은 맞다. 이런 경우도 확인하고 정리"):
+//   같은 품번 안에서 아직 정리 안 된 차이(raw − 폐기)가 '모자람'인 옵션과 '더 나옴'인 옵션을 짝지어 그만큼 바뀌어 나간 것으로 본다.
+function cnSwapsOf(sname) {
+  const es = [...cnFlowCalc().values()].filter(e => e.sname === sname && e.status === 'bad');
+  const shorts = es.filter(e => e.raw - e.disc > 0).map(e => ({ e, u: e.raw - e.disc })), overs = es.filter(e => e.raw - e.disc < 0).map(e => ({ e, u: e.disc - e.raw }));
+  const pairs = [];
+  for (const s of shorts) for (const o of overs) { const n = Math.min(s.u, o.u); if (n > 0) { pairs.push({ short: s.e, over: o.e, n }); s.u -= n; o.u -= n; } }
+  return pairs;
+}
+const cnOptName = e => [e.color, e.size].filter(Boolean).join(' / ') || '단일';
+async function cnSwapFix(sname) {
+  const pairs = cnSwapsOf(sname); if (!pairs.length) return;
+  const desc = pairs.map(p => `${cnOptName(p.short)} ${p.n}장 대신 ${cnOptName(p.over)} ${p.n}장`).join(', ');
+  if (!confirm(`${sname} — ${desc}이(가) 나간 것으로 정리할까요?\n덜 온 옵션은 폐기, 더 온 옵션은 초과 인정으로 기록돼요(되돌릴 수 있어요).`)) return;
+  try {
+    for (const p of pairs) {
+      const note = `옵션 바뀜: ${cnOptName(p.short)} ${p.n}장 대신 ${cnOptName(p.over)}로 출고(총 수량 맞음)`;
+      for (const [e, q] of [[p.short, p.n], [p.over, -p.n]]) {
+        const r = await cnPost('cn_discard', { sname, color: e.color || null, size: e.size || null, qty: q, note });
+        (cnState.data.discards = cnState.data.discards || []).push(r.discard);
+      }
+    }
+    cnDiscChanged(); if ($('cn-flow-modal').style.display === 'flex') cnFlowOpen(sname);
+    showToast(`${sname} 옵션 바뀜을 정리했어요`);
+  } catch (e) { showToast('정리 실패: ' + e.message); cnDiscChanged(); }
+}
+const cnDiscBtn = (e, style) => e.pend > 0 ? `<button class="toggle-btn" style="${style}color:#b91c1c;" data-s="${escHtml(e.sname)}" data-c="${escHtml(e.color)}" data-z="${escHtml(e.size)}" data-q="${cnDiscDefault(e)}" onclick="cnDiscardAsk(this)"><i class="fa-solid fa-trash-can"></i> 폐기</button>`
+  : e.pend < 0 ? `<button class="toggle-btn" style="${style}color:#1d4ed8;" data-s="${escHtml(e.sname)}" data-c="${escHtml(e.color)}" data-z="${escHtml(e.size)}" data-q="${cnDiscDefault(e)}" data-neg="1" onclick="cnDiscardAsk(this)" title="주문보다 더 나온 수량을 받아들여요(초과 인정)"><i class="fa-solid fa-check"></i> 초과 인정</button>` : '';
+const cnDiscDefault = e => e.pend < 0 ? -e.pend : e.status === 'bad' && e.raw > 0 ? Math.min(e.raw - (e.disc || 0) > 0 ? e.raw - e.disc : e.raw, e.pend) : e.pend;
 async function cnDiscardAsk(btn) {
-  const sname = btn.dataset.s, color = btn.dataset.c || null, size = btn.dataset.z || null, def = Number(btn.dataset.q) || 1;
+  const sname = btn.dataset.s, color = btn.dataset.c || null, size = btn.dataset.z || null, def = Number(btn.dataset.q) || 1, neg = btn.dataset.neg === '1';
   const label = `${sname} ${[color, size].filter(Boolean).join(' / ') || '단일'}`;
-  const q = prompt(`${label}\n더 받지 않을(폐기할) 수량을 적어 주세요 — 미송에서 빠져요(나중에 되돌릴 수 있어요)`, String(def));
+  const q = prompt(neg ? `${label}\n주문보다 더 나온 수량 중 받아들일(초과 인정) 수량을 적어 주세요 — '주문보다 더 출고'에서 빠져요(되돌릴 수 있어요)` : `${label}\n더 받지 않을(폐기할) 수량을 적어 주세요 — 미송에서 빠져요(나중에 되돌릴 수 있어요)`, String(def));
   if (q == null) return;
-  const qty = Number(String(q).trim());
-  if (!Number.isInteger(qty) || qty < 1) { showToast('1 이상 정수로 적어 주세요'); return; }
-  const note = prompt('폐기 이유(선택) — 예: 원단 부족으로 출완', '') ;
+  const n = Number(String(q).trim());
+  if (!Number.isInteger(n) || n < 1) { showToast('1 이상 정수로 적어 주세요'); return; }
+  const qty = neg ? -n : n;
+  const note = prompt(neg ? '이유(선택) — 예: 다른 색 대신 출고' : '폐기 이유(선택) — 예: 원단 부족으로 출완', '') ;
   if (note == null) return;
   btn.disabled = true;
   try {
     const r = await cnPost('cn_discard', { sname, color, size, qty, note: note.trim() || null });
     (cnState.data.discards = cnState.data.discards || []).push(r.discard);
     cnDiscChanged(); if ($('cn-flow-modal').style.display === 'flex') cnFlowOpen(sname);
-    showToast(`${label} ${qty}장을 폐기로 정리했어요`);
+    showToast(`${label} ${n}장을 ${neg ? '초과 인정' : '폐기'}로 정리했어요`);
   } catch (e) { showToast('폐기 실패: ' + e.message); btn.disabled = false; }
 }
 async function cnDiscardUndo(id) {
   const x = ((cnState.data || {}).discards || []).find(y => y.id === id); if (!x) return;
-  if (!confirm(`${x.sname} ${[x.color, x.size].filter(Boolean).join(' / ')} — 폐기 ${x.qty}장을 되돌릴까요? 다시 미송으로 잡혀요.`)) return;
+  if (!confirm(`${x.sname} ${[x.color, x.size].filter(Boolean).join(' / ')} — ${cnDiscTxt(x.qty)}장을 되돌릴까요?`)) return;
   try {
     await cnPost('cn_discard_del', { id });
     cnState.data.discards = cnState.data.discards.filter(y => y.id !== id);
@@ -7248,7 +7305,7 @@ async function cnDiscardUndo(id) {
   } catch (e) { showToast('되돌리기 실패: ' + e.message); }
 }
 // ── 미송 점검 탭 ──
-const CN_PEND_PASS = { pend: e => e.pend > 0, bad: e => e.status === 'bad', over: e => e.pend < 0, disc: e => e.disc > 0, all: e => e.pend !== 0 || e.status === 'bad' || e.disc > 0 };
+const CN_PEND_PASS = { pend: e => e.pend > 0, bad: e => e.status === 'bad', over: e => e.pend < 0, disc: e => e.disc !== 0, all: e => e.pend !== 0 || e.status === 'bad' || e.disc !== 0 };
 function cnPendRows() { return [...cnFlowCalc().values()].filter(e => !cnInactive(e.sname) && cnLinePass(e.sname)); }
 function cnPendRender() {
   const d = cnState.data; if (!d) return;
@@ -7258,9 +7315,9 @@ function cnPendRender() {
   $('cn-pend-summary').innerHTML = `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:8px;">${
     admgrTile(admgrDot('#f97316') + '미송(아직 안 들어옴)', `${fmt(pend.reduce((t, e) => t + e.pend, 0))}장 <span style="font-size:.72rem;color:#6b7280;">${fmt(pend.length)}옵션</span>`, false)
     + admgrTile(admgrDot('#dc2626') + '수량 확인 필요', `${fmt(bad.length)}옵션`, false)
-    + admgrTile(admgrDot('#6b7280') + '폐기', `${fmt(all.reduce((t, e) => t + e.disc, 0))}장`, false)
+    + admgrTile(admgrDot('#6b7280') + '폐기 · 초과 인정', `${fmt(all.reduce((t, e) => t + Math.max(0, e.disc), 0))}장 <span style="font-size:.72rem;color:#6b7280;">초과 인정 ${fmt(all.reduce((t, e) => t + Math.max(0, -e.disc), 0))}장</span>`, false)
     + admgrTile(admgrDot('#2563eb') + '주문보다 더 출고', `${fmt(over.reduce((t, e) => t - e.pend, 0))}장 <span style="font-size:.72rem;color:#6b7280;">${fmt(over.length)}옵션</span>`, false)}</div>`;
-  $('cn-pend-chips').innerHTML = [['pend', '미송 있음'], ['bad', '수량 확인'], ['over', '주문보다 더 출고'], ['disc', '폐기함'], ['all', '전체']].map(([k, label]) => `<button class="${cnState.pendFilter === k ? 'active' : ''}" onclick="cnState.pendFilter='${k}';cnPendRender()">${label} ${fmt(all.filter(pass[k]).length)}</button>`).join('');
+  $('cn-pend-chips').innerHTML = [['pend', '미송 있음'], ['bad', '수량 확인'], ['over', '주문보다 더 출고'], ['disc', '폐기·초과 인정'], ['all', '전체']].map(([k, label]) => `<button class="${cnState.pendFilter === k ? 'active' : ''}" onclick="cnState.pendFilter='${k}';cnPendRender()">${label} ${fmt(all.filter(pass[k]).length)}</button>`).join('');
   const q = String(($('cn-pend-q') || {}).value || '').trim().toLowerCase();
   let rows = all.filter(pass[cnState.pendFilter] || pass.pend);
   if (q) rows = rows.filter(e => e.sname.toLowerCase().includes(q) || (e.color + ' ' + e.size).toLowerCase().includes(q));
@@ -7268,14 +7325,14 @@ function cnPendRender() {
   const groups = new Map(); for (const e of rows) { const a = groups.get(e.sname) || []; a.push(e); groups.set(e.sname, a); }
   const names = [...groups.keys()].sort((a, b) => a.localeCompare(b, 'ko', { numeric: true }));
   const num = v => `<td style="text-align:right;">${v}</td>`;
-  let html = `<div class="table-wrap"><table class="cn-tbl" style="width:100%;font-size:.8rem;"><thead><tr><th style="text-align:left;">품번 / 옵션</th><th>주문<div class="cn-sub">주문서 합</div></th><th>중국출고<div class="cn-sub">E열 합</div></th><th>폐기</th><th>미송<div class="cn-sub">주문 − 출고 − 폐기</div></th><th>에이전시 미출고<div class="cn-sub">최근 출고 서류 F열</div></th><th>확인<div class="cn-sub">주문 − 출고 − 미출고</div></th>${canEdit ? '<th></th>' : ''}</tr></thead><tbody>`;
+  let html = `<div class="table-wrap"><table class="cn-tbl" style="width:100%;font-size:.8rem;"><thead><tr><th style="text-align:left;">품번 / 옵션</th><th>주문<div class="cn-sub">주문서 합</div></th><th>중국출고<div class="cn-sub">E열 합</div></th><th>폐기<div class="cn-sub">− 초과 인정</div></th><th>미송<div class="cn-sub">주문 − 출고 − 폐기</div></th><th>에이전시 미출고<div class="cn-sub">최근 출고 서류 F열</div></th><th>확인<div class="cn-sub">주문 − 출고 − 미출고</div></th>${canEdit ? '<th></th>' : ''}</tr></thead><tbody>`;
   for (const n of names) {
     const es = groups.get(n).sort((a, b) => (a.color + a.size).localeCompare(b.color + b.size)), sum = k => es.reduce((t, e) => t + e[k], 0);
-    html += `<tr style="background:#f8f9ff;cursor:pointer;" onclick="cnFlowOpen(this.dataset.s)" data-s="${escHtml(n)}"><td style="text-align:left;"><div style="display:flex;align-items:center;gap:6px;">${cnThumbHtml(n)}<b style="font-weight:800;">${escHtml(n)}</b><span class="cn-sub">옵션 ${es.length}</span>${cnFlowBtn(n)}</div></td>${num(fmt(sum('ordered')))}${num(fmt(sum('shipped')))}${num(sum('disc') ? fmt(sum('disc')) : '<span style="color:#9ca3af;">—</span>')}${num(cnRemainHtml(sum('pend')))}<td></td><td></td>${canEdit ? '<td></td>' : ''}</tr>`;
+    html += `<tr style="background:#f8f9ff;cursor:pointer;" onclick="cnFlowOpen(this.dataset.s)" data-s="${escHtml(n)}"><td style="text-align:left;"><div style="display:flex;align-items:center;gap:6px;">${cnThumbHtml(n)}<b style="font-weight:800;">${escHtml(n)}</b><span class="cn-sub">옵션 ${es.length}</span>${cnFlowBtn(n)}${cnSwapsOf(n).length ? '<span style="font-size:.66rem;font-weight:700;color:#9a3412;background:#ffedd5;border-radius:99px;padding:1px 8px;white-space:nowrap;"><i class="fa-solid fa-shuffle"></i> 옵션 바뀜 의심</span>' : ''}</div></td>${num(fmt(sum('ordered')))}${num(fmt(sum('shipped')))}${num(sum('disc') ? fmt(sum('disc')) : '<span style="color:#9ca3af;">—</span>')}${num(cnRemainHtml(sum('pend')))}<td></td><td></td>${canEdit ? '<td></td>' : ''}</tr>`;
     for (const e of es) {
       const opt = [e.color, e.size].filter(Boolean).join(' / ') || '단일';
       const ag = e.last ? `${e.last.F === 0 ? '<span style="color:#15803d;font-weight:700;">출완</span>' : `<b>${fmt(e.last.F)}</b>`}<div class="cn-sub">${escHtml(cnShipShort(e.last.ship))}${e.after ? ` · 이후 주문 +${fmt(e.after)}` : ''}</div>` : '<span style="color:#9ca3af;">—</span>';
-      html += `<tr><td style="text-align:left;padding-left:30px;cursor:pointer;" onclick="cnFlowOpen(this.dataset.s)" data-s="${escHtml(e.sname)}">${escHtml(opt)}</td>${num(fmt(e.ordered))}${num(fmt(e.shipped))}${num(e.disc ? fmt(e.disc) : '<span style="color:#9ca3af;">—</span>')}${num(cnRemainHtml(e.pend))}${num(ag)}<td style="text-align:right;cursor:pointer;" onclick="cnFlowOpen(this.dataset.s)" data-s="${escHtml(e.sname)}">${cnFlowStHtml(e)}</td>${canEdit ? `<td style="text-align:right;">${e.pend > 0 ? `<button class="toggle-btn" style="font-size:.7rem;padding:2px 8px;color:#b91c1c;" data-s="${escHtml(e.sname)}" data-c="${escHtml(e.color)}" data-z="${escHtml(e.size)}" data-q="${cnDiscDefault(e)}" onclick="cnDiscardAsk(this)">폐기</button>` : ''}</td>` : ''}</tr>`;
+      html += `<tr><td style="text-align:left;padding-left:30px;cursor:pointer;" onclick="cnFlowOpen(this.dataset.s)" data-s="${escHtml(e.sname)}">${escHtml(opt)}</td>${num(fmt(e.ordered))}${num(fmt(e.shipped))}${num(e.disc ? `<span title="${e.disc > 0 ? '폐기' : '초과 인정(음수)'}">${e.disc > 0 ? fmt(e.disc) : '−' + fmt(-e.disc)}</span>` : '<span style="color:#9ca3af;">—</span>')}${num(cnRemainHtml(e.pend))}${num(ag)}<td style="text-align:right;cursor:pointer;" onclick="cnFlowOpen(this.dataset.s)" data-s="${escHtml(e.sname)}">${cnFlowStHtml(e)}</td>${canEdit ? `<td style="text-align:right;">${cnDiscBtn(e, 'font-size:.7rem;padding:2px 8px;')}</td>` : ''}</tr>`;
     }
   }
   $('cn-pend-list').innerHTML = html + '</tbody></table></div>';

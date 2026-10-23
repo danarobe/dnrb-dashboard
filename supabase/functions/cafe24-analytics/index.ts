@@ -2133,7 +2133,7 @@ Deno.serve(async (req) => {
     //   cn_vendor POST — 사입상품명별 거래처명 수동 입력 (관리자·MD, 2026-10-01 — 입고 건 단위가 아니라 상품마다)
     //   cn_thumbs POST {get:[사입상품명…]} — 그 상품들의 작은 사진(전원, 한 번에 200개 — 화면에 보이는 것만 받게)
     //             POST {thumbs:{사입상품명:dataURL}} — 사진 저장(관리자·MD, 상품당 1장 — 같은 이름은 덮어씀). 목록과 따로 불러 표를 늦추지 않는다 (2026-10-02)
-    if (action === "cn_list" || action === "cn_upload" || action === "cn_check" || action === "cn_ship" || action === "cn_vendor" || action === "cn_line" || action === "cn_fabric" || action === "cn_label" || action === "cn_c24find" || action === "cn_c24set" || action === "cn_export" || action === "cn_thumbs" || action === "cn_order_upload" || action === "cn_order" || action === "cn_inactive" || action === "cn_manual_ship" || action === "cn_fx_buy_add" || action === "cn_fx_buy_del" || action === "cn_remit_save" || action === "cn_remit_del" || action === "cn_doc_save" || action === "cn_discard" || action === "cn_discard_del") {
+    if (action === "cn_list" || action === "cn_upload" || action === "cn_check" || action === "cn_ship" || action === "cn_vendor" || action === "cn_line" || action === "cn_fabric" || action === "cn_label" || action === "cn_c24find" || action === "cn_c24set" || action === "cn_export" || action === "cn_thumbs" || action === "cn_order_upload" || action === "cn_order" || action === "cn_inactive" || action === "cn_manual_ship" || action === "cn_fx_buy_add" || action === "cn_fx_buy_del" || action === "cn_remit_save" || action === "cn_remit_del" || action === "cn_doc_save" || action === "cn_discard" || action === "cn_discard_del" || action === "cn_gap") {
       // 관리자 + MD + 물류팀. **CS팀은 볼 필요 없음(2026-10-02 사용자 지정)** — 서버 역할은 logistics→cs로 합쳐져 있어 원래 역할을 다시 본다(soldoutRoleOk와 같은 방식)
       if (!(authed.role === "staff" || await soldoutRoleOk(authed))) return json({ error: "접근 권한이 없습니다" }, 403);
       const canPrice = authed.role === "admin";   // 단가·비용 = **관리자만** (2026-10-02 사용자 지정 — MD도 안 보이게. 물류팀은 원래 수량만)
@@ -2468,12 +2468,32 @@ Deno.serve(async (req) => {
           if (!gone.length) return json({ error: "이미 지워진 폐기 기록이에요 — 새로고침해 주세요" }, 404);
           return json({ ok: true, id });
         }
-        const sname = txt(b.sname, 100), qty = intOrNull(b.qty, 1_000_000);
+        // 수량: 양수 = 폐기(더 받지 않음), 음수 = 초과 인정(주문보다 더 나온 수량을 받아들임 — 2026-10-23 '색이 바뀌어 나간' 경우 등)
+        const sname = txt(b.sname, 100), qn = Number(b.qty), qty = Number.isInteger(qn) && qn !== 0 && Math.abs(qn) <= 1_000_000 ? qn : NaN;
         if (!sname) return json({ error: "사입상품명이 없어요" }, 400);
-        if (qty === null || Number.isNaN(qty) || qty < 1) return json({ error: "폐기 수량은 1 이상 정수로 적어 주세요" }, 400);
+        if (Number.isNaN(qty)) return json({ error: "수량은 0이 아닌 정수로 적어 주세요(폐기 = 양수, 초과 인정 = 음수)" }, 400);
         if (!(await snameKnown(sname)).length) return json({ error: "입고 내역·주문서에 없는 사입상품명이에요 — 새로고침한 뒤 다시 시도해주세요" }, 404);
         const [row] = await sbRest("cn_discards", { method: "POST", body: JSON.stringify({ sname, color: txt(b.color, 60), size: txt(b.size, 40), qty, note: txt(b.note, 200), created_by: authed.id, created_by_name: authed.name }) }) as Record<string, any>[];
         return json({ ok: true, discard: { id: row.id, sname: row.sname, color: row.color, size: row.size, qty: row.qty, note: row.note, created_by_name: row.created_by_name, created_at: row.created_at } });
+      }
+      // ── 차이 정리(2026-10-23 사용자 요청 — "1차 입고의 부족분은 모두 없애줘, 기록에 (첫 입고여서 차이가 있었음. 감안)") ──
+      //   cn_gap {line_id, close: true, note} — 그 입고 줄의 차이(중국출고 − 실입고)를 '정리'로 표시(실입고 숫자는 그대로). 검수 완료한 차수도 된다(검수 뒤 정리).
+      //   cn_gap {line_id, close: false} — 정리 취소. 관리자·MD만.
+      if (action === "cn_gap") {
+        if (!canEdit) return json({ error: "차이 정리는 관리자·MD만 할 수 있어요" }, 403);
+        const id = Number(b.line_id); if (!Number.isInteger(id) || id < 1) return json({ error: "line_id가 올바르지 않아요" }, 400);
+        if (typeof b.close !== "boolean") return json({ error: "close 값이 올바르지 않아요" }, 400);
+        const [l] = ((await sbRest(`cn_lines?id=eq.${id}&select=id,qty_sent,qty_actual`)) ?? []) as Record<string, any>[];
+        if (!l) return json({ error: "입고 줄을 찾지 못했어요 — 새로고침해 주세요" }, 404);
+        let patch: Record<string, unknown>;
+        if (b.close) {
+          if (l.qty_actual == null) return json({ error: "실입고를 적지 않은 줄이에요" }, 400);
+          const gap = Number(l.qty_sent) - Number(l.qty_actual);
+          if (gap === 0) return json({ error: "차이가 없는 줄이에요" }, 400);
+          patch = { gap_closed: gap, gap_note: txt(b.note, 200), gap_by_name: authed.name, gap_at: now };
+        } else patch = { gap_closed: null, gap_note: null, gap_by_name: null, gap_at: null };
+        const [row] = await sbRest(`cn_lines?id=eq.${id}&select=id,gap_closed,gap_note,gap_by_name,gap_at`, { method: "PATCH", body: JSON.stringify(patch) }) as Record<string, any>[];
+        return json({ ok: true, line: row });
       }
       if (action === "cn_inactive") {
         if (!canEdit) return json({ error: "미진행 표시는 관리자·MD만 바꿀 수 있어요" }, 403);
