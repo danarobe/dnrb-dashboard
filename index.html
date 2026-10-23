@@ -396,7 +396,15 @@
     .cxl-tbl thead th { padding:9px 10px; }
     .cxl-tbl td.nw { white-space:nowrap; }
     /* 중국 상품 재고·입고 점검 표(2026-10-23 사용자 요청 "표가 잘린다 — 가시성 좋게"): 이름 칸·머리글·입고 예정 내역은 줄바꿈, 칸 여백 줄임 */
-    .made-cn-tbl thead th { white-space:normal; line-height:1.25; vertical-align:bottom; padding:9px 8px; }
+    .made-cn-tbl thead th { white-space:normal; line-height:1.25; vertical-align:middle; padding:9px 8px; }
+    /* 머리글 줄 고정(같은 날 사용자 요청 "스크롤을 내려도 맨 위 항목 줄은 고정"): 창 스크롤 기준으로 상단 헤더(--hdr-h) 바로 아래에 붙음.
+       감싼 칸이 overflow-x:auto면 고정이 그 칸 안에서만 걸려 소용없어서, 넓은 화면에선 overflow를 풀고(표가 1024 폭까지 안 넘침) 좁은 화면만 옆 스크롤. */
+    .table-wrap.made-cn-wrap { overflow:visible; }
+    #sec-madechk.section-card { overflow:clip; }   /* 카드의 overflow:hidden도 스크롤 칸이 돼서 고정을 막음 — clip은 둥근 모서리는 자르되 스크롤 칸이 아님 */
+    .made-cn-tbl thead th { position:sticky; top:var(--hdr-h, 0px); z-index:3; background:#f8f9ff; box-shadow:inset 0 -2px 0 #e5e7eb; }
+    .made-cn-tbl thead th:first-child { border-top-left-radius:12px; }
+    .made-cn-tbl thead th:last-child { border-top-right-radius:12px; }
+    @media (max-width: 900px) { .table-wrap.made-cn-wrap { overflow-x:auto; } .made-cn-tbl thead th { position:static; } }
     .made-cn-tbl thead th .sub { display:block; font-size:.62rem; font-weight:500; color:#6b7280; margin-top:2px; }
     .made-cn-tbl tbody td { padding:8px 8px; vertical-align:top; }
     .made-cn-tbl td.nm { white-space:normal; text-align:left; min-width:200px; max-width:320px; word-break:keep-all; overflow-wrap:anywhere; }
@@ -12550,7 +12558,7 @@ function madeCnRender() {
   const incCell = (inc, pend, transit, late) => inc ? `<b style="color:#0369a1;">+${fmt(inc)}</b>${pend || transit || late ? `<div class="inc-lines">${[pend ? `<div>미송 ${fmt(pend)}</div>` : '', transit ? `<div>운송 중 ${fmt(transit)}</div>` : '', late ? `<div title="셀메이트 파일보다 나중에 [입고 완료] — 파일 재고에 아직 없어서 입고 예정으로 셈">입고 완료 ${fmt(late)}<br><span style="color:#9ca3af;">(셀메이트 반영 전)</span></div>` : ''].join('')}</div>` : ''}` : '<span style="color:#9ca3af;">0</span>';
   const warnBadge = r => `<span title="${r.warnLow ? '입고 후 5개 미만' : ''}${r.warnLow && r.warnSafe ? ' · ' : ''}${r.warnSafe ? `안정재고 ${fmt(r.safe)} 미달` : ''}" style="display:inline-block;background:#fef3c7;color:#92400e;border:1px solid #fcd34d;border-radius:5px;padding:1px 6px;font-size:.64rem;font-weight:800;margin-left:4px;white-space:nowrap;"><i class="fa-solid fa-triangle-exclamation" style="font-size:.6rem;"></i> 주의</span>`;
   const cnTag = o => `<span class="cn-tag" title="중국 사입 옵션 (${o.how === 'manual' ? '직접 고른 짝' : '자동 짝'}) · 주문 ${fmt(o.inc.ordered)} · 출고 ${fmt(o.inc.shipped)}${o.inc.disc ? ` · ${o.inc.disc > 0 ? '폐기' : '초과 인정'} ${fmt(Math.abs(o.inc.disc))}` : ''}" style="display:inline-block;background:${o.how === 'manual' ? '#ede9fe' : '#f1f5f9'};color:${o.how === 'manual' ? '#5b21b6' : '#475569'};border-radius:5px;padding:0 5px;font-size:.62rem;font-weight:700;margin-left:4px;white-space:nowrap;">← ${escHtml(o.sname)} ${escHtml(madeCnOptName(o))}</span>`;
-  let html = `<div class="table-wrap"><table class="made-cn-tbl">
+  let html = `<div class="table-wrap made-cn-wrap"><table class="made-cn-tbl">
     <thead><tr><th style="text-align:left;">상품 / 옵션</th><th>하루 평균<br>주문<span class="sub">최근 7일</span></th><th>현재<br>재고</th><th>미발송</th><th>가용<span class="sub">재고−미발송</span></th>
       <th>중국<br>입고 예정<span class="sub">미송·운송 중·<br>반영 전 입고</span></th><th>입고 후<span class="sub">가용+입고 예정</span></th><th class="m-hide">안정<br>재고<span class="sub">셀메이트</span></th><th>부족<span class="sub">미발송−재고<br>−입고 예정</span></th></tr></thead><tbody>`;
   for (const g of list) {
