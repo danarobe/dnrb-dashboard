@@ -3177,7 +3177,7 @@ async function npmOpen() {
    서버 함수 npm-calendar가 상품관리 /api/dnrb-calendar(연동 비밀키)에서 읽기 전용으로 가져온다.
    보기 = 관리자·MD(마케터)·물류팀 — CS팀 제외(서버 npm-calendar도 같은 기준). 등록·삭제는 상품관리에서만. 달마다 한 번 읽고 [새로고침]으로 다시. */
 const upcalState = { ym: null, data: {}, loading: false, sel: null };
-function upcalAllowed() { return isAdmin() || isStaff() || SESSION?.role === 'logistics'; }
+function upcalAllowed() { return isAdmin() || isStaff() || isCS(); }   // 관리자·MD·물류팀 + CS팀(2026-10-23 사용자 요청) = 로그인한 직원 전원
 function upcalToday() { return new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Seoul' }); }
 function upcalShift(ym, d) { const [y, m] = ym.split('-').map(Number); const t = y * 12 + (m - 1) + d; return `${Math.floor(t / 12)}-${String(t % 12 + 1).padStart(2, '0')}`; }
 function upcalInit() { if (!upcalState.ym) upcalState.ym = upcalToday().slice(0, 7); upcalLoad(false); }
@@ -3597,7 +3597,7 @@ function applyRole() {
   $('menu-rwatch').style.display = (isAdmin() || isStaff()) && !isCS() ? '' : 'none'; // 반품 관리 = 관리자 + MD
   $('menu-madechk').style.display = (isAdmin() || isStaff()) && !isCS() ? '' : 'none'; // 자체제작 주문 점검 = 관리자 + MD (2026-09-03)
   $('menu-npm').style.display = isAdmin() || isStaff() || SESSION?.role === 'logistics' ? '' : 'none';
-  $('menu-upcal').style.display = upcalAllowed() ? '' : 'none';   // 업로드 캘린더 = 관리자 + MD + 물류팀 (2026-10-23, CS팀 제외 — 서버 npm-calendar도 같은 기준)    // 상품 관리(SSO 링크) = 관리자 + MD + 물류팀(2026-09-07, 자체제작 관리만)
+  $('menu-upcal').style.display = upcalAllowed() ? '' : 'none';   // 업로드 캘린더 = 관리자 + MD + 물류팀 + CS팀 (2026-10-23 — 서버 npm-calendar도 같은 기준)    // 상품 관리(SSO 링크) = 관리자 + MD + 물류팀(2026-09-07, 자체제작 관리만)
   $('menu-profit').style.display = isAdmin() && !isCS() ? '' : 'none';
   $('menu-agents').style.display = (isAdmin() || agentUserState.me) ? '' : 'none';   // AI 에이전트 앱(별도 저장소 dnrb-agents, SSO 링크) = 관리자 전용 — 매출 절대액 포함 (2026-09-10)
   $('menu-wm').style.display = isAdmin() && !isCS() ? '' : 'none';
@@ -17939,7 +17939,7 @@ function showMenu(key) {
     || (key === 'rwatch' && isCS())                      // 반품 관리 = 관리자 + MD
     || (key === 'madechk' && isCS())                     // 자체제작 주문 점검 = 관리자 + MD (2026-09-03)
     || (key === 'cxl' && !cxlAllowed())                   // 취소·반품 접수 = 관리자 + 허용 목록 (2026-10-08)
-    || (key === 'upcal' && !upcalAllowed())               // 업로드 캘린더 = 관리자 + MD + 물류팀 (2026-10-23)
+    || (key === 'upcal' && !upcalAllowed())               // 업로드 캘린더 = 관리자 + MD + 물류팀 + CS팀 (2026-10-23)
     || (['users', 'disp', 'stable', 'profit', 'board', 'proj', 'wm'].includes(key) && !isAdmin());   // admgr은 MD·마케터도 진입(테스트 소재 탭만, 2026-08-27), wm = 근무 관리 (급여·계좌 포함)
   if (denied) { showToast('접근 권한이 없습니다'); key = 'home'; }
   document.querySelectorAll('.page-sec').forEach(el => { el.style.display = 'none'; });

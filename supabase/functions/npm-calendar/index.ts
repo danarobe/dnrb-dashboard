@@ -1,7 +1,7 @@
 // ═══════════════════════════════════════════════════════════════
 // 업로드 캘린더 (2026-10-23 사용자 요청 "상품관리 시스템의 업로드 캘린더를 물류팀도 워크스페이스에서 볼 수 있게")
 //
-//   GET ?month=YYYY-MM   — x-auth-token 검증 후 관리자·MD(마케터 포함)·물류팀(원래 역할 logistics)만. CS팀은 403.
+//   GET ?month=YYYY-MM   — x-auth-token 검증 후 관리자·MD(마케터 포함)·물류팀·CS팀(2026-10-23 CS팀 추가 — 사용자 요청).
 //   상품관리 시스템(newproduct-manager) `/api/dnrb-calendar`를 연동 비밀키(NPM_SYNC_SECRET — 두 시스템 공유 키)로 읽어
 //   그대로 돌려준다(읽기 전용). 응답 = { month, products: [{ id, name, status, status_label, upload_date }], reups: [{ id, title, reup_date }] }
 //   상품관리의 /calendar 화면과 같은 자료(업로드 예정일 upload_date가 그 달인 상품 + 끌올). 등록·삭제는 상품관리에서만.
@@ -9,20 +9,12 @@
 import { handleOptions, json, verifyAuthToken } from "../_shared/util.ts";
 
 const NPM = "https://newproduct-manager.vercel.app";
-const SB_URL = Deno.env.get("SUPABASE_URL")!;
-const SB_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
-// verifyAuthToken은 logistics→cs로 합쳐 주므로 물류팀은 원래 역할을 다시 읽는다(wm-hire hireRoleOk와 같은 방식)
+// 2026-10-23 사용자 요청으로 CS팀도 연다 → 관리자·MD(마케터)·CS팀·물류팀 = 로그인한 직원 전원(verifyAuthToken이 marketer→staff, logistics→cs로 합쳐 줌).
+//   서버 간 계정(에이전트·크론·상품관리 연동)은 막는다.
 async function roleOk(me: { id: string; role: string }): Promise<boolean> {
   if (["sales-agent", "cron", "npm-sync"].includes(me.id)) return false;
-  if (me.role === "admin" || me.role === "staff") return true;
-  if (me.role !== "cs") return false;
-  const res = await fetch(`${SB_URL}/rest/v1/app_users?id=eq.${encodeURIComponent(me.id)}&select=role`, {
-    headers: { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}` },
-  });
-  if (!res.ok) return false;
-  const [row] = await res.json();
-  return String(row?.role ?? "") === "logistics";
+  return me.role === "admin" || me.role === "staff" || me.role === "cs";
 }
 
 Deno.serve(async (req) => {
