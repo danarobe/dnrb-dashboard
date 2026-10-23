@@ -109,10 +109,11 @@ function rscanJudge(entry: Record<string, any>, st: typeof RSCAN_DEFAULTS) {
 }
 const rscanDigits = (v: unknown) => String(v ?? "").replace(/[^0-9A-Za-z]/g, "");
 // ── 변심인데 반품 배송비 차감이 없는 반품 → 수거 완료 막기 (2026-10-23 사용자 요청 "무조건 카페24 주문을 먼저 확인하도록")
-//   변심 = 자사몰 접수 사유 코드 A·O(카페24 '고객변심' — 사유 문구 '변심·단순변심·사이즈 미스' 등). 네이버페이는 카페24에서 수거 완료를 못 해서 대상 아님.
+//   대상 사유 = 자사몰 접수 사유 코드 A·O(카페24 '고객변심' — 사유 문구 '변심·단순변심·사이즈 미스' 등) + P(상품불만족 — 같은 날 사용자 요청으로 추가). 네이버페이는 카페24에서 수거 완료를 못 해서 대상 아님.
 //   차감액 = 반품 접수의 return_shipping_fee(카페24는 음수로 줌 — 환불 대조와 같은 기준, 절댓값). 이미 수거된 건·철회 건은 대상 아님.
-const RSCAN_FEE_HOLD_MSG = "변심인데 배송비 차감이 안되어있어요. 카페24에서 확인해주세요";
-const RSCAN_CHANGE_MIND = ["A", "O"];
+const RSCAN_FEE_HOLD_LABEL: Record<string, string> = { A: "변심", O: "변심", P: "상품불만족" };
+const RSCAN_CHANGE_MIND = Object.keys(RSCAN_FEE_HOLD_LABEL);
+const rscanFeeHoldMsg = (t: unknown) => `${RSCAN_FEE_HOLD_LABEL[String(t ?? "")] ?? "변심"}인데 배송비 차감이 안되어있어요. 카페24에서 확인해주세요`;
 function rscanRetFee(c: Record<string, any>): number | null {
   if (!c || !("return_shipping_fee" in c)) return null;
   return Math.abs(Math.round(Number(c.return_shipping_fee ?? 0) || 0));
@@ -2941,7 +2942,8 @@ Deno.serve(async (req) => {
         if (collectedOf(its)) return json({ ok: true, already: true, ...stateOf(its) });
         if (kind === "return") {   // 변심인데 반품 배송비 차감 없음 → 처리하지 않음(2026-10-23 사용자 요청) — 카페24에서 확인·수정 후 다시
           const cl = (((order.return ?? []) as Record<string, any>[]).find((c) => c.claim_code === claimCode)) ?? {};
-          if (rscanFeeHold({ kind, naver: false, reason_type: cl.claim_reason_type ?? its[0]?.claim_reason_type ?? null, ret_fee: rscanRetFee(cl), ...stateOf(its) })) return json({ error: RSCAN_FEE_HOLD_MSG, fee_hold: true }, 409);
+          const rt = cl.claim_reason_type ?? its[0]?.claim_reason_type ?? null;
+          if (rscanFeeHold({ kind, naver: false, reason_type: rt, ret_fee: rscanRetFee(cl), ...stateOf(its) })) return json({ error: rscanFeeHoldMsg(rt), fee_hold: true, reason_type: rt }, 409);
         }
         const codes = its.map((it) => ({ order_item_code: String(it.order_item_code) }));
         // 반품 불가·확인 필요 품목이 섞여 있으면(최신 주문 기준) 확인(ack=1) 없이는 처리하지 않는다 — 화면이 목록을 보여 주고 다시 요청
