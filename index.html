@@ -13297,6 +13297,48 @@ function stableNewForApply() {
   return (stableState.newItems || []).filter(it => it.rec >= 1 && it.stable !== it.rec && (!(minDiff > 0) || it.rec >= minDiff)
     && (!q || String(it.product_name || '').toLowerCase().includes(q) || String(it.option_value || '').toLowerCase().includes(q)));
 }
+/* 반영 창 임시 저장(2026-10-25 사용자 요청 — "작업하다 튕기거나 새로고침하면 여러 개 고친 걸 기억해서 다시 해야 함"):
+   직접 바꾼 값과 체크 상태를 이 브라우저(localStorage)에 바로바로 저장하고, 반영 창을 다시 열면 같은 상품·옵션 줄에 되살린다.
+   키 = 신규/기존 + 상품명 + 옵션명(줄 번호는 열 때마다 바뀌어서). 반영에 성공한 줄은 지우고, [임시 저장 지우기]로 전부 지울 수 있다. 14일 지나면 버림. */
+const STABLE_DRAFT_KEY = 'dnrb_stable_apply_draft';
+const stableDraftKey = r => `${r.isNew ? 'n' : 'e'}\u0001${r.name}\u0001${r.option || ''}`;
+function stableDraftRead() {
+  try { const d = JSON.parse(localStorage.getItem(STABLE_DRAFT_KEY) || 'null'); if (d && d.at && Date.now() - d.at < 14 * 864e5) return { at: d.at, edits: d.edits || {}, sel: d.sel || [] }; } catch {}
+  return null;
+}
+function stableDraftSave() {
+  const old = stableDraftRead() || { edits: {}, sel: [] };
+  const inView = new Set(stableApply.rows.map(stableDraftKey));
+  // 지금 창에 없는 줄(필터로 빠진 줄)의 저장값은 그대로 두고, 창에 있는 줄만 새로 적는다
+  const edits = Object.fromEntries(Object.entries(old.edits).filter(([k]) => !inView.has(k)));
+  const sel = old.sel.filter(k => !inView.has(k));
+  for (const r of stableApply.rows) { const k = stableDraftKey(r); if (r.to !== r.rec) edits[k] = r.to; if (stableApply.sel.has(r.i)) sel.push(k); }
+  try {
+    if (!Object.keys(edits).length && !sel.length) localStorage.removeItem(STABLE_DRAFT_KEY);
+    else localStorage.setItem(STABLE_DRAFT_KEY, JSON.stringify({ at: Date.now(), edits, sel }));
+  } catch {}
+  stableDraftNote();
+}
+function stableDraftDrop(keys) {   // 반영에 성공한 줄은 임시 저장에서 뺀다
+  const d = stableDraftRead(); if (!d) return;
+  const gone = new Set(keys);
+  const edits = Object.fromEntries(Object.entries(d.edits).filter(([k]) => !gone.has(k))), sel = d.sel.filter(k => !gone.has(k));
+  try { if (!Object.keys(edits).length && !sel.length) localStorage.removeItem(STABLE_DRAFT_KEY); else localStorage.setItem(STABLE_DRAFT_KEY, JSON.stringify({ at: d.at, edits, sel })); } catch {}
+}
+function stableDraftClear() {
+  if (!confirm('임시 저장된 수정 값·체크를 모두 지울까요?\n창에 있는 값은 추천 값으로 돌아가요.')) return;
+  try { localStorage.removeItem(STABLE_DRAFT_KEY); } catch {}
+  stableApply.rows.forEach(r => { r.to = r.rec; }); stableApply.sel = new Set(); stableApply.restored = 0;
+  stableApplyRender(); showToast('임시 저장을 지웠어요');
+}
+function stableDraftNote() {
+  const el = $('stable-draft-note'); if (!el) return;
+  const d = stableDraftRead();
+  const nEdit = d ? Object.keys(d.edits).length : 0, nSel = d ? d.sel.length : 0;
+  const t = d ? new Date(d.at) : null, hm = t ? `${t.getMonth() + 1}/${t.getDate()} ${String(t.getHours()).padStart(2, '0')}:${String(t.getMinutes()).padStart(2, '0')}` : '';
+  el.innerHTML = !d ? '<span style="color:#6b7280;"><i class="fa-regular fa-floppy-disk"></i> 값을 바꾸거나 체크하면 이 브라우저에 자동으로 임시 저장돼요</span>'
+    : `<span style="color:#4338ca;font-weight:700;"><i class="fa-solid fa-floppy-disk"></i> 임시 저장됨 ${hm}</span> <span style="color:#6b7280;">— 직접 바꾼 값 ${nEdit}건 · 체크 ${nSel}건${stableApply.restored ? ` (창을 열 때 ${stableApply.restored}건 되살림)` : ''} · 새로고침해도 남아요</span> <a href="javascript:void(0)" onclick="stableDraftClear()" style="color:#b91c1c;font-size:.74rem;margin-left:4px;">임시 저장 지우기</a>`;
+}
 function stableApplyOpen() {
   if (!isAdmin()) { showToast('접근 권한이 없습니다'); return; }
   const cand = stableFiltered().filter(r => r.rec !== null && r.rec !== r.stable);
@@ -13306,9 +13348,20 @@ function stableApplyOpen() {
     ...cand.map(r => ({ ref: r, name: r.name, option: r.option, from: r.stable, rec: r.rec, to: r.rec, avg: r.avg, isNew: false })),
     ...fresh.map(it => ({ ref: it, name: it.product_name, option: it.option_value || '', from: null, rec: it.rec, to: it.rec, avg: it.avg, isNew: true })),
   ].map((r, i) => ({ ...r, i }));
-  stableApply.sel = new Set(); stableApply.note = '';
+  stableApply.sel = new Set(); stableApply.note = ''; stableApply.restored = 0;
+  const d = stableDraftRead();
+  if (d) {   // 임시 저장된 값·체크 되살리기
+    const selKeys = new Set(d.sel);
+    for (const r of stableApply.rows) {
+      const k = stableDraftKey(r); let hit = false;
+      if (Object.prototype.hasOwnProperty.call(d.edits, k)) { const v = Number(d.edits[k]); if (Number.isInteger(v) && v >= 0 && v <= 9999) { r.to = v; hit = true; } }
+      if (selKeys.has(k)) { stableApply.sel.add(r.i); hit = true; }
+      if (hit) stableApply.restored++;
+    }
+  }
   $('stable-apply-modal').style.display = 'flex';
   stableApplyRender();
+  if (stableApply.restored) showToast(`임시 저장된 ${stableApply.restored}건(바꾼 값·체크)을 되살렸어요`);
 }
 /* 반영할 값 직접 바꾸기 (2026-10-14 사용자 요청 — "추천 값을 내가 직접 바꿔서 다른 값으로 적용되게"):
    칸에는 추천 값이 들어가 있고, 바꾸면 그 값으로 반영된다(0~9999 정수 — 셀메이트 연결 스크립트도 같은 범위만 받음). 값을 바꾸면 그 줄을 자동으로 체크.
@@ -13331,11 +13384,11 @@ function stableApplyEdit(i, el) {
   const inp = document.querySelector(`#stable-apply-body input[data-ti="${i}"]`);
   if (inp) { const td = inp.parentElement, focus = document.activeElement === inp; td.innerHTML = stableApplyToHtml(r); if (focus) td.querySelector('input').focus(); }
   const dd = $('stb-ap-d' + i); if (dd) dd.innerHTML = stableApplyDiff(r);
-  stableApplyCount();
+  stableApplyCount(); stableDraftSave();
 }
-function stableApplyToggle(i, on) { on ? stableApply.sel.add(i) : stableApply.sel.delete(i); stableApplyCount(); }
-function stableApplyPick(isNew) { stableApply.sel = new Set(stableApply.rows.filter(r => !!r.isNew === isNew).map(r => r.i)); document.querySelectorAll('#stable-apply-body input[data-i]').forEach(c => { c.checked = stableApply.sel.has(Number(c.dataset.i)); }); stableApplyCount(); }
-function stableApplyAll(on) { stableApply.sel = new Set(on ? stableApply.rows.map(r => r.i) : []); document.querySelectorAll('#stable-apply-body input[data-i]').forEach(c => { c.checked = on; }); stableApplyCount(); }
+function stableApplyToggle(i, on) { on ? stableApply.sel.add(i) : stableApply.sel.delete(i); stableApplyCount(); stableDraftSave(); }
+function stableApplyPick(isNew) { stableApply.sel = new Set(stableApply.rows.filter(r => !!r.isNew === isNew).map(r => r.i)); document.querySelectorAll('#stable-apply-body input[data-i]').forEach(c => { c.checked = stableApply.sel.has(Number(c.dataset.i)); }); stableApplyCount(); stableDraftSave(); }
+function stableApplyAll(on) { stableApply.sel = new Set(on ? stableApply.rows.map(r => r.i) : []); document.querySelectorAll('#stable-apply-body input[data-i]').forEach(c => { c.checked = on; }); stableApplyCount(); stableDraftSave(); }
 function stableApplyCount() {
   const picked = stableApply.rows.filter(r => stableApply.sel.has(r.i));
   const prods = new Set(picked.map(r => r.name)).size;
@@ -13378,8 +13431,9 @@ function stableApplyRender(resultHtml) {
       <span id="stable-apply-count" style="font-size:.8rem;color:#374151;"></span>
       <button id="stable-apply-go" class="btn-analyze" style="margin-left:auto;" onclick="stableApplyRun()"><i class="fa-solid fa-paper-plane"></i> 선택 항목 셀메이트에 반영</button></div>
     <div id="stable-apply-why" style="font-size:.8rem;color:#b91c1c;font-weight:700;text-align:right;margin:-4px 0 8px;"></div>
+    <div id="stable-draft-note" style="font-size:.76rem;margin:-2px 0 8px;"></div>
     <div class="table-wrap" style="max-height:46vh;overflow:auto;"><table style="width:100%;font-size:.8rem;"><thead><tr><th></th><th style="text-align:left;">상품명</th><th style="text-align:left;">옵션</th><th>기존</th><th></th><th title="추천 값이 미리 들어가 있어요 — 칸을 눌러 다른 값으로 바꾸면 그 값으로 반영돼요">반영할 값<div style="font-size:.64rem;font-weight:500;color:#6b7280;">추천 · 직접 바꿀 수 있어요</div></th><th>차이</th><th class="m-hide">1일 평균</th></tr></thead><tbody>${rows}</tbody></table></div>`;
-  stableApplyCount();
+  stableApplyCount(); stableDraftNote();
 }
 function stableSameName(a, b) { return stkNorm(a) === stkNorm(b) && stkNorm(a) !== ''; }
 function stableMatchOption(info, optName) {
@@ -13527,6 +13581,7 @@ async function stableApplyRun() {
     say(`찾기 완료 — 상품 ${plan.length}개를 반영합니다. 확인 창이 뜨면 확인을 눌러 주세요`);
     const { done, logErr, stopped } = await stableApplyPlan(S, plan, 'apply', null, say);
     const appliedIdx = new Set();
+    stableDraftDrop(done.filter(d => d.ok && d.row).map(d => stableDraftKey(d.row)));   // 반영된 줄은 임시 저장에서 지움
     done.filter(d => d.ok && d.row).forEach(d => { const ref = d.row.ref; ref.stable = d.to; ref.changed = ref.rec !== ref.stable; if (typeof ref.status === 'string' && ref.rec === ref.stable) ref.status = '적정'; stableApply.sel.delete(d.row.i); appliedIdx.add(d.row.i); });
     // 반영된 줄은 창에서 뺀다 — 직접 넣은 값으로 반영해 추천과 달라도(2026-10-14). 나머지 줄은 입력해 둔 값을 그대로 둔다
     stableApply.rows = stableApply.rows.filter(r => !appliedIdx.has(r.i) && r.ref.rec !== r.ref.stable).map(r => ({ ...r, from: r.isNew ? (r.ref.stable ?? null) : r.ref.stable }));
