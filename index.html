@@ -409,6 +409,10 @@
     .made-cn-tbl tbody td { padding:8px 8px; vertical-align:top; }
     .made-cn-tbl td.nm { white-space:normal; text-align:left; min-width:200px; max-width:320px; word-break:keep-all; overflow-wrap:anywhere; }
     .made-cn-tbl td.nm .cn-tag { display:block; width:fit-content; margin:3px 0 0; }
+    .made-cn-tbl .inc-has-tip { cursor:help; border-bottom:1.5px dotted #7dd3fc; }
+    .inc-tip { position:fixed; z-index:500; display:none; background:#fff; border:1.5px solid #bae6fd; border-radius:10px; box-shadow:0 10px 28px rgba(15,23,42,.18); padding:9px 12px; font-size:.74rem; color:#374151; max-width:420px; pointer-events:none; line-height:1.45; }
+    .inc-tip .inc-tip-t { border-collapse:collapse; width:auto; font-size:.74rem; }
+    .inc-tip .inc-tip-t td { padding:1px 10px 1px 0; border:0; white-space:nowrap; text-align:left; color:inherit; }
     .made-cn-tbl .inc-lines { font-size:.64rem; color:#6b7280; line-height:1.35; margin-top:2px; white-space:nowrap; }
     .cxl-tag { display:inline-block; border-radius:6px; padding:2px 8px; font-size:.72rem; font-weight:800; white-space:nowrap; margin:0 4px 4px 0; }
     .option-tag { display:inline-block; font-size:.7rem; color:#6366f1; background:#ede9fe; border-radius:4px; padding:1px 6px; margin-top:2px; }
@@ -12474,20 +12478,67 @@ function madeCellAsOf() {
   const u = f.uploaded_at ? Date.parse(f.uploaded_at) : NaN; return Number.isFinite(u) ? u : null;
 }
 // 입고 예정 = 미송 + 운송 중(입고 완료 전) + 셀메이트 반영 전(셀메이트 파일 시각보다 늦게 [입고 완료]한 차수 — 파일 재고에 아직 없음, 2026-10-23)
+// 마우스를 올리면 보이는 내역(2026-10-25 사용자 요청 "언제 주문한 수량이 아직 남아 있는지 — 주문일과 수량"):
+//   pendBy = 미송을 주문서별로 — 출고·폐기는 먼저 주문한 주문서부터 채운 것으로 보고(먼저 주문 먼저 출고) 남은 수량, 주문서의 −수량(취소)은 가장 늦은 주문서부터 뺌.
+//   합은 늘 pend(= 주문 − 중국출고 − 폐기)와 같다. shipBy = 운송 중·셀메이트 반영 전을 출고 차수별로.
 function madeCnIncoming(d) {
-  const m = new Map(), get = k => { let e = m.get(k); if (!e) { e = { ordered: 0, shipped: 0, disc: 0, transit: 0, late: 0 }; m.set(k, e); } return e; };
-  const asOf = madeCellAsOf(), ship = new Map((d.ships || []).map(x => [x.id, x]));
-  for (const l of d.order_lines || []) get(cnLKey(l)).ordered += l.qty;
+  const m = new Map(), get = k => { let e = m.get(k); if (!e) { e = { ordered: 0, shipped: 0, disc: 0, transit: 0, late: 0, ords: new Map(), shipQ: new Map() }; m.set(k, e); } return e; };
+  const asOf = madeCellAsOf(), ship = new Map((d.ships || []).map(x => [x.id, x])), ordInfo = new Map((d.orders || []).map(o => [o.id, o]));
+  for (const l of d.order_lines || []) { const e = get(cnLKey(l)); e.ordered += l.qty; e.ords.set(l.order_id, (e.ords.get(l.order_id) || 0) + l.qty); }
   for (const l of d.lines || []) {
     const e = get(cnLKey(l)), x = ship.get(l.shipment_id) || {};
     e.shipped += l.qty_sent;
-    if (!x.arrived) e.transit += l.qty_sent;
-    else if (asOf != null && x.arrived_at && Date.parse(x.arrived_at) > asOf) e.late += l.qty_sent;
+    const kind = !x.arrived ? 'transit' : asOf != null && x.arrived_at && Date.parse(x.arrived_at) > asOf ? 'late' : '';
+    if (kind) { e[kind] += l.qty_sent; const q = e.shipQ.get(l.shipment_id) || { kind, qty: 0 }; q.qty += l.qty_sent; e.shipQ.set(l.shipment_id, q); }
   }
   for (const x of d.discards || []) get(cnLKey(x)).disc += x.qty;
-  for (const e of m.values()) { e.pend = Math.max(0, e.ordered - e.shipped - e.disc); e.inc = e.pend + e.transit + e.late; }
+  for (const e of m.values()) {
+    e.pend = Math.max(0, e.ordered - e.shipped - e.disc); e.inc = e.pend + e.transit + e.late;
+    const os = [...e.ords].map(([id, q]) => { const o = ordInfo.get(id) || {}; return { id, date: String(o.order_date || o.created_at || '').slice(0, 10), title: o.title || '', ordered: q, left: Math.max(0, q) }; })
+      .sort((a, b) => a.date.localeCompare(b.date) || a.id - b.id);
+    let neg = os.reduce((t, o) => t + (o.ordered < 0 ? -o.ordered : 0), 0);
+    for (let i = os.length - 1; i >= 0 && neg > 0; i--) { const t = Math.min(neg, os[i].left); os[i].left -= t; neg -= t; }
+    let used = e.shipped + e.disc;
+    for (const o of os) { const t = Math.max(0, Math.min(used, o.left)); o.left -= t; used -= t; }
+    e.pendBy = os.filter(o => o.left > 0);
+    e.shipBy = [...e.shipQ].map(([id, q]) => { const x = ship.get(id) || {}; return { id, kind: q.kind, qty: q.qty, ship_date: String(x.ship_date || '').slice(0, 10), arrival_date: String(x.arrival_date || '').slice(0, 10), arrived_at: x.arrived_at || null }; })
+      .sort((a, b) => (a.ship_date || '').localeCompare(b.ship_date || '') || a.id - b.id);
+    delete e.ords; delete e.shipQ;
+  }
   return m;
 }
+// 입고 예정 내역 말풍선 — opts = 그 줄의 중국 옵션들(o.inc.pendBy·shipBy). 옵션이 둘 이상이면 옵션 이름을 붙인다.
+function madeCnIncTipHtml(opts, title) {
+  const md = v => v ? `${Number(v.slice(5, 7))}/${Number(v.slice(8, 10))}` : '날짜 없음';
+  const multi = opts.length > 1, pend = [], trans = [], late = [];
+  for (const o of opts) {
+    const on = multi ? ` <span style="color:#94a3b8;">${escHtml(o.sname)} ${escHtml(madeCnOptName(o))}</span>` : '';
+    for (const x of o.inc.pendBy || []) pend.push({ d: x.date, h: `<tr><td>${md(x.date)} 주문</td><td style="text-align:right;"><b>${fmt(x.left)}장</b></td><td style="color:#94a3b8;">${x.left !== x.ordered ? `주문 ${fmt(x.ordered)}장 중` : ''}${x.title ? ` · ${escHtml(x.title)}` : ''}${on}</td></tr>` });
+    for (const x of o.inc.shipBy || []) {
+      const at = x.arrived_at ? md(new Date(x.arrived_at).toLocaleDateString('sv-SE', { timeZone: 'Asia/Seoul' })) : '';
+      (x.kind === 'late' ? late : trans).push({ d: x.ship_date, h: `<tr><td>${md(x.ship_date)} 출고</td><td style="text-align:right;"><b>${fmt(x.qty)}장</b></td><td style="color:#94a3b8;">${x.kind === 'late' ? `입고 완료 ${at}` : x.arrival_date ? `입고 예정 ${md(x.arrival_date)}` : ''}${on}</td></tr>` });
+    }
+  }
+  const sec = (label, list, color) => list.length ? `<div style="font-weight:800;color:${color};margin:6px 0 2px;">${label}</div><table class="inc-tip-t">${list.sort((a, b) => (a.d || '').localeCompare(b.d || '')).map(x => x.h).join('')}</table>` : '';
+  const body = sec('아직 안 온 주문 (미송)', pend, '#0369a1') + sec('운송 중', trans, '#7c3aed') + sec('입고 완료 · 셀메이트 반영 전', late, '#047857');
+  return body ? `<div style="font-weight:800;color:#1e1b4b;">${escHtml(title || '')} 입고 예정 내역</div>${body}` : '';
+}
+// 마우스 올림 말풍선(화면에 고정 — 표 칸에 잘리지 않게). 내용은 그릴 때 madeState.incTips에 담아 두고 data-inct 번호로 찾는다.
+(function madeIncTipInit() {
+  let box = null;
+  const hide = () => { if (box) box.style.display = 'none'; };
+  document.addEventListener('mouseover', ev => {
+    const el = ev.target.closest && ev.target.closest('[data-inct]'); if (!el) { hide(); return; }
+    const html = ((madeState || {}).incTips || [])[Number(el.dataset.inct)]; if (!html) { hide(); return; }
+    if (!box) { box = document.createElement('div'); box.className = 'inc-tip'; document.body.appendChild(box); }
+    box.innerHTML = html; box.style.display = 'block';
+    const r = el.getBoundingClientRect(), w = box.offsetWidth, h = box.offsetHeight;
+    let left = Math.min(window.innerWidth - w - 8, Math.max(8, r.right - w)), top = r.bottom + 6;
+    if (top + h > window.innerHeight - 8) top = Math.max(8, r.top - h - 6);
+    box.style.left = left + 'px'; box.style.top = top + 'px';
+  });
+  window.addEventListener('scroll', hide, true);
+})();
 function madeCnAutoMap(cnOpts, cellRows) {   // 중국 옵션 키 → 셀메이트 줄 번호
   const res = new Map(), used = new Set(), low = v => String(v || '').replace(/\s+/g, '').toLowerCase();
   const sizeOk = (r, z) => !z || new RegExp(`(^|[^a-z0-9])${z.toLowerCase().replace(/[^a-z0-9]/g, '')}([^a-z0-9]|$)`).test(String(r.opt || '').toLowerCase());
@@ -12517,7 +12568,7 @@ function madeCnCompute(cell, salesIdx, cellCount) {
     const gk = ks[0] || 'cn:' + sn, cr = ks[0] ? cellBy.get(ks[0]) : [];
     const g = groups.get(gk) || { key: gk, linked: !!ks[0], name: ks[0] ? cr[0].name : sn, sname: ks[0] ? cr[0].sname : '', snames: [], cellRows: cr, cnOpts: [], made: ks[0] ? madeIsMade(cr[0].name) : false };
     g.snames.push(sn);
-    for (const o of om.values()) g.cnOpts.push({ ...o, inc: inc.get(o.k) || { ordered: 0, shipped: 0, disc: 0, transit: 0, late: 0, pend: 0, inc: 0 } });
+    for (const o of om.values()) g.cnOpts.push({ ...o, inc: inc.get(o.k) || { ordered: 0, shipped: 0, disc: 0, transit: 0, late: 0, pend: 0, inc: 0, pendBy: [], shipBy: [] } });
     groups.set(gk, g);
   }
   for (const g of groups.values()) {
@@ -12574,7 +12625,9 @@ function madeCnRender() {
   if (!list.length) { box.innerHTML = '<div class="empty-state"><p>조건에 맞는 상품이 없습니다.</p></div>'; return; }
   const numCell = (v, st) => `<td style="text-align:right;${st || ''}">${v}</td>`;
   const avgCell = (v, bold) => madeState.salesLoading && !madeState.sales ? '<span style="color:#9ca3af;">…</span>' : v == null ? '<span style="color:#9ca3af;">—</span>' : `<span style="${bold ? 'font-weight:800;' : ''}color:${v > 0 ? '#4338ca' : '#9ca3af'};">${madeAvgFmt(v)}</span>`;
-  const incCell = (inc, pend, transit, late) => inc ? `<b style="color:#0369a1;">+${fmt(inc)}</b>${pend || transit || late ? `<div class="inc-lines">${[pend ? `<div>미송 ${fmt(pend)}</div>` : '', transit ? `<div>운송 중 ${fmt(transit)}</div>` : '', late ? `<div title="셀메이트 파일보다 나중에 [입고 완료] — 파일 재고에 아직 없어서 입고 예정으로 셈">입고 완료 ${fmt(late)}<br><span style="color:#9ca3af;">(셀메이트 반영 전)</span></div>` : ''].join('')}</div>` : ''}` : '<span style="color:#9ca3af;">0</span>';
+  madeState.incTips = [];
+  const tipId = (opts, title) => { const h = madeCnIncTipHtml(opts, title); if (!h) return ''; madeState.incTips.push(h); return ` data-inct="${madeState.incTips.length - 1}"`; };
+  const incCell = (inc, pend, transit, late, tip) => inc ? `<b${tip || ''} class="${tip ? 'inc-has-tip' : ''}" style="color:#0369a1;">+${fmt(inc)}</b>${pend || transit || late ? `<div class="inc-lines">${[pend ? `<div>미송 ${fmt(pend)}</div>` : '', transit ? `<div>운송 중 ${fmt(transit)}</div>` : '', late ? `<div title="셀메이트 파일보다 나중에 [입고 완료] — 파일 재고에 아직 없어서 입고 예정으로 셈">입고 완료 ${fmt(late)}<br><span style="color:#9ca3af;">(셀메이트 반영 전)</span></div>` : ''].join('')}</div>` : ''}` : '<span style="color:#9ca3af;">0</span>';
   const warnBadge = r => `<span title="${r.warnLow ? '입고 후 5개 미만' : ''}${r.warnLow && r.warnSafe ? ' · ' : ''}${r.warnSafe ? `안정재고 ${fmt(r.safe)} 미달` : ''}" style="display:inline-block;background:#fef3c7;color:#92400e;border:1px solid #fcd34d;border-radius:5px;padding:1px 6px;font-size:.64rem;font-weight:800;margin-left:4px;white-space:nowrap;"><i class="fa-solid fa-triangle-exclamation" style="font-size:.6rem;"></i> 주의</span>`;
   const cnTag = o => `<span class="cn-tag" title="중국 사입 옵션 (${o.how === 'manual' ? '직접 고른 짝' : '자동 짝'}) · 주문 ${fmt(o.inc.ordered)} · 출고 ${fmt(o.inc.shipped)}${o.inc.disc ? ` · ${o.inc.disc > 0 ? '폐기' : '초과 인정'} ${fmt(Math.abs(o.inc.disc))}` : ''}" style="display:inline-block;background:${o.how === 'manual' ? '#ede9fe' : '#f1f5f9'};color:${o.how === 'manual' ? '#5b21b6' : '#475569'};border-radius:5px;padding:0 5px;font-size:.62rem;font-weight:700;margin-left:4px;white-space:nowrap;">← ${escHtml(o.sname)} ${escHtml(madeCnOptName(o))}</span>`;
   let html = `<div class="table-wrap made-cn-wrap"><table class="made-cn-tbl">
@@ -12586,18 +12639,18 @@ function madeCnRender() {
         <div style="font-size:.64rem;color:#6b7280;font-weight:500;margin-top:2px;">품번 ${g.snames.map(escHtml).join(', ')}${g.sname ? ` · 사입명 ${escHtml(g.sname)}` : ''}</div>
         <div style="display:flex;gap:5px;margin-top:4px;flex-wrap:wrap;">${g.linked ? `<button class="toggle-btn" style="font-size:.68rem;padding:2px 8px;" data-k="${gk}" onclick="madeCnMapToggle(this.dataset.k)"><i class="fa-solid fa-link"></i> 옵션 짝${open ? ' 닫기' : ''}</button>` : ''}${buyable ? `<button class="toggle-btn" style="font-size:.68rem;padding:2px 8px;color:#4338ca;" data-k="${gk}" onclick="madeCnToBuy(this.dataset.k)"><i class="fa-solid fa-cart-plus"></i> 주문하기에 담기 (부족 ${fmt(g.shortage)})</button>` : ''}</div></td>
       ${numCell(avgCell(g.avg7, true) + (g.avg7 != null && g.days7 != null && g.days7 < 7 ? `<div style="font-size:.6rem;color:#6b7280;">판매 ${g.days7}일</div>` : ''))}
-      ${numCell(g.linked ? `<b>${fmt(g.stock)}</b>` : '—')}${numCell(g.linked ? fmt(g.unshipped) : '—')}${numCell(g.linked ? fmt(g.stock - g.unshipped) : '—')}${numCell(incCell(g.incoming, 0, 0, 0))}${numCell(g.linked ? fmt(g.stock - g.unshipped + g.incoming) : '—')}
+      ${numCell(g.linked ? `<b>${fmt(g.stock)}</b>` : '—')}${numCell(g.linked ? fmt(g.unshipped) : '—')}${numCell(g.linked ? fmt(g.stock - g.unshipped) : '—')}${numCell(incCell(g.incoming, 0, 0, 0, tipId(g.linked ? g.rows.flatMap(r => r.cnOpts).concat(g.unmapped || []) : g.cnOpts, g.name)))}${numCell(g.linked ? fmt(g.stock - g.unshipped + g.incoming) : '—')}
       <td class="m-hide"></td>${numCell(!g.linked ? '<span style="color:#9ca3af;">—</span>' : g.shortage ? `<b style="color:#b91c1c;">부족 ${fmt(g.shortage)}</b>` : (g.warn ? '<span style="color:#b45309;font-weight:700;">주의</span>' : '<span style="color:#15803d;font-weight:700;">충분</span>'))}</tr>`;
     if (open) html += `<tr><td colspan="9" style="text-align:left;background:#faf5ff;padding:8px 12px;">${madeCnMapPanel(g, canEdit)}</td></tr>`;
     for (const r of g.rows) {
       html += `<tr><td class="nm" style="padding-left:22px;${r.warn ? 'background:#fffbeb;' : ''}">${escHtml(r.opt || '단일')}${r.soldout ? ' <span style="color:#b91c1c;font-size:.64rem;font-weight:700;">품절</span>' : ''}${r.warn ? warnBadge(r) : ''}${r.cnOpts.map(cnTag).join('')}</td>
         ${numCell(avgCell(r.avg7, false))}${numCell(fmt(r.stock))}${numCell(r.unshipped ? `<b style="color:#c2410c;">${fmt(r.unshipped)}</b>` : '0')}${numCell(r.avail < 0 ? `<b style="color:#b91c1c;">${fmt(r.avail)}</b>` : fmt(r.avail))}
-        ${numCell(incCell(r.incoming, r.pend, r.transit, r.late))}${numCell(fmt(r.after))}<td class="m-hide" style="text-align:right;color:#6b7280;">${r.safe != null ? fmt(r.safe) : '—'}</td>
+        ${numCell(incCell(r.incoming, r.pend, r.transit, r.late, tipId(r.cnOpts, `${g.name} ${r.opt || ''}`)))}${numCell(fmt(r.after))}<td class="m-hide" style="text-align:right;color:#6b7280;">${r.safe != null ? fmt(r.safe) : '—'}</td>
         ${numCell(r.shortage ? `<b style="color:#b91c1c;">${fmt(r.shortage)}</b>${!r.cnOpts.length ? '<div style="font-size:.6rem;color:#b91c1c;">중국 옵션<br>짝 없음</div>' : ''}` : `<span style="color:${r.warn ? '#b45309' : '#15803d'};">${r.warn ? (r.warnLow ? `${fmt(Math.max(0, r.after))}개 남음` : '안정재고 미달') : '충분'}</span>`)}</tr>`;
     }
     for (const o of (g.linked ? g.unmapped : g.cnOpts.filter(o => o.inc.inc > 0))) {
       html += `<tr><td class="nm" style="padding-left:22px;background:${g.linked ? '#fef2f2' : '#f9fafb'};">${escHtml(o.sname)} ${escHtml(madeCnOptName(o))}<div style="font-size:.64rem;color:${g.linked ? '#b91c1c' : '#6b7280'};font-weight:700;">${g.linked ? '셀메이트 옵션 짝 없음 — [옵션 짝]에서 골라 주세요' : '중국 옵션'}</div></td>
-        <td></td><td></td><td></td><td></td>${numCell(incCell(o.inc.inc, o.inc.pend, o.inc.transit, o.inc.late))}<td></td><td class="m-hide"></td><td></td></tr>`;
+        <td></td><td></td><td></td><td></td>${numCell(incCell(o.inc.inc, o.inc.pend, o.inc.transit, o.inc.late, tipId([o], `${o.sname} ${madeCnOptName(o)}`)))}<td></td><td class="m-hide"></td><td></td></tr>`;
     }
   }
   box.innerHTML = html + '</tbody></table></div>';
