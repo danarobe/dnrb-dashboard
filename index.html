@@ -12087,6 +12087,17 @@ function madeSalesOpt(sr, optName, cellCount) {
   if (!hits.length && cellCount === 1 && opts.length === 1) hits = opts;
   return hits.length ? hits.reduce((t, o) => t + (o.avg7 || 0), 0) : 0;   // 판매 행은 있는데 이 옵션 주문이 없으면 0
 }
+// 입고 후 수량이 하루 평균 주문으로 며칠 버티는지(2026-10-25 사용자 요청 — "예측해서 주문하기 수월하게") — 입고 후 ÷ 하루 평균 주문(최근 7일).
+// 7일 미만 빨강 · 14일 미만 주황 · 그 이상 회색. 판매 자료를 아직 못 받았으면 비움.
+function madeDaysHtml(after, avg) {
+  if (avg == null || after == null) return '';
+  const st = c => `<div style="font-size:.6rem;font-weight:600;color:${c};white-space:nowrap;"`;
+  if (after <= 0) return `${st('#b91c1c')} title="입고 후에도 남는 수량이 없어요">여유 없음</div>`;
+  if (!(avg > 0)) return `${st('#9ca3af')} title="최근 7일 주문이 없어 며칠분인지 셀 수 없어요">최근 주문 없음</div>`;
+  const days = after / avg, c = days < 7 ? '#b91c1c' : days < 14 ? '#b45309' : '#6b7280';
+  const txt = days < 1 ? '1일분 미만' : days >= 365 ? '1년분 이상' : `약 ${Math.floor(days)}일분`;
+  return `${st(c)} title="입고 후 ${fmt(after)} ÷ 하루 평균 주문 ${madeAvgFmt(avg)} = ${days < 1000 ? (Math.round(days * 10) / 10) : '1000+'}일">${txt}</div>`;
+}
 function madeAvgFmt(v) { return v == null ? '—' : v === 0 ? '0' : v < 0.1 ? '0.1 미만' : (Math.round(v * 10) / 10).toFixed(1); }
 function madeToggleOpts(no) {
   madeState.open.has(no) ? madeState.open.delete(no) : madeState.open.add(no);
@@ -12426,13 +12437,13 @@ function madeStkRender() {
       : '';
     let html = salesNote + (madeRecentLegend() ? `<div style="font-size:.72rem;color:#6b7280;margin-bottom:6px;">${madeRecentLegend()}</div>` : '') + `<div class="table-wrap"><table>
       <thead><tr><th style="text-align:left;">상품 / 옵션</th><th class="m-hide">코드</th><th>하루 평균 주문<div style="font-size:.62rem;font-weight:500;color:#6b7280;">최근 7일·어제까지</div></th><th>현재재고</th><th>미발송</th><th>가용<div style="font-size:.62rem;font-weight:500;color:#6b7280;">재고−미발송</div></th>
-        <th>이지픽 미입고<div style="font-size:.62rem;font-weight:500;color:#6b7280;">주문−입고</div></th><th>입고 후<div style="font-size:.62rem;font-weight:500;color:#6b7280;">가용+미입고</div></th><th class="m-hide">안정재고<div style="font-size:.62rem;font-weight:500;color:#6b7280;">셀메이트</div></th><th>부족<div style="font-size:.62rem;font-weight:500;color:#6b7280;">미발송−재고−미입고</div></th></tr></thead><tbody>`;
+        <th>이지픽 미입고<div style="font-size:.62rem;font-weight:500;color:#6b7280;">주문−입고</div></th><th>입고 후<div style="font-size:.62rem;font-weight:500;color:#6b7280;">가용+미입고<br>(아래 = 며칠분)</div></th><th class="m-hide">안정재고<div style="font-size:.62rem;font-weight:500;color:#6b7280;">셀메이트</div></th><th>부족<div style="font-size:.62rem;font-weight:500;color:#6b7280;">미발송−재고−미입고</div></th></tr></thead><tbody>`;
     for (const g of list) {
       html += `<tr style="background:#f8f9ff;">
         <td style="text-align:left;font-weight:700;">${escHtml(g.name)}${g.watched ? ' <span style="background:#e0e7ff;color:#4338ca;border-radius:5px;padding:1px 6px;font-size:.62rem;font-weight:700;">지정</span>' : ''}${g.warn ? `<span style="display:inline-block;background:#fef3c7;color:#92400e;border:1px solid #fcd34d;border-radius:5px;padding:1px 6px;font-size:.64rem;font-weight:800;margin-left:4px;white-space:nowrap;"><i class="fa-solid fa-triangle-exclamation" style="font-size:.6rem;"></i> 주의 ${g.warn}옵션</span>` : ''}${madeRecentProductBadge(g.recent)}${g.sname ? `<div style="font-size:.64rem;color:#6b7280;font-weight:500;">사입명 ${escHtml(g.sname)}</div>` : ''}</td>
         <td class="m-hide" style="color:#9ca3af;font-size:.7rem;">옵션 ${g.rows.length}</td>
         ${numCell(avgCell(g.avg7, true) + (g.avg7 != null && g.days7 != null && g.days7 < 7 ? `<div style="font-size:.6rem;color:#6b7280;" title="첫 판매 ${escHtml(g.firstSale || '')} — 판매한 날수로 나눔">판매 ${g.days7}일</div>` : ''))}
-        ${numCell(`<b>${fmt(g.stock)}</b>`)}${numCell(fmt(g.unshipped))}${numCell(fmt(g.stock - g.unshipped))}${numCell(g.incoming ? `<b style="color:#0369a1;">+${fmt(g.incoming)}</b>` : '<span style="color:#9ca3af;">0</span>')}${numCell(fmt(g.stock - g.unshipped + g.incoming))}
+        ${numCell(`<b>${fmt(g.stock)}</b>`)}${numCell(fmt(g.unshipped))}${numCell(fmt(g.stock - g.unshipped))}${numCell(g.incoming ? `<b style="color:#0369a1;">+${fmt(g.incoming)}</b>` : '<span style="color:#9ca3af;">0</span>')}${numCell(fmt(g.stock - g.unshipped + g.incoming) + madeDaysHtml(g.stock - g.unshipped + g.incoming, g.avg7))}
         <td class="m-hide"></td>${numCell(g.shortage ? `<b style="color:#b91c1c;">부족 ${fmt(g.shortage)}</b>` : (g.warn ? '<span style="color:#b45309;font-weight:700;">주의</span>' : '<span style="color:#15803d;font-weight:700;">충분</span>'))}</tr>`;
       for (const r of g.rows) {
         const ezNote = r.ez ? `주문 ${fmt(r.ez.ordered)} · 입고 ${fmt(r.ez.received)}` : (madeState.files.ez ? '이지픽 주문 없음' : '');
@@ -12441,7 +12452,7 @@ function madeStkRender() {
           <td class="m-hide" style="font-family:monospace;font-size:.7rem;color:#6b7280;">${escHtml(r.code || '—')}</td>
           ${numCell(avgCell(r.avg7, false))}
           ${numCell(fmt(r.stock))}${numCell(r.unshipped ? `<b style="color:#c2410c;">${fmt(r.unshipped)}</b>` : '0')}${numCell(r.avail < 0 ? `<b style="color:#b91c1c;">${fmt(r.avail)}</b>` : fmt(r.avail))}
-          ${numCell(r.incoming ? `<b style="color:#0369a1;">+${fmt(r.incoming)}</b>` : '<span style="color:#9ca3af;">0</span>', '')}${numCell(`${fmt(r.after)}${ezNote ? `<div style="font-size:.6rem;color:#9ca3af;">${ezNote}</div>` : ''}`)}
+          ${numCell(r.incoming ? `<b style="color:#0369a1;">+${fmt(r.incoming)}</b>` : '<span style="color:#9ca3af;">0</span>', '')}${numCell(`${fmt(r.after)}${madeDaysHtml(r.after, r.avg7)}${ezNote ? `<div style="font-size:.6rem;color:#9ca3af;">${ezNote}</div>` : ''}`)}
           <td class="m-hide" style="text-align:right;color:#6b7280;">${r.safe != null ? fmt(r.safe) : '—'}</td>
           ${numCell(r.shortage ? `<b style="color:#b91c1c;">${fmt(r.shortage)}</b>` : `<span style="color:${r.warn ? '#b45309' : '#15803d'};">${r.warn ? (r.warnLow ? `${fmt(Math.max(0, r.after))}개 남음` : '안정재고 미달') : '충분'}</span>`)}</tr>`;
       }
@@ -12632,20 +12643,20 @@ function madeCnRender() {
   const cnTag = o => `<span class="cn-tag" title="중국 사입 옵션 (${o.how === 'manual' ? '직접 고른 짝' : '자동 짝'}) · 주문 ${fmt(o.inc.ordered)} · 출고 ${fmt(o.inc.shipped)}${o.inc.disc ? ` · ${o.inc.disc > 0 ? '폐기' : '초과 인정'} ${fmt(Math.abs(o.inc.disc))}` : ''}" style="display:inline-block;background:${o.how === 'manual' ? '#ede9fe' : '#f1f5f9'};color:${o.how === 'manual' ? '#5b21b6' : '#475569'};border-radius:5px;padding:0 5px;font-size:.62rem;font-weight:700;margin-left:4px;white-space:nowrap;">← ${escHtml(o.sname)} ${escHtml(madeCnOptName(o))}</span>`;
   let html = `<div class="table-wrap made-cn-wrap"><table class="made-cn-tbl">
     <thead><tr><th style="text-align:left;">상품 / 옵션</th><th>하루 평균<br>주문<span class="sub">최근 7일</span></th><th>현재<br>재고</th><th>미발송</th><th>가용<span class="sub">재고−미발송</span></th>
-      <th>중국<br>입고 예정<span class="sub">미송·운송 중·<br>반영 전 입고</span></th><th>입고 후<span class="sub">가용+입고 예정</span></th><th class="m-hide">안정<br>재고<span class="sub">셀메이트</span></th><th>부족<span class="sub">미발송−재고<br>−입고 예정</span></th></tr></thead><tbody>`;
+      <th>중국<br>입고 예정<span class="sub">미송·운송 중·<br>반영 전 입고</span></th><th>입고 후<span class="sub">가용+입고 예정<br>(아래 = 며칠분)</span></th><th class="m-hide">안정<br>재고<span class="sub">셀메이트</span></th><th>부족<span class="sub">미발송−재고<br>−입고 예정</span></th></tr></thead><tbody>`;
   for (const g of list) {
     const gk = escHtml(g.key), open = madeState.cnMapOpen.has(g.key), buyable = canEdit && g.rows.some(r => r.shortage > 0 && r.cnOpts.length);
     html += `<tr style="background:#f8f9ff;"><td class="nm" style="font-weight:700;">${escHtml(g.name)}${g.made ? ' <span style="background:#ede9fe;color:#5b21b6;border-radius:5px;padding:1px 6px;font-size:.62rem;font-weight:700;" title="카페24 상품명에 made·자체제작이 있지만 중국 사입/제작 관리에 등록된 상품이라 중국 상품으로 봐요">made</span>' : ''}${!g.linked ? ' <span style="background:#f3f4f6;color:#6b7280;border-radius:5px;padding:1px 6px;font-size:.62rem;font-weight:700;">셀메이트·카페24 미등록</span>' : ''}${g.warn ? `<span style="display:inline-block;background:#fef3c7;color:#92400e;border:1px solid #fcd34d;border-radius:5px;padding:1px 6px;font-size:.64rem;font-weight:800;margin-left:4px;">주의 ${g.warn}옵션</span>` : ''}${g.unmapped.length ? `<span style="display:inline-block;background:#fee2e2;color:#b91c1c;border-radius:5px;padding:1px 6px;font-size:.64rem;font-weight:800;margin-left:4px;" title="셀메이트 옵션과 짝을 못 지은 중국 옵션 — 입고 예정이 옵션에 안 붙어요">옵션 미연결 ${g.unmapped.length}</span>` : ''}
         <div style="font-size:.64rem;color:#6b7280;font-weight:500;margin-top:2px;">품번 ${g.snames.map(escHtml).join(', ')}${g.sname ? ` · 사입명 ${escHtml(g.sname)}` : ''}</div>
         <div style="display:flex;gap:5px;margin-top:4px;flex-wrap:wrap;">${g.linked ? `<button class="toggle-btn" style="font-size:.68rem;padding:2px 8px;" data-k="${gk}" onclick="madeCnMapToggle(this.dataset.k)"><i class="fa-solid fa-link"></i> 옵션 짝${open ? ' 닫기' : ''}</button>` : ''}${buyable ? `<button class="toggle-btn" style="font-size:.68rem;padding:2px 8px;color:#4338ca;" data-k="${gk}" onclick="madeCnToBuy(this.dataset.k)"><i class="fa-solid fa-cart-plus"></i> 주문하기에 담기 (부족 ${fmt(g.shortage)})</button>` : ''}</div></td>
       ${numCell(avgCell(g.avg7, true) + (g.avg7 != null && g.days7 != null && g.days7 < 7 ? `<div style="font-size:.6rem;color:#6b7280;">판매 ${g.days7}일</div>` : ''))}
-      ${numCell(g.linked ? `<b>${fmt(g.stock)}</b>` : '—')}${numCell(g.linked ? fmt(g.unshipped) : '—')}${numCell(g.linked ? fmt(g.stock - g.unshipped) : '—')}${numCell(incCell(g.incoming, 0, 0, 0, tipId(g.linked ? g.rows.flatMap(r => r.cnOpts).concat(g.unmapped || []) : g.cnOpts, g.name)))}${numCell(g.linked ? fmt(g.stock - g.unshipped + g.incoming) : '—')}
+      ${numCell(g.linked ? `<b>${fmt(g.stock)}</b>` : '—')}${numCell(g.linked ? fmt(g.unshipped) : '—')}${numCell(g.linked ? fmt(g.stock - g.unshipped) : '—')}${numCell(incCell(g.incoming, 0, 0, 0, tipId(g.linked ? g.rows.flatMap(r => r.cnOpts).concat(g.unmapped || []) : g.cnOpts, g.name)))}${numCell(g.linked ? fmt(g.stock - g.unshipped + g.incoming) + madeDaysHtml(g.stock - g.unshipped + g.incoming, g.avg7) : '—')}
       <td class="m-hide"></td>${numCell(!g.linked ? '<span style="color:#9ca3af;">—</span>' : g.shortage ? `<b style="color:#b91c1c;">부족 ${fmt(g.shortage)}</b>` : (g.warn ? '<span style="color:#b45309;font-weight:700;">주의</span>' : '<span style="color:#15803d;font-weight:700;">충분</span>'))}</tr>`;
     if (open) html += `<tr><td colspan="9" style="text-align:left;background:#faf5ff;padding:8px 12px;">${madeCnMapPanel(g, canEdit)}</td></tr>`;
     for (const r of g.rows) {
       html += `<tr><td class="nm" style="padding-left:22px;${r.warn ? 'background:#fffbeb;' : ''}">${escHtml(r.opt || '단일')}${r.soldout ? ' <span style="color:#b91c1c;font-size:.64rem;font-weight:700;">품절</span>' : ''}${r.warn ? warnBadge(r) : ''}${r.cnOpts.map(cnTag).join('')}</td>
         ${numCell(avgCell(r.avg7, false))}${numCell(fmt(r.stock))}${numCell(r.unshipped ? `<b style="color:#c2410c;">${fmt(r.unshipped)}</b>` : '0')}${numCell(r.avail < 0 ? `<b style="color:#b91c1c;">${fmt(r.avail)}</b>` : fmt(r.avail))}
-        ${numCell(incCell(r.incoming, r.pend, r.transit, r.late, tipId(r.cnOpts, `${g.name} ${r.opt || ''}`)))}${numCell(fmt(r.after))}<td class="m-hide" style="text-align:right;color:#6b7280;">${r.safe != null ? fmt(r.safe) : '—'}</td>
+        ${numCell(incCell(r.incoming, r.pend, r.transit, r.late, tipId(r.cnOpts, `${g.name} ${r.opt || ''}`)))}${numCell(fmt(r.after) + madeDaysHtml(r.after, r.avg7))}<td class="m-hide" style="text-align:right;color:#6b7280;">${r.safe != null ? fmt(r.safe) : '—'}</td>
         ${numCell(r.shortage ? `<b style="color:#b91c1c;">${fmt(r.shortage)}</b>${!r.cnOpts.length ? '<div style="font-size:.6rem;color:#b91c1c;">중국 옵션<br>짝 없음</div>' : ''}` : `<span style="color:${r.warn ? '#b45309' : '#15803d'};">${r.warn ? (r.warnLow ? `${fmt(Math.max(0, r.after))}개 남음` : '안정재고 미달') : '충분'}</span>`)}</tr>`;
     }
     for (const o of (g.linked ? g.unmapped : g.cnOpts.filter(o => o.inc.inc > 0))) {
