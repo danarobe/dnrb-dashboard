@@ -13398,18 +13398,53 @@ async function stableFindProduct(S, name) {
    확인 창(window.confirm)은 연결 스크립트가 띄운다. 크롬·엣지는 **보고 있지 않은 탭에서 뜬 확인 창을 바로 '취소'로 닫는다** — 상품을 찾는 동안(상품당 몇 초)
    다른 탭(셀메이트 등)을 보고 있었으면 아무것도 안 눌렀는데 취소가 된다. 그래서 확인 창을 부르기 전에 이 탭이 보일 때까지 기다린다(탭 제목에도 알림).
    또 창이 뜨자마자(0.4초 안) 취소로 돌아오면 사람이 누른 게 아니라 브라우저가 막은 것으로 보고 따로 안내한다(e.quick). */
+// 2026-10-25 사용자 신고(보고 있는 탭인데도 '저절로 닫혀서 시작하지 않았어요'): 탭이 보이기만 하고 브라우저 창이 앞에 있지 않으면(다른 앱을 보고 있음) 확인 창이 막힐 수 있어
+// 창이 앞에 올 때(document.hasFocus)까지도 기다린다.
 async function smConfirmGate(say) {
-  if (!document.hidden) return;
+  const ready = () => !document.hidden && document.hasFocus();
+  if (ready()) return;
   const title = document.title; document.title = '● 확인 필요 — ' + title;
-  say('찾기가 끝났어요 — 이 탭으로 돌아오면 셀메이트 확인 창이 떠요 (다른 탭을 보고 있으면 브라우저가 확인 창을 막아요)');
-  await new Promise(res => { const f = () => { if (!document.hidden) { document.removeEventListener('visibilitychange', f); res(); } }; document.addEventListener('visibilitychange', f); });
+  say('찾기가 끝났어요 — 이 창을 눌러 앞으로 가져오면 셀메이트 확인 창이 떠요 (다른 탭·다른 앱을 보고 있으면 브라우저가 확인 창을 막아요)');
+  await new Promise(res => { const f = () => { if (ready()) { document.removeEventListener('visibilitychange', f); window.removeEventListener('focus', f); clearInterval(iv); res(); } }; const iv = setInterval(f, 500); document.addEventListener('visibilitychange', f); window.addEventListener('focus', f); });
   document.title = title;
   await new Promise(r => setTimeout(r, 400));
 }
+// 확인 창이 뜨자마자(0.4초 안) 취소로 돌아오면 사람이 누른 게 아니라 브라우저가 막은 것 → 바로 실패로 끝내지 않고(찾아 둔 상품이 날아감)
+// 화면 위에 [확인 창 다시 열기] 버튼을 띄운다. 버튼을 누른 그 순간에 확인 창을 부르므로(사용자 클릭·창이 앞에 있음) 브라우저가 막지 않는다. 3번까지, 그래도 막히면 e.quick.
+function smRetryPrompt(fn, tries) {
+  return new Promise((resolve, reject) => {
+    const ov = document.createElement('div');
+    ov.style.cssText = 'position:fixed;inset:0;z-index:400;background:rgba(15,23,42,.45);display:flex;align-items:center;justify-content:center;padding:16px;';
+    ov.innerHTML = `<div style="background:#fff;border-radius:14px;max-width:440px;width:100%;padding:18px 20px;box-shadow:0 20px 50px rgba(0,0,0,.25);">
+      <div style="font-size:.98rem;font-weight:800;color:#b91c1c;"><i class="fa-solid fa-circle-exclamation"></i> 셀메이트 확인 창이 저절로 닫혔어요</div>
+      <div style="font-size:.84rem;color:#374151;line-height:1.6;margin-top:8px;">누르지 않았는데 브라우저가 확인 창을 바로 닫았어요. <b>셀메이트는 아직 바뀌지 않았고</b>, 찾아 둔 상품은 그대로예요.<br>아래 버튼을 누르면 확인 창을 다시 띄워요.${tries > 1 ? '<br><span style="color:#b91c1c;">또 닫혔어요 — 이번에도 안 되면 페이지를 새로고침한 뒤 다시 해 주세요.</span>' : ''}</div>
+      <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px;">
+        <button class="toggle-btn" data-act="stop">그만두기</button>
+        <button class="toggle-btn" data-act="go" style="background:#4f46e5;color:#fff;border-color:#4f46e5;font-weight:700;"><i class="fa-solid fa-rotate-right"></i> 확인 창 다시 열기</button></div></div>`;
+    ov.addEventListener('click', ev => {
+      const b = ev.target.closest('button'); if (!b) return;
+      ov.remove();
+      if (b.dataset.act === 'stop') { const e = new Error('취소했습니다'); e.code = 'cancel'; reject(e); return; }
+      const t0 = Date.now(); let p;
+      try { p = fn(); } catch (e) { p = Promise.reject(e); }   // 클릭 안에서 바로 부름 — 확인 창이 막히지 않게
+      resolve({ t0, p });
+    });
+    document.body.appendChild(ov);
+    const go = ov.querySelector('[data-act="go"]'); if (go) go.focus();
+  });
+}
 async function smConfirmCall(fn) {   // fn = 확인 창을 띄우는 연결 스크립트 호출(begin·beginSell)
-  const t0 = Date.now();
-  try { return await fn(); }
-  catch (e) { if (e && (e.code === 'cancel' || /취소/.test(String(e.message || ''))) && Date.now() - t0 < 400) e.quick = true; throw e; }
+  const isQuick = (e, t0) => e && (e.code === 'cancel' || /취소/.test(String(e.message || ''))) && Date.now() - t0 < 400;
+  let t0 = Date.now(), p;
+  try { p = fn(); } catch (e) { p = Promise.reject(e); }
+  for (let tries = 1; ; tries++) {
+    try { return await p; }
+    catch (e) {
+      if (!isQuick(e, t0)) throw e;
+      if (tries > 3) { e.quick = true; throw e; }
+      ({ t0, p } = await smRetryPrompt(fn, tries));
+    }
+  }
 }
 const SM_QUICK_CANCEL = '확인 창이 뜨자마자 저절로 닫혀서 시작하지 않았어요(누르지 않았는데 취소됨). 셀메이트는 바뀌지 않았습니다. 이 탭을 보고 있는 상태에서 다시 눌러 주세요 — 그래도 같으면 이 페이지를 새로고침(F5)한 뒤 다시 해 주세요(전에 확인 창에서 \'이 페이지에서 추가 대화 상자 만들지 않기\'를 체크했으면 새로고침해야 풀려요).';
 // 계획 전체를 15개씩 나눠 반영 — 확인은 begin()으로 한 번, 묶음마다 기록 저장, 진행 상황은 say()로 알림
