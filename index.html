@@ -12088,13 +12088,17 @@ function madeSalesOpt(sr, optName, cellCount) {
   return hits.length ? hits.reduce((t, o) => t + (o.avg7 || 0), 0) : 0;   // 판매 행은 있는데 이 옵션 주문이 없으면 0
 }
 // 입고 후 수량이 하루 평균 주문으로 며칠 버티는지(2026-10-25 사용자 요청 — "예측해서 주문하기 수월하게") — 입고 후 ÷ 하루 평균 주문(최근 7일).
-// 7일 미만 빨강 · 14일 미만 주황 · 그 이상 회색. 판매 자료를 아직 못 받았으면 비움.
+// 7일분 이하(표시 '약 7일분'까지) 빨강 · 14일 미만 주황 · 그 이상 회색. 판매 자료를 아직 못 받았으면 비움.
+// madeLowDays = '7일분 이하' 칩(같은 날 사용자 요청 "7일분 이하로 남은 애들만 따로") — 최근 주문이 있는데 입고 후가 0 이하이거나 7일분 이하. 최근 주문이 없으면 넣지 않음.
+const MADE_LOW_DAYS = 7;
+const madeLowDays = (after, avg) => after != null && avg > 0 && (after <= 0 || Math.floor(after / avg) <= MADE_LOW_DAYS);
+const madeDaysOf = (after, avg) => after == null || !(avg > 0) ? Infinity : after <= 0 ? -1 : after / avg;
 function madeDaysHtml(after, avg) {
   if (avg == null || after == null) return '';
   const st = c => `<div style="font-size:.6rem;font-weight:600;color:${c};white-space:nowrap;"`;
   if (after <= 0) return `${st('#b91c1c')} title="입고 후에도 남는 수량이 없어요">여유 없음</div>`;
   if (!(avg > 0)) return `${st('#9ca3af')} title="최근 7일 주문이 없어 며칠분인지 셀 수 없어요">최근 주문 없음</div>`;
-  const days = after / avg, c = days < 7 ? '#b91c1c' : days < 14 ? '#b45309' : '#6b7280';
+  const days = after / avg, c = Math.floor(days) <= MADE_LOW_DAYS ? '#b91c1c' : days < 14 ? '#b45309' : '#6b7280';
   const txt = days < 1 ? '1일분 미만' : days >= 365 ? '1년분 이상' : `약 ${Math.floor(days)}일분`;
   return `${st(c)} title="입고 후 ${fmt(after)} ÷ 하루 평균 주문 ${madeAvgFmt(avg)} = ${days < 1000 ? (Math.round(days * 10) / 10) : '1000+'}일">${txt}</div>`;
 }
@@ -12415,14 +12419,18 @@ function madeStkRender() {
     admgrTile('코드 없음 / 매칭 안 됨', madeState.files.ez ? `${noCode.length} / ${unmatched.length}건` : '—', false);
   const chip = (k, label, n) => `<button onclick="madeState.stkFilter='${k}';madeStkRender()" style="border:1.5px solid ${madeState.stkFilter === k ? 'transparent' : '#d1d5db'};background:${madeState.stkFilter === k ? '#4f46e5' : '#fff'};color:${madeState.stkFilter === k ? '#fff' : '#4b5563'};border-radius:99px;padding:5px 13px;font-size:.78rem;font-weight:700;cursor:pointer;">${label} ${n}</button>`;
   $('made-stk-chips').innerHTML = chip('all', '전체', groups.length) + chip('short', '부족 있음', groups.filter(g => g.shortage > 0).length) + chip('warn', '주의 있음', groups.filter(g => g.warn > 0).length) + chip('watch', '지정 상품', groups.filter(g => g.watched).length)
+    + (madeState.sales ? chip('low', `${MADE_LOW_DAYS}일분 이하`, groups.filter(g => g.rows.some(r => madeLowDays(r.after, r.avg7))).length) : '')
     + (madeRecentReady() ? chip('recent', `최근 ${MADE_RECENT_DAYS}일 주문`, groups.filter(g => g.recent > 0).length) : '');
   let list = groups;
   if (madeState.stkFilter === 'short') list = list.filter(g => g.shortage > 0);
   if (madeState.stkFilter === 'warn') list = list.filter(g => g.warn > 0);
   if (madeState.stkFilter === 'watch') list = list.filter(g => g.watched);
   if (madeState.stkFilter === 'recent') list = list.filter(g => g.recent > 0);
+  const low = madeState.stkFilter === 'low';
+  if (low) list = list.filter(g => g.rows.some(r => madeLowDays(r.after, r.avg7)));
   if (q) list = list.filter(g => stkNorm(g.name).includes(q) || stkNorm(g.sname).includes(q) || g.rows.some(r => stkNorm(r.opt).includes(q)));
-  list.sort((a, b) => b.shortage - a.shortage || b.warn - a.warn || a.name.localeCompare(b.name, 'ko'));
+  const minDays = g => Math.min(...g.rows.filter(r => madeLowDays(r.after, r.avg7)).map(r => madeDaysOf(r.after, r.avg7)));
+  list.sort(low ? (a, b) => minDays(a) - minDays(b) || a.name.localeCompare(b.name, 'ko') : (a, b) => b.shortage - a.shortage || b.warn - a.warn || a.name.localeCompare(b.name, 'ko'));
   const warnBadge = (low, safe, safeVal) => `<span title="${low ? '입고 후 5개 미만' : ''}${low && safe ? ' · ' : ''}${safe ? `안정재고 ${fmt(safeVal)} 미달` : ''}" style="display:inline-block;background:#fef3c7;color:#92400e;border:1px solid #fcd34d;border-radius:5px;padding:1px 6px;font-size:.64rem;font-weight:800;margin-left:4px;white-space:nowrap;"><i class="fa-solid fa-triangle-exclamation" style="font-size:.6rem;"></i> 주의</span>`;
   if (!list.length) { box.innerHTML = '<div class="empty-state"><p>조건에 맞는 상품이 없습니다.</p></div>'; }
   else {
@@ -12445,7 +12453,7 @@ function madeStkRender() {
         ${numCell(avgCell(g.avg7, true) + (g.avg7 != null && g.days7 != null && g.days7 < 7 ? `<div style="font-size:.6rem;color:#6b7280;" title="첫 판매 ${escHtml(g.firstSale || '')} — 판매한 날수로 나눔">판매 ${g.days7}일</div>` : ''))}
         ${numCell(`<b>${fmt(g.stock)}</b>`)}${numCell(fmt(g.unshipped))}${numCell(fmt(g.stock - g.unshipped))}${numCell(g.incoming ? `<b style="color:#0369a1;">+${fmt(g.incoming)}</b>` : '<span style="color:#9ca3af;">0</span>')}${numCell(fmt(g.stock - g.unshipped + g.incoming) + madeDaysHtml(g.stock - g.unshipped + g.incoming, g.avg7))}
         <td class="m-hide"></td>${numCell(g.shortage ? `<b style="color:#b91c1c;">부족 ${fmt(g.shortage)}</b>` : (g.warn ? '<span style="color:#b45309;font-weight:700;">주의</span>' : '<span style="color:#15803d;font-weight:700;">충분</span>'))}</tr>`;
-      for (const r of g.rows) {
+      for (const r of (low ? g.rows.filter(x => madeLowDays(x.after, x.avg7)) : g.rows)) {   // '7일분 이하'면 그 옵션만
         const ezNote = r.ez ? `주문 ${fmt(r.ez.ordered)} · 입고 ${fmt(r.ez.received)}` : (madeState.files.ez ? '이지픽 주문 없음' : '');
         html += `<tr>
           <td style="text-align:left;padding-left:22px;${r.warn ? 'background:#fffbeb;' : r.recent ? 'background:#eff6ff;' : ''}${r.recent ? 'box-shadow:inset 3px 0 0 #2563eb;' : ''}">${escHtml(r.opt || '단일')}${r.soldout ? ' <span style="color:#b91c1c;font-size:.64rem;font-weight:700;">품절</span>' : ''}${r.warn ? warnBadge(r.warnLow, r.warnSafe, r.safe) : ''}${madeRecentBadge(r.recent)}</td>
@@ -12624,15 +12632,17 @@ function madeCnRender() {
     admgrTile('미발송 주문', fmt(allRows.reduce((t, r) => t + r.unshipped, 0)) + '장', false) +
     admgrTile(admgrDot('#0ea5e9') + '중국 입고 예정', `${fmt(groups.reduce((t, g) => t + g.incoming + (g.linked ? g.unmappedInc : 0), 0))}장 <span style="font-size:.7rem;color:#6b7280;">운송 중 ${fmt(groups.reduce((t, g) => t + g.cnOpts.reduce((a, o) => a + o.inc.transit, 0), 0))} · 셀메이트 반영 전 ${fmt(groups.reduce((t, g) => t + g.cnOpts.reduce((a, o) => a + o.inc.late, 0), 0))}</span>`, false) +
     admgrTile(admgrDot('#dc2626') + '옵션 미연결', `${groups.reduce((t, g) => t + g.unmapped.length, 0)}개`, false);
-  const F = { all: () => true, short: g => g.shortage > 0, warn: g => g.warn > 0, unmapped: g => g.unmapped.length > 0, unlinked: g => !g.linked };
+  const F = { all: () => true, short: g => g.shortage > 0, warn: g => g.warn > 0, low: g => g.linked && g.rows.some(r => madeLowDays(r.after, r.avg7)), unmapped: g => g.unmapped.length > 0, unlinked: g => !g.linked };
   const chip = (k, label) => `<button onclick="madeState.cnFilter='${k}';madeStkRender()" style="border:1.5px solid ${madeState.cnFilter === k ? 'transparent' : '#d1d5db'};background:${madeState.cnFilter === k ? '#4f46e5' : '#fff'};color:${madeState.cnFilter === k ? '#fff' : '#4b5563'};border-radius:99px;padding:5px 13px;font-size:.78rem;font-weight:700;cursor:pointer;">${label} ${groups.filter(F[k]).length}</button>`;
-  $('made-stk-chips').innerHTML = chip('all', '전체') + chip('short', '부족 있음') + chip('warn', '주의 있음') + chip('unmapped', '옵션 미연결') + chip('unlinked', '셀메이트 미등록');
+  $('made-stk-chips').innerHTML = chip('all', '전체') + chip('short', '부족 있음') + chip('warn', '주의 있음') + (madeState.sales ? chip('low', `${MADE_LOW_DAYS}일분 이하`) : '') + chip('unmapped', '옵션 미연결') + chip('unlinked', '셀메이트 미등록');
   $('made-cn-buyall').style.display = canEdit && short.some(r => r.cnOpts.length) ? '' : 'none';
   $('made-stk-extra').innerHTML = '';
   const q = stkNorm(($('made-stk-q') || {}).value || '');
   let list = groups.filter(F[madeState.cnFilter] || F.all);
   if (q) list = list.filter(g => stkNorm(g.name).includes(q) || g.snames.some(sn => madeCnNormS(sn).includes(madeCnNormS(($('made-stk-q') || {}).value || ''))) || g.rows.some(r => stkNorm(r.opt).includes(q)));
-  list.sort((a, b) => b.shortage - a.shortage || b.warn - a.warn || (b.linked - a.linked) || b.unmapped.length - a.unmapped.length || a.name.localeCompare(b.name, 'ko', { numeric: true }));
+  const low = madeState.cnFilter === 'low';
+  const minDays = g => Math.min(...g.rows.filter(r => madeLowDays(r.after, r.avg7)).map(r => madeDaysOf(r.after, r.avg7)));
+  list.sort(low ? (a, b) => minDays(a) - minDays(b) || a.name.localeCompare(b.name, 'ko', { numeric: true }) : (a, b) => b.shortage - a.shortage || b.warn - a.warn || (b.linked - a.linked) || b.unmapped.length - a.unmapped.length || a.name.localeCompare(b.name, 'ko', { numeric: true }));
   if (!list.length) { box.innerHTML = '<div class="empty-state"><p>조건에 맞는 상품이 없습니다.</p></div>'; return; }
   const numCell = (v, st) => `<td style="text-align:right;${st || ''}">${v}</td>`;
   const avgCell = (v, bold) => madeState.salesLoading && !madeState.sales ? '<span style="color:#9ca3af;">…</span>' : v == null ? '<span style="color:#9ca3af;">—</span>' : `<span style="${bold ? 'font-weight:800;' : ''}color:${v > 0 ? '#4338ca' : '#9ca3af'};">${madeAvgFmt(v)}</span>`;
@@ -12653,13 +12663,13 @@ function madeCnRender() {
       ${numCell(g.linked ? `<b>${fmt(g.stock)}</b>` : '—')}${numCell(g.linked ? fmt(g.unshipped) : '—')}${numCell(g.linked ? fmt(g.stock - g.unshipped) : '—')}${numCell(incCell(g.incoming, 0, 0, 0, tipId(g.linked ? g.rows.flatMap(r => r.cnOpts).concat(g.unmapped || []) : g.cnOpts, g.name)))}${numCell(g.linked ? fmt(g.stock - g.unshipped + g.incoming) + madeDaysHtml(g.stock - g.unshipped + g.incoming, g.avg7) : '—')}
       <td class="m-hide"></td>${numCell(!g.linked ? '<span style="color:#9ca3af;">—</span>' : g.shortage ? `<b style="color:#b91c1c;">부족 ${fmt(g.shortage)}</b>` : (g.warn ? '<span style="color:#b45309;font-weight:700;">주의</span>' : '<span style="color:#15803d;font-weight:700;">충분</span>'))}</tr>`;
     if (open) html += `<tr><td colspan="9" style="text-align:left;background:#faf5ff;padding:8px 12px;">${madeCnMapPanel(g, canEdit)}</td></tr>`;
-    for (const r of g.rows) {
+    for (const r of (low ? g.rows.filter(x => madeLowDays(x.after, x.avg7)) : g.rows)) {   // '7일분 이하'면 그 옵션만
       html += `<tr><td class="nm" style="padding-left:22px;${r.warn ? 'background:#fffbeb;' : ''}">${escHtml(r.opt || '단일')}${r.soldout ? ' <span style="color:#b91c1c;font-size:.64rem;font-weight:700;">품절</span>' : ''}${r.warn ? warnBadge(r) : ''}${r.cnOpts.map(cnTag).join('')}</td>
         ${numCell(avgCell(r.avg7, false))}${numCell(fmt(r.stock))}${numCell(r.unshipped ? `<b style="color:#c2410c;">${fmt(r.unshipped)}</b>` : '0')}${numCell(r.avail < 0 ? `<b style="color:#b91c1c;">${fmt(r.avail)}</b>` : fmt(r.avail))}
         ${numCell(incCell(r.incoming, r.pend, r.transit, r.late, tipId(r.cnOpts, `${g.name} ${r.opt || ''}`)))}${numCell(fmt(r.after) + madeDaysHtml(r.after, r.avg7))}<td class="m-hide" style="text-align:right;color:#6b7280;">${r.safe != null ? fmt(r.safe) : '—'}</td>
         ${numCell(r.shortage ? `<b style="color:#b91c1c;">${fmt(r.shortage)}</b>${!r.cnOpts.length ? '<div style="font-size:.6rem;color:#b91c1c;">중국 옵션<br>짝 없음</div>' : ''}` : `<span style="color:${r.warn ? '#b45309' : '#15803d'};">${r.warn ? (r.warnLow ? `${fmt(Math.max(0, r.after))}개 남음` : '안정재고 미달') : '충분'}</span>`)}</tr>`;
     }
-    for (const o of (g.linked ? g.unmapped : g.cnOpts.filter(o => o.inc.inc > 0))) {
+    for (const o of (low ? [] : g.linked ? g.unmapped : g.cnOpts.filter(o => o.inc.inc > 0))) {
       html += `<tr><td class="nm" style="padding-left:22px;background:${g.linked ? '#fef2f2' : '#f9fafb'};">${escHtml(o.sname)} ${escHtml(madeCnOptName(o))}<div style="font-size:.64rem;color:${g.linked ? '#b91c1c' : '#6b7280'};font-weight:700;">${g.linked ? '셀메이트 옵션 짝 없음 — [옵션 짝]에서 골라 주세요' : '중국 옵션'}</div></td>
         <td></td><td></td><td></td><td></td>${numCell(incCell(o.inc.inc, o.inc.pend, o.inc.transit, o.inc.late, tipId([o], `${o.sname} ${madeCnOptName(o)}`)))}<td></td><td class="m-hide"></td><td></td></tr>`;
     }
@@ -12762,8 +12772,9 @@ async function madeStkExport() {
   if (madeState.stkFilter === 'warn') list = list.filter(g => g.warn > 0);
   if (madeState.stkFilter === 'watch') list = list.filter(g => g.watched);
   if (madeState.stkFilter === 'recent') list = list.filter(g => g.recent > 0);
+  const low = madeState.stkFilter === 'low';
   const lines = [];
-  for (const g of list) for (const r of g.rows) lines.push([g.name, r.opt || '단일', r.code || '', r.avg7 == null ? '' : Math.round(r.avg7 * 10) / 10, r.stock, r.unshipped, r.avail, r.incoming, r.after, r.safe != null ? r.safe : '', r.shortage, r.warn ? ['주의', r.warnLow ? '5개 미만' : '', r.warnSafe ? '안정재고 미달' : ''].filter(Boolean).join(' ') : '', g.watched ? '지정' : 'made/자체제작', r.ez ? r.ez.ordered : '', r.ez ? r.ez.received : '', r.recent ? r.recent.list.map(x => `${madeRecentMd(x.date)} ${x.qty}장`).join(', ') : '']);
+  for (const g of list) for (const r of (low ? g.rows.filter(x => madeLowDays(x.after, x.avg7)) : g.rows)) lines.push([g.name, r.opt || '단일', r.code || '', r.avg7 == null ? '' : Math.round(r.avg7 * 10) / 10, r.stock, r.unshipped, r.avail, r.incoming, r.after, r.safe != null ? r.safe : '', r.shortage, r.warn ? ['주의', r.warnLow ? '5개 미만' : '', r.warnSafe ? '안정재고 미달' : ''].filter(Boolean).join(' ') : '', g.watched ? '지정' : 'made/자체제작', r.ez ? r.ez.ordered : '', r.ez ? r.ez.received : '', r.recent ? r.recent.list.map(x => `${madeRecentMd(x.date)} ${x.qty}장`).join(', ') : '']);
   if (!lines.length) { showToast('내보낼 행이 없어요'); return; }
   try {
     await loadXlsxPopulate();
