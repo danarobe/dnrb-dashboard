@@ -4371,7 +4371,8 @@ async function cnBuyXlsx(register, btn) {
     const wb = await cnBuyWorkbook(picked, md);
     const buf = await wb.xlsx.writeBuffer();
     const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
-    a.download = `${md} 다나로브 주문서.xlsx`;   // 파일 이름 '10-23 다나로브 주문서'(2026-10-23 사용자 요청) document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 3000);
+    a.download = `${md} 다나로브 주문서.xlsx`;   // 파일 이름 '10-23 다나로브 주문서'(2026-10-23 사용자 요청)
+    document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 3000);   // ⚠ 10-23~10-26 이 줄이 위 주석 뒤에 붙어 내려받기가 안 됐음
     if (register) {
       const lines = picked.flatMap(p => p.opts.map(o => ({ sname: p.sname, color: o.color || null, size: o.size || null, qty: o.qty, sheet: md })));
       const r = await cnPost('cn_order_upload', { title: `주문하기 ${md}`, order_date: day, note: '주문하기 탭에서 만든 주문서', file_name: a.download, lines, ship_ids: [], thumbs: {} });
