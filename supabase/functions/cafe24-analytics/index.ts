@@ -2261,8 +2261,12 @@ Deno.serve(async (req) => {
       }
       // ── 미송 확인(2026-10-26 사용자 요청) — 중국에서 받은 미송 엑셀(화면이 읽어 단가·합계를 뺀 묶음만 보냄). 최근 2개(지금 + 직전)만 보관
       if (action === "cn_misong_list") {
-        const rows = ((await sbRest("cn_misong?select=id,file_name,base_date,base_label,items,thumbs,uploaded_by_name,uploaded_at&order=id.desc&limit=2")) ?? []) as Record<string, any>[];
-        return json({ files: rows, can_edit: canEdit });
+        const y = new Date().getUTCFullYear();
+        const [rows, hol] = await Promise.all([
+          sbRest("cn_misong?select=id,file_name,base_date,base_label,items,thumbs,uploaded_by_name,uploaded_at&order=id.desc&limit=2"),
+          sbRest(`wm_holidays?select=date,name&date=gte.${y - 1}-01-01&date=lte.${y + 1}-12-31&order=date.asc`).catch(() => []),   // 한국 도착 예상일(주말·공휴일이면 다음 날)용 — 근무 관리 공휴일 표
+        ]) as [Record<string, any>[], Record<string, any>[]];
+        return json({ files: rows ?? [], holidays: (hol ?? []).map((h) => ({ date: String(h.date).slice(0, 10), name: h.name ?? "" })), can_edit: canEdit });
       }
       if (req.method !== "POST") return json({ error: "POST로 호출해주세요" }, 405);
       const b = await req.json().catch(() => ({})) as Record<string, any>;

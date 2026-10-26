@@ -7413,12 +7413,32 @@ async function cnMisongLoad(force) {
   if (cnMisong.loading || (cnMisong.files && !force)) return;
   cnMisong.loading = true; cnMisong.err = '';
   if (cnState.tab === 'misong') cnMisongRender();
-  try { const r = await anGet({ action: 'cn_misong_list' }); cnMisong.files = r.files || []; cnMisong.canEdit = !!r.can_edit; }
+  try { const r = await anGet({ action: 'cn_misong_list' }); cnMisong.files = r.files || []; cnMisong.canEdit = !!r.can_edit; cnMisong.holidays = new Map((r.holidays || []).map(h => [h.date, h.name])); }
   catch (e) { cnMisong.err = e.message || String(e); }
   finally { cnMisong.loading = false; if (cnState.tab === 'misong') cnMisongRender(); }
 }
 const cnmMd = d => d ? `${Number(d.slice(5, 7))}/${Number(d.slice(8, 10))}` : '';
 const cnmDow = d => '일월화수목금토'[new Date(d + 'T12:00:00').getDay()];
+// 한국 도착 예상일(2026-10-26 사용자 지정): 물류공장 입고일 + 4일, 그날이 주말·공휴일이면 다음 날(다음 날도 쉬는 날이면 계속 다음 날로)
+const CNM_KR_DAYS = 4;
+function cnmKrArrive(d) {
+  if (!d) return null;
+  const hol = cnMisong.holidays || new Map();
+  let t = cnmAddDays(d, CNM_KR_DAYS), moved = [];
+  for (let i = 0; i < 14; i++) {
+    const w = new Date(t + 'T12:00:00').getDay();
+    if (w !== 0 && w !== 6 && !hol.has(t)) break;
+    moved.push(hol.has(t) ? hol.get(t) : (w === 0 ? '일요일' : '토요일'));
+    t = cnmAddDays(t, 1);
+  }
+  return { date: t, moved };
+}
+function cnmKrHtml(n) {
+  if (!n || !n.date) return '<span style="color:#9ca3af;">—</span>';
+  const k = cnmKrArrive(n.date);
+  const why = [...new Set(k.moved.map(m => /^[토일]요일$/.test(m) ? '주말' : m))].join('·');
+  return `<span class="cnm-when" style="background:#ecfdf5;color:#047857;">${cnmMd(k.date)}(${cnmDow(k.date)})</span><div style="font-size:.7rem;color:#6b7280;margin-top:2px;">입고 +${CNM_KR_DAYS}일${why ? ` · ${escHtml(why)}이라 미룸` : ''}</div>`;
+}
 function cnmAddDays(d, n) { const t = new Date(d + 'T12:00:00'); t.setDate(t.getDate() + n); return t.toLocaleDateString('sv-SE'); }
 // 'MM/DD기준' → 날짜(올해, 두 달 넘게 앞이면 작년)
 function cnmBaseDate(label) {
@@ -7502,7 +7522,7 @@ function cnMisongRender() {
     if (n && n.date) { const e = byDate.get(n.date) || { qty: 0, sn: new Set() }; e.qty += r.qty; e.sn.add(it.sname); byDate.set(n.date, e); }
     else { undated++; undatedQty += r.qty; }
   }
-  const dateChips = [...byDate].sort((a, b) => a[0].localeCompare(b[0])).map(([d, e]) => `<span class="cnm-chip"><span class="cnm-when" style="background:#e0f2fe;color:#0369a1;">${cnmMd(d)}(${cnmDow(d)})</span> 품번 <b>${e.sn.size}</b> · <b>${fmt(e.qty)}</b>장</span>`).join('')
+  const dateChips = [...byDate].sort((a, b) => a[0].localeCompare(b[0])).map(([d, e]) => { const k = cnmKrArrive(d); return `<span class="cnm-chip"><span class="cnm-when" style="background:#e0f2fe;color:#0369a1;">${cnmMd(d)}(${cnmDow(d)})</span> 품번 <b>${e.sn.size}</b> · <b>${fmt(e.qty)}</b>장 <span style="color:#6b7280;">→ 한국</span> <span class="cnm-when" style="background:#ecfdf5;color:#047857;">${cnmMd(k.date)}(${cnmDow(k.date)})</span></span>`; }).join('')
     + (undated ? `<span class="cnm-chip" title="일정이 '라벨 대기'처럼 날짜가 없거나, 품목별 날짜를 엑셀에서 정할 수 없는 항목"><span class="cnm-when" style="background:#f3f4f6;color:#6b7280;">날짜 미정·품목 구분 없음</span> 옵션 <b>${undated}</b> · <b>${fmt(undatedQty)}</b>장</span>` : '');
   const checks = items.flatMap(x => (x.it.checks || []).map(c => `${x.it.sname}: ${c}`));
   const tabs = files.map((x, i) => `<button class="toggle-btn${i === vi ? ' active' : ''}" style="${i === vi ? 'background:#4f46e5;color:#fff;border-color:#4f46e5;' : ''}" onclick="cnMisong.view=${i};cnMisongRender()">${i === 0 ? '최신' : '직전'} · ${x.base_date ? cnmMd(x.base_date) + ' 기준' : '기준일 없음'}</button>`).join('');
@@ -7512,23 +7532,24 @@ function cnMisongRender() {
       <div style="border:1.5px solid #e5e7eb;background:#fff;border-radius:12px;padding:10px 14px;min-width:170px;"><div style="font-size:.72rem;color:#6b7280;font-weight:700;">엑셀 업로드</div><div style="font-size:1rem;font-weight:800;color:#1e1b4b;">${escHtml(upTxt)}</div><div style="font-size:.7rem;color:#6b7280;">${escHtml(f.uploaded_by_name || '')} · ${escHtml(f.file_name || '')}</div></div>
       <div style="border:1.5px solid #e5e7eb;background:#fff;border-radius:12px;padding:10px 14px;min-width:150px;"><div style="font-size:.72rem;color:#6b7280;font-weight:700;">미송 합계</div><div style="font-size:1.15rem;font-weight:900;color:#1e1b4b;">${fmt(nQty)}장</div><div style="font-size:.7rem;color:#6b7280;">품번 ${nSn}개 · 옵션 ${nOpt}개</div></div>
     </div>
-    <div style="font-size:.78rem;font-weight:800;color:#1e1b4b;margin-bottom:5px;"><i class="fa-regular fa-calendar"></i> 물류공장 입고 일정 <span style="font-weight:500;color:#6b7280;">(기준일 + 엑셀 I열의 '내일'·'N일')</span></div>
+    <div style="font-size:.78rem;font-weight:800;color:#1e1b4b;margin-bottom:5px;"><i class="fa-regular fa-calendar"></i> 물류공장 입고 일정 → 한국 도착 예상 <span style="font-weight:500;color:#6b7280;">(입고 = 기준일 + 엑셀 I열의 '내일'·'N일' · 한국 도착 = 입고 + ${CNM_KR_DAYS}일, 주말·공휴일이면 다음 날)</span></div>
     <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px;">${dateChips || '<span style="font-size:.78rem;color:#6b7280;">일정이 적힌 항목이 없어요</span>'}</div>
     ${checks.length ? `<div style="border:1.5px solid #fde68a;background:#fffbeb;border-radius:10px;padding:8px 12px;font-size:.76rem;color:#92400e;margin-bottom:8px;"><b><i class="fa-solid fa-triangle-exclamation"></i> 엑셀에서 확인해 볼 줄</b><br>${checks.map(escHtml).join('<br>')}</div>` : ''}`;
-  let html = `<div class="table-wrap"><table class="cnm-tbl" style="width:100%;font-size:.8rem;"><thead><tr><th style="width:64px;">사진</th><th style="text-align:left;">품번 · 쇼핑몰 상품명</th><th style="text-align:left;">색상</th><th>사이즈</th><th>미송 수량</th><th style="text-align:left;">입고 예정</th></tr></thead><tbody>`;
+  let html = `<div class="table-wrap"><table class="cnm-tbl" style="width:100%;font-size:.8rem;"><thead><tr><th style="width:64px;">사진</th><th style="text-align:left;">품번 · 쇼핑몰 상품명</th><th style="text-align:left;">색상</th><th>사이즈</th><th>미송 수량</th><th style="text-align:left;">물류공장 입고 예정</th><th style="text-align:left;">한국 도착 예상</th></tr></thead><tbody>`;
   for (const { it, sc } of items) {
     if (!sc.rows.length) continue;   // 미송 줄이 없는 묶음(수량 칸이 빈 줄만)은 위 '확인해 볼 줄'에만
     const rows = sc.rows;
     const names = cnmMallNames(it.sname);
     const nameHtml = names == null ? '<div style="font-size:.72rem;color:#9ca3af;margin-top:2px;">중국 사입/제작 관리에 없는 품번</div>'
       : names.length ? names.map(n => `<div style="font-size:.74rem;color:#374151;margin-top:2px;"><i class="fa-solid fa-store" style="color:#9ca3af;font-size:.66rem;"></i> ${escHtml(n)}</div>`).join('') : '<div style="font-size:.72rem;color:#b45309;margin-top:2px;">카페24 미등록</div>';
-    const noteHtml = sc.notes.length ? `<div style="font-size:.7rem;color:#6b7280;margin-top:5px;border-top:1px dashed #e5e7eb;padding-top:4px;">중국 일정: ${sc.notes.map(n => `${escHtml(n.text)}${n.date ? ` → <b style="color:#0369a1;">${cnmMd(n.date)}(${cnmDow(n.date)})</b>` : ''}`).join(' · ')}</div>` : '';
+    const noteHtml = sc.notes.length ? `<div style="font-size:.7rem;color:#6b7280;margin-top:5px;border-top:1px dashed #e5e7eb;padding-top:4px;">중국 일정: ${sc.notes.map(n => { const k = n.date ? cnmKrArrive(n.date) : null; return `${escHtml(n.text)}${n.date ? ` → <b style="color:#0369a1;">${cnmMd(n.date)}(${cnmDow(n.date)})</b> · 한국 <b style="color:#047857;">${cnmMd(k.date)}(${cnmDow(k.date)})</b>` : ''}`; }).join(' · ')}</div>` : '';
     const total = rows.reduce((t, r) => t + (r.qty || 0), 0);
     rows.forEach((r, i) => {
       html += `<tr>${i === 0 ? `<td class="cnm-prod" rowspan="${rows.length}" style="text-align:center;">${cnmPhoto(f, it.sname)}</td><td class="cnm-prod" rowspan="${rows.length}" style="text-align:left;min-width:180px;"><b style="font-size:.9rem;color:#1e1b4b;">${escHtml(it.sname)}</b> <span style="font-size:.72rem;color:#6b7280;">· ${fmt(total)}장</span>${nameHtml}${noteHtml}</td>` : ''}
         <td class="${i === 0 ? 'cnm-prod' : ''}" style="text-align:left;">${escHtml(r.color || '—')}</td><td class="${i === 0 ? 'cnm-prod' : ''}" style="text-align:center;">${escHtml(r.size || '—')}</td>
         <td class="${i === 0 ? 'cnm-prod' : ''}" style="text-align:right;"><b>${fmt(r.qty || 0)}</b></td>
-        <td class="${i === 0 ? 'cnm-prod' : ''}" style="text-align:left;">${r.sched ? cnmWhenHtml(r.sched, base) : sc.unresolved ? '<span style="font-size:.72rem;color:#92400e;" title="엑셀 일정이 품목을 나누지 않아(예: 900장 3일) 어느 옵션인지 정할 수 없어요 — 왼쪽 중국 일정을 보세요">품목 구분 없음 · 왼쪽 일정 참고</span>' : '<span style="color:#9ca3af;">일정 없음</span>'}</td></tr>`;
+        <td class="${i === 0 ? 'cnm-prod' : ''}" style="text-align:left;">${r.sched ? cnmWhenHtml(r.sched, base) : sc.unresolved ? '<span style="font-size:.72rem;color:#92400e;" title="엑셀 일정이 품목을 나누지 않아(예: 900장 3일) 어느 옵션인지 정할 수 없어요 — 왼쪽 중국 일정을 보세요">품목 구분 없음 · 왼쪽 일정 참고</span>' : '<span style="color:#9ca3af;">일정 없음</span>'}</td>
+        <td class="${i === 0 ? 'cnm-prod' : ''}" style="text-align:left;">${cnmKrHtml(r.sched)}</td></tr>`;
     });
   }
   body.innerHTML = html + '</tbody></table></div>';
