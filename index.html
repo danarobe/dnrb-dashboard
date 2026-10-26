@@ -1629,7 +1629,7 @@
       <!-- 미송 확인 (2026-10-26 사용자 요청 — 중국에서 받은 미송 엑셀: 업로드 일자·며칠 기준·사진·품번·쇼핑몰 상품명·미송 항목·수량·항목별 입고 날짜, 단가·합계는 안 보임) -->
       <div id="cn-pane-defect" class="cn-pane" style="display:none;">
         <div style="font-size:.8rem;color:#6b7280;margin-bottom:10px;line-height:1.7;">
-          · <b>불량률</b> = 불량 수량 ÷ <b>검수 완료 수량</b>(입고 검수에서 [검수 완료]한 차수의 실입고 합). 검수 완료 전 차수의 수량은 넣지 않아요.<br>
+          · <b>불량률</b> = 불량 수량 ÷ <b>입고 수량</b>(그 상품·옵션이 입고된 모든 차수의 합 — 실입고를 적었으면 실입고, 아직 안 셌으면 중국출고 수량). 아직 도착 전인 차수는 넣지 않아요.<br>
           · 불량을 발견하면 아래 <b>불량 적기</b>에서 품번·옵션·수량을 적어요. 입고 차수는 알면 고르고 몰라도 돼요. 잘못 적었으면 그 기록의 [지우기].
         </div>
         <div id="cn-def-summary" style="margin-bottom:10px;"></div>
@@ -7789,7 +7789,7 @@ async function cnPendCmpPick(input) {
   } catch (e) { showToast('읽지 못했어요: ' + e.message); }
 }
 /* ══ 불량 기록 (2026-10-26 사용자 요청 — "각 상품의 옵션별 불량 수량을 체크해서, 검수 완료 수량 기준 불량률") ══
-   cn_defects 한 줄 = 상품·옵션·(입고 차수)·수량·발견일·메모. 불량률 = 불량 ÷ 검수 완료 수량(입고 검수에서 [검수 완료]한 차수의 실입고 합).
+   cn_defects 한 줄 = 상품·옵션·(입고 차수)·수량·발견일·메모. 불량률 = 불량 ÷ 입고 수량(그 상품·옵션의 모든 차수 합 — 2026-10-26 같은 날 바꿈, 처음엔 검수 완료 차수 실입고만).
    적기·지우기 = 관리자·MD·물류팀(cnCanDisc와 같은 범위). 옵션 키는 cnLKey(비슷한 색 이름 짝 포함). 입고 검수의 '불량' 칸은 같은 날 없앰. */
 const cnDefState = { filter: 'has', sname: '' };
 function cnDefectMap() {
@@ -7800,17 +7800,19 @@ function cnDefectMap() {
   return m;
 }
 const cnDefectQty = k => (cnDefectMap().get(k) || {}).qty || 0;
-function cnDefectRows() {   // 옵션마다 { k, sname, color, size, done(검수 완료 수량), defect, list }
-  const d = cnState.data || {}, doneShip = new Set((d.ships || []).filter(x => cnShipDone(x)).map(x => x.id)), m = new Map();
+function cnDefectRows() {   // 옵션마다 { k, sname, color, size, done(입고 수량 — 모든 차수), defect, list }
+  // 불량률 분모 = 그 상품·옵션이 입고된 전체 수량(2026-10-26 사용자 지정 — 옛: 검수 완료 차수의 실입고만):
+  //   실입고를 적은 줄은 실입고, 도착([입고 완료])했지만 아직 안 센 줄은 중국출고 수량, 아직 도착 전인 차수는 넣지 않음
+  const d = cnState.data || {}, arrivedShip = new Set((d.ships || []).filter(x => x.arrived || cnShipDone(x)).map(x => x.id)), m = new Map();
   const get = (k, l) => { let e = m.get(k); if (!e) m.set(k, e = { k, sname: l.sname, color: cnColorCanon(l.sname, l.color, l.size), size: String(l.size || '').trim(), done: 0, defect: 0, list: [] }); return e; };
-  for (const l of d.lines || []) { const e = get(cnLKey(l), l); if (doneShip.has(l.shipment_id) && l.qty_actual != null) e.done += l.qty_actual; }
+  for (const l of d.lines || []) { const e = get(cnLKey(l), l); if (l.qty_actual != null) e.done += l.qty_actual; else if (arrivedShip.has(l.shipment_id)) e.done += l.qty_sent || 0; }
   for (const [k, v] of cnDefectMap()) { const e = get(k, v.list[0]); e.defect = v.qty; e.list = v.list; }
   return [...m.values()];
 }
 const cnDefRate = (def, done) => done > 0 ? def / done * 100 : null;
 function cnDefRateHtml(def, done) {
   const r = cnDefRate(def, done);
-  if (r == null) return def ? '<span style="font-size:.72rem;color:#b45309;" title="이 옵션은 아직 검수 완료한 입고가 없어 불량률을 낼 수 없어요">검수 완료 전</span>' : '<span style="color:#9ca3af;">—</span>';
+  if (r == null) return def ? '<span style="font-size:.72rem;color:#b45309;" title="이 옵션은 아직 입고된 수량이 없어 불량률을 낼 수 없어요">입고 전</span>' : '<span style="color:#9ca3af;">—</span>';
   const c = r >= 5 ? '#b91c1c' : r >= 2 ? '#c2410c' : r > 0 ? '#15803d' : '#6b7280';
   const w = Math.min(100, r * 10);   // 10% = 막대 끝
   return `<div style="display:inline-flex;align-items:center;gap:6px;"><span style="display:inline-block;width:46px;height:6px;border-radius:99px;background:#f3f4f6;overflow:hidden;"><span style="display:block;height:100%;width:${w}%;background:${c};"></span></span><b style="color:${c};min-width:44px;text-align:right;">${(Math.round(r * 100) / 100).toFixed(r >= 10 ? 1 : 2)}%</b></div>`;
@@ -7820,9 +7822,9 @@ function cnDefRender() {
   const rows = cnDefectRows(), done = rows.reduce((t, e) => t + e.done, 0), def = rows.reduce((t, e) => t + e.defect, 0);
   const defOpts = rows.filter(e => e.defect > 0), defProds = new Set(defOpts.map(e => e.sname));
   $('cn-def-summary').innerHTML = `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:8px;">${
-    admgrTile('검수 완료 수량', `${fmt(done)}장 <span style="font-size:.72rem;color:#6b7280;">검수 완료 ${fmt((d.ships || []).filter(x => cnShipDone(x)).length)}차수</span>`, false)
+    admgrTile('입고 수량', `${fmt(done)}장 <span style="font-size:.72rem;color:#6b7280;">입고된 ${fmt((d.ships || []).filter(x => x.arrived || cnShipDone(x)).length)}차수 전체</span>`, false)
     + admgrTile(admgrDot('#dc2626') + '불량', `${fmt(def)}장 <span style="font-size:.72rem;color:#6b7280;">기록 ${fmt((d.defects || []).length)}줄</span>`, false)
-    + admgrTile('전체 불량률', done ? cnDefRateHtml(def, done) : '<span style="font-size:.8rem;color:#9ca3af;">검수 완료 수량 없음</span>', false)
+    + admgrTile('전체 불량률', done ? cnDefRateHtml(def, done) : '<span style="font-size:.8rem;color:#9ca3af;">입고 수량 없음</span>', false)
     + admgrTile('불량 있는 상품', `${fmt(defProds.size)}개 <span style="font-size:.72rem;color:#6b7280;">${fmt(defOpts.length)}옵션</span>`, false)}</div>`;
   cnDefFormRender();
   $('cn-def-chips').innerHTML = [['has', `불량 있음 ${defOpts.length}`], ['all', '전체']].map(([k, label]) => `<button class="${cnDefState.filter === k ? 'active' : ''}" onclick="cnDefState.filter='${k}';cnDefList()">${label}</button>`).join('');
@@ -7890,7 +7892,7 @@ function cnDefList() {
   const pRate = es => { const dn = es.reduce((t, e) => t + e.done, 0), df = es.reduce((t, e) => t + e.defect, 0); return { dn, df, r: cnDefRate(df, dn) }; };
   const names = [...groups.keys()].sort((a, b) => { const x = pRate(groups.get(a)), y = pRate(groups.get(b)); return (y.r ?? -1) - (x.r ?? -1) || y.df - x.df || String(a).localeCompare(String(b), 'ko', { numeric: true }); });   // 불량률 높은 상품부터
   const recHtml = list => list.map(x => { const sh = x.shipment_id ? shipOf.get(x.shipment_id) : null; return `<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;font-size:.72rem;color:#4b5563;line-height:1.5;"><span style="color:#6b7280;">${escHtml(String(x.found_on || '').slice(5).replace('-', '/'))}</span><b style="color:#b91c1c;">${fmt(x.qty)}장</b>${sh ? `<span class="cn-sub">${escHtml(sh.title || '')}</span>` : ''}${x.note ? `<span>${escHtml(x.note)}</span>` : ''}<span class="cn-sub">${escHtml(x.created_by_name || '')}</span>${canEdit ? `<button class="toggle-btn" style="font-size:.64rem;padding:0 7px;" onclick="cnDefDel(${Number(x.id)})" title="이 기록 지우기">지우기</button>` : ''}</div>`; }).join('');
-  let html = `<div class="table-wrap"><table class="cn-tbl" style="width:100%;font-size:.8rem;"><thead><tr><th style="text-align:left;">품번 / 옵션</th><th>검수 완료 수량<div class="cn-sub">검수 완료 차수 실입고</div></th><th>불량</th><th>불량률<div class="cn-sub">불량 ÷ 검수 완료</div></th><th style="text-align:left;">불량 기록<div class="cn-sub">발견일 · 수량 · 입고 · 내용</div></th></tr></thead><tbody>`;
+  let html = `<div class="table-wrap"><table class="cn-tbl" style="width:100%;font-size:.8rem;"><thead><tr><th style="text-align:left;">품번 / 옵션</th><th>입고 수량<div class="cn-sub">모든 차수 합</div></th><th>불량</th><th>불량률<div class="cn-sub">불량 ÷ 입고 수량</div></th><th style="text-align:left;">불량 기록<div class="cn-sub">발견일 · 수량 · 입고 · 내용</div></th></tr></thead><tbody>`;
   for (const n of names) {
     const es = groups.get(n).sort((a, b) => (a.color + a.size).localeCompare(b.color + b.size)), pr = pRate(es);
     html += `<tr style="background:#f8f9ff;"><td style="text-align:left;"><div style="display:flex;align-items:center;gap:8px;">${cnThumbHtml(n)}<b class="cn-nm-title">${escHtml(n)}</b><span class="cn-sub">옵션 ${es.length}</span></div></td><td style="text-align:right;"><b>${pr.dn ? fmt(pr.dn) : '<span style="color:#9ca3af;">—</span>'}</b></td><td style="text-align:right;">${pr.df ? `<b style="color:#b91c1c;">${fmt(pr.df)}</b>` : '<span style="color:#9ca3af;">0</span>'}</td><td style="text-align:right;">${cnDefRateHtml(pr.df, pr.dn)}</td><td></td></tr>`;
@@ -7908,8 +7910,8 @@ async function cnDefXlsx() {
   });
   const dn = rows.reduce((t, e) => t + e.done, 0), df = rows.reduce((t, e) => t + e.defect, 0);
   try {
-    await cnXlsxSave(`중국사입_불량기록_${cnXlsxDay()}`, '중국 사입 불량 기록', `불량률 = 불량 ÷ 검수 완료 수량 · ${cnDefState.filter === 'all' ? '전체' : '불량 있는 옵션'} · ${hireToday()}`,
-      ['사입상품명', '색상', '사이즈', '검수 완료 수량', '불량', '불량률(%)', '불량 기록(발견일 수량 입고 내용)'], out, [14, 16, 10, 14, 8, 11, 60],
+    await cnXlsxSave(`중국사입_불량기록_${cnXlsxDay()}`, '중국 사입 불량 기록', `불량률 = 불량 ÷ 입고 수량(모든 차수 합) · ${cnDefState.filter === 'all' ? '전체' : '불량 있는 옵션'} · ${hireToday()}`,
+      ['사입상품명', '색상', '사이즈', '입고 수량', '불량', '불량률(%)', '불량 기록(발견일 수량 입고 내용)'], out, [14, 16, 10, 14, 8, 11, 60],
       ['합계', `옵션 ${rows.length}개`, '', dn, df, dn ? Math.round(df / dn * 10000) / 100 : '', '']);
   } catch (e) { showToast('엑셀 저장 실패: ' + e.message); }
 }
