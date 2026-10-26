@@ -7415,7 +7415,7 @@ async function cnMisongLoad(force) {
   if (cnMisong.loading || (cnMisong.files && !force)) return;
   cnMisong.loading = true; cnMisong.err = '';
   if (cnState.tab === 'misong') cnMisongRender();
-  try { const r = await anGet({ action: 'cn_misong_list' }); cnMisong.files = r.files || []; cnMisong.canEdit = !!r.can_edit; cnMisong.holidays = new Map((r.holidays || []).map(h => [h.date, h.name])); }
+  try { const r = await anGet({ action: 'cn_misong_list' }); cnMisong.files = r.files || []; cnMisong.canEdit = !!r.can_edit; cnMisong.canSet = !!r.can_set; cnMisong.holidays = new Map((r.holidays || []).map(h => [h.date, h.name])); }
   catch (e) { cnMisong.err = e.message || String(e); }
   finally { cnMisong.loading = false; if (cnState.tab === 'misong') cnMisongRender(); }
 }
@@ -7434,6 +7434,28 @@ function cnmKrArrive(d) {
     t = cnmAddDays(t, 1);
   }
   return { date: t, moved };
+}
+// '품목 구분 없음' 칸 — 관리자·MD·물류팀은 날짜를 직접 넣을 수 있다(2026-10-26 사용자 요청), CS팀은 보기만
+function cnmUnresolvedHtml(fid, ii, ri) {
+  const tip = '엑셀 일정이 품목을 나누지 않아(예: 900장 3일) 어느 옵션인지 정할 수 없어요 — 왼쪽 중국 일정을 보세요';
+  const base = `<span style="font-size:.72rem;color:#92400e;" title="${tip}">품목 구분 없음 · 왼쪽 일정 참고</span>`;
+  if (!cnMisong.canSet || cnCsOnly()) return base;
+  return `${base}<div style="margin-top:4px;"><input type="date" onchange="cnMisongSet(${fid},${ii},${ri},this.value,this)" title="이 옵션의 물류공장 입고일을 직접 넣어요" style="border:1.5px dashed #f59e0b;border-radius:7px;padding:2px 6px;font-size:.76rem;background:#fffbeb;" /><div style="font-size:.66rem;color:#92400e;margin-top:1px;">날짜를 알면 직접 입력</div></div>`;
+}
+function cnmManualHtml(fid, ii, ri, n) {
+  const at = n.at ? new Date(n.at) : null, when = at ? `${at.getMonth() + 1}/${at.getDate()} ${String(at.getHours()).padStart(2, '0')}:${String(at.getMinutes()).padStart(2, '0')}` : '';
+  const chip = `<span class="cnm-when" style="background:#ede9fe;color:#5b21b6;">${cnmMd(n.date)}(${cnmDow(n.date)})</span><div style="font-size:.7rem;color:#6b7280;margin-top:2px;">직접 입력 · ${escHtml(n.by || '')}${when ? ' · ' + escHtml(when) : ''}</div>`;
+  if (!cnMisong.canSet || cnCsOnly()) return chip;
+  return `${chip}<div style="margin-top:3px;display:flex;gap:4px;align-items:center;flex-wrap:wrap;"><input type="date" value="${escHtml(n.date)}" onchange="cnMisongSet(${fid},${ii},${ri},this.value,this)" style="border:1.5px solid #c4b5fd;border-radius:7px;padding:1px 5px;font-size:.72rem;" /><button class="toggle-btn" style="font-size:.66rem;padding:1px 7px;" onclick="cnMisongSet(${fid},${ii},${ri},'',this)">지우기</button></div>`;
+}
+async function cnMisongSet(fid, ii, ri, date, el) {
+  if (el) el.disabled = true;
+  try {
+    const r = await cnPost('cn_misong_set', { id: fid, item: ii, row: ri, date: date || null });
+    const f = (cnMisong.files || []).find(x => x.id === fid); if (f) f.manual = r.manual;
+    showToast(date ? `입고일을 ${cnmMd(date)}(${cnmDow(date)})로 넣었어요` : '직접 넣은 입고일을 지웠어요');
+    cnMisongRender();
+  } catch (e) { showToast('저장하지 못했어요: ' + e.message); if (el) el.disabled = false; }
 }
 function cnmKrHtml(n) {
   if (!n || !n.date) return '<span style="color:#9ca3af;">—</span>';
@@ -7514,7 +7536,9 @@ function cnMisongRender() {
   const vi = Math.min(cnMisong.view, files.length - 1), f = files[vi], base = f.base_date;
   const up = f.uploaded_at ? new Date(f.uploaded_at) : null;
   const upTxt = up ? `${up.toLocaleDateString('sv-SE')} ${String(up.getHours()).padStart(2, '0')}:${String(up.getMinutes()).padStart(2, '0')}` : '';
-  const items = (f.items || []).map(it => ({ it, sc: cnmSchedule(it, base) }));
+  // '품목 구분 없음' 옵션에 사람이 넣은 입고일(manual — 묶음번호:줄번호)
+  const man = f.manual || {};
+  const items = (f.items || []).map((it, ii) => { const sc = cnmSchedule(it, base); sc.rows.forEach((r, j) => { const m = man[`${ii}:${j}`]; if (m && m.date && !r.sched) r.sched = { text: '직접 입력', date: m.date, days: null, manual: true, by: m.by || '', at: m.at || '' }; }); return { it, ii, sc }; });
   const nOpt = items.reduce((t, x) => t + x.sc.rows.length, 0), nQty = items.reduce((t, x) => t + x.sc.rows.reduce((a, r) => a + r.qty, 0), 0);
   const nSn = new Set(items.map(x => x.it.sname)).size;
   // 날짜별 입고 일정 한눈에
@@ -7538,7 +7562,7 @@ function cnMisongRender() {
     <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px;">${dateChips || '<span style="font-size:.78rem;color:#6b7280;">일정이 적힌 항목이 없어요</span>'}</div>
     ${checks.length ? `<div style="border:1.5px solid #fde68a;background:#fffbeb;border-radius:10px;padding:8px 12px;font-size:.76rem;color:#92400e;margin-bottom:8px;"><b><i class="fa-solid fa-triangle-exclamation"></i> 엑셀에서 확인해 볼 줄</b><br>${checks.map(escHtml).join('<br>')}</div>` : ''}`;
   let html = `<div class="table-wrap"><table class="cnm-tbl" style="width:100%;font-size:.8rem;"><thead><tr><th style="width:64px;">사진</th><th style="text-align:left;">품번 · 쇼핑몰 상품명</th><th style="text-align:left;">색상</th><th>사이즈</th><th>미송 수량</th><th style="text-align:left;">물류공장 입고 예정</th><th style="text-align:left;">한국 도착 예상</th></tr></thead><tbody>`;
-  for (const { it, sc } of items) {
+  for (const { it, ii, sc } of items) {
     if (!sc.rows.length) continue;   // 미송 줄이 없는 묶음(수량 칸이 빈 줄만)은 위 '확인해 볼 줄'에만
     const rows = sc.rows;
     const names = Object.prototype.hasOwnProperty.call(it, 'mall') ? it.mall : cnState.data ? cnmMallNames(it.sname) : undefined;
@@ -7550,7 +7574,7 @@ function cnMisongRender() {
       html += `<tr>${i === 0 ? `<td class="cnm-prod" rowspan="${rows.length}" style="text-align:center;">${cnmPhoto(f, it.sname)}</td><td class="cnm-prod" rowspan="${rows.length}" style="text-align:left;min-width:180px;"><b style="font-size:.9rem;color:#1e1b4b;">${escHtml(it.sname)}</b> <span style="font-size:.72rem;color:#6b7280;">· ${fmt(total)}장</span>${nameHtml}${noteHtml}</td>` : ''}
         <td class="${i === 0 ? 'cnm-prod' : ''}" style="text-align:left;">${escHtml(r.color || '—')}</td><td class="${i === 0 ? 'cnm-prod' : ''}" style="text-align:center;">${escHtml(r.size || '—')}</td>
         <td class="${i === 0 ? 'cnm-prod' : ''}" style="text-align:right;"><b>${fmt(r.qty || 0)}</b></td>
-        <td class="${i === 0 ? 'cnm-prod' : ''}" style="text-align:left;">${r.sched ? cnmWhenHtml(r.sched, base) : sc.unresolved ? '<span style="font-size:.72rem;color:#92400e;" title="엑셀 일정이 품목을 나누지 않아(예: 900장 3일) 어느 옵션인지 정할 수 없어요 — 왼쪽 중국 일정을 보세요">품목 구분 없음 · 왼쪽 일정 참고</span>' : '<span style="color:#9ca3af;">일정 없음</span>'}</td>
+        <td class="${i === 0 ? 'cnm-prod' : ''}" style="text-align:left;">${r.sched && r.sched.manual ? cnmManualHtml(f.id, ii, i, r.sched) : r.sched ? cnmWhenHtml(r.sched, base) : sc.unresolved ? cnmUnresolvedHtml(f.id, ii, i) : '<span style="color:#9ca3af;">일정 없음</span>'}</td>
         <td class="${i === 0 ? 'cnm-prod' : ''}" style="text-align:left;">${cnmKrHtml(r.sched)}</td></tr>`;
     });
   }
