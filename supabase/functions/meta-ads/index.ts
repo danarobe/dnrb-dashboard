@@ -374,6 +374,22 @@ Deno.serve(async (req) => {
       return json(body);
     }
 
+    // ── 기간 광고비(2026-10-26 사용자 요청 — 종합 판매 데이터 'ON 광고' 아래에 고른 기간의 누적 지출) ──
+    //   GET ?action=periodads&start_date&end_date → 그 기간에 지출이 있는 광고 전부(지금 꺼진 광고 포함)의 이름·지출. 상품 매칭은 브라우저(paPickBest)가 한다.
+    //   호출 = insights(level=ad) 페이지 끝까지 한 번. 30분 캐시(같은 기간을 여러 명이 봐도 Meta는 30분에 한 번).
+    if (action === "periodads") {
+      const s = url.searchParams.get("start_date") ?? "", e = url.searchParams.get("end_date") ?? "";
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(s) || !/^\d{4}-\d{2}-\d{2}$/.test(e) || s > e) return json({ error: "start_date, end_date 필수 (YYYY-MM-DD)" }, 400);
+      const cacheKey = `meta:periodads:${s}:${e}`;
+      const hit = await cacheGet(cacheKey, 30 * 60 * 1000);
+      if (hit) return json(hit);
+      const rows = await graphGetAll(`${c.account}/insights`, { time_range: JSON.stringify({ since: s, until: e }), level: "ad", fields: "ad_id,ad_name,spend", limit: "500" }, c.token);
+      const ads = rows.map((r) => ({ ad_id: String(r.ad_id ?? ""), ad_name: String(r.ad_name ?? ""), spend: num(r.spend) })).filter((a) => a.spend > 0);
+      const body = { period: { start: s, end: e }, count: ads.length, total_spend: ads.reduce((t, a) => t + a.spend, 0), truncated: rows.length >= 500 * 8, ads };
+      await cacheSet(cacheKey, body);
+      return json(body);
+    }
+
     // 선택 기간 내 '등록된' 활성 광고 — 사내 규칙: 광고명에 등록일 YYMMDD를 기입 (예: 260810)
     // 광고명에서 날짜를 추출해 기간 안에 들어가는 것만 반환. 비활성까지 세면 너무 많아
     // effective_status=ACTIVE 필터를 서버(Meta) 쪽에 건다 (사용자 결정).

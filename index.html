@@ -20142,18 +20142,33 @@ function paPickBest(an, prods, groups) {
 function paBuildMatch() {
   store.adMatch = new Map();
   const src = store.activeAds;
-  if (!src || !src.ads || !store.salesData.length) return;
+  if (!store.salesData.length) return;
   const prods = store.salesData
     .map(r => ({ no: r.productNo, key: paNorm(paKey(r.productName)), ver: paVerTok(r.productName) ? paNorm(paVerTok(r.productName)) : null, qty: Number(r.paidQty) || 0 }))
     .filter(p => p.key.length >= 3);
   const groups = paGroups(prods);
-  for (const ad of src.ads) {
+  for (const ad of (src && src.ads) || []) {
     const best = paPickBest(paNorm(ad.ad_name), prods, groups);
     if (!best) continue;
     if (!store.adMatch.has(best.no)) store.adMatch.set(best.no, []);
     store.adMatch.get(best.no).push(ad);
   }
   for (const list of store.adMatch.values()) list.sort((a, b) => b.spend - a.spend);
+  // 기간 광고비(2026-10-26): 고른 기간에 지출한 광고를 같은 규칙(paPickBest)으로 상품에 붙여 합산 — 지금 꺼진 광고도 포함
+  store.adSpend = new Map();
+  const pa = store.periodAds;
+  if (pa && pa.ads) for (const ad of pa.ads) {
+    const best = paPickBest(paNorm(ad.ad_name), prods, groups);
+    if (!best) continue;
+    const e = store.adSpend.get(best.no) || { spend: 0, n: 0 }; e.spend += Number(ad.spend) || 0; e.n++; store.adSpend.set(best.no, e);
+  }
+}
+function paSpendHtml(productNo) {   // ON 광고 칸 아래 작은 글씨 — 고른 기간의 누적 광고비(MD·마케터는 광고비 블러 정책 그대로)
+  const pa = store.periodAds; if (!pa) return '';
+  const e = store.adSpend && store.adSpend.get(productNo);
+  if (!e || !e.spend) return '';
+  const tip = `${pa.period.start} ~ ${pa.period.end} 누적 지출 — 이 상품에 매칭된 광고 ${e.n}개(지금 꺼진 광고 포함)`;
+  return `<div class="meta-blur" title="${escHtml(tip)}" style="font-size:.66rem;color:#6b7280;margin-top:3px;white-space:nowrap;">${fmt(Math.round(e.spend))}원</div>`;
 }
 
 function paShow(productNo) {
@@ -20523,13 +20538,17 @@ async function fetchPerfApi() {
   const btn = $('btn-api-perf');
   btnBusy(btn, '조회 중');
   try {
-    const [data, net, aa] = await Promise.all([
+    const adsOk = (isAdmin() || isStaff()) && !isCS();
+    const [data, net, aa, pa] = await Promise.all([
       anGet({ action: 'performance', start_date: ds, end_date: de }),
       anGet({ action: 'netreturns', start_date: ds, end_date: de }),
       // ON 광고 열 — 관리자·MD만. 실패해도 판매 성과 자체는 정상 표시
-      (isAdmin() || isStaff()) && !isCS() ? metaGet({ action: 'activeads' }).catch(() => null) : Promise.resolve(null),
+      adsOk ? metaGet({ action: 'activeads' }).catch(() => null) : Promise.resolve(null),
+      // ON 광고 아래 '기간 광고비'(2026-10-26 사용자 요청) — 고른 기간에 지출이 있는 광고 전부(지금 꺼진 광고 포함)
+      adsOk ? metaGet({ action: 'periodads', start_date: ds, end_date: de }).catch(() => null) : Promise.resolve(null),
     ]);
     store.activeAds = aa && !aa.error ? aa : null;
+    store.periodAds = pa && !pa.error ? pa : null;
     store.costMap = {};
     store.salesData = [];
     // 순반품률(배송완료일 기준) — product_no로 조인
@@ -20720,7 +20739,7 @@ function renderPerfResult() {
         <th class="m-hide">환불수량</th>
         <th>순판매량</th>
         ${isStaff() || isCS() ? '' : '<th class="m-hide">판매합계</th>'}
-        ${isCS() ? '' : '<th class="m-hide">ON 광고<br><span style="font-size:.7rem;font-weight:400;color:#6b7280;">활성 기준</span></th>'}
+        ${isCS() ? '' : '<th class="m-hide">ON 광고<br><span style="font-size:.7rem;font-weight:400;color:#6b7280;">활성 기준</span><br><span style="font-size:.64rem;font-weight:400;color:#9ca3af;">아래 = 기간 광고비</span></th>'}
         <th>순반품률<br class="m-hide"><span class="m-hide" style="font-size:.7rem;font-weight:400;color:#6b7280;">배송완료일 기준</span></th>
         <th class="m-hide">취소&amp;반품률<br><span style="font-size:.7rem;font-weight:400;color:#6b7280;">주문일 기준·참고용</span></th>
         ${isCS() ? '' : '<th>마진율<br class="m-hide"><span class="m-hide" style="font-size:.7rem;font-weight:400;color:#6b7280;">공급가×1.1 기준' + (isAdmin() || isStaff() ? '<br>중국 사입은 실질 단가 + 수입 부가세' : '') + '</span></th>'}
@@ -20749,11 +20768,11 @@ function renderPerfResult() {
         <td class="m-hide">${fmt(row.paidQty)}</td><td class="m-hide">${fmt(row.refundQty)}</td><td>${fmt(row.salesQty)}</td>
         ${isStaff() || isCS() ? '' : `<td class="m-hide">${row.salesTotal>0?fmt(row.salesTotal)+'원':'—'}</td>`}
         ${isCS() ? '' : `<td class="m-hide">${(() => {
-          if (!store.activeAds) return '<span title="Meta 광고 조회 실패 — 잠시 후 다시 조회해주세요" style="color:#d1d5db;font-size:.75rem;">—</span>';
+          if (!store.activeAds) return '<span title="Meta 광고 조회 실패 — 잠시 후 다시 조회해주세요" style="color:#d1d5db;font-size:.75rem;">—</span>' + paSpendHtml(row.productNo);
           const n = store.adMatch && store.adMatch.has(row.productNo) ? store.adMatch.get(row.productNo).length : 0;
-          return n > 0
+          return (n > 0
             ? `<button onclick="paShow(${row.productNo})" style="border:1px solid #c7d2fe;background:#eef2ff;color:#4338ca;border-radius:6px;padding:2px 10px;font-size:.75rem;font-weight:800;cursor:pointer;">${n}</button>`
-            : '<span style="color:#d1d5db;font-size:.75rem;">0</span>';
+            : '<span style="color:#d1d5db;font-size:.75rem;">0</span>') + paSpendHtml(row.productNo);
         })()}</td>`}
         <td>${netReturnBadge(row)}${(() => {
           const nr = netOf(row);
