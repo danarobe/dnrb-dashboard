@@ -5889,7 +5889,45 @@ const cnLineLocked = l => cnShipDone((((cnState.data || {}).ships) || []).find(x
    · '전체' 보기·상품별 현황: 잔여 = 주문 − 모든 입고의 중국출고 합. 주문서에만 있고 아직 출고 없는 옵션도 줄로 나온다.
    · 주문서가 하나도 없으면 주문·잔여 '—'. 입고에 있는데 어느 주문서에도 없는 옵션은 주문 0(잔여가 마이너스 = 주문보다 더 출고). (cn_shipments.order_id 칸은 쓰지 않음) */
 const cnOptKey = (sname, color, size) => String(sname == null ? '' : sname).trim() + '\u0001' + String(color || '').trim() + '\u0001' + String(size || '').trim();
-const cnLKey = l => cnOptKey(l.sname, l.color, l.size);
+/* 비슷한 색 이름 짝(2026-10-26 사용자 요청 — 주문서 '소라'·'연회'·'진회' = 출고 서류 '蓝소米套'·'浅灰연회米套'·'深灰진회灰套'):
+   같은 품번·사이즈 안에서 출고 서류 색상과 글자가 똑같지 않은 주문서·폐기 색상만, 한글 부분(한자 등을 뺀 글자)이 같거나 한쪽이 다른 쪽으로 시작하면
+   (소 ↔ 소라) 그 출고 서류 색상으로 본다. 후보가 딱 하나이고, 그 출고 색상도 다른 주문서 색상과 겹치지 않을 때만(헷갈리면 짓지 않음). */
+const cnHangul = v => String(v || '').replace(/[^가-힣]/g, '');
+const __cnAliasW = new WeakMap();
+function cnColorAlias(d) {
+  if (!d || typeof d !== 'object') return null;
+  let a = __cnAliasW.get(d); if (a) return a;
+  const grp = l => String(l.sname == null ? '' : l.sname).trim() + '\u0001' + String(l.size || '').trim();
+  const add = (m, l) => { const g = grp(l); let x = m.get(g); if (!x) m.set(g, x = new Set()); x.add(String(l.color || '').trim()); };
+  const ship = new Map(), other = new Map();
+  for (const l of d.lines || []) add(ship, l);
+  for (const x of d.ships || []) for (const l of (Array.isArray(x.left_extra) ? x.left_extra : [])) add(ship, l);
+  for (const l of d.order_lines || []) add(other, l);
+  for (const l of d.discards || []) add(other, l);
+  a = new Map();
+  for (const [g, cols] of other) {
+    const sc = ship.get(g); if (!sc) continue;
+    const free = [...sc].filter(c => !cols.has(c));   // 글자 그대로 맞는 주문서 색상이 없는 출고 색상만
+    const pairs = [];
+    for (const c of cols) {
+      if (sc.has(c)) continue;
+      const b = cnHangul(c); if (!b) continue;
+      const hits = free.filter(x => { const h = cnHangul(x); return h && (h === b || b.startsWith(h) || h.startsWith(b)); });
+      if (hits.length === 1) pairs.push([c, hits[0]]);
+    }
+    const cnt = new Map(); for (const [, x] of pairs) cnt.set(x, (cnt.get(x) || 0) + 1);
+    for (const [c, x] of pairs) if (cnt.get(x) === 1) a.set(g + '\u0001' + c, x);
+  }
+  __cnAliasW.set(d, a);
+  return a;
+}
+function cnColorCanon(sname, color, size) {
+  const c = String(color || '').trim();
+  let d = cnState.data; if (!d) { try { d = madeState.cn; } catch (e) { d = null; } }
+  const a = cnColorAlias(d); if (!a || !a.size) return c;
+  return a.get(String(sname == null ? '' : sname).trim() + '\u0001' + String(size || '').trim() + '\u0001' + c) || c;
+}
+const cnLKey = l => cnOptKey(l.sname, cnColorCanon(l.sname, l.color, l.size), l.size);
 function cnOrdCalc() {
   const d = cnState.data || {};
   if (cnState._oc && cnState._oc.d === d) return cnState._oc.c;
@@ -7276,7 +7314,11 @@ function cnFlowCalc() {
   const ships = (d.ships || []).slice().sort((a, b) => ord(a) < ord(b) ? -1 : 1), shipOf = new Map(ships.map(x => [x.id, x]));
   const orderOf = new Map((d.orders || []).map(o => [o.id, o]));
   const m = new Map(), get = (k, sname, color, size) => { let e = m.get(k); if (!e) { e = { k, sname, color: color || '', size: size || '', orders: [], evs: new Map() }; m.set(k, e); } return e; };
-  for (const ol of d.order_lines || []) { const o = orderOf.get(ol.order_id) || {}; get(cnLKey(ol), ol.sname, ol.color, ol.size).orders.push({ date: o.order_date || '', title: o.title || '', qty: ol.qty }); }
+  for (const ol of d.order_lines || []) {
+    const o = orderOf.get(ol.order_id) || {}, cc = cnColorCanon(ol.sname, ol.color, ol.size), e = get(cnLKey(ol), ol.sname, cc, ol.size);
+    if (cc !== String(ol.color || '').trim()) (e.alias = e.alias || new Set()).add(String(ol.color).trim());   // 주문서에는 다른 이름(예: 소라)으로 적힘
+    e.orders.push({ date: o.order_date || '', title: o.title || '', qty: ol.qty });
+  }
   const addEv = (k, l, ship, e, f) => { const x = get(k, l.sname, l.color, l.size), v = x.evs.get(ship.id) || { ship, E: 0, F: null }; v.E += e; if (f != null) v.F = (v.F || 0) + f; x.evs.set(ship.id, v); };
   for (const l of d.lines || []) { const ship = shipOf.get(l.shipment_id); if (ship) addEv(cnLKey(l), l, ship, l.qty_sent, l.qty_left); }
   for (const ship of ships) for (const x of (Array.isArray(ship.left_extra) ? ship.left_extra : [])) addEv(cnLKey(x), x, ship, 0, x.left);
@@ -7352,7 +7394,7 @@ function cnFlowOpen(sname) {
       const r = v.r, bad = r.diff != null && r.diff !== 0;
       return `<tr style="${bad ? 'background:#fef2f2;' : ''}"><td style="padding:4px 6px;border-bottom:1px solid #f3f4f6;white-space:nowrap;">${escHtml(r.ship.ship_date || '')}</td><td style="padding:4px 6px;border-bottom:1px solid #f3f4f6;"><i class="fa-solid fa-truck-fast" style="color:#0e7490;"></i> 출고 서류 ${escHtml(cnShipShort(r.ship))}</td><td ${td}></td><td ${td}>${fmt(r.upTo)}</td><td ${td}><b>${fmt(r.E)}</b></td><td ${td}>${fmt(r.cum)}</td><td ${td}>${r.F == null ? '<span style="color:#9ca3af;">빈칸</span>' : r.F === 0 ? '출완' : fmt(r.F)}</td><td ${td}>${r.diff == null ? '<span style="color:#9ca3af;">—</span>' : bad ? `<b style="color:#b91c1c;">${r.diff > 0 ? '+' : ''}${fmt(r.diff)}</b>` : '<span style="color:#15803d;font-weight:700;">0</span>'}</td></tr>`;
     }).join('');
-    const opt = [e.color, e.size].filter(Boolean).join(' / ') || '단일', cause = cnFlowCause(e);
+    const opt = cnOptName(e), cause = cnFlowCause(e);   // 주문서에 다른 이름으로 적힌 색이면 '(주문서: 소라)'
     return `<div style="border:1.5px solid ${e.status === 'bad' ? '#fca5a5' : '#e5e7eb'};border-radius:12px;padding:10px 12px;margin-bottom:10px;">
       <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px;"><b style="font-size:.88rem;">${escHtml(opt)}</b>${cnFlowStHtml(e)}
         <span style="font-size:.76rem;color:#374151;">주문 <b>${fmt(e.ordered)}</b> · 중국출고 <b>${fmt(e.shipped)}</b>${e.disc ? ` · ${cnDiscTxt(e.disc)}` : ''} · 미송 <b style="color:${e.pend > 0 ? '#c2410c' : e.pend < 0 ? '#1d4ed8' : '#15803d'};">${e.pend < 0 ? '−' + fmt(-e.pend) : fmt(e.pend)}</b>${e.last ? ` · 에이전시 미출고 <b>${e.last.F === 0 ? '출완' : fmt(e.last.F)}</b> (${escHtml(cnShipShort(e.last.ship))})` : ''}${e.after ? ` · <span style="color:#6366f1;">그 뒤 추가 주문 ${fmt(e.after)}장(출고 서류 반영 전)</span>` : ''}</span>
@@ -7373,7 +7415,7 @@ function cnSwapsOf(sname) {
   for (const s of shorts) for (const o of overs) { const n = Math.min(s.u, o.u); if (n > 0) { pairs.push({ short: s.e, over: o.e, n }); s.u -= n; o.u -= n; } }
   return pairs;
 }
-const cnOptName = e => [e.color, e.size].filter(Boolean).join(' / ') || '단일';
+const cnOptName = e => ([e.color, e.size].filter(Boolean).join(' / ') || '단일') + (e.alias && e.alias.size ? ` (주문서: ${[...e.alias].join('·')})` : '');
 async function cnSwapFix(sname) {
   const pairs = cnSwapsOf(sname); if (!pairs.length) return;
   const desc = pairs.map(p => `${cnOptName(p.short)} ${p.n}장 대신 ${cnOptName(p.over)} ${p.n}장`).join(', ');
@@ -7449,7 +7491,7 @@ function cnPendRender() {
     const es = groups.get(n).sort((a, b) => (a.color + a.size).localeCompare(b.color + b.size)), sum = k => es.reduce((t, e) => t + e[k], 0);
     html += `<tr style="background:#f8f9ff;cursor:pointer;" onclick="cnFlowOpen(this.dataset.s)" data-s="${escHtml(n)}"><td style="text-align:left;"><div style="display:flex;align-items:center;gap:6px;">${cnThumbHtml(n)}<b style="font-weight:800;">${escHtml(n)}</b><span class="cn-sub">옵션 ${es.length}</span>${cnFlowBtn(n)}${cnSwapsOf(n).length ? '<span style="font-size:.66rem;font-weight:700;color:#9a3412;background:#ffedd5;border-radius:99px;padding:1px 8px;white-space:nowrap;"><i class="fa-solid fa-shuffle"></i> 옵션 바뀜 의심</span>' : ''}</div></td>${num(fmt(sum('ordered')))}${num(fmt(sum('shipped')))}${num(sum('disc') ? fmt(sum('disc')) : '<span style="color:#9ca3af;">—</span>')}${num(cnRemainHtml(sum('pend')))}<td></td><td></td>${canEdit ? '<td></td>' : ''}</tr>`;
     for (const e of es) {
-      const opt = [e.color, e.size].filter(Boolean).join(' / ') || '단일';
+      const opt = cnOptName(e);
       const ag = e.last ? `${e.last.F === 0 ? '<span style="color:#15803d;font-weight:700;">출완</span>' : `<b>${fmt(e.last.F)}</b>`}<div class="cn-sub">${escHtml(cnShipShort(e.last.ship))}${e.after ? ` · 이후 주문 +${fmt(e.after)}` : ''}</div>` : '<span style="color:#9ca3af;">—</span>';
       html += `<tr><td style="text-align:left;padding-left:30px;cursor:pointer;" onclick="cnFlowOpen(this.dataset.s)" data-s="${escHtml(e.sname)}">${escHtml(opt)}</td>${num(fmt(e.ordered))}${num(fmt(e.shipped))}${num(e.disc ? `<span title="${e.disc > 0 ? '폐기' : '초과 인정(음수)'}">${e.disc > 0 ? fmt(e.disc) : '−' + fmt(-e.disc)}</span>` : '<span style="color:#9ca3af;">—</span>')}${num(cnRemainHtml(e.pend))}${num(ag)}<td style="text-align:right;cursor:pointer;" onclick="cnFlowOpen(this.dataset.s)" data-s="${escHtml(e.sname)}">${cnFlowStHtml(e)}</td>${canEdit ? `<td style="text-align:right;">${cnDiscBtn(e, 'font-size:.7rem;padding:2px 8px;')}</td>` : ''}</tr>`;
     }
