@@ -613,7 +613,23 @@
     .cn-tbl tbody td { padding: 7px 10px; }
     .cn-tbl thead th:first-child { width: 99%; }   /* 남는 폭은 이름 칸이 가져간다(숫자 칸은 내용만큼만) — 혼용률·버튼이 한 줄에 들어오게 */
     .cn-tbl td.cn-name { text-align: left; white-space: normal; min-width: 230px; }
-    .cn-tbl input.cn-fabric { flex: 1 1 120px; min-width: 110px; max-width: 190px; }
+    .cn-tbl input.cn-fabric { flex: 1 1 140px; min-width: 100px; max-width: 220px; }
+    /* 상품 줄 첫 칸(2026-10-26 정리 — 표가 잘리고 미진행이 셋째 줄로 밀리던 것): 세 줄 고정
+       ① 이름 · 옵션 수 ……(오른쪽) made/일반 · 미진행  ② 혼용률 ……(오른쪽) 라벨 · 아우터라벨  ③ 카페24 / 입고 정보(작게)
+       오른쪽 버튼 묶음은 늘 같은 자리라 아래로 훑어보기 쉽고, 줄마다 flex-wrap이라 좁아져도 표가 넓어지지 않는다 */
+    .cn-nm { display: flex; align-items: flex-start; }
+    .cn-nm-body { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 5px; }
+    .cn-nm-row { display: flex; align-items: center; gap: 6px; row-gap: 4px; flex-wrap: wrap; min-width: 0; }
+    .cn-nm-right { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; flex-wrap: nowrap; }
+    .cn-nm-title { font-weight: 800; font-size: .86rem; }
+    .cn-nm-fab { display: inline-flex; align-items: center; gap: 5px; flex: 1 1 150px; min-width: 0; }
+    .cn-nm-meta { font-size: .7rem; color: #6b7280; }
+    .cn-nm-meta .cn-c24 { max-width: 190px !important; }
+    .cn-tbl thead th { word-break: keep-all; }
+    .cn-tbl thead .cn-sub { white-space: normal; display: block; }
+    .cn-tbl .cn-under { display: block; line-height: 1.3; }   /* 숫자 아래 작은 글씨(미확인 N · 비용 미반영) — 옆에 두면 칸이 넓어짐 */
+    .cn-tbl .cn-c24col .cn-c24 { max-width: 170px !important; }
+    @media (max-width: 1250px) { .cn-tbl .cn-c24col .cn-c24 { max-width: 140px !important; } }
     .cn-tbl .cn-sub { font-size: .64rem; color: #6b7280; font-weight: 500; line-height: 1.35; white-space: nowrap; }
     .cn-tbl thead .cn-sub { font-size: .62rem; }
     .cn-tbl .cn-name .cn-line, .cn-tbl .cn-name .cn-line-badge { margin-left: 0; }
@@ -633,6 +649,8 @@
     .cn-label { display: inline-flex; align-items: center; gap: 4px; font-size: .7rem; font-weight: 700; color: #6b7280; border: 1.5px solid #d1d5db; border-radius: 99px; padding: 2px 9px 2px 6px; cursor: pointer; background: #fff; user-select: none; }
     .cn-label input { width: 13px; height: 13px; margin: 0; cursor: pointer; accent-color: #b45309; }
     .cn-label.on { background: #fffbeb; border-color: #f59e0b; color: #b45309; }
+    .cn-label.stop input { accent-color: #dc2626; }
+    .cn-label.stop.on { background: #fef2f2; border-color: #f87171; color: #b91c1c; }   /* 미진행 — 라벨 체크와 같은 모양, 켜면 빨강 */
     .cn-label-badge { display: inline-block; background: #fffbeb; color: #b45309; border: 1px solid #fcd34d; border-radius: 99px; padding: 0 8px; font-size: .66rem; font-weight: 700; }
     .cn-line-badge { display: inline-block; vertical-align: middle; margin-left: 6px; border-radius: 99px; padding: 1px 9px; font-size: .66rem; font-weight: 700; white-space: nowrap; }
     /* 불량·오배송 처리 표 사유 칸 — 한 줄로 줄이고(…), 마우스를 올리면 툴팁, 클릭하면 펼침 (2026-09-23 사용자 요청) */
@@ -5778,7 +5796,7 @@ function cnGapHtml(v) {
 function cnDiffHtml(l) {
   if (l._ordOnly) return '<span style="color:#9ca3af;">—</span>';
   if (l.qty_actual == null) return '<span style="color:#9ca3af;">미확인</span>';
-  return cnGapHtml(cnSentCk(l) - l.qty_actual) + (l._unchecked ? ` <span style="font-size:.66rem;color:#9ca3af;">미확인 입고 ${l._unchecked}건</span>` : '') + cnGapTag(l);
+  return cnGapHtml(cnSentCk(l) - l.qty_actual) + (l._unchecked ? `<span class="cn-under" style="font-size:.66rem;color:#9ca3af;">미확인 입고 ${l._unchecked}건</span>` : '') + cnGapTag(l);
 }
 // 차이 정리 표시·버튼(2026-10-23): 정리한 줄 = 회색 '정리 N'(누르면 취소 — 관리자·MD), 정리 안 한 차이 = [정리] 버튼(관리자·MD)
 function cnGapTag(l) {
@@ -6169,7 +6187,7 @@ function cnC24Badge(sname) {   // 상품 줄 첫 줄에 들어가는 상태(등�
   return `<span class="cn-c24-off"${cnC24Manual(sname) ? ' title="직접 \'해당 없음\'으로 확정했어요"' : ''}>카페24 미등록${cnC24Manual(sname) ? ' · 확정' : ''}</span>${cnC24EditBtn(sname)}`;
 }
 function cnC24NamesHtml(sname, withBadge) {   // 등록된 카페24 판매 상품명(여러 개면 줄마다). withBadge = 상품별 현황의 카페24 칸(배지를 줄마다)
-  return cnC24Hits(sname).map(h => `<div style="white-space:nowrap;display:flex;align-items:center;gap:5px;">${withBadge ? `<span class="cn-c24-on" title="${escHtml(cnC24HowTip(h))}">등록됨${h.how === 'manual' ? ' · 직접' : ''}</span>` : '<i class="fa-solid fa-store" style="font-size:.6rem;color:#16a34a;" title="카페24 판매 상품명"></i>'}<span class="cn-c24"${withBadge ? '' : ' style="max-width:min(300px,100%);"'} title="${escHtml(h.product_name)} (#${h.product_no})&#10;공급사 상품명: ${escHtml(h.supply_product_name || '')}">${escHtml(h.product_name)}</span>${h.display !== 'T' || h.selling !== 'T' ? `<span style="font-size:.64rem;color:#b45309;">${[h.display !== 'T' ? '진열안함' : '', h.selling !== 'T' ? '판매안함' : ''].filter(Boolean).join('·')}</span>` : ''}</div>`).join('');
+  return cnC24Hits(sname).map(h => `<div class="${withBadge ? 'cn-c24col' : ''}" style="white-space:nowrap;display:flex;align-items:center;gap:5px;${withBadge ? 'flex-wrap:wrap;row-gap:2px;' : ''}">${withBadge ? `<span class="cn-c24-on" title="${escHtml(cnC24HowTip(h))}">등록됨${h.how === 'manual' ? ' · 직접' : ''}</span>` : '<i class="fa-solid fa-store" style="font-size:.6rem;color:#16a34a;" title="카페24 판매 상품명"></i>'}<span class="cn-c24"${withBadge ? '' : ' style="max-width:min(300px,100%);"'} title="${escHtml(h.product_name)} (#${h.product_no})&#10;공급사 상품명: ${escHtml(h.supply_product_name || '')}">${escHtml(h.product_name)}</span>${h.display !== 'T' || h.selling !== 'T' ? `<span style="font-size:.64rem;color:#b45309;">${[h.display !== 'T' ? '진열안함' : '', h.selling !== 'T' ? '판매안함' : ''].filter(Boolean).join('·')}</span>` : ''}</div>`).join('');
 }
 /* 카페24 상품 직접 연결 창 */
 const cnC24Dlg = { sname: '', items: new Map(), sel: new Set(), busy: false, q: '' };
@@ -6280,14 +6298,16 @@ function cnFabricHtml(sname) {   // 상품 줄 이름 아래 둘째 줄에 들�
   const tip = v && info.fabric_by ? `${info.fabric_by} · ${unshipKst(info.fabric_at)}` : '';
   const lab = info.label === true, labTip = lab && info.label_by ? `라벨 제작 대상 — ${info.label_by} · ${unshipKst(info.label_at)}` : '혼용률 라벨을 만들어야 하는 상품이면 체크(아우터 등)';
   const out = info.outer === true, outTip = out && info.outer_by ? `아우터라벨 — ${info.outer_by} · ${unshipKst(info.outer_at)}` : '아우터 라벨도 달아야 하는 상품이면 체크';
-  if (!d.can_edit) return `<span class="cn-sub">혼용률</span><span style="font-size:.76rem;color:${v ? '#374151' : '#9ca3af'};" title="${escHtml(tip)}">${v ? escHtml(v) : '—'}</span>${lab ? `<span class="cn-label-badge" title="${escHtml(labTip)}">라벨</span>` : ''}${out ? `<span class="cn-label-badge" title="${escHtml(outTip)}">아우터라벨</span>` : ''}`;
-  return `<span class="cn-sub">혼용률</span><input type="text" class="cn-fabric" maxlength="200" value="${escHtml(v)}" data-s="${escHtml(sname)}" data-prev="${escHtml(v)}" onchange="cnFabricSave(this)" onkeydown="if(event.key==='Enter')this.blur()" placeholder="예: 면 60% 폴리 40%" aria-label="${escHtml(sname)} 혼용률" title="${escHtml(tip)}" style="border:1px ${v ? 'solid #e5e7eb' : 'dashed #f59e0b'};border-radius:6px;padding:3px 6px;font-size:.74rem;" /><label class="cn-label${lab ? ' on' : ''}" title="${escHtml(labTip)}"><input type="checkbox" data-s="${escHtml(sname)}"${lab ? ' checked' : ''} onchange="cnLabelSet(this)" />라벨</label><label class="cn-label${out ? ' on' : ''}" title="${escHtml(outTip)}"><input type="checkbox" data-s="${escHtml(sname)}" data-k="outer"${out ? ' checked' : ''} onchange="cnLabelSet(this)" />아우터라벨</label>`;
+  if (!d.can_edit) return `<span class="cn-nm-fab"><span class="cn-sub">혼용률</span><span style="font-size:.76rem;color:${v ? '#374151' : '#9ca3af'};" title="${escHtml(tip)}">${v ? escHtml(v) : '—'}</span></span>${lab || out ? `<span class="cn-nm-right">${lab ? `<span class="cn-label-badge" title="${escHtml(labTip)}">라벨</span>` : ''}${out ? `<span class="cn-label-badge" title="${escHtml(outTip)}">아우터라벨</span>` : ''}</span>` : ''}`;
+  return `<span class="cn-nm-fab"><span class="cn-sub">혼용률</span><input type="text" class="cn-fabric" maxlength="200" value="${escHtml(v)}" data-s="${escHtml(sname)}" data-prev="${escHtml(v)}" onchange="cnFabricSave(this)" onkeydown="if(event.key==='Enter')this.blur()" placeholder="예: 면 60% 폴리 40%" aria-label="${escHtml(sname)} 혼용률" title="${escHtml(tip)}" style="border:1px ${v ? 'solid #e5e7eb' : 'dashed #f59e0b'};border-radius:6px;padding:3px 6px;font-size:.74rem;" /></span><span class="cn-nm-right"><label class="cn-label${lab ? ' on' : ''}" title="${escHtml(labTip)}"><input type="checkbox" data-s="${escHtml(sname)}"${lab ? ' checked' : ''} onchange="cnLabelSet(this)" />라벨</label><label class="cn-label${out ? ' on' : ''}" title="${escHtml(outTip)}"><input type="checkbox" data-s="${escHtml(sname)}" data-k="outer"${out ? ' checked' : ''} onchange="cnLabelSet(this)" />아우터라벨</label></span>`;
 }
 // 상품 줄의 첫 칸 — 두 줄: ① 이름 · 옵션 수 · (탭마다 다른 배지) · made/일반 ② 혼용률 · 라벨  (입고 검수의 [전달 수량과 같음] 버튼은 상품 줄의 메모 칸에)
-function cnNameCell(tab, sname, open, nOpt, line1, line2, line3) {
-  return `<td class="cn-name"><div style="display:flex;align-items:center;">${cnFoldBtn(tab, sname, open, nOpt)}${cnThumbHtml(sname)}<div style="min-width:0;flex:1;">
-      <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;"><b style="font-weight:800;">${escHtml(sname)}</b><span class="cn-sub">옵션 ${nOpt}</span>${line1 || ''}${cnLineHtml(sname)}</div>
-      <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-top:4px;">${cnFabricHtml(sname)}${cnInactiveHtml(sname)}${line2 || ''}</div>${line3 ? `<div style="margin-top:4px;min-width:0;">${line3}</div>` : ''}</div></div></td>`;
+function cnNameCell(tab, sname, open, nOpt, meta) {   // meta = 셋째 줄(입고 검수: 카페24 등록·상품명 / 상품별 현황: 입고 N건·수량 흐름)
+  const manual = cnManualShipBtn(sname);
+  return `<td class="cn-name"><div class="cn-nm">${cnFoldBtn(tab, sname, open, nOpt)}${cnThumbHtml(sname)}<div class="cn-nm-body">
+      <div class="cn-nm-row"><span class="cn-nm-title">${escHtml(sname)}</span><span class="cn-sub">옵션 ${nOpt}</span><span class="cn-nm-right">${cnLineHtml(sname)}${cnInactiveHtml(sname)}</span></div>
+      <div class="cn-nm-row">${cnFabricHtml(sname)}</div>
+      ${meta || manual ? `<div class="cn-nm-row cn-nm-meta">${meta || ''}${manual}</div>` : ''}</div></div></td>`;
 }
 // 단가 칸 하나: 위안(굵게) + 아래 작은 글씨로 원(× 환율) — 예전의 단가(CHN)·단가(KRW) 두 열을 합침
 const cnPriceTd = (yuan, tag, tip) => `<td style="text-align:right;"${tip ? ` title="${escHtml(tip)}"` : ''}>${yuan == null ? '<span style="color:#9ca3af;">—</span>' : `<b>${cnYuan(yuan)}</b>${tag || ''}<div class="cn-sub" title="× 누적 평균 1위안 원가 ${Math.round(cnFxAvg() * 100) / 100}원(에이전시 10%·들여오는 비용 전)">${fmt(Math.round(Number(yuan) * cnFxAvg()))}원</div>`}</td>`;
@@ -6323,9 +6343,13 @@ const cnHasLines = sname => (((cnState.data || {}).lines) || []).some(l => l.sna
 function cnInactiveHtml(sname) {
   const d = cnState.data || {}, info = (d.prods || {})[sname] || {}, on = info.inactive === true;
   const tip = on && info.inactive_by ? `미진행 — ${info.inactive_by} · ${unshipKst(info.inactive_at)}` : '진행하지 않는 상품이면 체크 — 입고 검수·상품별 현황에서 안 보여요(상품별 현황 \'미진행\' 칩에서 볼 수 있어요)';
-  if (!d.can_edit) return on ? `<span class="cn-label-badge" style="background:#f3f4f6;color:#6b7280;" title="${escHtml(tip)}">미진행</span>` : '';
-  const manual = !cnHasLines(sname) && !on ? `<button class="toggle-btn" style="font-size:.66rem;padding:1px 8px;" data-s="${escHtml(sname)}" onclick="cnManualShip(this)" title="입고 엑셀 없이 들어왔을 때 — 주문서 수량으로 입고 건을 만들고 실입고를 적어요"><i class="fa-solid fa-box-open"></i> 직접 입고 등록</button>` : '';
-  return `<label style="display:inline-flex;align-items:center;gap:3px;font-size:.7rem;color:${on ? '#b91c1c' : '#6b7280'};font-weight:${on ? 800 : 600};cursor:pointer;" title="${escHtml(tip)}"><input type="checkbox" data-s="${escHtml(sname)}" ${on ? 'checked' : ''} onchange="cnInactiveSet(this)" style="width:13px;height:13px;" /> 미진행</label>${manual}`;
+  if (!d.can_edit) return on ? `<span class="cn-label-badge" style="background:#fef2f2;color:#b91c1c;border-color:#fca5a5;" title="${escHtml(tip)}">미진행</span>` : '';
+  return `<label class="cn-label stop${on ? ' on' : ''}" title="${escHtml(tip)}"><input type="checkbox" data-s="${escHtml(sname)}" ${on ? 'checked' : ''} onchange="cnInactiveSet(this)" />미진행</label>`;
+}
+function cnManualShipBtn(sname) {   // 입고 기록이 없는 상품만 — 셋째 줄 끝에
+  const d = cnState.data || {}, info = (d.prods || {})[sname] || {};
+  if (!d.can_edit || cnHasLines(sname) || info.inactive === true) return '';
+  return `<button class="toggle-btn" style="font-size:.66rem;padding:1px 8px;" data-s="${escHtml(sname)}" onclick="cnManualShip(this)" title="입고 엑셀 없이 들어왔을 때 — 주문서 수량으로 입고 건을 만들고 실입고를 적어요"><i class="fa-solid fa-box-open"></i> 직접 입고 등록</button>`;
 }
 async function cnInactiveSet(cb) {
   const sname = cb.dataset.s, want = cb.checked;
@@ -6421,7 +6445,7 @@ function cnProdHeadCells(g) {   // 상품 줄의 합계 칸(전달·실제·차�
   const dl = g.rows.filter(l => l.qty_defect != null), os = cnOrdSums(g.rows);
   return { sent: `<b>${fmt(sent)}</b>`, act: ck.length ? `<b>${fmt(act)}</b>` : '<span style="color:#9ca3af;">—</span>', def: cnDefShow(dl.length ? dl.reduce((t, l) => t + l.qty_defect, 0) : null),
     ord: os.any ? `<b>${fmt(os.ordered)}</b>` : '<span style="color:#9ca3af;">—</span>', remain: os.any ? cnRemainHtml(os.remain) : '<span style="color:#9ca3af;">—</span>',
-    diff: (!ck.length ? '<span style="color:#9ca3af;">미확인</span>' : cnGapHtml(d)) + (un && ck.length ? ` <span style="font-size:.66rem;color:#9ca3af;">미확인 ${un}</span>` : '') };
+    diff: (!ck.length ? '<span style="color:#9ca3af;">미확인</span>' : cnGapHtml(d)) + (un && ck.length ? `<span class="cn-under" style="font-size:.66rem;color:#9ca3af;">미확인 ${un}</span>` : '') };
 }
 const CN_CHECK_PASS = { all: () => true, todo: l => !l._ordOnly && (l.qty_actual == null || !!l._unchecked), diff: l => l.qty_actual != null && l.qty_actual !== cnSentCk(l), def: l => (l.qty_defect || 0) > 0, remain: l => ((cnOrdOf(l) || {}).remain || 0) > 0 };
 function cnCheckChipsRender(lines) {   // 보기 칩(건수) — 수량을 적을 때마다 건수만 다시 센다
@@ -6495,12 +6519,12 @@ function cnCheckRender() {
   const sumTag = l => !l._raw.length ? ' <span style="font-size:.64rem;color:#c2410c;background:#ffedd5;border-radius:99px;padding:0 7px;white-space:nowrap;">주문서에만 있음 · 아직 중국출고 없음</span>' : ` <span style="font-size:.64rem;color:#6366f1;background:#eef2ff;border-radius:99px;padding:0 7px;white-space:nowrap;cursor:help;" title="${escHtml(l._raw.map(r => { const x = shipById.get(r.shipment_id) || {}; return `${x.title || ''}: 전달 ${r.qty_sent} · 실제 ${r.qty_actual == null ? '미확인' : r.qty_actual}${r.qty_defect != null ? ' · 불량 ' + r.qty_defect : ''}`; }).join('\n'))}">${escHtml(l._raw.map(r => { const x = shipById.get(r.shipment_id) || {}; return `${x.order_round || x.title || ''} ${r.qty_sent}`; }).join(' · '))}</span>`;
   const shipTag = l => { const x = shipById.get(l.shipment_id) || {}; return ` <span style="font-size:.64rem;color:#6366f1;background:#eef2ff;border-radius:99px;padding:0 7px;white-space:nowrap;" title="${escHtml(x.title || '')}">${escHtml(x.order_round || x.title || '')}</span>`; };
   // 열(2026-10-12 정리 — 12열 → 8열): 사입상품명/옵션(+혼용률·라벨) | 전달 | 실제 | 차이(+확인한 사람) | 단가(위안+원) | 실질 단가 | 금액 | 메모
-  let html = `<div style="display:flex;gap:6px;margin-bottom:6px;">${cnFoldAllHtml('check')}</div><div class="table-wrap"><table class="cn-tbl" style="width:100%;font-size:.8rem;"><thead><tr><th style="text-align:left;">사입상품명 / 옵션<div class="cn-sub">혼용률 · 라벨</div></th><th>주문<div class="cn-sub">주문서 수량</div></th><th>중국출고<div class="cn-sub">엑셀 출고 수량</div></th><th>실입고</th><th>잔여<div class="cn-sub">주문 − 중국출고</div></th><th>차이<div class="cn-sub">중국출고 − 실입고</div></th><th>입고중불량</th>${canPrice ? `<th title="위안 단가와, 누적 평균 1위안 원가(${Math.round(cnFxAvg() * 100) / 100}원 — 원>달러>위안 환전 탭)를 곱한 원화. 에이전시 수수료·들여오는 비용은 실질 단가에만 들어가요" style="cursor:help;">단가<div class="cn-sub">위안 · 원(×평균 ${Math.round(cnFxAvg())})</div></th><th title="단가(위안) × 그 입고의 실질 단가 계수&#10;계수 = (총 합계 × 1위안 원가 + 들여오는 비용) ÷ 물건값 — 에이전시 수수료·경비·환전 원가 포함 · 부가세는 제외 (입고 비용 기준)${isAll || isSum ? '&#10;전체 차수 값을 반영함' : ''}" style="cursor:help;">실질 단가${isAll || isSum ? '<div class="cn-sub">전체 입고 기준</div>' : ''}</th><th class="m-hide cn-wide">금액</th>` : ''}<th style="text-align:left;">메모</th></tr></thead><tbody>`;
+  let html = `<div style="display:flex;gap:6px;margin-bottom:6px;">${cnFoldAllHtml('check')}</div><div class="table-wrap"><table class="cn-tbl" style="width:100%;font-size:.8rem;"><thead><tr><th style="text-align:left;">사입상품명 / 옵션<div class="cn-sub">혼용률 · 라벨</div></th><th>주문<div class="cn-sub">주문서 수량</div></th><th>중국출고<div class="cn-sub">엑셀 출고 수량</div></th><th>실입고</th><th>잔여<div class="cn-sub">주문 − 중국출고</div></th><th>차이<div class="cn-sub">중국출고 − 실입고</div></th><th>불량<div class="cn-sub">입고 중</div></th>${canPrice ? `<th title="위안 단가와, 누적 평균 1위안 원가(${Math.round(cnFxAvg() * 100) / 100}원 — 원>달러>위안 환전 탭)를 곱한 원화. 에이전시 수수료·들여오는 비용은 실질 단가에만 들어가요" style="cursor:help;">단가<div class="cn-sub">위안 · 원(×평균 ${Math.round(cnFxAvg())})</div></th><th title="단가(위안) × 그 입고의 실질 단가 계수&#10;계수 = (총 합계 × 1위안 원가 + 들여오는 비용) ÷ 물건값 — 에이전시 수수료·경비·환전 원가 포함 · 부가세는 제외 (입고 비용 기준)${isAll || isSum ? '&#10;전체 차수 값을 반영함' : ''}" style="cursor:help;">실질 단가${isAll || isSum ? '<div class="cn-sub">전체 입고 기준</div>' : ''}</th><th class="m-hide cn-wide">금액</th>` : ''}<th style="text-align:left;">메모</th></tr></thead><tbody>`;
   groups.forEach(g => {
     const gi = encodeURIComponent(g.sname), h = cnProdHeadCells(g), todo = isSum ? 0 : g.rows.filter(l => l.qty_actual == null && !cnLineLocked(l)).length;
     const open = forceOpen || cnState.open.check.has(g.sname);
     html += `<tr style="background:#f8f9ff;" data-cn-g="${escHtml(gi)}">
-      ${cnNameCell('check', g.sname, open, g.show.length, cnC24Badge(g.sname), '', cnC24NamesHtml(g.sname, false))}
+      ${cnNameCell('check', g.sname, open, g.show.length, cnC24Badge(g.sname) + cnC24NamesHtml(g.sname, false))}
       <td style="text-align:right;">${h.ord}</td><td style="text-align:right;">${h.sent}</td><td style="text-align:right;" data-cn-h="act">${h.act}</td><td style="text-align:right;">${h.remain}</td><td style="text-align:right;" data-cn-h="diff">${h.diff}</td><td style="text-align:right;" data-cn-h="def">${h.def}</td>${canPrice ? (isSum ? cnGroupPriceCellsAll({ ...g, rows: g.rows.flatMap(l => l._raw) }) : isAll ? cnGroupPriceCellsAll(g) : cnGroupPriceCells(g)) : ''}<td style="text-align:left;">${todo ? `<button class="toggle-btn" style="font-size:.68rem;padding:2px 9px;white-space:nowrap;" data-g="${escHtml(g.sname)}" onclick="cnFillSame(this)" title="아직 안 적은 옵션 ${todo}개를 전달 수량과 같게 채워요">전달 수량과 같음</button>` : ''}</td></tr>`;
     g.show.forEach(l => {
       html += `<tr data-cn-l="${escHtml(String(l.id))}" data-cn-o="${escHtml(gi)}"${open ? '' : ' style="display:none;"'}>
@@ -6793,7 +6817,7 @@ function cnRealHtml(yuan, shipId) {
   const pc = v => (Math.round(v * 10000) / 100).toFixed(2);
   const per = Math.round(cnShipBase(shipId) * 100) / 100;
   return x.r ? `<b title="¥${Number(yuan)} × 물건값 1위안당 ${per}원(1위안 원가 × 총 합계 ÷ 물건값) × (1 + 들여오는 비용 ${pc(x.r.cost)}%) — 부가세는 제외">${fmt(x.won)}원</b>${cnAddNote(x.r.cost)}`
-             : `<span style="color:#6b7280;" title="이 입고에 비용 시트가 없어 물건값 1위안당 ${per}원만 곱했어요">${fmt(x.won)}원<span style="font-size:.62rem;color:#b45309;"> 비용 미반영</span></span>`;
+             : `<span style="color:#6b7280;" title="이 입고에 비용 시트가 없어 물건값 1위안당 ${per}원만 곱했어요">${fmt(x.won)}원<span class="cn-under" style="font-size:.62rem;color:#b45309;">비용 미반영</span></span>`;
 }
 // 부가세 제외 들여오는 비용 ÷ 물건 결제 총합 (2026-10-01 사용자 요청 — 마진 계산 참고: 물건값에 몇 %를 더 얹어야 하는지)
 const cnCostPct = (exVat, pay) => pay > 0 ? (Math.round(exVat / pay * 10000) / 100).toFixed(2) + '%' : '—';
@@ -7061,7 +7085,7 @@ function cnRealAvgHtml(r, bold) {
   const tip = [...by.values()].map(c => `${escHtml(c.title)}: ${fmt(c.qty)}장 × ${fmt(Math.round(c.sum / c.qty))}원${c.hasCost ? (c.base > 0 ? ` (100원당 ${(Math.round((c.sum / c.base - 1) * 10000) / 100).toFixed(2)}원 추가)` : '') : ' (비용 미반영 — 평균에서 제외)'}`).join('&#10;')   // 입고 이름은 사람이 적는 값 — 속성에 넣기 전에 escHtml
     + (by.size > 1 ? `&#10;→ 들어온 수량 전체로 보면 한 장에 ${fmt(r.won)}원` : '');
   return r.hasCost ? `<span style="${bold ? 'font-weight:800;' : 'font-weight:700;'}cursor:help;" title="${tip}">${fmt(r.won)}원</span>${cnAddNote(r.rate)}${r.skipped ? '<div style="font-size:.6rem;color:#b45309;">비용 없는 입고 제외</div>' : ''}`
-    : `<span style="color:#6b7280;cursor:help;" title="${tip}">${fmt(r.won)}원<span style="font-size:.62rem;color:#b45309;"> 비용 미반영</span></span>`;
+    : `<span style="color:#6b7280;cursor:help;" title="${tip}">${fmt(r.won)}원<span class="cn-under" style="font-size:.62rem;color:#b45309;">비용 미반영</span></span>`;
 }
 function cnProducts() {
   const d = cnState.data, shipById = new Map((d.ships || []).map(x => [x.id, x]));
@@ -7210,9 +7234,9 @@ function cnProdRender() {
   if (cnState.prodFilter === 'novendor') cnState.prodFilter = 'all';
   if (!list.length) { $('cn-prod-list').innerHTML = '<div class="empty-state"><p>조건에 맞는 상품이 없어요.</p></div>'; return; }
   const num = v => `<td style="text-align:right;">${v}</td>`;
-  const diffHtml = (act, actSent, unchecked) => { const dd = actSent - act; return (unchecked && act === 0 && actSent === 0 ? '<span style="color:#9ca3af;">미확인</span>' : cnGapHtml(dd)) + (unchecked && !(act === 0 && actSent === 0) ? ` <span style="font-size:.66rem;color:#9ca3af;">미확인 ${unchecked}</span>` : ''); };
+  const diffHtml = (act, actSent, unchecked) => { const dd = actSent - act; return (unchecked && act === 0 && actSent === 0 ? '<span style="color:#9ca3af;">미확인</span>' : cnGapHtml(dd)) + (unchecked && !(act === 0 && actSent === 0) ? `<span class="cn-under" style="font-size:.66rem;color:#9ca3af;">미확인 ${unchecked}</span>` : ''); };
   // 열(2026-10-12 정리 — 12열 → 8열): 사입상품명/옵션(+혼용률·라벨) | 전달 | 실제 | 차이 | 단가(위안+원) | 실질 단가 | 카페24(+판매량)
-  let html = `<div style="display:flex;gap:6px;margin-bottom:6px;">${cnFoldAllHtml('prod')}</div><div class="table-wrap"><table class="cn-tbl" style="width:100%;font-size:.8rem;"><thead><tr><th style="text-align:left;">사입상품명 / 옵션<div class="cn-sub">혼용률 · 라벨</div></th><th>주문<div class="cn-sub">주문서 합</div></th><th>중국출고<div class="cn-sub">엑셀 출고 합</div></th><th>실입고<div class="cn-sub">확인분</div></th><th>잔여<div class="cn-sub">주문 − 중국출고</div></th><th>차이<div class="cn-sub">중국출고 − 실입고</div></th><th>입고중불량</th>${canPrice ? `<th title="위안 단가와, 누적 평균 1위안 원가(${Math.round(cnFxAvg() * 100) / 100}원 — 원>달러>위안 환전 탭)를 곱한 원화. 에이전시 수수료·들여오는 비용은 실질 단가에만 들어가요" style="cursor:help;">단가<div class="cn-sub">위안 · 원(×평균 ${Math.round(cnFxAvg())})</div></th><th title="단가(위안) × 그 입고의 실질 단가 계수&#10;계수 = (총 합계 × 1위안 원가 + 들여오는 비용) ÷ 물건값 — 에이전시 수수료·경비·환전 원가 포함 · 부가세는 제외 (입고 비용 기준)&#10;전체 차수 값을 반영함" style="cursor:help;">실질 단가</th>` : ''}<th style="text-align:left;">카페24${showSales ? '<div class="cn-sub">판매 = 하루 평균(7일) · 30일</div>' : ''}</th></tr></thead><tbody>`;
+  let html = `<div style="display:flex;gap:6px;margin-bottom:6px;">${cnFoldAllHtml('prod')}</div><div class="table-wrap"><table class="cn-tbl" style="width:100%;font-size:.8rem;"><thead><tr><th style="text-align:left;">사입상품명 / 옵션<div class="cn-sub">혼용률 · 라벨</div></th><th>주문<div class="cn-sub">주문서 합</div></th><th>중국출고<div class="cn-sub">엑셀 출고 합</div></th><th>실입고<div class="cn-sub">확인분</div></th><th>잔여<div class="cn-sub">주문 − 중국출고</div></th><th>차이<div class="cn-sub">중국출고 − 실입고</div></th><th>불량<div class="cn-sub">입고 중</div></th>${canPrice ? `<th title="위안 단가와, 누적 평균 1위안 원가(${Math.round(cnFxAvg() * 100) / 100}원 — 원>달러>위안 환전 탭)를 곱한 원화. 에이전시 수수료·들여오는 비용은 실질 단가에만 들어가요" style="cursor:help;">단가<div class="cn-sub">위안 · 원(×평균 ${Math.round(cnFxAvg())})</div></th><th title="단가(위안) × 그 입고의 실질 단가 계수&#10;계수 = (총 합계 × 1위안 원가 + 들여오는 비용) ÷ 물건값 — 에이전시 수수료·경비·환전 원가 포함 · 부가세는 제외 (입고 비용 기준)&#10;전체 차수 값을 반영함" style="cursor:help;">실질 단가</th>` : ''}<th style="text-align:left;">카페24${showSales ? '<div class="cn-sub">판매 = 하루 평균(7일) · 30일</div>' : ''}</th></tr></thead><tbody>`;
   for (const p of list) {
     const sales = cnSalesOf(p);
     const salesHtml = sales === null ? '' : sales === undefined ? (cnState.salesLoading ? '<span style="color:#9ca3af;">…</span>' : `<span style="color:#9ca3af;" title="${escHtml(cnState.salesErr || '')}">—</span>`) : `<b style="color:${sales.avg7 > 0 ? '#4338ca' : '#9ca3af'};">${madeAvgFmt(sales.avg7)}</b> · ${fmt(sales.net30)}장`;
@@ -7221,7 +7245,7 @@ function cnProdRender() {
       : (d.c24_error ? '<span style="color:#9ca3af;">확인 불가</span>' : `<span style="display:inline-flex;align-items:center;gap:5px;"><span class="cn-c24-off">미등록${cnC24Manual(p.sname) ? ' · 확정' : ''}</span>${cnC24EditBtn(p.sname)}</span>`);
     const meta = [[...p.rounds].length ? '발주 ' + [...p.rounds].join(', ') : '', `입고 ${p.ships.size}건`].filter(Boolean).join(' · ');
     const open = !!q && p.opts.some(o => o.opt.toLowerCase().includes(q)) || cnState.open.prod.has(p.sname), gi = encodeURIComponent(p.sname);
-    html += `<tr style="background:#f8f9ff;">${cnNameCell('prod', p.sname, open, p.opts.length, `<span class="cn-sub" title="${escHtml(meta)}" style="cursor:help;">입고 ${p.ships.size}건</span>${cnFlowBtn(p.sname)}`, '')}
+    html += `<tr style="background:#f8f9ff;">${cnNameCell('prod', p.sname, open, p.opts.length, `<span class="cn-sub" title="${escHtml(meta)}" style="cursor:help;">입고 ${p.ships.size}건</span>${cnFlowBtn(p.sname)}`)}
       ${num(p.ordAny ? `<b>${fmt(p.ordered)}</b>` : '<span style="color:#9ca3af;">—</span>')}${num(`<b>${fmt(p.sent)}</b>`)}${num(p.act || p.actSent ? `<b>${fmt(p.act)}</b>` : '<span style="color:#9ca3af;">—</span>')}${num(p.ordAny ? cnRemainHtml(p.remain) : '<span style="color:#9ca3af;">—</span>')}${num(p.sent || p.act ? diffHtml(p.act, p.actSent, p.unchecked) : '<span style="color:#9ca3af;">—</span>')}${num(cnDefShow(p.defN ? p.def : null))}${canPrice ? cnPriceTd(p.real ? p.real.yuan : null) + num(cnRealAvgHtml(p.real, true)) : ''}
       <td style="text-align:left;">${c24Html}${showSales && salesHtml ? `<div class="cn-sub" style="margin-top:2px;">판매 ${salesHtml}</div>` : ''}</td></tr>`;
     for (const o of p.opts) {
