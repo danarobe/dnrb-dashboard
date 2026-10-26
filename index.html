@@ -20168,7 +20168,12 @@ function paSpendHtml(productNo) {   // ON 광고 칸 아래 작은 글씨 — �
   const e = store.adSpend && store.adSpend.get(productNo);
   if (!e || !e.spend) return '';
   const tip = `${pa.period.start} ~ ${pa.period.end} 누적 지출 — 이 상품에 매칭된 광고 ${e.n}개(지금 꺼진 광고 포함)`;
-  return `<div class="meta-blur" title="${escHtml(tip)}" style="font-size:.66rem;color:#6b7280;margin-top:3px;white-space:nowrap;">${fmt(Math.round(e.spend))}원</div>`;
+  // ROAS(2026-10-26 사용자 요청) = 그 상품의 판매합계(순판매금액 — 표의 '판매합계' 칸) ÷ 기간 광고비. 400%↑ 초록 · 200% 미만 빨강
+  const row = store.salesData.find(r => r.productNo === productNo), sales = row ? Number(row.salesTotal) || 0 : 0, roas = sales / e.spend * 100;
+  const rc = roas >= 400 ? '#15803d' : roas < 200 ? '#b91c1c' : '#4b5563';
+  const rTip = `ROAS = 판매합계 ${fmt(sales)}원 ÷ 기간 광고비 ${fmt(Math.round(e.spend))}원`;
+  return `<div class="meta-blur" title="${escHtml(tip)}" style="font-size:.66rem;color:#6b7280;margin-top:3px;white-space:nowrap;">${fmt(Math.round(e.spend))}원</div>`
+    + `<div title="${escHtml(rTip)}" style="font-size:.66rem;font-weight:800;color:${rc};white-space:nowrap;">ROAS ${fmt(Math.round(roas))}%</div>`;
 }
 
 function paShow(productNo) {
@@ -20739,7 +20744,7 @@ function renderPerfResult() {
         <th class="m-hide">환불수량</th>
         <th>순판매량</th>
         ${isStaff() || isCS() ? '' : '<th class="m-hide">판매합계</th>'}
-        ${isCS() ? '' : '<th class="m-hide">ON 광고<br><span style="font-size:.7rem;font-weight:400;color:#6b7280;">활성 기준</span><br><span style="font-size:.64rem;font-weight:400;color:#9ca3af;">아래 = 기간 광고비</span></th>'}
+        ${isCS() ? '' : '<th class="m-hide">ON 광고<br><span style="font-size:.7rem;font-weight:400;color:#6b7280;">활성 기준</span><br><span style="font-size:.64rem;font-weight:400;color:#9ca3af;">아래 = 기간 광고비 · ROAS</span></th>'}
         <th>순반품률<br class="m-hide"><span class="m-hide" style="font-size:.7rem;font-weight:400;color:#6b7280;">배송완료일 기준</span></th>
         <th class="m-hide">취소&amp;반품률<br><span style="font-size:.7rem;font-weight:400;color:#6b7280;">주문일 기준·참고용</span></th>
         ${isCS() ? '' : '<th>마진율<br class="m-hide"><span class="m-hide" style="font-size:.7rem;font-weight:400;color:#6b7280;">공급가×1.1 기준' + (isAdmin() || isStaff() ? '<br>중국 사입은 실질 단가 + 수입 부가세' : '') + '</span></th>'}
