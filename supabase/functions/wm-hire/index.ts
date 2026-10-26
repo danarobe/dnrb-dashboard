@@ -263,6 +263,11 @@ Deno.serve(async (req) => {
 
     if (action === 'pay_paid') {
       if (b.paid_on != null && !D_RE.test(b.paid_on)) return json({ error: '날짜 형식 오류' }, 400);
+      // 지급 완료 취소는 관리자만(2026-10-26 사용자 지정 — 지급 완료 기록 삭제가 관리자 전용이라, 취소한 뒤 지우는 길도 막는다)
+      if (b.paid_on == null && me.role !== 'admin') {
+        const [cur] = await rest(`wm_hire_pays?id=eq.${id}&select=paid_on`);
+        if (cur && cur.paid_on) return json({ error: '지급 완료 취소는 관리자만 할 수 있어요' }, 403);
+      }
       const [p] = await rest(`wm_hire_pays?id=eq.${id}`, { method: 'PATCH', body: JSON.stringify({ paid_on: b.paid_on ?? null }) });
       if (!p) return json({ error: '없는 지급 기록이에요' }, 404);
       await audit(me, 'pay_paid', { pay_id: id, paid_on: b.paid_on ?? null });
@@ -272,6 +277,9 @@ Deno.serve(async (req) => {
     if (action === 'pay_delete') {
       // 지운 지급의 내용을 감사 기록에 남긴다(2026-10-26 보안 점검 — 예전엔 번호만 남아 무엇을 지웠는지 알 수 없었음)
       const [old] = await rest(`wm_hire_pays?id=eq.${id}&select=hire_id,work_date,gross,net,paid_on`);
+      if (!old) return json({ error: '없는 지급 기록이에요' }, 404);
+      // 지급 완료된 기록은 관리자만 지운다(2026-10-26 사용자 지정 — 원천징수 증빙, '지급 기록 있는 사람 삭제는 관리자만' 우회 방지)
+      if (old.paid_on && me.role !== 'admin') return json({ error: '지급 완료된 기록은 관리자만 삭제할 수 있어요' }, 403);
       await rest(`wm_hire_pays?id=eq.${id}`, { method: 'DELETE' });
       await audit(me, 'pay_delete', { pay_id: id, ...(old ?? {}) });
       return json({ ok: true });

@@ -8030,8 +8030,8 @@ function hireRenderPays(r) {
         <td>${hireWon(p.gross)}</td>
         <td title="소득세 ${hireWon(p.income_tax)} · 지방세 ${hireWon(p.local_tax)} · 고용보험 ${hireWon(p.emp_ins_amt)}">${hireWon(p.gross - p.net)}</td>
         <td><b>${hireWon(p.net)}</b></td>
-        <td><label style="display:flex;gap:4px;align-items:center;font-size:.75rem;"><input type="checkbox" ${p.paid_on ? 'checked' : ''} onchange="hirePayPaid(${p.id}, this.checked)" />${p.paid_on || '미지급'}</label></td>
-        <td style="white-space:nowrap;"><button class="toggle-btn" onclick="hireSlipOpen(${r.id}, ${p.id})" title="명세서 이미지 — 복사해서 카톡으로 보내요"><i class="fa-solid fa-receipt"></i> 명세서</button> <button class="toggle-btn" onclick="hirePayDel(${p.id})" style="color:#dc2626;"><i class="fa-solid fa-trash"></i></button></td></tr>`).join('')}</tbody></table>`;
+        <td><label style="display:flex;gap:4px;align-items:center;font-size:.75rem;"><input type="checkbox" ${p.paid_on ? 'checked' : ''}${p.paid_on && !hireState.canDeletePaid ? ' disabled title="지급 완료 취소는 관리자만 할 수 있어요"' : ''} onchange="hirePayPaid(${p.id}, this.checked)" />${p.paid_on || '미지급'}</label></td>
+        <td style="white-space:nowrap;"><button class="toggle-btn" onclick="hireSlipOpen(${r.id}, ${p.id})" title="명세서 이미지 — 복사해서 카톡으로 보내요"><i class="fa-solid fa-receipt"></i> 명세서</button> ${p.paid_on && !hireState.canDeletePaid ? '<button class="toggle-btn" disabled title="지급 완료된 기록은 관리자만 삭제할 수 있어요" style="color:#9ca3af;cursor:not-allowed;"><i class="fa-solid fa-lock"></i></button>' : `<button class="toggle-btn" onclick="hirePayDel(${p.id})" style="color:#dc2626;" title="지급 기록 삭제"><i class="fa-solid fa-trash"></i></button>`}</td></tr>`).join('')}</tbody></table>`;
 }
 
 /** 입력값 → { minutes, rate, fixed, ins } (근무 시간 못 구하면 minutes null) */
