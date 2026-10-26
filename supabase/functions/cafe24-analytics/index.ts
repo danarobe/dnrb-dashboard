@@ -3820,6 +3820,42 @@ Deno.serve(async (req) => {
     //   → { weeks: [{week_start, week_end, partial, age_days, paid, cancel, cancel_rate, ret, return_rate}], days: [...] }
     // 집계 = 카페24 /orders/count (date_type=pay_date) 3회/구간: 전체 · order_status=C40 · order_status=R00~R40.
     // 취소+반품이 한 주문에 공존(혼합)하면 둘 다에 세어진다(드묾). 네이버페이 주문은 분자·분모에 같이 포함(비율엔 무해).
+    // ── cancelwatch (2026-10-26, 에이전트 취소·반품 감시 담당 요청): 상품별 취소율 — 결제일(pay_date) 기준 최근 N일 주문의 품목을 훑어
+    //    상품마다 결제 수량(모든 품목)과 취소완료(C40) 수량을 세고, 결제 수량 상위 top 상품만 돌려준다. 화면 'Best 30 중 취소율 TOP5'용.
+    //    GET ?action=cancelwatch&end_date=YYYY-MM-DD[&days=14][&top=30]
+    if (action === "cancelwatch") {
+      if (!["admin", "staff"].includes(authed.role)) return json({ error: "접근 권한이 없습니다" }, 403);
+      const e = url.searchParams.get("end_date");
+      if (!e) return json({ error: "end_date 필수 (YYYY-MM-DD)" }, 400);
+      const days = Math.max(1, Math.min(60, Number(url.searchParams.get("days") ?? 14)));
+      const topN = Math.max(1, Math.min(100, Number(url.searchParams.get("top") ?? 30)));
+      const hit = await fromCache(); if (hit) return json(hit);
+      const start = ymd(new Date(`${e}T12:00:00Z`).getTime() - (days - 1) * dayMs);
+      type Acc = { name: string; paid: number; cancel: number; pending: number };
+      const acc = new Map<number, Acc>();
+      let orders = 0;
+      await eachOrder(token, "date_type=pay_date&embed=items&fields=order_id,items", start, e, (list) => {
+        for (const o of list) {
+          orders++;
+          for (const it of (o.items ?? []) as Record<string, unknown>[]) {
+            const no = Number(it.product_no); if (!no) continue;
+            let a = acc.get(no);
+            if (!a) { a = { name: String(it.product_name ?? ""), paid: 0, cancel: 0, pending: 0 }; acc.set(no, a); }
+            const q = num(it.quantity), st = String(it.order_status ?? "");
+            a.paid += q;
+            if (st === "C40") a.cancel += q;                    // 취소완료 — cohortweeks와 같은 기준
+            else if (/^C[0-3]\d$/.test(st)) a.pending += q;     // 취소 신청·접수·진행(아직 완료 아님)
+          }
+        }
+      });
+      const rate = (n: number, d: number) => d > 0 ? +(n / d * 100).toFixed(2) : null;
+      const products = [...acc.entries()].sort((a, b) => b[1].paid - a[1].paid).slice(0, topN)
+        .map(([no, a], i) => ({ rank: i + 1, product_no: no, product_name: a.name, paid_qty: a.paid, cancel_qty: a.cancel, cancel_pending_qty: a.pending, cancel_rate: rate(a.cancel, a.paid) }));
+      const tp = [...acc.values()].reduce((t, a) => t + a.paid, 0), tc = [...acc.values()].reduce((t, a) => t + a.cancel, 0);
+      return await respond({ period: { start, end: e, days }, orders, total: { paid_qty: tp, cancel_qty: tc, cancel_rate: rate(tc, tp) }, products,
+        note: "결제일 기준 최근 N일 주문의 품목 수량. cancel = 취소완료(C40), pending = 취소 신청~진행 중. 최근 주문은 취소가 더 들어올 수 있음" });
+    }
+
     if (action === "cohortweeks") {
       if (authed.role !== "admin") return json({ error: "접근 권한이 없습니다" }, 403);
       const e = url.searchParams.get("end_date");
