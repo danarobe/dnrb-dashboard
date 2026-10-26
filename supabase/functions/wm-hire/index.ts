@@ -270,8 +270,10 @@ Deno.serve(async (req) => {
     }
 
     if (action === 'pay_delete') {
+      // 지운 지급의 내용을 감사 기록에 남긴다(2026-10-26 보안 점검 — 예전엔 번호만 남아 무엇을 지웠는지 알 수 없었음)
+      const [old] = await rest(`wm_hire_pays?id=eq.${id}&select=hire_id,work_date,gross,net,paid_on`);
       await rest(`wm_hire_pays?id=eq.${id}`, { method: 'DELETE' });
-      await audit(me, 'pay_delete', { pay_id: id });
+      await audit(me, 'pay_delete', { pay_id: id, ...(old ?? {}) });
       return json({ ok: true });
     }
 

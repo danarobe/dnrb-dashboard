@@ -1476,7 +1476,8 @@ Deno.serve(async (req) => {
     //   반품 요청일(return_request_date) 기준으로 같은 구간을 읽어 주문마다 R… 상태 상품을 한 줄로(열쇠 N:주문번호, bigret_sync.naver_until까지 읽음). 환불 금액은 카페24에 없어
     //   반품 상품 금액(판매가+옵션가)×수량 − 상품 할인 − 쿠폰 할인으로 추정(estimated — 배송비·네이버 포인트 처리는 모름). 실측(2026-10-20): 최근 60일 반품완료 주문 2,361건 중 822건이 네이버페이.
     if (action === "bigret_list") {
-      if (!["admin", "staff", "cs"].includes(authed.role)) return json({ error: "접근 권한이 없습니다" }, 403);
+      // 고객 이름·휴대전화가 든 화면 — 사람 로그인만(에이전트·자동 갱신·상품관리 비밀키 거절, 2026-10-26 보안 점검)
+      if (viaAgent || viaCron || viaSecret || !["admin", "staff", "cs"].includes(authed.role)) return json({ error: "접근 권한이 없습니다" }, 403);
       const MIN = 300_000, ALWAYS = 500_000, t0 = Date.now(), BUDGET = 35_000;   // 89일 한 구간 ≈ 30~50초 — 새 구간은 35초 안에서만 시작(벽시계 150초 한도, 2026-10-20 첫 실행 99초)
       const n = (v: unknown) => Math.round(Number(v ?? 0) || 0);
       const day = (off: number) => { const d = rscanYesterday(); d.setUTCDate(d.getUTCDate() + 1 + off); return d.toISOString().slice(0, 10); };
@@ -1618,7 +1619,7 @@ Deno.serve(async (req) => {
     //      ID로 찾아 불량회원 설정(use_blacklist T, blacklist_type P 구매 차단/L 로그인 차단)을 붙인다 — 이름·휴대전화는 우리 저장분에서. 둘 다 권한이 없으면 { error:"scope_missing" }(200, 캐시 안 함).
     //   결과에 우리 고액 반품 누적(회원 ID 또는 휴대전화 번호 일치)을 붙인다.
     if (action === "bigret_special") {
-      if (!["admin", "staff", "cs"].includes(authed.role)) return json({ error: "접근 권한이 없습니다" }, 403);
+      if (viaAgent || viaCron || viaSecret || !["admin", "staff", "cs"].includes(authed.role)) return json({ error: "접근 권한이 없습니다" }, 403);
       const cached = await fromCache(); if (cached) return json(cached);
       const digits = (v: unknown) => String(v ?? "").replace(/\D/g, "");
       const scopeErr = (e: unknown) => /scope|permission|403|insufficient/i.test(String((e as Error)?.message ?? e));

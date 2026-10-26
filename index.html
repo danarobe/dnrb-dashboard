@@ -3707,7 +3707,7 @@ async function loadUsers() {
   cxlUsersPanel();   // 취소·반품 접수 접근 허용 칩 (2026-10-08)
   hireUsersPanel();  // 알바 채용·면접비 접근 허용 칩 (2026-10-14)
   try {
-    const [d, emps] = await Promise.all([authApi({ action: 'list_users', token: SESSION.token }), wmApi({ action: 'employee_list' }).catch(() => null)]);
+    const [d, emps] = await Promise.all([grantUsers().then(users => ({ users })), wmApi({ action: 'employee_list' }).catch(() => null)]);   // 위 칩 패널들과 같은 조회 하나를 함께 씀(2026-10-26 점검 — 계정 목록 2번 조회)
     if (emps) __udEmps = emps;   // 퇴사 표시·근무 정보 창·생일 패널이 같이 쓴다
     const empOf = new Map((emps || []).filter(e => e.app_user_id).map(e => [e.app_user_id, e]));
     const gone = u => !!wmResignInfo(empOf.get(u.id));
@@ -3991,6 +3991,7 @@ function connectCafe24() {
 }
 
 /* 카페24 연동 상태 확인 — 취소&반품 배지 + 홈 안내 카드를 함께 갱신 */
+let __c24StatusP = null, __c24StatusAt = 0;
 async function checkCafe24Status() {
   const badge = $('api-status-c24');
   const home = $('home-c24');
@@ -4024,8 +4025,12 @@ async function checkCafe24Status() {
     return;
   }
   try {
-    const res = await fetch(fnUrl('cafe24-oauth', { action: 'status' }), { headers: sbHeaders() });
-    const data = await res.json();
+    // 로그인 직후 bootApp과 홈 화면이 거의 동시에 부르므로 30초 안이면 같은 응답을 함께 쓴다(2026-10-26 점검 — 같은 요청 2번)
+    if (!__c24StatusP || Date.now() - __c24StatusAt > 30000) {
+      __c24StatusAt = Date.now();
+      __c24StatusP = fetch(fnUrl('cafe24-oauth', { action: 'status' }), { headers: sbHeaders() }).then(r => r.json()).catch(e => { __c24StatusP = null; throw e; });
+    }
+    const data = await __c24StatusP;
     if (data.connected) {
       if (badge) { badge.textContent = '카페24: 연동됨'; badge.className = 'status-badge badge-green'; }
       // 갱신 토큰은 2주마다 만료 — 3일 전부터 미리 알림
