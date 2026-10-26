@@ -2234,11 +2234,11 @@ Deno.serve(async (req) => {
           sbRest("cn_lines?select=*&order=shipment_id.desc,seq.asc&limit=20000"),
           sbRest("cn_orders?select=*&order=id.desc&limit=300"),                                   // 주문서(2026-10-19 다시) — 단가가 없어 역할과 관계없이 그대로
           sbRest("cn_order_lines?select=*&order=order_id.desc,seq.asc&limit=30000"),
-          sbRest("cn_products?select=sname,vendor,updated_by_name,updated_at,line,line_by_name,line_at,fabric,fabric_by_name,fabric_at,label,label_by_name,label_at,c24_nos,c24_by_name,c24_at,inactive,inactive_by_name,inactive_at,cell_map&limit=5000"),
+          sbRest("cn_products?select=sname,vendor,updated_by_name,updated_at,line,line_by_name,line_at,fabric,fabric_by_name,fabric_at,label,label_by_name,label_at,outer_label,outer_label_by_name,outer_label_at,c24_nos,c24_by_name,c24_at,inactive,inactive_by_name,inactive_at,cell_map&limit=5000"),
           sbRest("cn_discards?select=id,sname,color,size,qty,note,created_by_name,created_at&order=created_at.asc&limit=20000"),   // 폐기(2026-10-23) — 잔여 = 주문 − 중국출고 − 폐기
         ]) as [Record<string, any>[], Record<string, any>[], Record<string, any>[], Record<string, any>[], Record<string, any>[], Record<string, any>[]];
         const prods: Record<string, unknown> = {};
-        for (const r of prodRows) prods[String(r.sname)] = { vendor: r.vendor ?? null, by: r.updated_by_name ?? null, at: r.updated_at ?? null, line: r.line ?? null, line_by: r.line_by_name ?? null, line_at: r.line_at ?? null, fabric: r.fabric ?? null, fabric_by: r.fabric_by_name ?? null, fabric_at: r.fabric_at ?? null, label: r.label === true, label_by: r.label_by_name ?? null, label_at: r.label_at ?? null, c24_nos: Array.isArray(r.c24_nos) ? r.c24_nos : null, c24_by: r.c24_by_name ?? null, c24_at: r.c24_at ?? null, inactive: r.inactive === true, inactive_by: r.inactive_by_name ?? null, inactive_at: r.inactive_at ?? null, cell_map: r.cell_map && typeof r.cell_map === "object" ? r.cell_map : null };
+        for (const r of prodRows) prods[String(r.sname)] = { vendor: r.vendor ?? null, by: r.updated_by_name ?? null, at: r.updated_at ?? null, line: r.line ?? null, line_by: r.line_by_name ?? null, line_at: r.line_at ?? null, fabric: r.fabric ?? null, fabric_by: r.fabric_by_name ?? null, fabric_at: r.fabric_at ?? null, label: r.label === true, label_by: r.label_by_name ?? null, label_at: r.label_at ?? null, outer: r.outer_label === true, outer_by: r.outer_label_by_name ?? null, outer_at: r.outer_label_at ?? null, c24_nos: Array.isArray(r.c24_nos) ? r.c24_nos : null, c24_by: r.c24_by_name ?? null, c24_at: r.c24_at ?? null, inactive: r.inactive === true, inactive_by: r.inactive_by_name ?? null, inactive_at: r.inactive_at ?? null, cell_map: r.cell_map && typeof r.cell_map === "object" ? r.cell_map : null };
         const outLines = canPrice ? lines : lines.map((l) => { const { unit_price: _u, ...rest } = l; return rest; });
         const outShips = ships.map(hideCosts);   // 비용(2번째 시트)도 관리자만
         // 카페24 등록 여부 (2026-10-12 규칙 — 사용자 지정 반영): 카페24 상품의 '공급사 상품명'(공백·대소문자 무시)과 사입상품명(품번)을 맞춘다.
@@ -2648,11 +2648,15 @@ Deno.serve(async (req) => {
         if (!canEdit) return json({ error: "라벨 표시는 관리자·MD만 바꿀 수 있어요" }, 403);
         const sname = txt(b.sname, 100);
         if (!sname) return json({ error: "사입상품명이 없어요" }, 400);
-        if (typeof b.label !== "boolean") return json({ error: "라벨 값이 올바르지 않아요" }, 400);
+        // {label: true|false} = 혼용률 라벨 · {outer: true|false} = 아우터라벨(2026-10-26 사용자 요청) — 둘 중 하나만
+        const isOuter = b.outer !== undefined;
+        const val = isOuter ? b.outer : b.label;
+        if (typeof val !== "boolean" || (isOuter && b.label !== undefined)) return json({ error: "라벨 값이 올바르지 않아요" }, 400);
         const known = await snameKnown(sname);
         if (!known.length) return json({ error: "입고 내역에 없는 사입상품명이에요 — 새로고침한 뒤 다시 시도해주세요" }, 404);
-        await sbRest("cn_products?on_conflict=sname", { method: "POST", headers: { Prefer: "resolution=merge-duplicates,return=minimal" }, body: JSON.stringify({ sname, label: b.label, label_by_name: authed.name, label_at: now }) });
-        return json({ ok: true, sname, label: b.label, label_by: authed.name, label_at: now });
+        const row = isOuter ? { sname, outer_label: val, outer_label_by_name: authed.name, outer_label_at: now } : { sname, label: val, label_by_name: authed.name, label_at: now };
+        await sbRest("cn_products?on_conflict=sname", { method: "POST", headers: { Prefer: "resolution=merge-duplicates,return=minimal" }, body: JSON.stringify(row) });
+        return json(isOuter ? { ok: true, sname, outer: val, outer_by: authed.name, outer_at: now } : { ok: true, sname, label: val, label_by: authed.name, label_at: now });
       }
       // 상품(사입상품명)별 라인 구분 — made 라인 / 일반 상품 (2026-10-12 사용자 요청). null = 구분 지움. 관리자·MD만, 물류팀은 보기만.
       if (action === "cn_line") {

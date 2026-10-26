@@ -4256,6 +4256,7 @@ function cnBuyRender() {
     const info = (d.prods || {})[p.sname] || {}, sub = p.opts.reduce((t, o) => t + (st.qty[o.key] || 0), 0);
     const price = st.price[p.sname] != null ? st.price[p.sname] : p.price;
     html += `<tr style="background:#f8f9ff;"><td class="cn-name" colspan="4"><div style="display:flex;align-items:center;gap:8px;">${cnThumbHtml(p.sname)}<b style="font-weight:800;">${escHtml(p.sname)}</b><span class="cn-sub">옵션 ${p.opts.length}</span>
+        <span class="cn-label-badge" style="${cnLabelOf(p.sname) ? '' : 'background:#f3f4f6;color:#4b5563;border-color:#e5e7eb;'}" title="주문서 맨 오른쪽 열에 들어가는 라벨 문구 — 입고 검수의 혼용률·라벨·아우터라벨로 정해져요">${escHtml(cnOrderLabelText(p.sname))}</span>
         <span class="cn-sub" style="display:inline-flex;align-items:center;gap:4px;">매장 <input type="text" maxlength="80" value="${escHtml(info.vendor || '')}" data-s="${escHtml(p.sname)}" data-prev="${escHtml(info.vendor || '')}" onchange="cnBuyVendor(this)" placeholder="예: W-1F-10-30" style="width:120px;border:1px solid #e5e7eb;border-radius:6px;padding:2px 6px;font-size:.74rem;" /></span>
         ${canPrice ? `<span class="cn-sub" style="display:inline-flex;align-items:center;gap:4px;">단가 ¥<input type="number" min="0" step="0.1" value="${price == null ? '' : price}" data-s="${escHtml(p.sname)}" onchange="cnBuyPrice(this)" style="width:70px;border:1px solid #e5e7eb;border-radius:6px;padding:2px 6px;font-size:.74rem;text-align:right;" /></span>` : ''}</div></td>
       <td style="text-align:right;font-weight:800;color:${sub ? '#4338ca' : '#9ca3af'};" data-buy-sub="${escHtml(encodeURIComponent(p.sname))}">${sub ? fmt(sub) + '장' : '—'}</td></tr>`;
@@ -4326,7 +4327,7 @@ async function cnBuyWorkbook(picked, sheetName) {   // 사용자 주문서 양�
   const names = picked.map(p => p.sname).filter(n => !(cnState.thumbs || {})[n]);
   if (names.length) { try { const r = await cnPost('cn_thumbs', { get: names.slice(0, 200) }); cnState.thumbs = Object.assign(cnState.thumbs || {}, r.thumbs || {}); } catch (e) { /* 사진 없이도 만든다 */ } }
   const wb = new ExcelJS.Workbook(), ws = wb.addWorksheet(sheetName);
-  ws.columns = [{ width: 10 }, { width: 15 }, { width: 14 }, { width: 8 }, { width: 8 }, { width: 8 }, { width: 10 }, { width: 14 }, { width: 10 }];
+  ws.columns = [{ width: 10 }, { width: 15 }, { width: 14 }, { width: 8 }, { width: 8 }, { width: 8 }, { width: 10 }, { width: 14 }, { width: 24 }];
   const thin = { style: 'thin' }, border = { top: thin, left: thin, bottom: thin, right: thin }, center = { horizontal: 'center', vertical: 'middle' };
   const head = (r, vals) => { const row = ws.getRow(r); vals.forEach((v, i) => { const c = row.getCell(i + 1); c.value = v; c.font = { name: '궁서', size: 10, bold: true }; c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFC5D9F1' } }; c.alignment = center; c.border = border; }); };
   head(1, ['품번', '이미지', '색상', '싸이즈', '수량', '단가', '합계', '매장']);
@@ -4340,10 +4341,10 @@ async function cnBuyWorkbook(picked, sheetName) {   // 사용자 주문서 양�
       if (o) { row.getCell(3).value = o.color || null; row.getCell(4).value = o.size || null; row.getCell(5).value = o.qty; if (p.price != null) row.getCell(6).value = p.price; }
       const g = row.getCell(7); g.value = { formula: `E${r + i}*F${r + i}` }; g.font = { name: '돋움', size: 10, bold: true, color: { argb: 'FF215967' } }; g.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFEBF1DE' } };
     }
-    ws.mergeCells(r0, 1, r0 + n - 1, 1); ws.mergeCells(r0, 2, r0 + n - 1, 2);
+    ws.mergeCells(r0, 1, r0 + n - 1, 1); ws.mergeCells(r0, 2, r0 + n - 1, 2); ws.mergeCells(r0, 9, r0 + n - 1, 9);
     const a = ws.getCell(r0, 1); a.value = /^\d+$/.test(p.sname) ? Number(p.sname) : p.sname; a.font = { name: '궁서', size: 11, bold: true }; a.alignment = center;
     if (p.vendor) ws.getCell(r0, 8).value = p.vendor;
-    ws.getCell(r0, 9).value = '다나로브';
+    const lab = ws.getCell(r0, 9); lab.value = cnOrderLabelText(p.sname); lab.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true }; lab.font = { name: '돋움', size: 10, bold: true };   // 라벨 문구(2026-10-26 — 옛 '다나로브')
     const url = (cnState.thumbs || {})[p.sname];
     if (url && /^data:image\/(jpeg|png);base64,/.test(url)) {
       const id = wb.addImage({ base64: url, extension: url.startsWith('data:image/png') ? 'png' : 'jpeg' });
@@ -6278,8 +6279,9 @@ function cnFabricHtml(sname) {   // 상품 줄 이름 아래 둘째 줄에 들�
   const d = cnState.data || {}, info = (d.prods || {})[sname] || {}, v = info.fabric || '';
   const tip = v && info.fabric_by ? `${info.fabric_by} · ${unshipKst(info.fabric_at)}` : '';
   const lab = info.label === true, labTip = lab && info.label_by ? `라벨 제작 대상 — ${info.label_by} · ${unshipKst(info.label_at)}` : '혼용률 라벨을 만들어야 하는 상품이면 체크(아우터 등)';
-  if (!d.can_edit) return `<span class="cn-sub">혼용률</span><span style="font-size:.76rem;color:${v ? '#374151' : '#9ca3af'};" title="${escHtml(tip)}">${v ? escHtml(v) : '—'}</span>${lab ? `<span class="cn-label-badge" title="${escHtml(labTip)}">라벨</span>` : ''}`;
-  return `<span class="cn-sub">혼용률</span><input type="text" class="cn-fabric" maxlength="200" value="${escHtml(v)}" data-s="${escHtml(sname)}" data-prev="${escHtml(v)}" onchange="cnFabricSave(this)" onkeydown="if(event.key==='Enter')this.blur()" placeholder="예: 면 60% 폴리 40%" aria-label="${escHtml(sname)} 혼용률" title="${escHtml(tip)}" style="border:1px ${v ? 'solid #e5e7eb' : 'dashed #f59e0b'};border-radius:6px;padding:3px 6px;font-size:.74rem;" /><label class="cn-label${lab ? ' on' : ''}" title="${escHtml(labTip)}"><input type="checkbox" data-s="${escHtml(sname)}"${lab ? ' checked' : ''} onchange="cnLabelSet(this)" />라벨</label>`;
+  const out = info.outer === true, outTip = out && info.outer_by ? `아우터라벨 — ${info.outer_by} · ${unshipKst(info.outer_at)}` : '아우터 라벨도 달아야 하는 상품이면 체크';
+  if (!d.can_edit) return `<span class="cn-sub">혼용률</span><span style="font-size:.76rem;color:${v ? '#374151' : '#9ca3af'};" title="${escHtml(tip)}">${v ? escHtml(v) : '—'}</span>${lab ? `<span class="cn-label-badge" title="${escHtml(labTip)}">라벨</span>` : ''}${out ? `<span class="cn-label-badge" title="${escHtml(outTip)}">아우터라벨</span>` : ''}`;
+  return `<span class="cn-sub">혼용률</span><input type="text" class="cn-fabric" maxlength="200" value="${escHtml(v)}" data-s="${escHtml(sname)}" data-prev="${escHtml(v)}" onchange="cnFabricSave(this)" onkeydown="if(event.key==='Enter')this.blur()" placeholder="예: 면 60% 폴리 40%" aria-label="${escHtml(sname)} 혼용률" title="${escHtml(tip)}" style="border:1px ${v ? 'solid #e5e7eb' : 'dashed #f59e0b'};border-radius:6px;padding:3px 6px;font-size:.74rem;" /><label class="cn-label${lab ? ' on' : ''}" title="${escHtml(labTip)}"><input type="checkbox" data-s="${escHtml(sname)}"${lab ? ' checked' : ''} onchange="cnLabelSet(this)" />라벨</label><label class="cn-label${out ? ' on' : ''}" title="${escHtml(outTip)}"><input type="checkbox" data-s="${escHtml(sname)}" data-k="outer"${out ? ' checked' : ''} onchange="cnLabelSet(this)" />아우터라벨</label>`;
 }
 // 상품 줄의 첫 칸 — 두 줄: ① 이름 · 옵션 수 · (탭마다 다른 배지) · made/일반 ② 혼용률 · 라벨  (입고 검수의 [전달 수량과 같음] 버튼은 상품 줄의 메모 칸에)
 function cnNameCell(tab, sname, open, nOpt, line1, line2, line3) {
@@ -6306,6 +6308,15 @@ async function cnFabricSave(el) {
 /* 혼용률 '라벨' 체크 (2026-10-12 사용자 요청: 아우터는 혼용률이 라벨에 들어가야 해서, 라벨을 제작해야 하는 상품을 따로 파악) — 상품마다 하나(cn_products.label).
    혼용률 칸 옆 체크(관리자·MD, 물류팀은 '라벨' 배지만), 상품별 현황의 '라벨 제작' 칩으로 모아 본다. */
 const cnLabelOf = sname => ((((cnState.data || {}).prods || {})[sname]) || {}).label === true;
+const cnOuterOf = sname => ((((cnState.data || {}).prods || {})[sname]) || {}).outer === true;
+// 주문서(주문하기 엑셀) 맨 오른쪽 열의 라벨 문구(2026-10-26 사용자 지정): 라벨 체크 없음 = '다나로브 일반 메차 라벨',
+//   라벨 체크 = 혼용률 + ' 라벨'(예: '울 70 폴리 30' → '울70 폴리30 라벨'), 아우터라벨도 체크면 뒤에 ' + 아우터 라벨'.
+const cnFabricShort = v => String(v || '').replace(/%/g, ' ').replace(/[,/·]+/g, ' ').replace(/\s+/g, ' ').trim().replace(/([가-힣A-Za-z])\s+(\d)/g, '$1$2');
+function cnOrderLabelText(sname) {
+  const f = cnFabricShort(cnFabricOf(sname)), hasF = f && /\d/.test(f);
+  const base = cnLabelOf(sname) ? (hasF ? `${f} 라벨` : '혼용률 라벨 (혼용률 미입력)') : '다나로브 일반 메차 라벨';
+  return cnOuterOf(sname) ? `${base} + 아우터 라벨` : base;
+}
 // 미진행 상품(2026-10-20 사용자 요청 — "진행하지 않는 상품이어서 미진행 체크하면 안 보이도록"): 입고 검수·상품별 현황의 기본 보기와 합계에서 빠지고, 상품별 현황 '미진행' 칩에서만 보인다
 const cnInactive = sname => ((((cnState.data || {}).prods || {})[sname]) || {}).inactive === true;
 const cnHasLines = sname => (((cnState.data || {}).lines) || []).some(l => l.sname === sname);
@@ -6343,6 +6354,17 @@ async function cnManualShip(btn) {
 async function cnLabelSet(cb) {
   const sname = cb.dataset.s, want = cb.checked;
   cb.disabled = true;
+  if (cb.dataset.k === 'outer') {   // 아우터라벨(2026-10-26) — 주문하기 엑셀 맨 오른쪽 열에 '+ 아우터 라벨'
+    try {
+      const r = await cnPost('cn_label', { sname, outer: want });
+      const d = cnState.data; d.prods = d.prods || {};
+      d.prods[sname] = Object.assign({}, d.prods[sname], { outer: r.outer, outer_by: r.outer_by, outer_at: r.outer_at });
+      const box = cb.closest('label'); box.classList.toggle('on', r.outer === true); box.title = r.outer ? `아우터라벨 — ${r.outer_by} · ${unshipKst(r.outer_at)}` : '아우터 라벨도 달아야 하는 상품이면 체크';
+      showToast(r.outer ? `${sname} — 아우터라벨 표시` : `${sname} — 아우터라벨 표시를 껐어요`);
+    } catch (e) { cb.checked = !want; showToast('저장 실패: ' + e.message); }
+    finally { cb.disabled = false; }
+    return;
+  }
   try {
     const r = await cnPost('cn_label', { sname, label: want });
     const d = cnState.data; d.prods = d.prods || {};
@@ -7131,7 +7153,7 @@ async function cnCheckXlsx(btn) {
     const x = ships.get(l.shipment_id) || {}, rw = !canPrice ? null : l._sum ? cnRealAvg(cnLineParts(l._raw)) : cnRealWon(l.unit_price, l.shipment_id);
     const ox = cnOrdOf(l);
     const sumWhere = l._sum ? l._raw.map(r => { const y = ships.get(r.shipment_id) || {}; return `${y.order_round || y.title || ''} ${r.qty_sent}`; }).join(' · ') : '';
-    return [l._sum ? sumWhere : x.title || '', l._sum ? '' : x.ship_date || '', l._sum ? '' : cnShipDone(x) ? `완료 (${x.checked_done_by_name || ''})` : '', l.sname, l.color || '', l.size || '', cnLineLabel(l.sname), cnFabricOf(l.sname), cnLabelOf(l.sname) ? '라벨 제작' : '',
+    return [l._sum ? sumWhere : x.title || '', l._sum ? '' : x.ship_date || '', l._sum ? '' : cnShipDone(x) ? `완료 (${x.checked_done_by_name || ''})` : '', l.sname, l.color || '', l.size || '', cnLineLabel(l.sname), cnFabricOf(l.sname), [cnLabelOf(l.sname) ? '라벨 제작' : '', cnOuterOf(l.sname) ? '아우터라벨' : ''].filter(Boolean).join(' · '),
       ox ? ox.ordered : '', l.qty_sent, l.qty_actual == null ? '' : l.qty_actual, ox ? ox.remain : '', l._ordOnly ? '' : l.qty_actual == null ? '미확인' : l._unchecked ? `${cnSentCk(l) - l.qty_actual} (미확인 입고 ${l._unchecked}건)` : cnSentCk(l) - l.qty_actual, l.qty_defect == null ? '' : l.qty_defect, l.checked_by_name || '', l.checked_at ? unshipKst(l.checked_at) : '', l.memo || '',
       ...(canPrice ? [l.unit_price == null ? '' : Number(l.unit_price), l.unit_price == null ? '' : Math.round(Number(l.unit_price) * ((cnFxShip(l.shipment_id) || {}).rate || CN_FX)), rw ? rw.won : '', l.unit_price == null ? '' : Math.round(l.qty_sent * Number(l.unit_price) * 100) / 100] : [])];
   });
@@ -7155,7 +7177,7 @@ async function cnProdXlsx(btn) {
   const out = [];
   for (const p of list) {
     const c24 = p.c24.map(h => h.product_name).join(' / '), sales = showSales ? cnSalesOf(p) : null;
-    for (const o of p.opts) out.push([p.sname, o.opt, cnLineLabel(p.sname), cnFabricOf(p.sname), cnLabelOf(p.sname) ? '라벨 제작' : '', p.ships.size, o.ord ? o.ord.ordered : '', o.sent, o.act || o.actSent ? o.act : '', o.ord ? o.ord.remain : '', o.act || o.actSent ? o.actSent - o.act : '', o.defN ? o.def : '', o.unchecked || '', c24,
+    for (const o of p.opts) out.push([p.sname, o.opt, cnLineLabel(p.sname), cnFabricOf(p.sname), [cnLabelOf(p.sname) ? '라벨 제작' : '', cnOuterOf(p.sname) ? '아우터라벨' : ''].filter(Boolean).join(' · '), p.ships.size, o.ord ? o.ord.ordered : '', o.sent, o.act || o.actSent ? o.act : '', o.ord ? o.ord.remain : '', o.act || o.actSent ? o.actSent - o.act : '', o.defN ? o.def : '', o.unchecked || '', c24,
       ...(showSales ? [sales && sales.avg7 != null ? Math.round(sales.avg7 * 10) / 10 : '', sales ? sales.net30 : ''] : []),
       ...(canPrice ? [o.real ? o.real.yuan : (o.price == null ? '' : o.price), o.real ? o.real.won : ''] : [])]);
   }
