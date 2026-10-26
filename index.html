@@ -7568,12 +7568,21 @@ function cnmParseGrid(grid) {
   const recv = label && label[1] >= Math.max(2, blocks.length / 2) ? label[0] : '';
   const items = blocks.map(b => {
     const rows = [], checks = [], notes = [];
+    // 사이즈 칸에 잘못 적힌 수량(2026-10-26 사용자 확인 — 1966 卡其진베 사이즈 칸 2 + 수량 50 = 미송 52장):
+    // 묶음의 다른 줄에는 사이즈가 없는데 이 줄 사이즈 칸만 1~2자리 숫자면 수량으로 보고 더한다(사이즈 있는 상품의 숫자 사이즈 225 등은 그대로)
+    const sized = b.lines.filter(l => l.size);
     for (const l of b.lines) {
-      const q = Number(String(l.qtyRaw).replace(/[^0-9.\-]/g, ''));
+      let q = Number(String(l.qtyRaw).replace(/[^0-9.\-]/g, '')), size = l.size;
+      if (!Number.isInteger(q) || q < 0) q = 0;
       if (l.note && l.note !== recv) notes.push({ text: l.note });
-      if (!l.color && !l.size) continue;
-      if (Number.isInteger(q) && q > 0) rows.push({ color: l.color, size: l.size, qty: q });
-      else if (String(l.qtyRaw).trim() === '' && /^\d+$/.test(l.size)) checks.push(`${l.color || '(색상 없음)'} — 수량 칸이 비어 있고 사이즈 칸에 '${l.size}'가 적혀 있어요(미송에서 뺐어요)`);
+      if (!l.color && !size) continue;
+      if (/^\d{1,2}$/.test(size) && sized.length === 1) {
+        const add = Number(size);
+        const josa = '을을를을를를을을을를'[Number(size.slice(-1))];   // 영·일·이·삼…구 받침에 맞춰
+        checks.push(`${l.color || '(색상 없음)'} — 사이즈 칸의 '${size}'${josa} 수량으로 더했어요 (${q ? `${q} + ${add} = ` : ''}${q + add}장)`);
+        q += add; size = '';
+      }
+      if (q > 0) rows.push({ color: l.color, size, qty: q });
     }
     return { sname: b.sname, store: b.store, rows, notes, checks };
   }).filter(it => it.rows.length || it.checks.length);
