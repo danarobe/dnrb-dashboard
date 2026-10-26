@@ -389,6 +389,13 @@
     tbody tr:hover { background:#fafbff; }
     tbody td { padding:9px 13px; text-align:center; border-bottom:1px solid #f3f4f6; color:#374151; white-space:nowrap; }
     tbody td.name-cell { text-align:left; white-space:normal; max-width:220px; }
+    /* 종합 판매 데이터 표(2026-10-26 사용자 요청 — '오늘'로 보면 등락 열이 생겨 상품명 칸이 88px까지 좁아져 줄바꿈이 심했음):
+       머리글 설명 글은 줄바꿈 허용(단어 단위), 칸 여백을 줄이고, 숫자 아래 작은 글씨(공급가 메모 등)도 줄바꿈 → 남는 폭은 상품명 칸으로 */
+    .perf-tbl thead th { white-space: normal; word-break: keep-all; padding-left: 6px; padding-right: 6px; vertical-align: middle; }
+    .perf-tbl tbody td { padding-left: 6px; padding-right: 6px; }
+    .perf-tbl tbody td div { white-space: normal; word-break: keep-all; }
+    .perf-tbl tbody td.name-cell { min-width: clamp(170px, 15vw, 270px); max-width: 340px; }
+    @media (max-width: 900px) { .perf-tbl tbody td.name-cell { min-width: 0; max-width: 150px; } }   /* 휴대폰·좁은 창은 예전 그대로 */
     /* 취소·반품 접수(#cxl) 표: 긴 글이 표를 옆으로 밀어 '확인할 점'·'결과' 칸이 잘리던 문제 — 줄바꿈을 켜고 꼭 필요한 칸만 한 줄(.nw) (2026-10-05) */
     @media (max-width: 900px) { .home-lv-cell { min-height:0 !important; } }   /* 홈 휴가 달력: 좁은 화면에서는 요일이 세로로 쌓이므로 빈 칸 높이를 줄인다 */
     .cxl-tbl { table-layout:auto; }
@@ -20735,21 +20742,21 @@ function renderPerfResult() {
   if (filtered.length === 0) {
     html += `<div class="empty-state"><div class="es-icon"><i class="fa-regular fa-folder-open"></i></div><p>해당 필터 조건에 맞는 상품이 없습니다.</p></div>`;
   } else {
-    html += `<div class="table-wrap"><table>
+    html += `<div class="table-wrap"><table class="perf-tbl">
       <thead><tr>
         <th class="m-hide">순위</th>
         ${store.prevRanks ? '<th class="m-hide" title="어제 결제수량 순위와 비교한 등락">등락<br><span style="font-size:.7rem;font-weight:400;color:#6b7280;">어제 대비</span></th>' : ''}
         <th>상품명</th>
         <th class="m-hide">판매가</th>
         <th class="m-hide">공급가<br><span style="font-size:.7rem;font-weight:400;color:#6b7280;">VAT 제외</span></th>
-        <th class="m-hide">결제수량</th>
-        <th class="m-hide">환불수량</th>
+        <th class="m-hide">결제<br>수량</th>
+        <th class="m-hide">환불<br>수량</th>
         <th>순판매량</th>
         ${isStaff() || isCS() ? '' : '<th class="m-hide">판매합계</th>'}
-        ${isCS() ? '' : '<th class="m-hide">ON 광고<br><span style="font-size:.7rem;font-weight:400;color:#6b7280;">활성 기준</span><br><span style="font-size:.64rem;font-weight:400;color:#9ca3af;">아래 = 기간 광고비 · ROAS</span></th>'}
+        ${isCS() ? '' : '<th class="m-hide">ON 광고<br><span style="font-size:.7rem;font-weight:400;color:#6b7280;">활성 기준</span><br><span style="font-size:.64rem;font-weight:400;color:#9ca3af;">아래 = 기간 광고비·ROAS</span></th>'}
         <th>순반품률<br class="m-hide"><span class="m-hide" style="font-size:.7rem;font-weight:400;color:#6b7280;">배송완료일 기준</span></th>
-        <th class="m-hide">취소&amp;반품률<br><span style="font-size:.7rem;font-weight:400;color:#6b7280;">주문일 기준·참고용</span></th>
-        ${isCS() ? '' : '<th>마진율<br class="m-hide"><span class="m-hide" style="font-size:.7rem;font-weight:400;color:#6b7280;">공급가×1.1 기준' + (isAdmin() || isStaff() ? '<br>중국 사입은 실질 단가 + 수입 부가세' : '') + '</span></th>'}
+        <th class="m-hide">취소·<br>반품률<br><span style="font-size:.7rem;font-weight:400;color:#6b7280;">주문일 기준 참고용</span></th>
+        ${isCS() ? '' : '<th>마진율<br class="m-hide"><span class="m-hide" style="font-size:.7rem;font-weight:400;color:#6b7280;">공급가×1.1 기준' + (isAdmin() || isStaff() ? '<br>중국 사입: 실질 단가 + 수입 부가세' : '') + '</span></th>'}
       </tr></thead>
       <tbody>`;
 
