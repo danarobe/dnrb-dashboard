@@ -409,6 +409,12 @@
     .made-cn-tbl tbody td { padding:8px 8px; vertical-align:top; }
     .made-cn-tbl td.nm { white-space:normal; text-align:left; min-width:200px; max-width:320px; word-break:keep-all; overflow-wrap:anywhere; }
     .made-cn-tbl td.nm .cn-tag { display:block; width:fit-content; margin:3px 0 0; }
+    /* 미송 확인 표 */
+    .cnm-tbl tbody td { white-space:normal; vertical-align:top; padding:7px 8px; }
+    .cnm-tbl td.cnm-prod { border-top:2px solid #e5e7eb; }
+    .cnm-chip { display:inline-flex; align-items:center; gap:5px; border:1.5px solid #e5e7eb; background:#fff; border-radius:10px; padding:5px 10px; font-size:.76rem; color:#374151; }
+    .cnm-chip b { color:#1e1b4b; }
+    .cnm-when { display:inline-block; border-radius:7px; padding:2px 7px; font-size:.74rem; font-weight:800; white-space:nowrap; }
     .made-cn-tbl .inc-has-tip { cursor:help; border-bottom:1.5px dotted #7dd3fc; }
     .inc-tip { position:fixed; z-index:500; display:none; background:#fff; border:1.5px solid #bae6fd; border-radius:10px; box-shadow:0 10px 28px rgba(15,23,42,.18); padding:9px 12px; font-size:.74rem; color:#374151; max-width:420px; pointer-events:none; line-height:1.45; }
     .inc-tip .inc-tip-t { border-collapse:collapse; width:auto; font-size:.74rem; }
@@ -1601,6 +1607,11 @@
         </div>
         <div id="cn-pend-cmp"></div>
         <div id="cn-pend-list"></div>
+      </div>
+      <!-- 미송 확인 (2026-10-26 사용자 요청 — 중국에서 받은 미송 엑셀: 업로드 일자·며칠 기준·사진·품번·쇼핑몰 상품명·미송 항목·수량·항목별 입고 날짜, 단가·합계는 안 보임) -->
+      <div id="cn-pane-misong" class="cn-pane" style="display:none;">
+        <div id="cn-misong-head" style="margin-bottom:10px;"></div>
+        <div id="cn-misong-body"></div>
       </div>
       <div id="cn-flow-modal" onclick="if(event.target===this)this.style.display='none'" style="display:none;position:fixed;inset:0;background:rgba(15,23,42,.55);z-index:210;align-items:center;justify-content:center;padding:20px;">
         <div style="background:#fff;border-radius:16px;max-width:860px;width:100%;max-height:90vh;overflow:auto;padding:18px 20px;">
@@ -5563,10 +5574,10 @@ const unshipOverdue = (m, today) => !!(m && m.arrival_date && String(m.arrival_d
    옵션별 '전달 수량'으로 저장(cn_shipments/cn_lines) → 현장에서 센 '실제 수량'을 적어 차이를 본다. 상품별 현황 = 입고 건을 사입상품명·옵션으로 합친 표 + 카페24 등록 여부·판매량.
    서버 cafe24-analytics cn_list / cn_upload / cn_check / cn_ship. 단가·비용은 관리자만(2026-10-02 — 서버가 MD·물류팀 응답에서 뺀다). CS팀은 메뉴 자체가 없음. 엑셀 올리기·입고 건 수정·삭제도 관리자·MD. */
 const CN_TABS_FX = ['fx', '원>달러>위안 환전', null, 'fa-solid fa-money-bill-transfer'];   // 2026-10-22 — 관리자만(can_price)
-const CN_TABS = [['check', '입고 검수', null, 'fa-solid fa-clipboard-check'], ['prod', '상품별 현황', null, 'fa-solid fa-layer-group'], ['pend', '미송 점검', null, 'fa-solid fa-hourglass-half'], ['order', '주문서', null, 'fa-solid fa-file-signature'], ['buy', '주문하기', null, 'fa-solid fa-cart-plus'], ['cost', '입고 비용', null, 'fa-solid fa-coins']];   // 주문하기 = 2026-10-20 사용자 요청(수량을 적으면 주문서 양식 엑셀로)   // 주문서 탭 = 2026-10-19 사용자 요청('전체' 보기 아래에 늘어서던 주문서 목록을 따로)
+const CN_TABS = [['check', '입고 검수', null, 'fa-solid fa-clipboard-check'], ['prod', '상품별 현황', null, 'fa-solid fa-layer-group'], ['pend', '미송 점검', null, 'fa-solid fa-hourglass-half'], ['misong', '미송 확인', null, 'fa-solid fa-truck-ramp-box'], ['order', '주문서', null, 'fa-solid fa-file-signature'], ['buy', '주문하기', null, 'fa-solid fa-cart-plus'], ['cost', '입고 비용', null, 'fa-solid fa-coins']];   // 주문하기 = 2026-10-20 사용자 요청(수량을 적으면 주문서 양식 엑셀로)   // 주문서 탭 = 2026-10-19 사용자 요청('전체' 보기 아래에 늘어서던 주문서 목록을 따로)
 const cnTabs = () => [...CN_TABS, CN_TABS_FX].filter(t => (t[0] !== 'cost' || !cnState.data || cnState.data.can_price) && (t[0] !== 'fx' || (cnState.data && cnState.data.can_price)) && (t[0] !== 'buy' || !cnState.data || cnState.data.can_edit) && (t[0] !== 'order' || !cnState.data || cnState.data.can_edit));   // 물류팀 = 입고 검수·상품별 현황만(2026-10-22 — 주문서·주문하기·입고 비용·환전 숨김)   // 입고 비용 = 관리자만, 주문하기 = 관리자·MD
 const cnState = { data: null, loading: false, tab: 'check', shipId: 'all', costShipId: null, filter: 'all', prodFilter: 'all', pendFilter: 'pend', pendCmp: null, lineFilter: 'all', pending: null, sales: null, salesLoading: false, open: { check: new Set(), prod: new Set() }, thumbs: {}, thumbAsked: new Set(), thumbWant: [], thumbT: null, thumbScroll: false };
-function cnTabRender() { const k = cnState.tab; if (k === 'pend') cnPendRender(); else if (k === 'check') cnCheckRender(); else if (k === 'cost') cnCostRender(); else if (k === 'fx') cnFxRender(); else if (k === 'order') cnOrderTabRender(); else if (k === 'buy') cnBuyRender(); else { cnProdRender(); cnSalesLoad(); } }
+function cnTabRender() { const k = cnState.tab; if (k === 'misong') cnMisongRender(); else if (k === 'pend') cnPendRender(); else if (k === 'check') cnCheckRender(); else if (k === 'cost') cnCostRender(); else if (k === 'fx') cnFxRender(); else if (k === 'order') cnOrderTabRender(); else if (k === 'buy') cnBuyRender(); else { cnProdRender(); cnSalesLoad(); } }
 function cnInit() { cnSetTab(cnState.tab); if (!cnState.data && !cnState.loading) cnLoad(false); }
 function cnSetTab(k) {
   if (((k === 'cost' || k === 'fx') && cnState.data && !cnState.data.can_price) || ((k === 'buy' || k === 'order') && cnState.data && !cnState.data.can_edit) || ![...CN_TABS, CN_TABS_FX].some(t => t[0] === k)) k = 'check';   // 없어진 탭(미출고 잔여 — 2026-10-14)이면 입고 검수로
@@ -7392,6 +7403,205 @@ function cnPendRender() {
   cnPendCmpRender();
 }
 // ── 미송 엑셀과 비교(저장하지 않음): 머리글에서 품번·색상·사이즈·수량 열을 찾고(못 찾으면 A·C·D·F), 품번은 위 줄을 이어받는다. '출완' = 0 ──
+/* ══ 미송 확인 (2026-10-26 사용자 요청) ══
+   중국에서 받은 미송 엑셀(예: '수정 다나로브 미송 1.xlsx')을 올리면 업로드 일자·며칠 기준인지·상품 사진·품번·쇼핑몰 상품명·미송 항목과 수량·항목별 입고 날짜.
+   엑셀 모양: 3행 머리글 품번·이미지·색상·싸이즈·수량·단가·합계·매장·'10/25기준', 4행 중국어 머리글, 그 아래 품번 하나가 여러 줄 묶음(A·B 합친 칸).
+   I열(기준일 열) = 물류공장에 언제 들어오는지 — 묶음 첫 줄은 받는 곳('다나로브'), 그 아래 줄이 일정('내일', '2일', '900장3일', '검200장 7일', '나머지 라벨 대기').
+   기준일이 10/25면 '내일' = 10/26, '2일' = 10/27(기준일 + N일). 단가·합계(F·G열)는 읽지도 저장하지도 않는다. 서버는 최근 2개(지금 + 직전)만 보관. */
+const cnMisong = { files: null, loading: false, err: '', view: 0 };
+async function cnMisongLoad(force) {
+  if (cnMisong.loading || (cnMisong.files && !force)) return;
+  cnMisong.loading = true; cnMisong.err = '';
+  if (cnState.tab === 'misong') cnMisongRender();
+  try { const r = await anGet({ action: 'cn_misong_list' }); cnMisong.files = r.files || []; cnMisong.canEdit = !!r.can_edit; }
+  catch (e) { cnMisong.err = e.message || String(e); }
+  finally { cnMisong.loading = false; if (cnState.tab === 'misong') cnMisongRender(); }
+}
+const cnmMd = d => d ? `${Number(d.slice(5, 7))}/${Number(d.slice(8, 10))}` : '';
+const cnmDow = d => '일월화수목금토'[new Date(d + 'T12:00:00').getDay()];
+function cnmAddDays(d, n) { const t = new Date(d + 'T12:00:00'); t.setDate(t.getDate() + n); return t.toLocaleDateString('sv-SE'); }
+// 'MM/DD기준' → 날짜(올해, 두 달 넘게 앞이면 작년)
+function cnmBaseDate(label) {
+  const m = String(label || '').match(/(\d{1,2})\s*[\/.월]\s*(\d{1,2})/); if (!m) return null;
+  const now = new Date(), y = now.getFullYear(), mm = String(Number(m[1])).padStart(2, '0'), dd = String(Number(m[2])).padStart(2, '0');
+  let d = `${y}-${mm}-${dd}`;
+  if (new Date(d + 'T12:00:00') - now > 60 * 864e5) d = `${y - 1}-${mm}-${dd}`;
+  return d;
+}
+// I열 일정 글 한 줄 → {text, days, date, qty, color, rest, wait}
+function cnmNote(text, base) {
+  const t = String(text || '').replace(/\s+/g, ' ').trim(), n = { text: t, days: null, date: null, qty: null, color: '', rest: /나머지/.test(t), wait: false };
+  const abs = t.match(/(\d{1,2})\s*[\/.]\s*(\d{1,2})(?!\s*\d)/);
+  if (/오늘|당일/.test(t)) n.days = 0;
+  else if (/내일/.test(t)) n.days = 1;
+  else if (/모레/.test(t)) n.days = 2;
+  else { const ds = [...t.matchAll(/(\d+)\s*일/g)]; if (ds.length) n.days = Number(ds[ds.length - 1][1]); }
+  if (n.days != null && base) n.date = cnmAddDays(base, n.days);
+  else if (abs && base) { const y = base.slice(0, 4); n.date = `${y}-${String(abs[1]).padStart(2, '0')}-${String(abs[2]).padStart(2, '0')}`; }
+  const q = t.match(/(\d+)\s*장/); if (q) n.qty = Number(q[1]);
+  const c = t.match(/^([가-힣]{1,4})\s*\d+\s*장/); if (c && !/나머지/.test(c[1])) n.color = c[1];
+  if (!n.date) n.wait = true;
+  return n;
+}
+// 묶음의 일정 → 줄마다 입고 예정(정할 수 있을 때만)
+function cnmSchedule(it, base) {
+  const notes = (it.notes || []).map(x => cnmNote(x.text, base));
+  const rows = (it.rows || []).map(r => ({ ...r, kor: madeCnKo(r.color) }));
+  const byColor = r => notes.find(n => n.color && r.kor && (r.kor === n.color || r.kor.startsWith(n.color)));
+  const plain = notes.filter(n => !n.color && n.qty == null && !n.rest);
+  const rest = notes.find(n => n.rest);
+  let anyColor = false;
+  for (const r of rows) { const n = byColor(r); if (n) { r.sched = n; anyColor = true; } }
+  for (const r of rows) {
+    if (r.sched) continue;
+    if (anyColor && rest) r.sched = rest;
+    else if (!rest && !notes.some(n => n.qty != null) && plain.length === 1) r.sched = plain[0];   // '내일 일부분 / 나머지 6일'처럼 나머지가 있으면 어느 옵션인지 모름
+    else if (!notes.length) r.sched = null;
+  }
+  const unresolved = rows.some(r => !r.sched) && notes.length > 0;
+  return { notes, rows, unresolved };
+}
+function cnmWhenHtml(n, base) {
+  if (!n) return '<span style="color:#9ca3af;">—</span>';
+  if (!n.date) return `<span class="cnm-when" style="background:#f3f4f6;color:#6b7280;" title="${escHtml(n.text)}">날짜 미정</span><div style="font-size:.7rem;color:#6b7280;margin-top:2px;">${escHtml(n.text)}</div>`;
+  const today = new Date().toLocaleDateString('sv-SE'), past = n.date < today;
+  const lbl = n.days != null ? `기준일 +${n.days}일` : '';
+  return `<span class="cnm-when" style="background:${past ? '#fee2e2' : '#e0f2fe'};color:${past ? '#b91c1c' : '#0369a1'};">${cnmMd(n.date)}(${cnmDow(n.date)})</span><div style="font-size:.7rem;color:#6b7280;margin-top:2px;">'${escHtml(n.text)}'${lbl ? ` · ${lbl}` : ''}${past ? ' · 날짜 지남' : ''}</div>`;
+}
+// 쇼핑몰 판매 상품명: 중국 사입/제작 관리의 카페24 연결(품번 글자 그대로, 공백·대소문자 무시)
+function cnmMallNames(sname) {
+  const d = cnState.data || {}, k = madeCnNormS(sname);
+  for (const [sn, list] of Object.entries(d.c24 || {})) if (madeCnNormS(sn) === k) return (list || []).map(x => x.product_name).filter(Boolean);
+  const known = [...(d.lines || []), ...(d.order_lines || [])].some(l => madeCnNormS(l.sname) === k);
+  return known ? [] : null;   // [] = 중국 사입에는 있는데 카페24 연결 없음, null = 중국 사입에도 없는 품번
+}
+function cnmPhoto(file, sname) {
+  const u = (file.thumbs || {})[sname];
+  if (u && /^data:image\/jpeg;base64,[A-Za-z0-9+/=]+$/.test(u)) return `<img src="${u}" alt="" data-g="${escHtml(sname)}" onclick="cnThumbZoom(this)" title="눌러서 크게 보기" style="width:56px;height:56px;object-fit:cover;border-radius:8px;cursor:zoom-in;display:block;" />`;
+  return cnThumbHtml(sname);
+}
+function cnMisongRender() {
+  const head = $('cn-misong-head'), body = $('cn-misong-body'); if (!head || !body) return;
+  if (!cnMisong.files && !cnMisong.loading && !cnMisong.err) { cnMisongLoad(false); }
+  const canEdit = cnMisong.canEdit || (cnState.data && cnState.data.can_edit);
+  const upBtn = canEdit ? `<label class="toggle-btn" style="cursor:pointer;background:#4f46e5;color:#fff;border-color:#4f46e5;"><i class="fa-solid fa-file-arrow-up"></i> 미송 엑셀 올리기<input type="file" accept=".xlsx,.xls" style="display:none;" onchange="cnMisongPick(this)" /></label>` : '';
+  if (cnMisong.loading && !cnMisong.files) { head.innerHTML = ''; body.innerHTML = '<div class="empty-state"><p><i class="fa-solid fa-spinner fa-spin"></i> 불러오는 중…</p></div>'; return; }
+  if (cnMisong.err) { head.innerHTML = upBtn; body.innerHTML = `<div class="empty-state"><p style="color:#b91c1c;">불러오지 못했어요 — ${escHtml(cnMisong.err)}</p></div>`; return; }
+  const files = cnMisong.files || [];
+  if (!files.length) { head.innerHTML = `<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">${upBtn}<span style="font-size:.8rem;color:#6b7280;">중국에서 받은 미송 엑셀을 올리면 품번별 미송 수량과 입고 날짜가 보여요. 단가·합계는 읽지 않아요.</span></div>`; body.innerHTML = '<div class="empty-state"><p>아직 올린 미송 엑셀이 없어요.</p></div>'; return; }
+  const vi = Math.min(cnMisong.view, files.length - 1), f = files[vi], base = f.base_date;
+  const up = f.uploaded_at ? new Date(f.uploaded_at) : null;
+  const upTxt = up ? `${up.toLocaleDateString('sv-SE')} ${String(up.getHours()).padStart(2, '0')}:${String(up.getMinutes()).padStart(2, '0')}` : '';
+  const items = (f.items || []).map(it => ({ it, sc: cnmSchedule(it, base) }));
+  const nOpt = items.reduce((t, x) => t + x.sc.rows.length, 0), nQty = items.reduce((t, x) => t + x.sc.rows.reduce((a, r) => a + r.qty, 0), 0);
+  const nSn = new Set(items.map(x => x.it.sname)).size;
+  // 날짜별 입고 일정 한눈에
+  const byDate = new Map(); let undated = 0, undatedQty = 0;
+  for (const { it, sc } of items) for (const r of sc.rows) {
+    const n = r.sched;
+    if (n && n.date) { const e = byDate.get(n.date) || { qty: 0, sn: new Set() }; e.qty += r.qty; e.sn.add(it.sname); byDate.set(n.date, e); }
+    else { undated++; undatedQty += r.qty; }
+  }
+  const dateChips = [...byDate].sort((a, b) => a[0].localeCompare(b[0])).map(([d, e]) => `<span class="cnm-chip"><span class="cnm-when" style="background:#e0f2fe;color:#0369a1;">${cnmMd(d)}(${cnmDow(d)})</span> 품번 <b>${e.sn.size}</b> · <b>${fmt(e.qty)}</b>장</span>`).join('')
+    + (undated ? `<span class="cnm-chip" title="일정이 '라벨 대기'처럼 날짜가 없거나, 품목별 날짜를 엑셀에서 정할 수 없는 항목"><span class="cnm-when" style="background:#f3f4f6;color:#6b7280;">날짜 미정·품목 구분 없음</span> 옵션 <b>${undated}</b> · <b>${fmt(undatedQty)}</b>장</span>` : '');
+  const checks = items.flatMap(x => (x.it.checks || []).map(c => `${x.it.sname}: ${c}`));
+  const tabs = files.map((x, i) => `<button class="toggle-btn${i === vi ? ' active' : ''}" style="${i === vi ? 'background:#4f46e5;color:#fff;border-color:#4f46e5;' : ''}" onclick="cnMisong.view=${i};cnMisongRender()">${i === 0 ? '최신' : '직전'} · ${x.base_date ? cnmMd(x.base_date) + ' 기준' : '기준일 없음'}</button>`).join('');
+  head.innerHTML = `<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px;">${tabs}<span style="margin-left:auto;display:flex;gap:6px;">${upBtn}<button class="toggle-btn" onclick="cnMisongLoad(true)"><i class="fa-solid fa-rotate"></i></button></span></div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:stretch;margin-bottom:10px;">
+      <div style="border:1.5px solid #c7d2fe;background:#eef2ff;border-radius:12px;padding:10px 14px;min-width:170px;"><div style="font-size:.72rem;color:#4338ca;font-weight:700;">미송 현황 기준일</div><div style="font-size:1.15rem;font-weight:900;color:#1e1b4b;">${base ? `${cnmMd(base)}(${cnmDow(base)}) 기준` : '기준일 모름'}</div><div style="font-size:.7rem;color:#6b7280;">엑셀 머리글 '${escHtml(f.base_label || '—')}'</div></div>
+      <div style="border:1.5px solid #e5e7eb;background:#fff;border-radius:12px;padding:10px 14px;min-width:170px;"><div style="font-size:.72rem;color:#6b7280;font-weight:700;">엑셀 업로드</div><div style="font-size:1rem;font-weight:800;color:#1e1b4b;">${escHtml(upTxt)}</div><div style="font-size:.7rem;color:#6b7280;">${escHtml(f.uploaded_by_name || '')} · ${escHtml(f.file_name || '')}</div></div>
+      <div style="border:1.5px solid #e5e7eb;background:#fff;border-radius:12px;padding:10px 14px;min-width:150px;"><div style="font-size:.72rem;color:#6b7280;font-weight:700;">미송 합계</div><div style="font-size:1.15rem;font-weight:900;color:#1e1b4b;">${fmt(nQty)}장</div><div style="font-size:.7rem;color:#6b7280;">품번 ${nSn}개 · 옵션 ${nOpt}개</div></div>
+    </div>
+    <div style="font-size:.78rem;font-weight:800;color:#1e1b4b;margin-bottom:5px;"><i class="fa-regular fa-calendar"></i> 물류공장 입고 일정 <span style="font-weight:500;color:#6b7280;">(기준일 + 엑셀 I열의 '내일'·'N일')</span></div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px;">${dateChips || '<span style="font-size:.78rem;color:#6b7280;">일정이 적힌 항목이 없어요</span>'}</div>
+    ${checks.length ? `<div style="border:1.5px solid #fde68a;background:#fffbeb;border-radius:10px;padding:8px 12px;font-size:.76rem;color:#92400e;margin-bottom:8px;"><b><i class="fa-solid fa-triangle-exclamation"></i> 엑셀에서 확인해 볼 줄</b><br>${checks.map(escHtml).join('<br>')}</div>` : ''}`;
+  let html = `<div class="table-wrap"><table class="cnm-tbl" style="width:100%;font-size:.8rem;"><thead><tr><th style="width:64px;">사진</th><th style="text-align:left;">품번 · 쇼핑몰 상품명</th><th style="text-align:left;">색상</th><th>사이즈</th><th>미송 수량</th><th style="text-align:left;">입고 예정</th></tr></thead><tbody>`;
+  for (const { it, sc } of items) {
+    if (!sc.rows.length) continue;   // 미송 줄이 없는 묶음(수량 칸이 빈 줄만)은 위 '확인해 볼 줄'에만
+    const rows = sc.rows;
+    const names = cnmMallNames(it.sname);
+    const nameHtml = names == null ? '<div style="font-size:.72rem;color:#9ca3af;margin-top:2px;">중국 사입/제작 관리에 없는 품번</div>'
+      : names.length ? names.map(n => `<div style="font-size:.74rem;color:#374151;margin-top:2px;"><i class="fa-solid fa-store" style="color:#9ca3af;font-size:.66rem;"></i> ${escHtml(n)}</div>`).join('') : '<div style="font-size:.72rem;color:#b45309;margin-top:2px;">카페24 미등록</div>';
+    const noteHtml = sc.notes.length ? `<div style="font-size:.7rem;color:#6b7280;margin-top:5px;border-top:1px dashed #e5e7eb;padding-top:4px;">중국 일정: ${sc.notes.map(n => `${escHtml(n.text)}${n.date ? ` → <b style="color:#0369a1;">${cnmMd(n.date)}(${cnmDow(n.date)})</b>` : ''}`).join(' · ')}</div>` : '';
+    const total = rows.reduce((t, r) => t + (r.qty || 0), 0);
+    rows.forEach((r, i) => {
+      html += `<tr>${i === 0 ? `<td class="cnm-prod" rowspan="${rows.length}" style="text-align:center;">${cnmPhoto(f, it.sname)}</td><td class="cnm-prod" rowspan="${rows.length}" style="text-align:left;min-width:180px;"><b style="font-size:.9rem;color:#1e1b4b;">${escHtml(it.sname)}</b> <span style="font-size:.72rem;color:#6b7280;">· ${fmt(total)}장</span>${nameHtml}${noteHtml}</td>` : ''}
+        <td class="${i === 0 ? 'cnm-prod' : ''}" style="text-align:left;">${escHtml(r.color || '—')}</td><td class="${i === 0 ? 'cnm-prod' : ''}" style="text-align:center;">${escHtml(r.size || '—')}</td>
+        <td class="${i === 0 ? 'cnm-prod' : ''}" style="text-align:right;"><b>${fmt(r.qty || 0)}</b></td>
+        <td class="${i === 0 ? 'cnm-prod' : ''}" style="text-align:left;">${r.sched ? cnmWhenHtml(r.sched, base) : sc.unresolved ? '<span style="font-size:.72rem;color:#92400e;" title="엑셀 일정이 품목을 나누지 않아(예: 900장 3일) 어느 옵션인지 정할 수 없어요 — 왼쪽 중국 일정을 보세요">품목 구분 없음 · 왼쪽 일정 참고</span>' : '<span style="color:#9ca3af;">일정 없음</span>'}</td></tr>`;
+    });
+  }
+  body.innerHTML = html + '</tbody></table></div>';
+  if (typeof cnThumbsApply === 'function') cnThumbsApply();
+}
+// 엑셀 읽기 — 단가(F)·합계(G)는 읽지 않는다
+function cnmParseGrid(grid) {
+  const txt = v => String(v == null ? '' : v).replace(/\s+/g, ' ').trim();
+  let hr = -1; const col = { name: 0, color: 2, size: 3, qty: 4, store: 7, note: 8 }; let baseLabel = '';
+  for (let r = 0; r < Math.min(grid.length, 12); r++) {
+    const cells = (grid[r] || []).map(txt);
+    if (cells.some(c => /^품번$|^款号$/.test(c)) && cells.some(c => /수량|数量/.test(c))) {
+      hr = r;
+      cells.forEach((c, i) => {
+        if (/^품번$|^款号$/.test(c)) col.name = i; else if (/색상|颜色/.test(c)) col.color = i; else if (/싸이즈|사이즈|码数|尺码/.test(c)) col.size = i;
+        else if (/^수량$|^数量$/.test(c)) col.qty = i; else if (/매장|档口/.test(c)) col.store = i;
+        else if (/\d{1,2}\s*[\/.월]\s*\d{1,2}.*기준/.test(c)) { col.note = i; baseLabel = c; }
+      });
+      break;
+    }
+  }
+  if (hr < 0) return { error: "머리글 줄(품번·수량)을 찾지 못했어요 — 미송 엑셀이 맞는지 확인해 주세요" };
+  let start = hr + 1;
+  if ((grid[start] || []).map(txt).some(c => /款号|数量/.test(c))) start++;
+  const blocks = [], rowNames = [];
+  let cur = null;
+  for (let r = start; r < grid.length; r++) {
+    const row = grid[r] || [], name = txt(row[col.name]);
+    if (name) { cur = { sname: name, store: txt(row[col.store]), first: txt(row[col.note]), lines: [] }; blocks.push(cur); }
+    if (!cur) continue;
+    rowNames[r] = cur.sname;
+    cur.lines.push({ color: txt(row[col.color]), size: txt(row[col.size]), qtyRaw: row[col.qty], note: txt(row[col.note]), first: !!name });
+  }
+  // 묶음 첫 줄의 I열(받는 곳 — 보통 '다나로브')은 일정이 아니다: 묶음 첫 줄에 가장 많이 나오는 글
+  const cnt = new Map(); blocks.forEach(b => { if (b.first) cnt.set(b.first, (cnt.get(b.first) || 0) + 1); });
+  const label = [...cnt].sort((a, b) => b[1] - a[1])[0];
+  const recv = label && label[1] >= Math.max(2, blocks.length / 2) ? label[0] : '';
+  const items = blocks.map(b => {
+    const rows = [], checks = [], notes = [];
+    for (const l of b.lines) {
+      const q = Number(String(l.qtyRaw).replace(/[^0-9.\-]/g, ''));
+      if (l.note && l.note !== recv) notes.push({ text: l.note });
+      if (!l.color && !l.size) continue;
+      if (Number.isInteger(q) && q > 0) rows.push({ color: l.color, size: l.size, qty: q });
+      else if (String(l.qtyRaw).trim() === '' && /^\d+$/.test(l.size)) checks.push(`${l.color || '(색상 없음)'} — 수량 칸이 비어 있고 사이즈 칸에 '${l.size}'가 적혀 있어요(미송에서 뺐어요)`);
+    }
+    return { sname: b.sname, store: b.store, rows, notes, checks };
+  }).filter(it => it.rows.length || it.checks.length);
+  return { items, rowNames, baseLabel, recv };
+}
+async function cnMisongPick(input) {
+  const file = input.files && input.files[0]; input.value = ''; if (!file) return;
+  try {
+    const XLSX = await loadSheetJS(), buf = await file.arrayBuffer();
+    const wb = XLSX.read(buf, { type: 'array' }), ws = wb.Sheets[wb.SheetNames[0]];
+    const ref = ws['!ref'] ? XLSX.utils.decode_range(ws['!ref']) : { s: { r: 0 } };
+    const grid0 = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '', blankrows: true });
+    const grid = Array(ref.s.r).fill([]).concat(grid0);   // 시트가 1행부터가 아니면 줄 번호를 맞춤(사진 위치와 같게)
+    const p = cnmParseGrid(grid);
+    if (p.error) { showToast(p.error); return; }
+    if (!p.items.length) { showToast('미송 수량이 적힌 줄이 없어요'); return; }
+    let thumbs = {}; try { thumbs = await cnExtractThumbs(buf, XLSX, p.rowNames); } catch (e) { thumbs = {}; }
+    const base = cnmBaseDate(p.baseLabel);
+    const nOpt = p.items.reduce((t, x) => t + x.rows.length, 0), nQty = p.items.reduce((t, x) => t + x.rows.reduce((a, r) => a + r.qty, 0), 0);
+    const nChk = p.items.reduce((t, x) => t + x.checks.length, 0);
+    const msg = `미송 엑셀을 올릴까요?\n\n· 기준일: ${base ? `${cnmMd(base)}(${cnmDow(base)})` : '못 찾음 — 올린 날로 볼게요'}${p.baseLabel ? ` ('${p.baseLabel}')` : ''}\n· 품번 묶음 ${p.items.length}개 · 옵션 ${nOpt}개 · 미송 ${fmt(nQty)}장\n· 상품 사진 ${Object.keys(thumbs).length}장${nChk ? `\n· 확인해 볼 줄 ${nChk}개(수량 칸이 빈 줄)` : ''}\n\n단가·합계는 읽지 않아요. 올리면 직전 파일만 남기고 그 전 파일은 지워요.`;
+    if (!confirm(msg)) return;
+    const r = await cnPost('cn_misong_upload', { file_name: file.name.normalize('NFC'), base_date: base || new Date().toLocaleDateString('sv-SE'), base_label: p.baseLabel || null, items: p.items, thumbs });
+    showToast(`미송 엑셀을 올렸어요 — 품번 묶음 ${r.items}개`);
+    if (Object.keys(thumbs).length) Object.assign(cnState.thumbs = cnState.thumbs || {}, thumbs);
+    cnMisong.view = 0; await cnMisongLoad(true);
+  } catch (e) { showToast('미송 엑셀을 읽지 못했어요: ' + e.message); }
+}
 async function cnPendCmpPick(input) {
   const file = input.files[0]; input.value = ''; if (!file) return;
   try {

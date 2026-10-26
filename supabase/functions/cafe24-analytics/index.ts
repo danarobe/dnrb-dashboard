@@ -2169,7 +2169,7 @@ Deno.serve(async (req) => {
     //   cn_vendor POST — 사입상품명별 거래처명 수동 입력 (관리자·MD, 2026-10-01 — 입고 건 단위가 아니라 상품마다)
     //   cn_thumbs POST {get:[사입상품명…]} — 그 상품들의 작은 사진(전원, 한 번에 200개 — 화면에 보이는 것만 받게)
     //             POST {thumbs:{사입상품명:dataURL}} — 사진 저장(관리자·MD, 상품당 1장 — 같은 이름은 덮어씀). 목록과 따로 불러 표를 늦추지 않는다 (2026-10-02)
-    if (action === "cn_list" || action === "cn_upload" || action === "cn_check" || action === "cn_ship" || action === "cn_vendor" || action === "cn_line" || action === "cn_fabric" || action === "cn_label" || action === "cn_c24find" || action === "cn_c24set" || action === "cn_export" || action === "cn_thumbs" || action === "cn_order_upload" || action === "cn_order" || action === "cn_inactive" || action === "cn_manual_ship" || action === "cn_fx_buy_add" || action === "cn_fx_buy_del" || action === "cn_remit_save" || action === "cn_remit_del" || action === "cn_doc_save" || action === "cn_discard" || action === "cn_discard_del" || action === "cn_gap" || action === "cn_cellmap") {
+    if (action === "cn_list" || action === "cn_upload" || action === "cn_check" || action === "cn_ship" || action === "cn_vendor" || action === "cn_line" || action === "cn_fabric" || action === "cn_label" || action === "cn_c24find" || action === "cn_c24set" || action === "cn_export" || action === "cn_thumbs" || action === "cn_order_upload" || action === "cn_order" || action === "cn_inactive" || action === "cn_manual_ship" || action === "cn_fx_buy_add" || action === "cn_fx_buy_del" || action === "cn_remit_save" || action === "cn_remit_del" || action === "cn_doc_save" || action === "cn_discard" || action === "cn_discard_del" || action === "cn_gap" || action === "cn_cellmap" || action === "cn_misong_list" || action === "cn_misong_upload") {
       // 관리자 + MD + 물류팀. **CS팀은 볼 필요 없음(2026-10-02 사용자 지정)** — 서버 역할은 logistics→cs로 합쳐져 있어 원래 역할을 다시 본다(soldoutRoleOk와 같은 방식)
       if (!(authed.role === "staff" || await soldoutRoleOk(authed))) return json({ error: "접근 권한이 없습니다" }, 403);
       const canPrice = authed.role === "admin";   // 단가·비용 = **관리자만** (2026-10-02 사용자 지정 — MD도 안 보이게. 물류팀은 원래 수량만)
@@ -2258,6 +2258,11 @@ Deno.serve(async (req) => {
           fx = cnFxModel(ships, lines, buys, remits);
         }
         return json({ ships: outShips, lines: outLines, orders: orders ?? [], order_lines: orderLines ?? [], discards: discards ?? [], prods, c24, c24_warn, c24_error, can_price: canPrice, can_edit: canEdit, fx });
+      }
+      // ── 미송 확인(2026-10-26 사용자 요청) — 중국에서 받은 미송 엑셀(화면이 읽어 단가·합계를 뺀 묶음만 보냄). 최근 2개(지금 + 직전)만 보관
+      if (action === "cn_misong_list") {
+        const rows = ((await sbRest("cn_misong?select=id,file_name,base_date,base_label,items,thumbs,uploaded_by_name,uploaded_at&order=id.desc&limit=2")) ?? []) as Record<string, any>[];
+        return json({ files: rows, can_edit: canEdit });
       }
       if (req.method !== "POST") return json({ error: "POST로 호출해주세요" }, 405);
       const b = await req.json().catch(() => ({})) as Record<string, any>;
@@ -2412,6 +2417,40 @@ Deno.serve(async (req) => {
           for (const r of rows) thumbs[String(r.sname)] = String(r.img);
         }
         return json({ thumbs, asked: names.length });
+      }
+      if (action === "cn_misong_upload") {
+        if (!canEdit) return json({ error: "미송 엑셀 올리기는 관리자·MD만 할 수 있어요" }, 403);
+        const rawItems = Array.isArray(b.items) ? b.items : null;
+        if (!rawItems || !rawItems.length || rawItems.length > 300) return json({ error: "미송 항목이 없거나 너무 많아요(300묶음까지)" }, 400);
+        const qtyOk = (v: unknown) => Number.isInteger(Number(v)) && Number(v) > 0 && Number(v) <= 1000000;
+        const items: Record<string, unknown>[] = [];
+        for (const it of rawItems as Record<string, any>[]) {
+          const sname = txt(it?.sname, 100);
+          if (!sname) return json({ error: "품번이 빈 묶음이 있어요" }, 400);
+          const rows = (Array.isArray(it.rows) ? it.rows : []).slice(0, 60) as Record<string, any>[];
+          if (rows.some((r) => !qtyOk(r?.qty))) return json({ error: `${sname}: 수량은 1 이상 정수여야 해요` }, 400);
+          items.push({
+            sname, store: txt(it.store, 60),
+            rows: rows.map((r) => ({ color: txt(r.color, 60), size: txt(r.size, 30), qty: Number(r.qty) })),
+            notes: (Array.isArray(it.notes) ? it.notes : []).slice(0, 10).map((n: any) => ({ text: txt(n?.text, 200) })).filter((n: any) => n.text),
+            checks: (Array.isArray(it.checks) ? it.checks : []).slice(0, 5).map((c: unknown) => txt(c, 200)).filter(Boolean),
+          });
+        }
+        const thumbs: Record<string, string> = {};
+        if (b.thumbs && typeof b.thumbs === "object" && !Array.isArray(b.thumbs)) {
+          for (const [k, v] of Object.entries(b.thumbs as Record<string, unknown>).slice(0, 300)) {
+            const key = txt(k, 100);
+            if (key && typeof v === "string" && v.length <= 30000 && /^data:image\/jpeg;base64,[A-Za-z0-9+/=]+$/.test(v)) thumbs[key] = v;
+          }
+        }
+        const row = { file_name: txt(b.file_name, 200), base_date: dateOrNull(b.base_date), base_label: txt(b.base_label, 30), items, thumbs: Object.keys(thumbs).length ? thumbs : null, uploaded_by: authed.id, uploaded_by_name: authed.name };
+        if (JSON.stringify(row).length > 3_000_000) return json({ error: "파일이 너무 커요" }, 400);
+        const [saved] = ((await sbRest("cn_misong", { method: "POST", headers: { Prefer: "return=representation" }, body: JSON.stringify(row) })) ?? []) as Record<string, any>[];
+        // 최근 2개(지금 + 직전)만 남기고 그 전 파일은 지운다(사용자 지정)
+        const keep = ((await sbRest("cn_misong?select=id&order=id.desc&limit=2")) ?? []) as Record<string, any>[];
+        if (keep.length === 2) await sbRest(`cn_misong?id=lt.${Number(keep[1].id)}`, { method: "DELETE", headers: { Prefer: "return=minimal" } });
+        if (Object.keys(thumbs).length) { try { await saveThumbs(thumbs, true); } catch { /* 다른 탭 사진은 없어도 됨 */ } }
+        return json({ ok: true, id: saved?.id ?? null, items: items.length });
       }
       if (action === "cn_thumbs") {
         if (!canEdit) return json({ error: "사진 넣기는 관리자·MD만 할 수 있어요" }, 403);
