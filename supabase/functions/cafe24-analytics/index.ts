@@ -2170,7 +2170,7 @@ Deno.serve(async (req) => {
     //   cn_vendor POST — 사입상품명별 거래처명 수동 입력 (관리자·MD, 2026-10-01 — 입고 건 단위가 아니라 상품마다)
     //   cn_thumbs POST {get:[사입상품명…]} — 그 상품들의 작은 사진(전원, 한 번에 200개 — 화면에 보이는 것만 받게)
     //             POST {thumbs:{사입상품명:dataURL}} — 사진 저장(관리자·MD, 상품당 1장 — 같은 이름은 덮어씀). 목록과 따로 불러 표를 늦추지 않는다 (2026-10-02)
-    if (action === "cn_list" || action === "cn_upload" || action === "cn_check" || action === "cn_ship" || action === "cn_vendor" || action === "cn_line" || action === "cn_fabric" || action === "cn_label" || action === "cn_c24find" || action === "cn_c24set" || action === "cn_export" || action === "cn_thumbs" || action === "cn_order_upload" || action === "cn_order" || action === "cn_inactive" || action === "cn_manual_ship" || action === "cn_fx_buy_add" || action === "cn_fx_buy_del" || action === "cn_remit_save" || action === "cn_remit_del" || action === "cn_doc_save" || action === "cn_discard" || action === "cn_discard_del" || action === "cn_gap" || action === "cn_cellmap" || action === "cn_misong_list" || action === "cn_misong_upload" || action === "cn_misong_set") {
+    if (action === "cn_list" || action === "cn_upload" || action === "cn_check" || action === "cn_ship" || action === "cn_vendor" || action === "cn_line" || action === "cn_fabric" || action === "cn_label" || action === "cn_c24find" || action === "cn_c24set" || action === "cn_export" || action === "cn_thumbs" || action === "cn_order_upload" || action === "cn_order" || action === "cn_inactive" || action === "cn_manual_ship" || action === "cn_fx_buy_add" || action === "cn_fx_buy_del" || action === "cn_remit_save" || action === "cn_remit_del" || action === "cn_doc_save" || action === "cn_discard" || action === "cn_discard_del" || action === "cn_defect" || action === "cn_defect_del" || action === "cn_gap" || action === "cn_cellmap" || action === "cn_misong_list" || action === "cn_misong_upload" || action === "cn_misong_set") {
       // 관리자 + MD + 물류팀. **CS팀은 볼 필요 없음(2026-10-02 사용자 지정)** — 서버 역할은 logistics→cs로 합쳐져 있어 원래 역할을 다시 본다(soldoutRoleOk와 같은 방식)
       // 미송 확인 목록만 CS팀에도 열림(2026-10-26 사용자 요청 — "미송 확인은 물류팀과 CS팀도") — 그 밖의 중국 사입 자료는 그대로 CS 제외
       // 물류팀도 서버 역할은 cs라 원래 역할을 다시 읽는다(soldoutRoleOk) — 진짜 CS팀만 '보기 전용'
@@ -2230,14 +2230,15 @@ Deno.serve(async (req) => {
         return json({ products, generated_at: new Date().toISOString() });
       }
       if (action === "cn_list") {
-        const [ships, lines, orders, orderLines, prodRows, discards] = await Promise.all([
+        const [ships, lines, orders, orderLines, prodRows, discards, defects] = await Promise.all([
           sbRest("cn_shipments?select=*&order=id.desc&limit=500"),
           sbRest("cn_lines?select=*&order=shipment_id.desc,seq.asc&limit=20000"),
           sbRest("cn_orders?select=*&order=id.desc&limit=300"),                                   // 주문서(2026-10-19 다시) — 단가가 없어 역할과 관계없이 그대로
           sbRest("cn_order_lines?select=*&order=order_id.desc,seq.asc&limit=30000"),
           sbRest("cn_products?select=sname,vendor,updated_by_name,updated_at,line,line_by_name,line_at,fabric,fabric_by_name,fabric_at,label,label_by_name,label_at,outer_label,outer_label_by_name,outer_label_at,c24_nos,c24_by_name,c24_at,inactive,inactive_by_name,inactive_at,cell_map&limit=5000"),
           sbRest("cn_discards?select=id,sname,color,size,qty,note,created_by_name,created_at&order=created_at.asc&limit=20000"),   // 폐기(2026-10-23) — 잔여 = 주문 − 중국출고 − 폐기
-        ]) as [Record<string, any>[], Record<string, any>[], Record<string, any>[], Record<string, any>[], Record<string, any>[], Record<string, any>[]];
+          sbRest("cn_defects?select=id,sname,color,size,shipment_id,qty,found_on,note,created_by_name,created_at&order=found_on.desc,id.desc&limit=20000"),   // 불량 기록(2026-10-26)
+        ]) as [Record<string, any>[], Record<string, any>[], Record<string, any>[], Record<string, any>[], Record<string, any>[], Record<string, any>[], Record<string, any>[]];
         const prods: Record<string, unknown> = {};
         for (const r of prodRows) prods[String(r.sname)] = { vendor: r.vendor ?? null, by: r.updated_by_name ?? null, at: r.updated_at ?? null, line: r.line ?? null, line_by: r.line_by_name ?? null, line_at: r.line_at ?? null, fabric: r.fabric ?? null, fabric_by: r.fabric_by_name ?? null, fabric_at: r.fabric_at ?? null, label: r.label === true, label_by: r.label_by_name ?? null, label_at: r.label_at ?? null, outer: r.outer_label === true, outer_by: r.outer_label_by_name ?? null, outer_at: r.outer_label_at ?? null, c24_nos: Array.isArray(r.c24_nos) ? r.c24_nos : null, c24_by: r.c24_by_name ?? null, c24_at: r.c24_at ?? null, inactive: r.inactive === true, inactive_by: r.inactive_by_name ?? null, inactive_at: r.inactive_at ?? null, cell_map: r.cell_map && typeof r.cell_map === "object" ? r.cell_map : null };
         const outLines = canPrice ? lines : lines.map((l) => { const { unit_price: _u, ...rest } = l; return rest; });
@@ -2261,7 +2262,7 @@ Deno.serve(async (req) => {
           const [buys, remits] = await Promise.all([sbRest("cn_fx_buys?select=*&limit=5000"), sbRest("cn_remits?select=*&limit=5000")]) as [Record<string, any>[], Record<string, any>[]];
           fx = cnFxModel(ships, lines, buys, remits);
         }
-        return json({ ships: outShips, lines: outLines, orders: orders ?? [], order_lines: orderLines ?? [], discards: discards ?? [], prods, c24, c24_warn, c24_error, can_price: canPrice, can_edit: canEdit, fx });
+        return json({ ships: outShips, lines: outLines, orders: orders ?? [], order_lines: orderLines ?? [], discards: discards ?? [], defects: defects ?? [], prods, c24, c24_warn, c24_error, can_price: canPrice, can_edit: canEdit, fx });
       }
       // ── 미송 확인(2026-10-26 사용자 요청) — 중국에서 받은 미송 엑셀(화면이 읽어 단가·합계를 뺀 묶음만 보냄). 최근 2개(지금 + 직전)만 보관
       if (action === "cn_misong_list") {
@@ -2561,6 +2562,33 @@ Deno.serve(async (req) => {
       // ── 폐기(2026-10-23 사용자 요청 — "주문 수량과 실제 출고 수량이 차이 나는 품목(원단 사정 등)은 나머지를 폐기로 없애, 덜 들어온 것처럼 보이지 않게") ──
       //   cn_discard {sname, color, size, qty, note} — 그 옵션(품번·색상·사이즈 글자 그대로)의 잔여 중 qty장을 더 받지 않기로. 관리자·MD만(물류팀은 보기만).
       //   cn_discard_del {id} — 되돌리기(기록을 지우면 잔여로 돌아온다). 잔여 = 주문(모든 주문서 합) − 중국출고(모든 입고 합) − 폐기 합.
+      // ── 불량 기록(2026-10-26 사용자 요청 — "옵션별 불량 수량을 체크해 검수 완료 수량 기준 불량률") ──
+      //   cn_defect {sname, color, size, shipment_id?, qty(1~100000), found_on?(YYYY-MM-DD, 기본 오늘), note} — 한 줄 추가
+      //   cn_defect_del {id} — 지움. 둘 다 관리자·MD·물류팀(CS팀은 위 문지기에서 403).
+      if (action === "cn_defect" || action === "cn_defect_del") {
+        if (!canEdit && !(await soldoutRoleOk(authed))) return json({ error: "불량 기록은 관리자·MD·물류팀만 할 수 있어요" }, 403);
+        if (action === "cn_defect_del") {
+          const id = Number(b.id); if (!Number.isInteger(id) || id < 1) return json({ error: "id가 올바르지 않아요" }, 400);
+          const gone = ((await sbRest(`cn_defects?id=eq.${id}`, { method: "DELETE" })) ?? []) as unknown[];
+          if (!gone.length) return json({ error: "이미 지워진 불량 기록이에요 — 새로고침해 주세요" }, 404);
+          return json({ ok: true, id });
+        }
+        const sname = txt(b.sname, 100), qn = Number(b.qty);
+        if (!sname) return json({ error: "사입상품명이 없어요" }, 400);
+        if (!Number.isInteger(qn) || qn < 1 || qn > 100_000) return json({ error: "불량 수량은 1 이상의 정수로 적어 주세요" }, 400);
+        const found = b.found_on == null || b.found_on === "" ? new Date(Date.now() + 9 * 3600e3).toISOString().slice(0, 10) : dateOrNull(b.found_on);
+        if (!found) return json({ error: "발견일 형식이 올바르지 않아요" }, 400);
+        let shipId: number | null = null;
+        if (b.shipment_id != null && b.shipment_id !== "") {
+          shipId = Number(b.shipment_id);
+          if (!Number.isInteger(shipId) || shipId < 1) return json({ error: "입고 번호가 올바르지 않아요" }, 400);
+          const [sh] = ((await sbRest(`cn_shipments?id=eq.${shipId}&select=id`)) ?? []) as unknown[];
+          if (!sh) return json({ error: "없는 입고예요 — 새로고침해 주세요" }, 404);
+        }
+        if (!(await snameKnown(sname)).length) return json({ error: "입고 내역·주문서에 없는 사입상품명이에요 — 새로고침한 뒤 다시 시도해주세요" }, 404);
+        const [row] = await sbRest("cn_defects", { method: "POST", body: JSON.stringify({ sname, color: txt(b.color, 60), size: txt(b.size, 40), shipment_id: shipId, qty: qn, found_on: found, note: txt(b.note, 200), created_by: authed.id, created_by_name: authed.name }) }) as Record<string, any>[];
+        return json({ ok: true, defect: { id: row.id, sname: row.sname, color: row.color, size: row.size, shipment_id: row.shipment_id, qty: row.qty, found_on: row.found_on, note: row.note, created_by_name: row.created_by_name, created_at: row.created_at } });
+      }
       if (action === "cn_discard" || action === "cn_discard_del") {
         // 폐기·초과 인정·되돌리기 = 관리자·MD·물류팀(2026-10-26 사용자 요청 — 물류팀에도). CS팀은 위 문지기에서 이미 403
         if (!canEdit && !(await soldoutRoleOk(authed))) return json({ error: "폐기는 관리자·MD·물류팀만 할 수 있어요" }, 403);
