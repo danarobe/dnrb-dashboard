@@ -2171,7 +2171,9 @@ Deno.serve(async (req) => {
     //             POST {thumbs:{사입상품명:dataURL}} — 사진 저장(관리자·MD, 상품당 1장 — 같은 이름은 덮어씀). 목록과 따로 불러 표를 늦추지 않는다 (2026-10-02)
     if (action === "cn_list" || action === "cn_upload" || action === "cn_check" || action === "cn_ship" || action === "cn_vendor" || action === "cn_line" || action === "cn_fabric" || action === "cn_label" || action === "cn_c24find" || action === "cn_c24set" || action === "cn_export" || action === "cn_thumbs" || action === "cn_order_upload" || action === "cn_order" || action === "cn_inactive" || action === "cn_manual_ship" || action === "cn_fx_buy_add" || action === "cn_fx_buy_del" || action === "cn_remit_save" || action === "cn_remit_del" || action === "cn_doc_save" || action === "cn_discard" || action === "cn_discard_del" || action === "cn_gap" || action === "cn_cellmap" || action === "cn_misong_list" || action === "cn_misong_upload") {
       // 관리자 + MD + 물류팀. **CS팀은 볼 필요 없음(2026-10-02 사용자 지정)** — 서버 역할은 logistics→cs로 합쳐져 있어 원래 역할을 다시 본다(soldoutRoleOk와 같은 방식)
-      if (!(authed.role === "staff" || await soldoutRoleOk(authed))) return json({ error: "접근 권한이 없습니다" }, 403);
+      // 미송 확인 목록만 CS팀에도 열림(2026-10-26 사용자 요청 — "미송 확인은 물류팀과 CS팀도") — 그 밖의 중국 사입 자료는 그대로 CS 제외
+      const misongOnly = action === "cn_misong_list" && authed.role === "cs";
+      if (!misongOnly && !(authed.role === "staff" || await soldoutRoleOk(authed))) return json({ error: "접근 권한이 없습니다" }, 403);
       const canPrice = authed.role === "admin";   // 단가·비용 = **관리자만** (2026-10-02 사용자 지정 — MD도 안 보이게. 물류팀은 원래 수량만)
       const canEdit = authed.role !== "cs";       // 엑셀 올리기·입고 건 수정·삭제·사진 넣기 = 관리자 + MD (MD는 올릴 수는 있지만 단가·비용은 응답에서 빠진다)
       const hideCosts = <T extends Record<string, any>>(x: T): T => { if (canPrice) return x; const { costs: _c, doc: _d, ...rest } = x; return rest as T; };   // 출고 서류 합계(doc, 위안)도 관리자만(2026-10-22)
@@ -2433,8 +2435,10 @@ Deno.serve(async (req) => {
           if (!sname) return json({ error: "품번이 빈 묶음이 있어요" }, 400);
           const rows = (Array.isArray(it.rows) ? it.rows : []).slice(0, 60) as Record<string, any>[];
           if (rows.some((r) => !qtyOk(r?.qty))) return json({ error: `${sname}: 수량은 1 이상 정수여야 해요` }, 400);
+          // 쇼핑몰 판매 상품명은 올릴 때 화면이 카페24 연결에서 찾아 같이 보냄(CS팀은 중국 사입 자료를 못 읽어서) — null = 중국 사입에 없는 품번, [] = 카페24 미등록
+          const mall = it.mall === null || it.mall === undefined ? null : (Array.isArray(it.mall) ? it.mall.slice(0, 5).map((m: unknown) => txt(m, 200)).filter(Boolean) : null);
           items.push({
-            sname, store: txt(it.store, 60),
+            sname, store: txt(it.store, 60), mall,
             rows: rows.map((r) => ({ color: txt(r.color, 60), size: txt(r.size, 30), qty: Number(r.qty) })),
             notes: (Array.isArray(it.notes) ? it.notes : []).slice(0, 10).map((n: any) => ({ text: txt(n?.text, 200) })).filter((n: any) => n.text),
             checks: (Array.isArray(it.checks) ? it.checks : []).slice(0, 5).map((c: unknown) => txt(c, 200)).filter(Boolean),

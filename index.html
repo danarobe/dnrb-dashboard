@@ -1525,7 +1525,7 @@
           <input type="file" accept=".xlsx,.xls" style="display:none;" onchange="cnFilePick(this)" /></label>
         <label class="toggle-btn" id="cn-order-btn" style="cursor:pointer;display:none;" title="주문서 엑셀(품번·색상·사이즈·수량)을 올리면 표의 '주문'·'잔여' 칸에 들어가요"><i class="fa-solid fa-file-signature"></i> 주문서 올리기
           <input type="file" accept=".xlsx,.xls" style="display:none;" onchange="cnOrderPick(this)" /></label>
-        <button class="toggle-btn" onclick="cnLoad(true)"><i class="fa-solid fa-rotate"></i> 새로고침</button>
+        <button class="toggle-btn" onclick="cnCsOnly() ? cnMisongLoad(true) : cnLoad(true)"><i class="fa-solid fa-rotate"></i> 새로고침</button>
       </div>
     </div>
     <div class="section-body">
@@ -3590,7 +3590,8 @@ const admgrLegacyAllowed = () => !!SESSION && ADMGR_LEGACY_USERS.includes(SESSIO
 // 품절 재고 점검(#soldout) — 셀메이트 품절분류를 바꾸는 기능. 처음엔 대표 계정만 → 2026-09-29 사용자 요청으로 관리자 전원 + 물류팀(CS팀 제외).
 //   서버(c24var_check·paiditems·soldout_fix_log)도 같은 기준(물류팀은 원래 역할 logistics로 확인). 각 PC 엣지에 셀메이트 연결 스크립트가 있어야 동작.
 const soldoutAllowed = () => !!SESSION && (isAdmin() || SESSION.role === 'logistics');
-const cnAllowed = () => !!SESSION && (isAdmin() || isStaff() || SESSION.role === 'logistics');   // 중국 사입 관리 = 관리자 + MD + 물류팀 (CS팀 제외 — 2026-10-02 사용자 지정)
+const cnCsOnly = () => !!SESSION && SESSION.role === 'cs';   // CS팀 = '미송 확인' 탭만(2026-10-26 사용자 요청) — 그 밖의 중국 사입 자료는 서버도 403
+const cnAllowed = () => !!SESSION && (isAdmin() || isStaff() || SESSION.role === 'logistics' || cnCsOnly());   // 중국 사입 관리 = 관리자 + MD + 물류팀 (CS팀은 2026-10-02 사용자 지정으로 제외 → 2026-10-26부터 미송 확인만)
 function logout() {
   localStorage.removeItem(AUTH_KEY);
   try { localStorage.removeItem(NP_PW_KEY); } catch {}   // 네이버 엑셀 문서 암호는 공용 PC를 위해 로그아웃 때 지운다 (보안 점검 2026-09-22)
@@ -5575,16 +5576,17 @@ const unshipOverdue = (m, today) => !!(m && m.arrival_date && String(m.arrival_d
    서버 cafe24-analytics cn_list / cn_upload / cn_check / cn_ship. 단가·비용은 관리자만(2026-10-02 — 서버가 MD·물류팀 응답에서 뺀다). CS팀은 메뉴 자체가 없음. 엑셀 올리기·입고 건 수정·삭제도 관리자·MD. */
 const CN_TABS_FX = ['fx', '원>달러>위안 환전', null, 'fa-solid fa-money-bill-transfer'];   // 2026-10-22 — 관리자만(can_price)
 const CN_TABS = [['check', '입고 검수', null, 'fa-solid fa-clipboard-check'], ['prod', '상품별 현황', null, 'fa-solid fa-layer-group'], ['pend', '미송 점검', null, 'fa-solid fa-hourglass-half'], ['misong', '미송 확인', null, 'fa-solid fa-truck-ramp-box'], ['order', '주문서', null, 'fa-solid fa-file-signature'], ['buy', '주문하기', null, 'fa-solid fa-cart-plus'], ['cost', '입고 비용', null, 'fa-solid fa-coins']];   // 주문하기 = 2026-10-20 사용자 요청(수량을 적으면 주문서 양식 엑셀로)   // 주문서 탭 = 2026-10-19 사용자 요청('전체' 보기 아래에 늘어서던 주문서 목록을 따로)
-const cnTabs = () => [...CN_TABS, CN_TABS_FX].filter(t => (t[0] !== 'cost' || !cnState.data || cnState.data.can_price) && (t[0] !== 'fx' || (cnState.data && cnState.data.can_price)) && (t[0] !== 'buy' || !cnState.data || cnState.data.can_edit) && (t[0] !== 'order' || !cnState.data || cnState.data.can_edit));   // 물류팀 = 입고 검수·상품별 현황만(2026-10-22 — 주문서·주문하기·입고 비용·환전 숨김)   // 입고 비용 = 관리자만, 주문하기 = 관리자·MD
+const cnTabs = () => cnCsOnly() ? CN_TABS.filter(t => t[0] === 'misong') : [...CN_TABS, CN_TABS_FX].filter(t => (t[0] !== 'cost' || !cnState.data || cnState.data.can_price) && (t[0] !== 'fx' || (cnState.data && cnState.data.can_price)) && (t[0] !== 'buy' || !cnState.data || cnState.data.can_edit) && (t[0] !== 'order' || !cnState.data || cnState.data.can_edit));   // 물류팀 = 입고 검수·상품별 현황만(2026-10-22 — 주문서·주문하기·입고 비용·환전 숨김)   // 입고 비용 = 관리자만, 주문하기 = 관리자·MD
 const cnState = { data: null, loading: false, tab: 'check', shipId: 'all', costShipId: null, filter: 'all', prodFilter: 'all', pendFilter: 'pend', pendCmp: null, lineFilter: 'all', pending: null, sales: null, salesLoading: false, open: { check: new Set(), prod: new Set() }, thumbs: {}, thumbAsked: new Set(), thumbWant: [], thumbT: null, thumbScroll: false };
 function cnTabRender() { const k = cnState.tab; if (k === 'misong') cnMisongRender(); else if (k === 'pend') cnPendRender(); else if (k === 'check') cnCheckRender(); else if (k === 'cost') cnCostRender(); else if (k === 'fx') cnFxRender(); else if (k === 'order') cnOrderTabRender(); else if (k === 'buy') cnBuyRender(); else { cnProdRender(); cnSalesLoad(); } }
-function cnInit() { cnSetTab(cnState.tab); if (!cnState.data && !cnState.loading) cnLoad(false); }
+function cnInit() { cnSetTab(cnState.tab); if (!cnCsOnly() && !cnState.data && !cnState.loading) cnLoad(false); }
 function cnSetTab(k) {
   if (((k === 'cost' || k === 'fx') && cnState.data && !cnState.data.can_price) || ((k === 'buy' || k === 'order') && cnState.data && !cnState.data.can_edit) || ![...CN_TABS, CN_TABS_FX].some(t => t[0] === k)) k = 'check';   // 없어진 탭(미출고 잔여 — 2026-10-14)이면 입고 검수로
+  if (cnCsOnly()) k = 'misong';
   cnState.tab = k; uiTabs('cn-tabs', cnTabs(), k, 'cnSetTab');
   document.querySelectorAll('.cn-pane').forEach(el => { el.style.display = 'none'; });
   $('cn-pane-' + k).style.display = 'block';
-  if (cnState.data) cnTabRender();
+  if (cnState.data || k === 'misong') cnTabRender();   // 미송 확인은 중국 사입 자료 없이도 그림(CS팀)
 }
 async function cnLoad(force) {
   if (cnState.loading) return;
@@ -7498,7 +7500,7 @@ function cnmMallNames(sname) {
 function cnmPhoto(file, sname) {
   const u = (file.thumbs || {})[sname];
   if (u && /^data:image\/jpeg;base64,[A-Za-z0-9+/=]+$/.test(u)) return `<img src="${u}" alt="" data-g="${escHtml(sname)}" onclick="cnThumbZoom(this)" title="눌러서 크게 보기" style="width:56px;height:56px;object-fit:cover;border-radius:8px;cursor:zoom-in;display:block;" />`;
-  return cnThumbHtml(sname);
+  return cnCsOnly() ? '<span style="display:inline-block;width:56px;height:56px;border-radius:8px;background:#f3f4f6;"></span>' : cnThumbHtml(sname);
 }
 function cnMisongRender() {
   const head = $('cn-misong-head'), body = $('cn-misong-body'); if (!head || !body) return;
@@ -7539,8 +7541,8 @@ function cnMisongRender() {
   for (const { it, sc } of items) {
     if (!sc.rows.length) continue;   // 미송 줄이 없는 묶음(수량 칸이 빈 줄만)은 위 '확인해 볼 줄'에만
     const rows = sc.rows;
-    const names = cnmMallNames(it.sname);
-    const nameHtml = names == null ? '<div style="font-size:.72rem;color:#9ca3af;margin-top:2px;">중국 사입/제작 관리에 없는 품번</div>'
+    const names = Object.prototype.hasOwnProperty.call(it, 'mall') ? it.mall : cnState.data ? cnmMallNames(it.sname) : undefined;
+    const nameHtml = names === undefined ? '' : names === null ? '<div style="font-size:.72rem;color:#9ca3af;margin-top:2px;">중국 사입/제작 관리에 없는 품번</div>'
       : names.length ? names.map(n => `<div style="font-size:.74rem;color:#374151;margin-top:2px;"><i class="fa-solid fa-store" style="color:#9ca3af;font-size:.66rem;"></i> ${escHtml(n)}</div>`).join('') : '<div style="font-size:.72rem;color:#b45309;margin-top:2px;">카페24 미등록</div>';
     const noteHtml = sc.notes.length ? `<div style="font-size:.7rem;color:#6b7280;margin-top:5px;border-top:1px dashed #e5e7eb;padding-top:4px;">중국 일정: ${sc.notes.map(n => { const k = n.date ? cnmKrArrive(n.date) : null; return `${escHtml(n.text)}${n.date ? ` → <b style="color:#0369a1;">${cnmMd(n.date)}(${cnmDow(n.date)})</b> · 한국 <b style="color:#047857;">${cnmMd(k.date)}(${cnmDow(k.date)})</b>` : ''}`; }).join(' · ')}</div>` : '';
     const total = rows.reduce((t, r) => t + (r.qty || 0), 0);
@@ -7553,7 +7555,7 @@ function cnMisongRender() {
     });
   }
   body.innerHTML = html + '</tbody></table></div>';
-  if (typeof cnThumbsApply === 'function') cnThumbsApply();
+  if (!cnCsOnly() && typeof cnThumbsApply === 'function') cnThumbsApply();
 }
 // 엑셀 읽기 — 단가(F)·합계(G)는 읽지 않는다
 function cnmParseGrid(grid) {
@@ -7621,6 +7623,11 @@ async function cnMisongPick(input) {
     if (p.error) { showToast(p.error); return; }
     if (!p.items.length) { showToast('미송 수량이 적힌 줄이 없어요'); return; }
     let thumbs = {}; try { thumbs = await cnExtractThumbs(buf, XLSX, p.rowNames); } catch (e) { thumbs = {}; }
+    // CS팀도 볼 수 있게 쇼핑몰 상품명·사진을 파일에 같이 저장(2026-10-26) — 중국 사입 자료(카페24 연결·저장된 사진)에서
+    if (!cnState.data) await cnLoad(false);
+    if (cnState.data) for (const it of p.items) it.mall = cnmMallNames(it.sname);
+    const noPic = [...new Set(p.items.map(it => it.sname))].filter(n => !thumbs[n]);
+    if (noPic.length) { try { const r0 = await cnPost('cn_thumbs', { get: noPic }); for (const [k, v] of Object.entries(r0.thumbs || {})) if (!thumbs[k] && /^data:image\/jpeg;base64,/.test(v)) thumbs[k] = v; } catch (e) { /* 사진 없이도 올림 */ } }
     const base = cnmBaseDate(p.baseLabel);
     const nOpt = p.items.reduce((t, x) => t + x.rows.length, 0), nQty = p.items.reduce((t, x) => t + x.rows.reduce((a, r) => a + r.qty, 0), 0);
     const nChk = p.items.reduce((t, x) => t + x.checks.length, 0);
