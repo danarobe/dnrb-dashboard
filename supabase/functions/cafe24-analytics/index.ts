@@ -2561,7 +2561,8 @@ Deno.serve(async (req) => {
       //   cn_discard {sname, color, size, qty, note} — 그 옵션(품번·색상·사이즈 글자 그대로)의 잔여 중 qty장을 더 받지 않기로. 관리자·MD만(물류팀은 보기만).
       //   cn_discard_del {id} — 되돌리기(기록을 지우면 잔여로 돌아온다). 잔여 = 주문(모든 주문서 합) − 중국출고(모든 입고 합) − 폐기 합.
       if (action === "cn_discard" || action === "cn_discard_del") {
-        if (!canEdit) return json({ error: "폐기는 관리자·MD만 할 수 있어요" }, 403);
+        // 폐기·초과 인정·되돌리기 = 관리자·MD·물류팀(2026-10-26 사용자 요청 — 물류팀에도). CS팀은 위 문지기에서 이미 403
+        if (!canEdit && !(await soldoutRoleOk(authed))) return json({ error: "폐기는 관리자·MD·물류팀만 할 수 있어요" }, 403);
         if (action === "cn_discard_del") {
           const id = Number(b.id); if (!Number.isInteger(id) || id < 1) return json({ error: "id가 올바르지 않아요" }, 400);
           const gone = ((await sbRest(`cn_discards?id=eq.${id}`, { method: "DELETE" })) ?? []) as unknown[];

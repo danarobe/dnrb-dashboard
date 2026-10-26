@@ -7282,7 +7282,7 @@ function cnLeftSub(l) {   // 입고 검수 — 전달 칸 아래 그 출고 서�
 const CN_FLOW_ST = { ok: ['일치', '#15803d', '#dcfce7'], fixed: ['폐기로 정리', '#6b7280', '#f3f4f6'], bad: ['수량 확인', '#b91c1c', '#fee2e2'], nof: ['미출고 정보 없음', '#9ca3af', '#f9fafb'], noship: ['출고 서류 없음', '#c2410c', '#ffedd5'] };
 const cnFlowStHtml = e => { const s = CN_FLOW_ST[e.status]; return `<span style="font-size:.68rem;font-weight:700;color:${s[1]};background:${s[2]};border-radius:99px;padding:1px 8px;white-space:nowrap;">${s[0]}${e.status === 'bad' ? ` ${e.raw > 0 ? '+' : ''}${fmt(e.raw)}` : ''}</span>`; };
 function cnFlowOpen(sname) {
-  const d = cnState.data || {}, canEdit = !!d.can_edit;
+  const d = cnState.data || {}, canEdit = cnCanDisc();   // 이 창의 버튼은 모두 폐기 관련
   const opts = [...cnFlowCalc().values()].filter(e => e.sname === sname).sort((a, b) => (a.color + a.size).localeCompare(b.color + b.size));
   $('cn-flow-title').innerHTML = `<i class="fa-solid fa-timeline" style="color:#4f46e5;"></i> ${escHtml(sname)} — 수량 흐름`;
   const th = 'style="text-align:right;padding:4px 6px;font-size:.7rem;color:#6b7280;font-weight:700;border-bottom:1px solid #e5e7eb;white-space:nowrap;"';
@@ -7338,6 +7338,8 @@ async function cnSwapFix(sname) {
     showToast(`${sname} 옵션 바뀜을 정리했어요`);
   } catch (e) { showToast('정리 실패: ' + e.message); cnDiscChanged(); }
 }
+// 폐기·초과 인정·되돌리기·바뀜으로 정리 = 관리자·MD·물류팀(2026-10-26 사용자 요청 — 물류팀에도)
+const cnCanDisc = () => !!(cnState.data && (cnState.data.can_edit || (SESSION && SESSION.role === 'logistics')));
 const cnDiscBtn = (e, style) => e.pend > 0 ? `<button class="toggle-btn" style="${style}color:#b91c1c;" data-s="${escHtml(e.sname)}" data-c="${escHtml(e.color)}" data-z="${escHtml(e.size)}" data-q="${cnDiscDefault(e)}" onclick="cnDiscardAsk(this)"><i class="fa-solid fa-trash-can"></i> 폐기</button>`
   : e.pend < 0 ? `<button class="toggle-btn" style="${style}color:#1d4ed8;" data-s="${escHtml(e.sname)}" data-c="${escHtml(e.color)}" data-z="${escHtml(e.size)}" data-q="${cnDiscDefault(e)}" data-neg="1" onclick="cnDiscardAsk(this)" title="주문보다 더 나온 수량을 받아들여요(초과 인정)"><i class="fa-solid fa-check"></i> 초과 인정</button>` : '';
 const cnDiscDefault = e => e.pend < 0 ? -e.pend : e.status === 'bad' && e.raw > 0 ? Math.min(e.raw - (e.disc || 0) > 0 ? e.raw - e.disc : e.raw, e.pend) : e.pend;
@@ -7374,7 +7376,7 @@ const CN_PEND_PASS = { pend: e => e.pend > 0, bad: e => e.status === 'bad', over
 function cnPendRows() { return [...cnFlowCalc().values()].filter(e => !cnInactive(e.sname) && cnLinePass(e.sname)); }
 function cnPendRender() {
   const d = cnState.data; if (!d) return;
-  const canEdit = !!d.can_edit, all = cnPendRows(), pass = CN_PEND_PASS;
+  const canEdit = cnCanDisc(), all = cnPendRows(), pass = CN_PEND_PASS;   // 이 표의 버튼 칸 = 폐기·초과 인정
   if (!(d.order_lines || []).length) { $('cn-pend-summary').innerHTML = ''; $('cn-pend-chips').innerHTML = ''; $('cn-pend-list').innerHTML = '<div class="empty-state"><p>올린 주문서가 없어 미송을 계산할 수 없어요.</p></div>'; return; }
   const pend = all.filter(pass.pend), bad = all.filter(pass.bad), over = all.filter(pass.over);
   $('cn-pend-summary').innerHTML = `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:8px;">${
