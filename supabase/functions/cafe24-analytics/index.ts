@@ -3385,6 +3385,66 @@ Deno.serve(async (req) => {
       return respond({ period: { end: e, start7: s7, start21: s21, loss_start: lossS, loss_end: lossE }, metrics });
     }
 
+    // ── 코디 상품(추가구성상품) 점검 (2026-10-27, 상품 전략 담당 요청 "잘 팔리는 상품의 코디 아이템이라 주문율이 높을 수 있다") ──
+    //   parents = 잘 팔리는 상품들(≤60). 각 상품 페이지의 '코디 상품'(카페24 추가구성상품: GET products/{no}/additionalproducts — 관련상품(relational_product)은 우리 몰이 안 씀)을 읽어
+    //   children(점검할 상품) 중 어느 부모의 코디 상품인지 뒤집어 잇고, 그런 상품은 최근 기간 주문(GET orders?product_no=)에서 **부모 상품과 같은 주문에 담긴 비율(share)**을 센다.
+    //   추가구성 설정은 하루 캐시(addp:{no}) — 하루 호출 ≈ 부모 수. 주문 조회는 자식당 1~3쪽(100건씩).
+    if (action === "codi") {
+      if (authed.role !== "admin") return json({ error: "접근 권한이 없습니다" }, 403);
+      const parse = (k: string, cap: number) => [...new Set((url.searchParams.get(k) ?? "").split(",").map((x) => Number(x)).filter((n) => n > 0))].slice(0, cap);
+      const parents = parse("parents", 60), children = parse("children", 60);
+      const sd = url.searchParams.get("start_date") ?? "", ed = url.searchParams.get("end_date") ?? "";
+      if (!parents.length || !children.length || !/^\d{4}-\d{2}-\d{2}$/.test(sd) || !/^\d{4}-\d{2}-\d{2}$/.test(ed)) return json({ error: "parents·children·start_date·end_date 필수" }, 400);
+      const addp: Record<string, number[]> = {};
+      const failed: number[] = [];
+      let pi = 0;
+      const pWorker = async () => {
+        while (pi < parents.length) {
+          const no = parents[pi++];
+          const hit = (await cacheGet(`addp:${no}`, 24 * 60 * 60 * 1000)) as number[] | null;
+          if (hit) { addp[String(no)] = hit; continue; }
+          try {
+            const b = await apiGet(`${API_BASE}/admin/products/${no}/additionalproducts`, token);
+            const list = (((b.additionalproduct ?? {}) as Record<string, unknown>).additional_products ?? []) as unknown[];
+            addp[String(no)] = list.map(Number).filter((n) => n > 0);
+            await cacheSet(`addp:${no}`, addp[String(no)]);
+          } catch { failed.push(no); }
+        }
+      };
+      await Promise.all(Array.from({ length: Math.min(5, parents.length) }, pWorker));
+      const childSet = new Set(children);
+      const parentsOf = new Map<number, number[]>();
+      for (const [pno, list] of Object.entries(addp)) for (const c of list) if (childSet.has(c) && c !== Number(pno)) (parentsOf.get(c) ?? parentsOf.set(c, []).get(c)!).push(Number(pno));
+      // 부모가 있는 자식만 주문 조회(최대 30개, children 순서대로) — 부모와 같은 주문에 담긴 비율
+      const out: Record<string, { parents: number[]; orders: number; with_parent: number; share: number | null; by_parent: Record<string, number>; partial: boolean }> = {};
+      const targets = children.filter((c) => parentsOf.has(c)).slice(0, 30);
+      let ci = 0;
+      const cWorker = async () => {
+        while (ci < targets.length) {
+          const c = targets[ci++]; const ps = parentsOf.get(c)!; const pset = new Set(ps);
+          let orders = 0, withP = 0, partial = false; const byP: Record<string, number> = {};
+          try {
+            for (let offset = 0; offset < 300; offset += 100) {
+              const b = await apiGet(`${API_BASE}/admin/orders?start_date=${sd}&end_date=${ed}&product_no=${c}&embed=items&limit=100&offset=${offset}&date_type=order_date`, token);
+              const list = (b.orders ?? []) as Record<string, any>[];
+              for (const o of list) {
+                const items = (o.items ?? []) as Record<string, any>[];
+                if (!items.some((it) => Number(it.product_no) === c)) continue;
+                orders++;
+                const hitP = items.map((it) => Number(it.product_no)).filter((n) => pset.has(n));
+                if (hitP.length) { withP++; for (const pn of new Set(hitP)) byP[String(pn)] = (byP[String(pn)] ?? 0) + 1; }
+              }
+              if (list.length < 100) break;
+              if (offset === 200) partial = true;
+            }
+            out[String(c)] = { parents: ps, orders, with_parent: withP, share: orders > 0 ? Math.round(withP / orders * 100) : null, by_parent: byP, partial };
+          } catch { out[String(c)] = { parents: ps, orders: 0, with_parent: 0, share: null, by_parent: {}, partial: true }; }
+        }
+      };
+      await Promise.all(Array.from({ length: Math.min(5, targets.length) }, cWorker));
+      return json({ period: { start: sd, end: ed }, parents: addp, parents_failed: failed, children: out, skipped: children.filter((c) => parentsOf.has(c)).length - targets.length });
+    }
+
     // ── 상품 기본 정보 배치 조회 (관리자 전용): 진열 계산용 ──
     if (action === "productinfo") {
       if (authed.role !== "admin") return json({ error: "접근 권한이 없습니다" }, 403);
