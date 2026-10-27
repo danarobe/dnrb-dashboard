@@ -658,6 +658,12 @@
     .cn-label.on { background: #fffbeb; border-color: #f59e0b; color: #b45309; }
     .cn-label.stop input { accent-color: #dc2626; }
     .cn-label.stop.on { background: #fef2f2; border-color: #f87171; color: #b91c1c; }   /* 미진행 — 라벨 체크와 같은 모양, 켜면 빨강 */
+    .cn-labs { display: inline-flex; align-items: center; gap: 1px; border: 1.5px solid #d1d5db; border-radius: 99px; padding: 1px 3px 1px 9px; background: #fff; font-size: .7rem; font-weight: 700; color: #6b7280; white-space: nowrap; }   /* 라벨 한 묶음: 일반·아우터·사이즈 (2026-10-27) */
+    .cn-labs.on { border-color: #f59e0b; }
+    .cn-labs-h { margin-right: 3px; color: #374151; }
+    .cn-lab-i { display: inline-flex; align-items: center; gap: 3px; padding: 1px 6px; border-radius: 99px; cursor: pointer; user-select: none; }
+    .cn-lab-i input { width: 12px; height: 12px; margin: 0; cursor: pointer; accent-color: #b45309; }
+    .cn-lab-i.on { background: #fffbeb; color: #b45309; }
     .cn-label-badge { display: inline-block; background: #fffbeb; color: #b45309; border: 1px solid #fcd34d; border-radius: 99px; padding: 0 8px; font-size: .66rem; font-weight: 700; }
     .cn-line-badge { display: inline-block; vertical-align: middle; margin-left: 6px; border-radius: 99px; padding: 1px 9px; font-size: .66rem; font-weight: 700; white-space: nowrap; }
     /* 불량·오배송 처리 표 사유 칸 — 한 줄로 줄이고(…), 마우스를 올리면 툴팁, 클릭하면 펼침 (2026-09-23 사용자 요청) */
@@ -4312,7 +4318,7 @@ function cnBuyRender() {
     const info = (d.prods || {})[p.sname] || {}, sub = p.opts.reduce((t, o) => t + (st.qty[o.key] || 0), 0);
     const price = st.price[p.sname] != null ? st.price[p.sname] : p.price;
     html += `<tr style="background:#f8f9ff;"><td class="cn-name" colspan="4"><div style="display:flex;align-items:center;gap:8px;">${cnThumbHtml(p.sname)}<b style="font-weight:800;">${escHtml(p.sname)}</b><span class="cn-sub">옵션 ${p.opts.length}</span>
-        <span class="cn-label-badge" style="${cnLabelOf(p.sname) ? '' : 'background:#f3f4f6;color:#4b5563;border-color:#e5e7eb;'}" title="주문서 맨 오른쪽 열에 들어가는 라벨 문구 — 입고 검수의 혼용률·라벨·아우터라벨로 정해져요">${escHtml(cnOrderLabelText(p.sname))}</span>
+        <span class="cn-label-badge" style="${cnAnyLabelOf(p.sname) ? '' : 'background:#f3f4f6;color:#4b5563;border-color:#e5e7eb;'}" title="주문서 맨 오른쪽 열에 들어가는 라벨 문구 — 입고 검수의 혼용률·라벨(일반·아우터·사이즈)로 정해져요">${escHtml(cnOrderLabelText(p.sname))}</span>
         <span class="cn-sub" style="display:inline-flex;align-items:center;gap:4px;">매장 <input type="text" maxlength="80" value="${escHtml(info.vendor || '')}" data-s="${escHtml(p.sname)}" data-prev="${escHtml(info.vendor || '')}" onchange="cnBuyVendor(this)" placeholder="예: W-1F-10-30" style="width:120px;border:1px solid #e5e7eb;border-radius:6px;padding:2px 6px;font-size:.74rem;" /></span>
         ${canPrice ? `<span class="cn-sub" style="display:inline-flex;align-items:center;gap:4px;">단가 ¥<input type="number" min="0" step="0.1" value="${price == null ? '' : price}" data-s="${escHtml(p.sname)}" onchange="cnBuyPrice(this)" style="width:70px;border:1px solid #e5e7eb;border-radius:6px;padding:2px 6px;font-size:.74rem;text-align:right;" /></span>` : ''}</div></td>
       <td style="text-align:right;font-weight:800;color:${sub ? '#4338ca' : '#9ca3af'};" data-buy-sub="${escHtml(encodeURIComponent(p.sname))}">${sub ? fmt(sub) + '장' : '—'}</td></tr>`;
@@ -6372,10 +6378,10 @@ const cnFabricOf = sname => ((((cnState.data || {}).prods || {})[sname]) || {}).
 function cnFabricHtml(sname) {   // 상품 줄 이름 아래 둘째 줄에 들어가는 조각(2026-10-12 — 따로 열을 두면 옵션 줄마다 빈 칸이 생겨 표가 넓어졌다)
   const d = cnState.data || {}, info = (d.prods || {})[sname] || {}, v = info.fabric || '';
   const tip = v && info.fabric_by ? `${info.fabric_by} · ${unshipKst(info.fabric_at)}` : '';
-  const lab = info.label === true, labTip = lab && info.label_by ? `라벨 제작 대상 — ${info.label_by} · ${unshipKst(info.label_at)}` : '혼용률 라벨을 만들어야 하는 상품이면 체크(아우터 등)';
-  const out = info.outer === true, outTip = out && info.outer_by ? `아우터라벨 — ${info.outer_by} · ${unshipKst(info.outer_at)}` : '아우터 라벨도 달아야 하는 상품이면 체크';
-  if (!d.can_edit) return `<span class="cn-nm-fab"><span class="cn-sub">혼용률</span><span style="font-size:.76rem;color:${v ? '#374151' : '#9ca3af'};" title="${escHtml(tip)}">${v ? escHtml(v) : '—'}</span></span>${lab || out ? `<span class="cn-nm-right">${lab ? `<span class="cn-label-badge" title="${escHtml(labTip)}">라벨</span>` : ''}${out ? `<span class="cn-label-badge" title="${escHtml(outTip)}">아우터라벨</span>` : ''}</span>` : ''}`;
-  return `<span class="cn-nm-fab"><span class="cn-sub">혼용률</span><input type="text" class="cn-fabric" maxlength="200" value="${escHtml(v)}" data-s="${escHtml(sname)}" data-prev="${escHtml(v)}" onchange="cnFabricSave(this)" onkeydown="if(event.key==='Enter')this.blur()" placeholder="예: 면 60% 폴리 40%" aria-label="${escHtml(sname)} 혼용률" title="${escHtml(tip)}" style="border:1px ${v ? 'solid #e5e7eb' : 'dashed #f59e0b'};border-radius:6px;padding:3px 6px;font-size:.74rem;" /></span><span class="cn-nm-right"><label class="cn-label${lab ? ' on' : ''}" title="${escHtml(labTip)}"><input type="checkbox" data-s="${escHtml(sname)}"${lab ? ' checked' : ''} onchange="cnLabelSet(this)" />라벨</label><label class="cn-label${out ? ' on' : ''}" title="${escHtml(outTip)}"><input type="checkbox" data-s="${escHtml(sname)}" data-k="outer"${out ? ' checked' : ''} onchange="cnLabelSet(this)" />아우터라벨</label></span>`;
+  const labs = CN_LABS.map(([k, short, full]) => { const on = info[k] === true; return { k, short, on, tip: on && info[k + '_by'] ? `${full} — ${info[k + '_by']} · ${unshipKst(info[k + '_at'])}` : `${full}을 만들어야 하면 체크` }; });
+  const anyLab = labs.some(x => x.on);
+  if (!d.can_edit) return `<span class="cn-nm-fab"><span class="cn-sub">혼용률</span><span style="font-size:.76rem;color:${v ? '#374151' : '#9ca3af'};" title="${escHtml(tip)}">${v ? escHtml(v) : '—'}</span></span>${anyLab ? `<span class="cn-nm-right"><span class="cn-label-badge" title="${escHtml(labs.filter(x => x.on).map(x => x.tip).join('\n'))}">라벨 ${labs.filter(x => x.on).map(x => x.short).join('·')}</span></span>` : ''}`;
+  return `<span class="cn-nm-fab"><span class="cn-sub">혼용률</span><input type="text" class="cn-fabric" maxlength="200" value="${escHtml(v)}" data-s="${escHtml(sname)}" data-prev="${escHtml(v)}" onchange="cnFabricSave(this)" onkeydown="if(event.key==='Enter')this.blur()" placeholder="예: 면 60% 폴리 40%" aria-label="${escHtml(sname)} 혼용률" title="${escHtml(tip)}" style="border:1px ${v ? 'solid #e5e7eb' : 'dashed #f59e0b'};border-radius:6px;padding:3px 6px;font-size:.74rem;" /></span><span class="cn-nm-right"><span class="cn-labs${anyLab ? ' on' : ''}" role="group" aria-label="${escHtml(sname)} 라벨"><span class="cn-labs-h">라벨</span>${labs.map(x => `<label class="cn-lab-i${x.on ? ' on' : ''}" title="${escHtml(x.tip)}"><input type="checkbox" data-s="${escHtml(sname)}" data-k="${x.k}"${x.on ? ' checked' : ''} onchange="cnLabelSet(this)" />${x.short}</label>`).join('')}</span></span>`;
 }
 // 상품 줄의 첫 칸 — 두 줄: ① 이름 · 옵션 수 · (탭마다 다른 배지) · made/일반 ② 혼용률 · 라벨  (입고 검수의 [전달 수량과 같음] 버튼은 상품 줄의 메모 칸에)
 function cnNameCell(tab, sname, open, nOpt, meta) {   // meta = 셋째 줄(입고 검수: 카페24 등록·상품명 / 상품별 현황: 입고 N건·수량 흐름)
@@ -6405,13 +6411,18 @@ async function cnFabricSave(el) {
    혼용률 칸 옆 체크(관리자·MD, 물류팀은 '라벨' 배지만), 상품별 현황의 '라벨 제작' 칩으로 모아 본다. */
 const cnLabelOf = sname => ((((cnState.data || {}).prods || {})[sname]) || {}).label === true;
 const cnOuterOf = sname => ((((cnState.data || {}).prods || {})[sname]) || {}).outer === true;
+const cnSizeLabOf = sname => ((((cnState.data || {}).prods || {})[sname]) || {}).size === true;
+const cnAnyLabelOf = sname => cnLabelOf(sname) || cnOuterOf(sname) || cnSizeLabOf(sname);
+// 라벨 세 가지(2026-10-27 사용자 요청 — "라벨 메뉴 안에 일반·아우터·사이즈 세 개를 체크, 칸이 늘지 않게"): 일반 = 예전 '라벨'(혼용률 라벨, cn_products.label)
+const CN_LABS = [['label', '일반', '일반(혼용률) 라벨'], ['outer', '아우터', '아우터 라벨'], ['size', '사이즈', '사이즈 라벨']];
+const cnLabelNames = sname => CN_LABS.filter(([k]) => ((((cnState.data || {}).prods || {})[sname]) || {})[k] === true).map(([, , full]) => full).join(' · ');
 // 주문서(주문하기 엑셀) 맨 오른쪽 열의 라벨 문구(2026-10-26 사용자 지정): 라벨 체크 없음 = '다나로브 일반 메차 라벨',
 //   라벨 체크 = 혼용률 + ' 라벨'(예: '울 70 폴리 30' → '울70 폴리30 라벨'), 아우터라벨도 체크면 뒤에 ' + 아우터 라벨'.
 const cnFabricShort = v => String(v || '').replace(/%/g, ' ').replace(/[,/·]+/g, ' ').replace(/\s+/g, ' ').trim().replace(/([가-힣A-Za-z])\s+(\d)/g, '$1$2');
 function cnOrderLabelText(sname) {
   const f = cnFabricShort(cnFabricOf(sname)), hasF = f && /\d/.test(f);
   const base = cnLabelOf(sname) ? (hasF ? `${f} 라벨` : '혼용률 라벨 (혼용률 미입력)') : '다나로브 일반 메차 라벨';
-  return cnOuterOf(sname) ? `${base} + 아우터 라벨` : base;
+  return base + (cnOuterOf(sname) ? ' + 아우터 라벨' : '') + (cnSizeLabOf(sname) ? ' + 사이즈 라벨' : '');
 }
 // 미진행 상품(2026-10-20 사용자 요청 — "진행하지 않는 상품이어서 미진행 체크하면 안 보이도록"): 입고 검수·상품별 현황의 기본 보기와 합계에서 빠지고, 상품별 현황 '미진행' 칩에서만 보인다
 const cnInactive = sname => ((((cnState.data || {}).prods || {})[sname]) || {}).inactive === true;
@@ -6451,31 +6462,23 @@ async function cnManualShip(btn) {
     cnState.shipId = r.shipment.id; cnState.filter = 'all'; cnState.open.check.add(sname); cnSetTab('check');
   } catch (e) { btn.disabled = false; showToast('등록 실패: ' + e.message); }
 }
-async function cnLabelSet(cb) {
-  const sname = cb.dataset.s, want = cb.checked;
+async function cnLabelSet(cb) {   // 일반·아우터·사이즈 중 하나(data-k) — 표를 다시 그리지 않고 그 칸·묶음·칩만 바꾼다(이어서 체크하기 편하게)
+  const sname = cb.dataset.s, want = cb.checked, k = cb.dataset.k || 'label';
+  const [, short, full] = CN_LABS.find(x => x[0] === k) || CN_LABS[0];
   cb.disabled = true;
-  if (cb.dataset.k === 'outer') {   // 아우터라벨(2026-10-26) — 주문하기 엑셀 맨 오른쪽 열에 '+ 아우터 라벨'
-    try {
-      const r = await cnPost('cn_label', { sname, outer: want });
-      const d = cnState.data; d.prods = d.prods || {};
-      d.prods[sname] = Object.assign({}, d.prods[sname], { outer: r.outer, outer_by: r.outer_by, outer_at: r.outer_at });
-      const box = cb.closest('label'); box.classList.toggle('on', r.outer === true); box.title = r.outer ? `아우터라벨 — ${r.outer_by} · ${unshipKst(r.outer_at)}` : '아우터 라벨도 달아야 하는 상품이면 체크';
-      showToast(r.outer ? `${sname} — 아우터라벨 표시` : `${sname} — 아우터라벨 표시를 껐어요`);
-    } catch (e) { cb.checked = !want; showToast('저장 실패: ' + e.message); }
-    finally { cb.disabled = false; }
-    return;
-  }
   try {
-    const r = await cnPost('cn_label', { sname, label: want });
+    const r = await cnPost('cn_label', { sname, [k]: want });
     const d = cnState.data; d.prods = d.prods || {};
-    d.prods[sname] = Object.assign({}, d.prods[sname], { label: r.label, label_by: r.label_by, label_at: r.label_at });
-    const box = cb.closest('label'); box.classList.toggle('on', r.label === true); box.title = r.label ? `라벨 제작 대상 — ${r.label_by} · ${unshipKst(r.label_at)}` : '혼용률 라벨을 만들어야 하는 상품이면 체크(아우터 등)';
-    const chip = $('cn-chip-label');   // 건수만 바꾼다(표를 다시 그리지 않음 — 이어서 체크하기 편하게)
-    if (chip) chip.textContent = '라벨 제작 ' + fmt([...new Set((d.lines || []).map(l => l.sname))].filter(n => cnLinePass(n) && cnLabelOf(n)).length);
-    showToast(r.label ? `${sname} — 라벨 제작 대상으로 표시` : `${sname} — 라벨 표시를 껐어요`);
+    d.prods[sname] = Object.assign({}, d.prods[sname], { [k]: r[k], [k + '_by']: r[k + '_by'], [k + '_at']: r[k + '_at'] });
+    const item = cb.closest('label'); item.classList.toggle('on', r[k] === true); item.title = r[k] ? `${full} — ${r[k + '_by']} · ${unshipKst(r[k + '_at'])}` : `${full}을 만들어야 하면 체크`;
+    const grp = cb.closest('.cn-labs'); if (grp) grp.classList.toggle('on', cnAnyLabelOf(sname));
+    const chip = $('cn-chip-label');
+    if (chip) chip.textContent = '라벨 제작 ' + fmt([...new Set((d.lines || []).map(l => l.sname))].filter(n => cnLinePass(n) && cnAnyLabelOf(n)).length);
+    showToast(r[k] ? `${sname} — ${short} 라벨 체크` : `${sname} — ${short} 라벨 체크를 껐어요`);
   } catch (e) { cb.checked = !want; showToast('저장 실패: ' + e.message); }
   finally { cb.disabled = false; }
 }
+
 // 옵션 줄 접기·펼치기 (2026-10-01 사용자 요청 — 옵션이 다 펼쳐져 있어 스크롤이 김): 기본은 접힘(상품 줄만), 상품 줄을 누르면 그 상품 옵션만 펼침.
 //   칩으로 고르거나(미확인·차이 등) 검색 중이면 찾은 옵션이 바로 보이게 모두 펼친다. 펼친 상태는 탭별로 기억(cnState.open).
 function cnFoldBtn(tab, sname, open, n) {
@@ -7204,7 +7207,7 @@ function cnSalesOf(p) {
   for (const h of p.c24) { const r = by.get(h.product_no); if (r) { found = true; avg7 += r.avg7 || 0; net30 += r.net30 || 0; } }
   return { avg7: found ? avg7 : 0, net30: found ? net30 : 0 };
 }
-const cnProdPass = () => ({ all: () => true, inactive: () => true, remain: p => p.remain > 0, def: p => p.def > 0, diff: p => p.act !== p.actSent, todo: p => p.unchecked > 0, unreg: p => !p.c24.length, reg: p => p.c24.length > 0, nofabric: p => !cnFabricOf(p.sname), label: p => cnLabelOf(p.sname), c24warn: p => !p.c24.length && cnC24Warn(p.sname).length > 0 });   // 상품별 현황 칩 — 표와 엑셀 저장이 같이 쓴다
+const cnProdPass = () => ({ all: () => true, inactive: () => true, remain: p => p.remain > 0, def: p => p.def > 0, diff: p => p.act !== p.actSent, todo: p => p.unchecked > 0, unreg: p => !p.c24.length, reg: p => p.c24.length > 0, nofabric: p => !cnFabricOf(p.sname), label: p => cnAnyLabelOf(p.sname), c24warn: p => !p.c24.length && cnC24Warn(p.sname).length > 0 });   // 상품별 현황 칩 — 표와 엑셀 저장이 같이 쓴다
 /* ── 엑셀로 저장 (2026-10-14 사용자 요청) — 지금 화면에 보이는 표 그대로(입고 선택·라인·칩·검색 반영). 단가·실질 단가는 관리자에게만(서버도 다른 역할에는 단가를 안 줌) ── */
 function cnCheckRowsForXlsx() {   // 입고 검수 표가 보여 주는 옵션 줄(그리는 쪽 cnCheckRender와 같은 거르기)
   const q = String(($('cn-check-q') || {}).value || '').trim().toLowerCase(), pass = CN_CHECK_PASS[cnState.filter] || CN_CHECK_PASS.all;
@@ -7240,7 +7243,7 @@ async function cnCheckXlsx(btn) {
     const x = ships.get(l.shipment_id) || {}, rw = !canPrice ? null : l._sum ? cnRealAvg(cnLineParts(l._raw)) : cnRealWon(l.unit_price, l.shipment_id);
     const ox = cnOrdOf(l);
     const sumWhere = l._sum ? l._raw.map(r => { const y = ships.get(r.shipment_id) || {}; return `${y.order_round || y.title || ''} ${r.qty_sent}`; }).join(' · ') : '';
-    return [l._sum ? sumWhere : x.title || '', l._sum ? '' : x.ship_date || '', l._sum ? '' : cnShipDone(x) ? `완료 (${x.checked_done_by_name || ''})` : '', l.sname, l.color || '', l.size || '', cnLineLabel(l.sname), cnFabricOf(l.sname), [cnLabelOf(l.sname) ? '라벨 제작' : '', cnOuterOf(l.sname) ? '아우터라벨' : ''].filter(Boolean).join(' · '),
+    return [l._sum ? sumWhere : x.title || '', l._sum ? '' : x.ship_date || '', l._sum ? '' : cnShipDone(x) ? `완료 (${x.checked_done_by_name || ''})` : '', l.sname, l.color || '', l.size || '', cnLineLabel(l.sname), cnFabricOf(l.sname), cnLabelNames(l.sname),
       ox ? ox.ordered : '', l.qty_sent, l.qty_actual == null ? '' : l.qty_actual, ox ? ox.remain : '', l._ordOnly ? '' : l.qty_actual == null ? '미확인' : l._unchecked ? `${cnSentCk(l) - l.qty_actual} (미확인 입고 ${l._unchecked}건)` : cnSentCk(l) - l.qty_actual, l.checked_by_name || '', l.checked_at ? unshipKst(l.checked_at) : '', l.memo || '',
       ...(canPrice ? [l.unit_price == null ? '' : Number(l.unit_price), l.unit_price == null ? '' : Math.round(Number(l.unit_price) * ((cnFxShip(l.shipment_id) || {}).rate || CN_FX)), rw ? rw.won : '', l.unit_price == null ? '' : Math.round(l.qty_sent * Number(l.unit_price) * 100) / 100] : [])];
   });
@@ -7264,7 +7267,7 @@ async function cnProdXlsx(btn) {
   const out = [];
   for (const p of list) {
     const c24 = p.c24.map(h => h.product_name).join(' / '), sales = showSales ? cnSalesOf(p) : null;
-    for (const o of p.opts) out.push([p.sname, o.opt, cnLineLabel(p.sname), cnFabricOf(p.sname), [cnLabelOf(p.sname) ? '라벨 제작' : '', cnOuterOf(p.sname) ? '아우터라벨' : ''].filter(Boolean).join(' · '), p.ships.size, o.ord ? o.ord.ordered : '', o.sent, o.act || o.actSent ? o.act : '', o.ord ? o.ord.remain : '', o.act || o.actSent ? o.actSent - o.act : '', o.defN ? o.def : '', o.unchecked || '', c24,
+    for (const o of p.opts) out.push([p.sname, o.opt, cnLineLabel(p.sname), cnFabricOf(p.sname), cnLabelNames(p.sname), p.ships.size, o.ord ? o.ord.ordered : '', o.sent, o.act || o.actSent ? o.act : '', o.ord ? o.ord.remain : '', o.act || o.actSent ? o.actSent - o.act : '', o.defN ? o.def : '', o.unchecked || '', c24,
       ...(showSales ? [sales && sales.avg7 != null ? Math.round(sales.avg7 * 10) / 10 : '', sales ? sales.net30 : ''] : []),
       ...(canPrice ? [o.real ? o.real.yuan : (o.price == null ? '' : o.price), o.real ? o.real.won : ''] : [])]);
   }
