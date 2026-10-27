@@ -367,6 +367,8 @@ Deno.serve(async (req) => {
         const kind = String(body.kind ?? '');
         const product = String(body.product ?? '').trim().slice(0, 200);
         if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return json({ error: '촬영 일자를 골라주세요' }, 400);
+        if (date > today) return json({ error: '미래 날짜는 기입할 수 없습니다' }, 400);
+        if (date < fmtD(new Date(Date.now() - 365 * 86400000))) return json({ error: '1년보다 오래된 날짜는 기입할 수 없습니다' }, 400);
         if (kind !== 'photo' && kind !== 'live') return json({ error: '촬영 종류를 골라주세요' }, 400);
         if (!product) return json({ error: '상품명을 적어주세요' }, 400);
         const [row] = await rest('wm_shoots', { method: 'POST', body: JSON.stringify({ employee_id: eid, shoot_date: date, kind, product }) });
