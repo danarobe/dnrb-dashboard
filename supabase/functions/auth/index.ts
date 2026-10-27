@@ -180,6 +180,21 @@ Deno.serve(async (req) => {
       return json({ id: String(user.id), name: String(user.name), role: String(user.role), exp: u.exp, aud: u.aud, perms });
     }
 
+    // ── 에이전트용 외부 앱 토큰 (2026-10-27, 광고 운영 담당): dnrb-agents 함수가 AGENT_SECRET으로 대표 계정(admin)의 ad-dashboard 전용 토큰을 받아
+    //    친구 광고 대시보드의 '어제 광고 보고서'(client-log state_get)를 읽는다. 파생 키 서명이라 우리 함수에선 못 쓰고, 친구 서버는 매 요청 verify로 확인한다.
+    if (action === "sso_agent") {
+      const agentSecret = Deno.env.get("AGENT_SECRET") ?? "";
+      if (!agentSecret || !safeEqual(req.headers.get("x-agent-secret") ?? "", agentSecret)) return json({ error: "접근 권한이 없습니다" }, 403);
+      const aud = String(body.aud ?? "");
+      if (!AUD_ALLOWED.has(aud)) return json({ error: "알 수 없는 대상 앱" }, 400);
+      const user = await getActiveUser(String(body.id ?? "admin").trim());
+      if (!user) return json({ error: "대시보드에 없는 계정" }, 404);
+      const perms = await audAllowed(aud, String(user.id), String(user.role));
+      if (!perms) return json({ error: "이 앱에 대한 접근 권한이 없습니다" }, 403);
+      const payload: AudUser = { id: String(user.id), name: String(user.name), role: String(user.role), exp: Date.now() + TOKEN_TTL, iat: Date.now(), aud };
+      return json({ token: await signAudToken(payload), exp: payload.exp, id: payload.id, role: payload.role });
+    }
+
     // ── 이하 액션은 로그인 토큰 필요 ──
     // 서명 검증 후 DB에서 계정 존재·현재 역할 재확인 (삭제된 계정 토큰 즉시 무효화)
     const me = await verifyAuthTokenString(String(body.token ?? ""));

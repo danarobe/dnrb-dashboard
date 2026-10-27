@@ -305,6 +305,24 @@ Deno.serve(async (req) => {
       return json(body);
     }
 
+    // 꺼진 광고 목록 (2026-10-27, 광고 운영 담당 '다시 켜기' 판단용): effective_status가 PAUSED·ADSET_PAUSED·CAMPAIGN_PAUSED이고 최근 90일 안에 바뀐 광고.
+    //   이름·상태·마지막 변경일만 — 성과는 담당자가 adcards로 따로 받는다. 10분 캐시.
+    if (action === "pausedads") {
+      const cacheKey = `meta:pausedads:${seoulToday()}`;
+      const hit = await cacheGet(cacheKey, 10 * 60 * 1000);
+      if (hit) return json(hit);
+      const since = Math.floor((Date.now() - 90 * 86400_000) / 1000);
+      const rows = await graphGetAll(`${c.account}/ads`, {
+        fields: "id,name,effective_status,updated_time,adset{name}",
+        filtering: JSON.stringify([{ field: "effective_status", operator: "IN", value: ["PAUSED", "ADSET_PAUSED", "CAMPAIGN_PAUSED"] }, { field: "updated_time", operator: "GREATER_THAN", value: since }]),
+        limit: "500",
+      }, c.token).catch((e) => { throw new Error(`꺼진 광고 목록: ${(e as Error).message}`); });
+      const ads = rows.map((a) => ({ ad_id: String(a.id ?? ""), ad_name: String(a.name ?? ""), effective_status: String(a.effective_status ?? ""), updated: String(a.updated_time ?? "").slice(0, 10), adset_name: String(((a.adset ?? {}) as Record<string, unknown>).name ?? "") }));
+      const body = { count: ads.length, truncated: rows.length >= 500 * 8, since_days: 90, ads };
+      await cacheSet(cacheKey, body);
+      return json(body);
+    }
+
     if (action === "activeads") {
       const yesterday = addDays(seoulToday(), -1);
       // 10분 캐시 — 판매 성과를 여러 명이 반복 조회해도 Meta 호출은 10분에 2번.
