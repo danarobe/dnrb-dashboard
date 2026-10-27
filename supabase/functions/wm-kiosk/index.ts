@@ -18,6 +18,8 @@
 //   my_leaves       { session }                       내 휴가 내역+잔여 연차 (기기+세션)
 //   request_edit    { session, attendance_id?, date, requested_clock_in, requested_clock_out?, reason }
 //   request_leave   { session, date, end_date?, type, reason?, skip_offdays? }  항상 pending
+//   shoot_list / shoot_add / shoot_del  — '77사이즈 촬영' 기입(2026-10-27 사용자 요청). 6터치 밖(PIN 뒤 별도 버튼)이라
+//                   출퇴근 흐름은 그대로. wm_employees.shoot_log가 켜진 직원만(관리자가 근무 관리에서 지정).
 //
 // 직원 ID는 항상 세션 토큰에서 읽는다 — 요청 본문의 employee_id는 verify_pin에서만 쓴다.
 // (기존 Express는 clock-in이 PIN을 검증하지 않아 아무나 남의 출퇴근을 찍을 수 있었다)
@@ -230,7 +232,7 @@ Deno.serve(async (req) => {
     if (action === 'verify_pin') {
       const eid = Number(body.employee_id);
       const pin = String(body.pin ?? '');
-      const [emp] = await rest(`wm_employees?id=eq.${eid}&active=is.true&select=id,name,pin_hash,pin_fail_count,pin_locked_until,birthday`);
+      const [emp] = await rest(`wm_employees?id=eq.${eid}&active=is.true&select=id,name,pin_hash,pin_fail_count,pin_locked_until,birthday,shoot_log`);
       if (!emp) return json({ error: '직원 없음' }, 404);
       if (emp.pin_locked_until && new Date(emp.pin_locked_until).getTime() > Date.now()) {
         const remain = Math.ceil((new Date(emp.pin_locked_until).getTime() - Date.now()) / 1000);
@@ -257,7 +259,7 @@ Deno.serve(async (req) => {
       });
       const sess = await signSession(emp.id, emp.name);
       await log(dev.id, eid, 'verify_pin', true, ip, null);
-      return json({ ...sess, is_birthday: !!(emp.birthday && emp.birthday.slice(5) === today.slice(5)) });
+      return json({ ...sess, is_birthday: !!(emp.birthday && emp.birthday.slice(5) === today.slice(5)), can_shoot: !!emp.shoot_log });
     }
 
     /* ── 이하 PIN 세션 필요 — 직원 ID는 세션에서만 읽는다 ── */
@@ -354,6 +356,32 @@ Deno.serve(async (req) => {
         remaining = { total: emp.annual_leave_total, used, remaining: emp.annual_leave_total - used };
       }
       return json({ rows, remaining });
+    }
+
+    /* ── 77사이즈 촬영 기입 — 지정된 직원만(shoot_log), 본인 기록만 ── */
+    if (action === 'shoot_list' || action === 'shoot_add' || action === 'shoot_del') {
+      const [emp] = await rest(`wm_employees?id=eq.${eid}&active=is.true&select=shoot_log`);
+      if (!emp?.shoot_log) return json({ error: '촬영 기입이 허용되지 않은 직원입니다' }, 403);
+      if (action === 'shoot_add') {
+        const date = String(body.shoot_date ?? '');
+        const kind = String(body.kind ?? '');
+        const product = String(body.product ?? '').trim().slice(0, 200);
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return json({ error: '촬영 일자를 골라주세요' }, 400);
+        if (kind !== 'photo' && kind !== 'live') return json({ error: '촬영 종류를 골라주세요' }, 400);
+        if (!product) return json({ error: '상품명을 적어주세요' }, 400);
+        const [row] = await rest('wm_shoots', { method: 'POST', body: JSON.stringify({ employee_id: eid, shoot_date: date, kind, product }) });
+        await log(dev.id, eid, 'shoot_add', true, ip, { date, kind });
+        return json(row);
+      }
+      if (action === 'shoot_del') {
+        const id = Number(body.id);
+        if (!Number.isInteger(id) || id <= 0) return json({ error: '번호 오류' }, 400);
+        const rows = await rest(`wm_shoots?id=eq.${id}&employee_id=eq.${eid}`, { method: 'DELETE' });
+        if (!rows.length) return json({ error: '본인 기록만 지울 수 있습니다' }, 404);
+        await log(dev.id, eid, 'shoot_del', true, ip, { id, date: rows[0].shoot_date, product: rows[0].product });
+        return json({ ok: true });
+      }
+      return json(await rest(`wm_shoots?employee_id=eq.${eid}&select=id,shoot_date,kind,product,created_at&order=shoot_date.desc,id.desc&limit=20`));
     }
 
     if (action === 'request_edit') {

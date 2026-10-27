@@ -67,6 +67,9 @@
   label.fld input, label.fld select { display:block; width:100%; margin-top:4px; border:1.5px solid #cbd5e1;
     border-radius:9px; padding:9px 10px; font-size:14px; }
   .empty { text-align:center; color:#94a3b8; padding:34px 0; font-size:14px; }
+  .seg { display:flex; gap:8px; margin-top:4px; }
+  .seg button { flex:1; border:1.5px solid #cbd5e1; background:#fff; border-radius:10px; padding:11px 0; font-size:15px; font-weight:700; color:#475569; cursor:pointer; }
+  .seg button.on { border-color:#6366f1; background:#eef2ff; color:#4338ca; }
 </style>
 </head>
 <body>
@@ -98,7 +101,7 @@ const LVC = { annual: '#6366f1', half: '#f59e0b', summer: '#0d9488' };
 const DAY = ['일', '월', '화', '수', '목', '금', '토'];
 const S = {
   emps: [], leaves: [], serverDate: null, thisMonday: null,
-  sel: null, session: null, modal: null,
+  sel: null, session: null, modal: null, canShoot: false, resume: null, shootKind: 'photo', shootDate: null,
   lastOkAt: 0, timers: [],
 };
 
@@ -229,8 +232,11 @@ function toast(msg, kind = 'ok') {
 /* ══ PIN 입력 (6터치의 2~5번째) ══ */
 let pin = '';
 function openPin(id) {
+  const prev = S.sel && S.sel.id;
   S.sel = S.emps.find(e => e.id === id);
   if (!S.sel) return;
+  if (prev !== id) { S.resume = null; S.shootDate = null; }
+  S.canShoot = false;
   pin = '';
   overlay(`
     <h3>${esc(S.sel.name)}</h3>
@@ -263,6 +269,9 @@ async function submitPin(p) {
   try {
     const r = await api({ action: 'verify_pin', employee_id: S.sel.id, pin: p });
     S.session = r.session;
+    S.canShoot = !!r.can_shoot;
+    if (S.resume === 'shoot' && S.canShoot) { S.resume = null; return openShoot(); }
+    S.resume = null;
     const bkey = `bday-shown-${S.sel.id}-${S.serverDate}`;
     if (r.is_birthday && !localStorage.getItem(bkey)) { localStorage.setItem(bkey, '1'); return showBirthday(); }
     showAction();
@@ -300,6 +309,7 @@ function showAction() {
     <button class="btn btn-outline" onclick="openEditSelect()">🕐 시간 수정 신청</button>
     <button class="btn btn-outline" onclick="openLeaveForm()">🌴 휴가 신청</button>
     <button class="btn btn-outline" onclick="openMyLeaves()">📋 내 휴가 현황</button>
+    ${S.canShoot ? '<button class="btn btn-outline" onclick="openShoot()">📸 촬영 기입</button>' : ''}
     <button class="btn btn-outline" onclick="closeModal()">${st === 'done' ? '닫기' : '취소'}</button>`);
   if (st !== 'done') {
     const t = () => { const el = $id('mtime'); if (el) el.textContent = new Date().toTimeString().slice(0, 8); };
@@ -485,6 +495,58 @@ async function openMyLeaves() {
     </div>
     <button class="btn btn-outline" onclick="openLeaveForm()">+ 휴가 신청</button>
     <button class="btn btn-outline" onclick="showAction()">뒤로</button>`);
+}
+
+/* ══ 77사이즈 촬영 기입 (지정된 직원만 — 출퇴근 6터치와 별개, 2026-10-27) ══ */
+const SHOOT_KIND = { photo: '사진', live: '라방' };
+function shootExpired() { toast('확인 시간이 지났어요. PIN을 다시 입력해주세요.', 'err'); S.resume = 'shoot'; closeModal(); openPin(S.sel.id); }
+async function openShoot() {
+  let rows = [];
+  try { rows = await api({ action: 'shoot_list', session: S.session }); }
+  catch (e) { if (e.code === 'session_expired') return shootExpired(); toast(e.message, 'err'); return; }
+  const date = S.shootDate || S.serverDate || '';
+  overlay(`
+    <h3>📸 촬영 기입</h3>
+    <div class="desc">촬영한 상품을 하나씩 적어 주세요</div>
+    <label class="fld">촬영 일자 <input type="date" id="sh-date" value="${esc(date)}" max="${esc(S.serverDate || '')}" /></label>
+    <div class="fld" style="font-size:13px;font-weight:600;color:#475569;margin-top:10px;">촬영 종류
+      <div class="seg" id="sh-kind">${Object.entries(SHOOT_KIND).map(([k, v]) => `<button type="button" data-k="${k}" class="${S.shootKind === k ? 'on' : ''}" onclick="shootKindSet('${k}')">${v}</button>`).join('')}</div></div>
+    <label class="fld">상품명 <input id="sh-product" maxlength="200" placeholder="예: 카엘 소프트 후드 니트 원피스" onkeydown="if(event.key==='Enter'&&!event.isComposing)submitShoot()" /></label>
+    <button class="btn btn-primary" id="sh-save" onclick="submitShoot()">기입하기</button>
+    <div class="sec-title" style="margin-top:14px;">내가 적은 기록 (최근 20건)</div>
+    <div style="max-height:220px;overflow:auto;">
+      ${rows.length ? rows.map(r => `<div class="list-item" style="cursor:default;">
+        <span><b>${esc(r.shoot_date)}</b> <span class="chip" style="background:${r.kind === 'live' ? '#fee2e2' : '#e0e7ff'};color:${r.kind === 'live' ? '#b91c1c' : '#4338ca'};">${SHOOT_KIND[r.kind] || esc(r.kind)}</span><br><span style="color:#334155;">${esc(r.product)}</span></span>
+        <button class="btn btn-outline" style="width:auto;margin:0;padding:6px 10px;font-size:12px;" onclick="delShoot(${Number(r.id)})">지우기</button></div>`).join('')
+        : '<div class="empty" style="padding:18px 0;">아직 적은 기록이 없어요.</div>'}
+    </div>
+    <button class="btn btn-outline" onclick="showAction()">뒤로</button>`);
+  const p = $id('sh-product'); if (p) p.focus();
+}
+function shootKindSet(k) {
+  S.shootKind = k;
+  document.querySelectorAll('#sh-kind button').forEach(b => b.classList.toggle('on', b.dataset.k === k));
+}
+async function submitShoot() {
+  const date = $id('sh-date').value, product = $id('sh-product').value.trim();
+  if (!date) { toast('촬영 일자를 골라주세요', 'err'); return; }
+  if (!product) { toast('상품명을 적어주세요', 'err'); return; }
+  const btn = $id('sh-save'); if (btn) { if (btn.disabled) return; btn.disabled = true; }
+  try {
+    await api({ action: 'shoot_add', session: S.session, shoot_date: date, kind: S.shootKind, product });
+    S.shootDate = date;
+    toast(`${SHOOT_KIND[S.shootKind]} 촬영 기입 완료: ${product}`);
+    openShoot();
+  } catch (e) {
+    if (btn) btn.disabled = false;
+    if (e.code === 'session_expired') return shootExpired();
+    toast(e.message, 'err');
+  }
+}
+async function delShoot(id) {
+  if (!confirm('이 기록을 지울까요?')) return;
+  try { await api({ action: 'shoot_del', session: S.session, id }); toast('지웠어요'); openShoot(); }
+  catch (e) { if (e.code === 'session_expired') return shootExpired(); toast(e.message, 'err'); }
 }
 
 /* ══ 기기 등록 (최초 1회) ══ */

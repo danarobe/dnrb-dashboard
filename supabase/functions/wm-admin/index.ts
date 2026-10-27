@@ -786,6 +786,38 @@ Deno.serve(async (req) => {
       }
       return json({ ok: true, row });
     }
+    // 77사이즈 촬영 기입(2026-10-27 사용자 요청) — 지정 직원이 키오스크에서 적은 것(wm_shoots)을 관리자가 본다
+    if (action === 'shoot_list') {
+      const ym = String(body.ym ?? '');
+      let q = 'wm_shoots?select=id,employee_id,shoot_date,kind,product,created_at&order=shoot_date.desc,id.desc&limit=2000';
+      if (ym) {
+        if (!/^\d{4}-\d{2}$/.test(ym)) return json({ error: '월 형식 오류' }, 400);
+        q += `&shoot_date=gte.${ym}-01&shoot_date=lt.${nextMonthFirst(ym)}`;
+      }
+      const [rows, emps] = await Promise.all([
+        rest(q),
+        rest('wm_employees?select=id,name,type,active,hidden,shoot_log&order=name&limit=500'),
+      ]);
+      return json({ rows, employees: emps });
+    }
+    if (action === 'shoot_del') {
+      const id = Number(body.id);
+      if (!Number.isInteger(id) || id <= 0) return json({ error: '번호 오류' }, 400);
+      const [row] = await rest(`wm_shoots?id=eq.${id}`, { method: 'DELETE' });
+      if (!row) return json({ error: '기록 없음' }, 404);
+      await auditLog(me.id, 'shoot_delete', row.employee_id, { id, date: row.shoot_date, kind: row.kind, product: row.product });
+      return json({ ok: true });
+    }
+    if (action === 'shoot_writer') {
+      const id = Number(body.employee_id);
+      if (!Number.isInteger(id) || id <= 0) return json({ error: '직원 번호 오류' }, 400);
+      if (typeof body.on !== 'boolean') return json({ error: 'on은 true/false' }, 400);
+      const [row] = await rest(`wm_employees?id=eq.${id}`, { method: 'PATCH', body: JSON.stringify({ shoot_log: body.on }) });
+      if (!row) return json({ error: '직원 없음' }, 404);
+      await auditLog(me.id, body.on ? 'shoot_writer_on' : 'shoot_writer_off', id, null);
+      return json({ ok: true, shoot_log: row.shoot_log });
+    }
+
     if (action === 'trip_delete') {
       const id = Number(body.id);
       const [row] = await rest(`wm_trip_claims?id=eq.${id}&select=id,employee_id,place`);
