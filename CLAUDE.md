@@ -335,6 +335,7 @@ AUTHOR_FIELDS(notes/comments=author_id, likes=user_id): POST는 본인 id 필수
 ## 5. 메뉴별 핵심 로직
 
 ### 홈 대시보드 (#home)
+- **물류·CS팀에게도 홈(2026-10-28 사용자 요청)**: 메뉴 허용 목록 두 곳(applyRole·showMenu)에 'home'. 물류·CS 화면 = 휴가·입고 달력 그대로 · **KPI 4타일(총 매출액·취소반품·조회수·주문율·판매수량·마진율)과 사유 TOP 3은 블러**(`.role-cs #tile-rev/#tile-claims/#tile-traffic/#tile-margin/#box-*-reasons`) — 실제 값은 받지도 넣지도 않고 `homeCsMask()`가 숫자 모양 자리 표시만 넣음(DOM에 값 없음) · 수집 상태 칩·카페24 연동 상자 숨김 · `loadHome`은 CS면 조회수·주문율 TOP 10(fetchAnalytics → summary, 서버가 비관리자 금액 0)과 판매량 급증만 · **급증 TOP 10 금액은 블러 자리 표시**(서버도 0) · **월별 추이는 취소반품률만**(`ptRenderTo` csOnly, 순반품률 조회 생략, 저장 키 `_cs` 따로 — 역할마다 원가 응답이 달라서) · 바로가기 타일은 원래 CS에게 0개. 판매 성과 메뉴의 월별 추이는 CS에게 여전히 안 보임. 서버 변경 없음 — 물류 QA 계정으로 summary 200(금액 0)·performance 200·revenue 403 확인.
 - 기준 기간 + "카페24 불러오기" → **전 메뉴 기간 동기화 + 데이터 자동 기입**: 취소반품·상품분석·판매성과 + Meta광고·순익시나리오. Meta는 fetchMetaAds 자동 실행, 순익은 fillProfitFromStores로 기수집 데이터 재사용(추가 API는 Meta뿐). (재고 대조 동기화는 메뉴 제거와 함께 삭제 2026-08-20)
 - 각 메뉴 기간 옆 **'이 메뉴만 별도 기간' 체크박스**(own-period-{key}, localStorage `dnrb_own_period`) → 체크 시 홈이 그 메뉴 기간·데이터를 안 건드림, 타일에 '별도 기간 사용 중' 표시.
 - KPI 4타일 + 판매량 급증 TOP10 + 조회수/주문율 TOP10 + 취소반품 사유 TOP3 + 수집상태 칩 3종.

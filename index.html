@@ -117,6 +117,12 @@
       filter: blur(8px); pointer-events: none; user-select: none;
     }
     .role-cs #perf-save-panel, .role-cs #perf-archive-section { display: none !important; }
+    /* 물류·CS 홈(2026-10-28 사용자 요청): KPI 4타일 블러 — 화면에 실제 값은 넣지 않고 자리 표시만(homeCsMask) */
+    .role-cs #tile-rev, .role-cs #tile-claims, .role-cs #tile-traffic, .role-cs #tile-margin,
+    .role-cs #box-cancel-reasons, .role-cs #box-return-reasons {
+      filter: blur(7px); pointer-events: none; user-select: none;
+    }
+    .role-cs #home-status, .role-cs #home-c24 { display: none !important; }
     /* ── MD(직원) 권한: Meta 패널의 광고비·전환값·총매출 블러 ── */
     .role-staff .meta-blur { filter: blur(8px); pointer-events: none; user-select: none; }
     /* ── 모바일 최적화 ── */
@@ -883,12 +889,12 @@
           <div id="home-claims" style="font-size:1.3rem;font-weight:800;color:#92400e;">—</div>
           <div id="home-claims-sub" style="font-size:.75rem;color:#6b7280;margin-top:4px;"></div>
         </div>
-        <div style="background:#eff6ff;border:1.5px solid #bfdbfe;border-radius:12px;padding:16px 18px;">
+        <div id="tile-traffic" style="background:#eff6ff;border:1.5px solid #bfdbfe;border-radius:12px;padding:16px 18px;">
           <div style="font-size:.75rem;color:#6b7280;font-weight:600;margin-bottom:6px;">조회수 · 주문율</div>
           <div id="home-traffic" style="font-size:1.3rem;font-weight:800;color:#1e3a8a;">—</div>
           <div id="home-traffic-sub" style="font-size:.75rem;color:#6b7280;margin-top:4px;"></div>
         </div>
-        <div style="background:#f0fdf4;border:1.5px solid #bbf7d0;border-radius:12px;padding:16px 18px;">
+        <div id="tile-margin" style="background:#f0fdf4;border:1.5px solid #bbf7d0;border-radius:12px;padding:16px 18px;">
           <div style="font-size:.75rem;color:#6b7280;font-weight:600;margin-bottom:6px;">판매수량 · 평균 마진율</div>
           <div id="home-margin" style="font-size:1.3rem;font-weight:800;color:#14532d;">—</div>
           <div id="home-margin-sub" style="font-size:.75rem;color:#6b7280;margin-top:4px;"></div>
@@ -949,7 +955,7 @@
       </div>
 
       </div>
-      <!-- 월별 추이 (직전 3개 완결 월) — 판매 성과와 같은 데이터, CS는 홈 접근 없음 -->
+      <!-- 월별 추이 (직전 3개 완결 월) — 판매 성과와 같은 데이터, 물류·CS에게는 취소반품률만(2026-10-28) -->
       <div id="home-trend" style="display:none;background:#f8f9fb;border:1px solid #eceef2;border-radius:12px;padding:14px 16px;margin-top:14px;">
         <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:4px;">
           <b style="font-size:.88rem;color:#1e1b4b;">월별 추이</b>
@@ -3691,7 +3697,7 @@ function applyRole() {
   document.body.classList.toggle('role-cs', isCS());
   // CS팀은 판매 성과 메뉴만 노출
   document.querySelectorAll('.menu-item').forEach(b => {
-    b.style.display = isCS() && !['perf', 'my', 'purch', 'rscan', 'unship', 'bigret', 'soldout', 'cnbuy', 'hire', 'upcal'].includes(b.dataset.menu) ? 'none' : '';   // CS팀·물류팀 = 판매 성과 + 마이페이지 + 구매요청 + 반품 스캔(2026-09-22) + 미발송 관리(2026-09-28)
+    b.style.display = isCS() && !['home', 'perf', 'my', 'purch', 'rscan', 'unship', 'bigret', 'soldout', 'cnbuy', 'hire', 'upcal'].includes(b.dataset.menu) ? 'none' : '';   // CS팀·물류팀 = 판매 성과 + 마이페이지 + 구매요청 + 반품 스캔(2026-09-22) + 미발송 관리(2026-09-28)
   });
   // 관리자 전용 메뉴는 버튼 자체를 숨김
   $('menu-users').style.display = isAdmin() ? '' : 'none';
@@ -19058,7 +19064,7 @@ function showMenu(key) {
   if (!MENU_KEYS.includes(key)) key = 'home';
   if (key === 'hire' && !hireAllowed() && !hireAccessState.loaded) { hireAccessState.pending = true; key = 'home'; }   // 허용 목록 확인 전 — 확인되면 hireAccessLoad가 다시 연다
   if (key === 'cxl' && !isAdmin() && !cxlAccessState.loaded) { cxlAccessState.pending = true; key = 'home'; }   // 허용 목록 확인 전 — 확인되면 cxlAccessLoad가 다시 연다
-  if (isCS() && !['my', 'purch', 'rscan', 'unship', 'bigret', 'soldout', 'cnbuy', 'hire', 'upcal'].includes(key) && !(key === 'cxl' && cxlAllowed())) key = 'perf';   // soldout은 물류팀만(아래 soldoutAllowed에서 CS팀은 홈으로)   // 미발송 관리(2026-09-28) 추가 — 위 applyRole 목록과 함께 고칠 것.   // CS팀·물류팀은 판매 성과 + 마이페이지 + 구매요청 + 반품 스캔(2026-09-22 — 메뉴는 보였는데 여기서 되돌려 보내던 버그 수정)
+  if (isCS() && !['home', 'my', 'purch', 'rscan', 'unship', 'bigret', 'soldout', 'cnbuy', 'hire', 'upcal'].includes(key) && !(key === 'cxl' && cxlAllowed())) key = 'perf';   // soldout은 물류팀만(아래 soldoutAllowed에서 CS팀은 홈으로)   // 미발송 관리(2026-09-28) 추가 — 위 applyRole 목록과 함께 고칠 것.   // CS팀·물류팀은 판매 성과 + 마이페이지 + 구매요청 + 반품 스캔(2026-09-22 — 메뉴는 보였는데 여기서 되돌려 보내던 버그 수정)
   // 권한 없는 메뉴는 홈으로 되돌린다 — 여기서 return하면 URL에 #disp 등을 달고 들어온
   // 권한 없는 사용자에게 아무 섹션도 표시되지 않아 화면이 비어버림
   const denied = (key === 'cr' && isStaff())
@@ -19078,7 +19084,7 @@ function showMenu(key) {
   menuSecSync();   // 지금 화면이 속한 묶음 펼침
   history.replaceState(null, '', '#' + key);
   notifLoad();   // 메뉴 이동 때 알림 갱신 (60초 스로틀 — 상시 폴링 없음)
-  if (key === 'home') { homeLeavesLoad(false); homeFoldsApply(); checkCafe24Status(); updateHomeSourceStatus(); updateHomeReasons(); updateHomeClaimsTile(); updateHomeTrafficTile(); renderHomeShortcuts(); homeTrendInit(); }
+  if (key === 'home') { homeCsMask(); homeLeavesLoad(false); homeFoldsApply(); checkCafe24Status(); updateHomeSourceStatus(); updateHomeReasons(); updateHomeClaimsTile(); updateHomeTrafficTile(); renderHomeShortcuts(); homeTrendInit(); }
   if (key === 'meet') {
     loadAdTopics(); loadMeetNotes();
     if (!$('note-date').value) $('note-date').value = new Date().toISOString().slice(0, 10);
@@ -19118,6 +19124,17 @@ function showMenu(key) {
 }
 
 const homeState = { loaded: false, loading: false };
+/* 물류·CS 홈(2026-10-28 사용자 요청) — KPI 4타일과 사유 TOP 3은 가린다. 실제 값은 받지도 화면에 넣지도 않고,
+   블러 아래에는 숫자처럼 보이는 자리 표시만(CSS .role-cs #tile-* 블러). */
+function homeCsMask() {
+  if (!isCS()) return;
+  const put = (id, v) => { const e = $(id); if (e) e.textContent = v; };
+  put('home-rev', '000,000,000원'); put('home-rev-sub', '결제완료 0,000건');
+  put('home-claims', '000건 · 00,000,000원'); put('home-claims-sub', '총 매출 대비 00.0%');
+  put('home-traffic', '000,000회 · 0.00%'); put('home-traffic-sub', '주문 0,000건 / 상품 000개');
+  put('home-margin', '0,000개 · 00.0%'); put('home-margin-sub', '순판매수량 기준');
+  ['home-cancel-reasons', 'home-return-reasons'].forEach(id => { const e = $(id); if (e) e.innerHTML = '<div>사유 000건</div><div>사유 000건</div><div>사유 000건</div>'; });
+}
 
 /* 홈 바로가기 타일 — 역할별로 접근 가능한 메뉴만. 관리 상품 개수는 가벼운 DB 조회로 비동기 채움 */
 function renderHomeShortcuts() {
@@ -19194,10 +19211,13 @@ function updateHomeClaimsTile() {
 /* 조회수·주문율 KPI 타일 + TOP5 — 조회수&주문율 메뉴의 조회 결과(anState) 재사용 */
 function updateHomeTrafficTile() {
   const el = $('home-traffic'); if (!el || anState.rows.length === 0) return;
-  const t = anState.rows.reduce((a, r) => ({ v: a.v + r.views, o: a.o + r.order_count }), { v: 0, o: 0 });
-  const rate = t.v > 0 ? (t.o / t.v * 100).toFixed(2) : '0';
-  el.textContent = `${fmt(t.v)}회 · ${rate}%`;
-  $('home-traffic-sub').textContent = `주문 ${fmt(t.o)}건 / 상품 ${fmt(anState.rows.length)}개`;
+  if (isCS()) homeCsMask();   // 물류·CS — 타일 합계는 넣지 않음(TOP 10 목록만)
+  else {
+    const t = anState.rows.reduce((a, r) => ({ v: a.v + r.views, o: a.o + r.order_count }), { v: 0, o: 0 });
+    const rate = t.v > 0 ? (t.o / t.v * 100).toFixed(2) : '0';
+    el.textContent = `${fmt(t.v)}회 · ${rate}%`;
+    $('home-traffic-sub').textContent = `주문 ${fmt(t.o)}건 / 상품 ${fmt(anState.rows.length)}개`;
+  }
   const top = [...anState.rows].sort((a, b) => b.views - a.views).slice(0, 10);
   $('home-top-views').innerHTML = top.map((r, i) =>
     `<div style="display:flex;gap:8px;padding:4px 0;border-bottom:1px dashed #f3f4f6;">
@@ -19353,7 +19373,7 @@ async function loadTrending(force) {
         <span style="flex:1;min-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escHtml(r.product_name)}</span>
         <span style="font-weight:700;color:#1e1b4b;">${fmt(r.prevQty)} → ${fmt(r.order_qty)}개</span>
         ${badge}
-        ${isStaff() ? '' : `<span style="color:#6b7280;">${fmt(r.order_amount)}원</span>`}
+        ${isStaff() ? '' : isCS() ? '<span style="color:#6b7280;filter:blur(6px);user-select:none;" title="금액은 보이지 않아요">000,000원</span>' : `<span style="color:#6b7280;">${fmt(r.order_amount)}원</span>`}
         ${views}
       </div>`;
     }).join('') : '급증 상품이 없습니다 (이번 주 10개 이상 판매 & 전주 대비 증가 기준)';
@@ -19385,6 +19405,14 @@ async function loadHome(force) {
 
   const btn = $('btn-api-home');
   btnBusy(btn, '불러오는 중');
+  if (isCS()) {   // 물류·CS — KPI 타일은 가려 두고(값을 받지도 넣지도 않음) 조회수·주문율 TOP 10과 판매량 급증만
+    homeCsMask();
+    if (!ownPeriod('an')) await fetchAnalytics(true).then(() => updateHomeTrafficTile()).catch(() => {});
+    loadTrending(true);
+    btnIdle(btn, '<i class="fa-solid fa-cloud-arrow-down"></i> 카페24 불러오기');
+    homeState.loaded = true; homeState.loading = false;
+    return;
+  }
   const loading = '<i class="fa-solid fa-spinner fa-spin"></i>';
   ['home-rev', 'home-claims', 'home-traffic', 'home-margin'].forEach(id => { $(id).innerHTML = loading; });
 
@@ -20509,7 +20537,7 @@ function rrBuildHtml(list) {
    · 단, 월이 끝난 지 10일이 안 됐으면 반품이 덜 들어온 상태라 저장하지 않음(볼 때마다 새로 계산)
    · 키에 v2 = 반품 신청·접수 포함 기준 (기준이 또 바뀌면 버전을 올려 무효화)
 ────────────────────────────── */
-const PT_KEY = ym => `dnrb_trend_v2_${ym}`;
+const PT_KEY = ym => `dnrb_trend_v2_${ym}` + (isCS() ? '_cs' : '');   // 물류·CS가 같은 PC에서 모은 값은 따로(역할마다 원가 응답이 달라 마진율이 다를 수 있음)
 function ptMonths() {
   const out = [], d = new Date();
   for (let i = 3; i >= 1; i--) {
@@ -20529,7 +20557,7 @@ async function ptFetchMonth(ym) {
   const [s, e] = ptRange(ym);
   const [perf, net] = await Promise.all([   // 2026-10-01 성능 점검: 차례로 → 동시에(각각 10~35초라 합이 아니라 긴 쪽만큼만 기다림)
     anGet({ action: 'performance', start_date: s, end_date: e }),
-    anGet({ action: 'netreturns', start_date: s, end_date: e }),
+    isCS() ? Promise.resolve({}) : anGet({ action: 'netreturns', start_date: s, end_date: e }),   // 물류·CS는 취소반품률만 보므로 순반품률 조회 생략
   ]);
   let paid = 0, cancel = 0, w = 0, wq = 0;
   for (const r of (perf.rows || [])) {
@@ -20559,13 +20587,14 @@ function ptReady(months) {
 }
 /* 메뉴 진입 시 — 패널 표시 + 데이터 있으면 그 메뉴의 컨테이너에 렌더 (숨은 캔버스에 그리면 깨져서 진입 때마다 새로 그림) */
 function ptInitPanel(prefix) {
-  if (isCS()) return;                        // CS는 전사 지표 비공개
+  if (isCS() && prefix !== 'home') return;   // CS는 전사 지표 비공개 — 홈에서는 취소반품률만(2026-10-28)
   const panel = $(prefix + '-trend'); if (!panel) return;
   panel.style.display = 'block';
   const months = ptMonths();
   $(prefix + '-trend-months').textContent = months.map(m => Number(m.split('-')[1]) + '월').join(' · ');
   const stats = ptReady(months);
   if (stats) ptRenderTo(prefix, months, stats);
+  else if (isCS()) $(prefix + '-trend-body').innerHTML = '<div style="font-size:.75rem;color:#6b7280;">직전 3개월의 취소반품률. 처음 한 번만 수집하면 이후엔 저장된 값을 바로 보여줍니다.</div>';
 }
 function perfTrendInit() { ptInitPanel('perf'); }
 function homeTrendInit() { ptInitPanel('home'); }
@@ -20586,6 +20615,7 @@ async function perfTrendLoad(force, btnEl) {
   finally { btnIdle(btn, '<i class="fa-solid fa-rotate"></i> 다시 불러오기'); }
 }
 function ptRenderTo(prefix, months, stats) {
+  const csOnly = isCS();   // 물류·CS = 취소반품률만(2026-10-28 사용자 요청)
   const label = months.map(m => Number(m.split('-')[1]) + '월');
   const row = (name, key, color, better) => `
     <tr>
@@ -20604,13 +20634,13 @@ function ptRenderTo(prefix, months, stats) {
       <div class="table-wrap"><table style="font-size:.82rem;">
         <thead><tr><th style="text-align:left;">지표</th>${label.map(l => `<th>${l}</th>`).join('')}</tr></thead>
         <tbody>
-          ${row('순반품률', 'nr', '#4f46e5', 'down')}
-          ${row('평균 마진율', 'margin', '#16a34a', 'up')}
+          ${csOnly ? '' : row('순반품률', 'nr', '#4f46e5', 'down')}
+          ${csOnly ? '' : row('평균 마진율', 'margin', '#16a34a', 'up')}
           ${row('취소반품률', 'cr', '#d97706', 'down')}
         </tbody>
       </table></div>
     </div>
-    <div style="font-size:.7rem;color:#6b7280;margin-top:8px;">순반품률 = 배송완료일 기준(신청·접수 포함) · 마진율 = 순판매량 가중평균(공급가×1.1) · 취소반품률 = 취소반품수량 ÷ 결제수량(주문일 기준) · 완결 월 수치는 저장돼 다시 계산하지 않습니다</div>`;
+    <div style="font-size:.7rem;color:#6b7280;margin-top:8px;">${csOnly ? '' : '순반품률 = 배송완료일 기준(신청·접수 포함) · 마진율 = 순판매량 가중평균(공급가×1.1) · '}취소반품률 = 취소반품수량 ÷ 결제수량(주문일 기준) · 완결 월 수치는 저장돼 다시 계산하지 않습니다</div>`;
   if (typeof Chart === 'undefined') return;
   if (ptCharts[prefix]) { ptCharts[prefix].destroy(); delete ptCharts[prefix]; }
   ptCharts[prefix] = new Chart($(prefix + '-trend-canvas'), {
@@ -20619,7 +20649,7 @@ function ptRenderTo(prefix, months, stats) {
       { label: '순반품률', data: stats.map(s => s.nr), borderColor: '#4f46e5', backgroundColor: '#4f46e5', tension: .3, pointRadius: 4 },
       { label: '평균 마진율', data: stats.map(s => s.margin), borderColor: '#16a34a', backgroundColor: '#16a34a', tension: .3, pointRadius: 4 },
       { label: '취소반품률', data: stats.map(s => s.cr), borderColor: '#d97706', backgroundColor: '#d97706', tension: .3, pointRadius: 4 },
-    ] },
+    ].filter(x => !csOnly || x.label === '취소반품률') },
     options: { responsive: true, maintainAspectRatio: false,
       plugins: { legend: { labels: { font: { size: 11 }, boxWidth: 12 } } },
       scales: { y: { ticks: { callback: v => v + '%' } } } },
