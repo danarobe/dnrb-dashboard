@@ -2,6 +2,7 @@
 // 마이페이지 — 직원 본인 전용 (2026-08-27)
 //   GET  ?action=me            → 내 근무 정보(입사일·역할·연차 현황) + 올해 내 휴가 내역
 //   GET  ?action=team_leaves   → 이번 주 월 ~ 다음 주 금의 팀 휴가(이름·종류·상태 — 사유 없음)·공휴일. 홈 대시보드용(2026-10-07), 승인 대기는 관리자에게만
+//        + arrivals: 이번 주 월 ~ 다음 주 일의 중국 물류 입고 예정(cn_shipments.arrival_date — 날짜별 박스 합만, 2026-10-28)
 //   POST ?action=leave_request { date, end_date?, type(annual|half), reason?, skip_offdays? } → 휴가 신청(pending)
 //   POST ?action=leave_cancel  { id } → 내 '대기' 신청 취소
 //   GET  ?action=payslip_list      → 관리자가 업로드한 내 급여 명세서 파일 목록 (2026-09-10 사용자 요청 — 계산값이 아니라 업로드 파일)
@@ -121,17 +122,28 @@ Deno.serve(async (req) => {
       const t = new Date(today + "T00:00:00Z");
       const mon = new Date(t); mon.setUTCDate(t.getUTCDate() - ((t.getUTCDay() + 6) % 7));
       const fri = new Date(mon); fri.setUTCDate(mon.getUTCDate() + 11);
+      const sun = new Date(mon); sun.setUTCDate(mon.getUTCDate() + 13);
       const f = (d: Date) => d.toISOString().slice(0, 10);
-      const [emps, rows, holidays] = await Promise.all([
+      const [emps, rows, holidays, ships] = await Promise.all([
         rest("wm_employees?select=id,name&limit=300"),
         rest(`wm_leaves?status=in.(${isAdmin ? "approved,pending" : "approved"})&date=gte.${f(mon)}&date=lte.${f(fri)}&select=employee_id,date,type,status&order=date&limit=500`),
         rest(`wm_holidays?date=gte.${f(mon)}&date=lte.${f(fri)}&select=date,name&order=date&limit=50`),
+        rest(`cn_shipments?arrival_date=gte.${f(mon)}&arrival_date=lte.${f(sun)}&select=arrival_date,box_count,arrived&order=arrival_date&limit=100`),
       ]);
+      // 중국 물류 입고 예정 — 같은 날 여러 건이면 박스 합(박스 수를 안 적은 건은 unknown으로 셈)
+      const arr = new Map<string, { date: string; boxes: number; unknown: number; count: number; arrived: number }>();
+      for (const s of ships as any[]) {
+        const a = arr.get(s.arrival_date) ?? { date: s.arrival_date, boxes: 0, unknown: 0, count: 0, arrived: 0 };
+        if (s.box_count == null) a.unknown++; else a.boxes += Number(s.box_count) || 0;
+        a.count++; if (s.arrived) a.arrived++;
+        arr.set(s.arrival_date, a);
+      }
       const nameOf = Object.fromEntries((emps as any[]).map((e) => [e.id, e.name]));
       return json({
         today, this_monday: f(mon), can_pending: isAdmin,
         leaves: (rows as any[]).map((r) => ({ date: r.date, name: nameOf[r.employee_id] ?? "(이름 없음)", type: r.type === "sick" && !isAdmin ? "leave" : r.type, status: r.status })),
         holidays: (holidays as any[]).map((h) => ({ date: h.date, name: h.name })),
+        arrivals: [...arr.values()],
       });
     }
 

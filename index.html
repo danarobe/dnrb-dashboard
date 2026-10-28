@@ -850,7 +850,7 @@
       <button class="toggle-btn" onclick="homeLeavesLoad(true);loadHome(true)"><i class="fa-solid fa-rotate"></i> 새로고침</button>
     </div>
     <div class="section-body">
-      <!-- 이번 주·다음 주 휴가 현황 (2026-10-07 사용자 요청 — 홈 맨 위, 월~금 달력 두 줄) -->
+      <!-- 이번 주·다음 주 휴가·입고 현황 (2026-10-07 사용자 요청 — 홈 맨 위, 월~금 달력 두 줄 · 10-28 중국물류 입고 예정 추가) -->
       <div id="home-leaves"></div>
       <!-- 기간 선택 + 카페24 연동 -->
       <div class="control-bar">
@@ -18146,7 +18146,8 @@ const MY_TABS = [['work', '내 근무 현황', 'fa-regular fa-calendar-check'], 
 
 /* ── 홈 맨 위: 이번 주·다음 주 휴가 현황 (2026-10-07 사용자 요청) ──
    서버 wm-me team_leaves — 이번 주 월요일 ~ 다음 주 금요일의 휴가(승인된 것, 관리자에게는 승인 대기도)와 공휴일. 사유는 내려오지 않는다.
-   주마다 월~금 달력 한 줄. 5분 동안은 다시 묻지 않고(홈을 드나들 때마다 부르지 않게), 홈의 [새로고침]은 새로 읽는다. */
+   주마다 월~금 달력 한 줄. 5분 동안은 다시 묻지 않고(홈을 드나들 때마다 부르지 않게), 홈의 [새로고침]은 새로 읽는다.
+   + 중국 물류 입고 예정(2026-10-28 사용자 요청): 같은 응답의 arrivals — 입고 예정일 칸에 '중국물류 N박스' 칩(날짜별 박스 합), 주말 예정은 그 주 달력 아래 한 줄. */
 const homeLv = { data: null, at: 0, loading: false, err: '' };
 const HOME_LV_TYPE = { annual: ['연차', '#3730a3', '#e0e7ff'], half: ['반차', '#0369a1', '#e0f2fe'], summer: ['여름휴가', '#9a3412', '#ffedd5'], sick: ['병가', '#9f1239', '#ffe4e6'], leave: ['휴가', '#374151', '#f3f4f6'] };
 async function homeLeavesLoad(force) {
@@ -18167,6 +18168,9 @@ function homeLeavesRender() {
   const byDate = new Map(); (d.leaves || []).forEach(l => byDate.set(l.date, [...(byDate.get(l.date) || []), l]));
   const holi = new Map(); (d.holidays || []).forEach(h => holi.set(h.date, holi.has(h.date) ? holi.get(h.date) + ' · ' + h.name : h.name));
   const md = ymd => Number(ymd.slice(5, 7)) + '/' + Number(ymd.slice(8, 10));
+  const arrOf = new Map(); (d.arrivals || []).forEach(a => arrOf.set(a.date, a));
+  const arrBox = a => a.boxes ? `${fmt(a.boxes)}박스${a.unknown ? ' +' : ''}` : '박스 미정';
+  const arrChip = a => `<div title="중국 물류 입고 예정${a.count > 1 ? ` ${a.count}건` : ''} · ${arrBox(a)}${a.arrived === a.count ? ' (입고 완료)' : ''}" style="display:flex;flex-wrap:wrap;align-items:center;column-gap:4px;border-radius:7px;padding:3px 7px;margin-top:4px;font-size:.76rem;line-height:1.3;background:#ccfbf1;color:#0f766e;"><i class="fa-solid fa-truck" style="font-size:.66rem;"></i><b style="white-space:nowrap;">중국물류</b><span style="font-size:.7rem;font-weight:700;white-space:nowrap;">${arrBox(a)}</span></div>`;
   const week = (title, mon, isThis) => {
     const days = DOW.map((w, i) => ({ w, date: addDays(mon, i) }));
     const all = days.flatMap(x => (byDate.get(x.date) || []));
@@ -18174,24 +18178,26 @@ function homeLeavesRender() {
     const people = new Set(ok.map(l => l.name)).size;
     const cells = days.map(x => {
       const list = (byDate.get(x.date) || []).slice().sort((a, b) => (a.status === b.status ? String(a.name).localeCompare(String(b.name), 'ko') : a.status === 'approved' ? -1 : 1));
-      const today = x.date === d.today, past = x.date < d.today, h = holi.get(x.date);
+      const today = x.date === d.today, past = x.date < d.today, h = holi.get(x.date), arr = arrOf.get(x.date);
       const chips = list.map(l => { const T = HOME_LV_TYPE[l.type] || HOME_LV_TYPE.leave, pend = l.status !== 'approved';
         return `<div title="${escHtml(l.name)} · ${T[0]}${pend ? ' (승인 대기)' : ''}" style="display:flex;align-items:center;gap:4px;border-radius:7px;padding:3px 7px;margin-top:4px;font-size:.76rem;line-height:1.3;background:${pend ? '#fff' : T[2]};color:${T[1]};${pend ? 'border:1.5px dashed #f59e0b;' : ''}"><b style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escHtml(l.name)}</b><span style="font-size:.66rem;white-space:nowrap;opacity:.85;">${T[0]}</span>${pend ? '<span style="font-size:.62rem;color:#b45309;font-weight:800;white-space:nowrap;">대기</span>' : ''}</div>`; }).join('');
       return `<div class="home-lv-cell" style="border:1.5px solid ${today ? '#6366f1' : '#e5e7eb'};border-radius:10px;padding:7px 8px;min-height:74px;background:${h ? '#fef2f2' : today ? '#eef2ff' : '#fff'};${past && !today ? 'opacity:.6;' : ''}min-width:0;">
         <div style="display:flex;align-items:baseline;gap:5px;white-space:nowrap;"><b style="font-size:.8rem;color:${h ? '#b91c1c' : today ? '#4338ca' : '#374151'};">${x.w}</b><span style="font-size:.74rem;color:${h ? '#b91c1c' : '#6b7280'};">${md(x.date)}</span>${today ? '<span style="font-size:.6rem;font-weight:800;color:#fff;background:#6366f1;border-radius:99px;padding:0 6px;">오늘</span>' : ''}</div>
         ${h ? `<div style="font-size:.66rem;color:#b91c1c;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="${escHtml(h)}">${escHtml(h)}</div>` : ''}
-        ${chips || (h ? '' : '<div style="font-size:.7rem;color:#d1d5db;margin-top:6px;">—</div>')}</div>`;
+        ${arr ? arrChip(arr) : ''}${chips || (h || arr ? '' : '<div style="font-size:.7rem;color:#d1d5db;margin-top:6px;">—</div>')}</div>`;
     }).join('');
+    const wkend = [5, 6].map(i => ({ w: i === 5 ? '토' : '일', date: addDays(mon, i) })).filter(x => arrOf.has(x.date));
     return `<div style="flex:1 1 420px;min-width:0;">
       <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px;">
         <b style="font-size:.92rem;"><i class="fa-solid fa-umbrella-beach" style="color:${isThis ? '#6366f1' : '#a5b4fc'};"></i> ${title}</b>
         <span style="font-size:.74rem;color:#6b7280;">${md(mon)} ~ ${md(addDays(mon, 4))}</span>
         <span style="margin-left:auto;font-size:.74rem;font-weight:800;color:${ok.length ? '#4338ca' : '#9ca3af'};background:${ok.length ? '#eef2ff' : '#f3f4f6'};border-radius:99px;padding:2px 10px;white-space:nowrap;">${ok.length ? `${people}명 · ${ok.length}건` : '휴가 없음'}${wait ? ` <span style="color:#b45309;">· 대기 ${wait}</span>` : ''}</span>
       </div>
-      <div style="display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:6px;">${cells}</div></div>`;
+      <div style="display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:6px;">${cells}</div>
+      ${wkend.length ? `<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-top:6px;font-size:.72rem;color:#6b7280;">주말 입고 예정 ${wkend.map(x => `<span style="display:inline-flex;align-items:center;gap:4px;border-radius:7px;padding:2px 8px;background:#ccfbf1;color:#0f766e;"><b>${x.w} ${md(x.date)}</b> 중국물류 ${arrBox(arrOf.get(x.date))}</span>`).join('')}</div>` : ''}</div>`;
   };
   box.innerHTML = `<div style="border:1px solid #e0e7ff;border-radius:14px;padding:12px 14px;margin-bottom:14px;background:#fafaff;">
-    <div style="display:flex;gap:16px;flex-wrap:wrap;">${week('이번 주 휴가 현황', d.this_monday, true)}${week('다음 주 휴가 현황', addDays(d.this_monday, 7), false)}</div>
+    <div style="display:flex;gap:16px;flex-wrap:wrap;">${week('이번 주 휴가 · 입고 현황', d.this_monday, true)}${week('다음 주 휴가 · 입고 현황', addDays(d.this_monday, 7), false)}</div>
     ${d.can_pending ? '<div style="font-size:.68rem;color:#9ca3af;margin-top:6px;">점선 = 승인 대기 중인 신청(관리자에게만 보여요) · 승인은 근무 관리 › 휴가 관리에서</div>' : ''}</div>`;
 }
 async function myApi(params, body) {
