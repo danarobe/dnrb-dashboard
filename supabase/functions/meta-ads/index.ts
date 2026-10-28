@@ -307,6 +307,27 @@ Deno.serve(async (req) => {
 
     // 꺼진 광고 목록 (2026-10-27, 광고 운영 담당 '다시 켜기' 판단용): effective_status가 PAUSED·ADSET_PAUSED·CAMPAIGN_PAUSED이고 최근 90일 안에 바뀐 광고.
     //   이름·상태·마지막 변경일만 — 성과는 담당자가 adcards로 따로 받는다. 10분 캐시.
+    // 소재별 일별 성과 (2026-10-28, 광고 운영 담당 자체 발행용): 기간 안에 지출이 있던 광고 전부의 날짜별 지출·클릭·노출·빈도·구매·구매액.
+    //   계정 일별 합(지출·ROAS·CPC·CPA)과 소재별 흐름(치고 올라오는·하락·테스트 n일차)을 한 번에 만든다. 14일 × ~200개 ≈ 3,000행(500행 × 최대 12쪽). 10분 캐시.
+    if (action === "addaily") {
+      const s = url.searchParams.get("start_date") ?? "", e = url.searchParams.get("end_date") ?? "";
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(s) || !/^\d{4}-\d{2}-\d{2}$/.test(e)) return json({ error: "start_date, end_date 필수 (YYYY-MM-DD)" }, 400);
+      const cacheKey = `meta:addaily:${s}:${e}`;
+      const hit = await cacheGet(cacheKey, 10 * 60 * 1000);
+      if (hit) return json(hit);
+      const rows = await graphGetAll(`${c.account}/insights`, {
+        time_range: JSON.stringify({ since: s, until: e }), time_increment: "1", level: "ad", limit: "500",
+        fields: "date_start,ad_id,ad_name,adset_id,adset_name,campaign_name,spend,impressions,clicks,frequency,actions,action_values",
+      }, c.token, 12).catch((err) => { throw new Error(`소재 일별 성과: ${(err as Error).message}`); });
+      const out = rows.map((r) => ({
+        date: String(r.date_start ?? "").slice(0, 10), ad_id: String(r.ad_id ?? ""), ad_name: String(r.ad_name ?? ""), adset_id: String(r.adset_id ?? ""), adset_name: String(r.adset_name ?? ""), campaign_name: String(r.campaign_name ?? ""),
+        spend: num(r.spend), impressions: num(r.impressions), clicks: num(r.clicks), frequency: num(r.frequency), purchases: pickPurchase(r.actions), purchase_value: pickPurchase(r.action_values),
+      })).filter((r) => r.date && (r.spend > 0 || r.purchases > 0));
+      const body = { period: { start: s, end: e }, rows: out.length, truncated: rows.length >= 500 * 12, items: out };
+      await cacheSet(cacheKey, body);
+      return json(body);
+    }
+
     if (action === "pausedads") {
       const cacheKey = `meta:pausedads:${seoulToday()}`;
       const hit = await cacheGet(cacheKey, 10 * 60 * 1000);

@@ -3195,6 +3195,26 @@ Deno.serve(async (req) => {
     // ── 기간 총 매출액 (결제완료 주문 기준 — 시간대별 매출 합산) ──
     // 카페24 관리자 통계의 '결제합계'와 동일 시스템(애널리틱스) 데이터.
     // 주문수는 통계와 정확히 일치하며 금액은 ±0.5% 내외 차이 가능(부분취소 반영 시점 차이).
+    // 일별 결제 매출 (2026-10-28, 광고 운영 담당 '전체 흐름' 그래프용 — 카페24 ROAS·자연 매출 비율): 날짜마다 sales/times 합. 최대 31일, 30분 캐시
+    if (action === "revenue_daily") {
+      if (authed.role !== "admin") return json({ error: "접근 권한이 없습니다" }, 403);
+      const s = url.searchParams.get("start_date") ?? "", e = url.searchParams.get("end_date") ?? "";
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(s) || !/^\d{4}-\d{2}-\d{2}$/.test(e) || s > e) return json({ error: "start_date, end_date 필수 (YYYY-MM-DD)" }, 400);
+      const cacheKey = `an:revenue_daily:${s}:${e}`;
+      const hit = await cacheGet(cacheKey, 30 * 60 * 1000);
+      if (hit) return json(hit);
+      const days: string[] = [];
+      for (let d = new Date(s + "T12:00:00Z"); days.length < 31 && d.toISOString().slice(0, 10) <= e; d.setUTCDate(d.getUTCDate() + 1)) days.push(d.toISOString().slice(0, 10));
+      const out: { date: string; revenue: number; order_count: number }[] = [];
+      let i = 0;
+      const worker = async () => { while (i < days.length) { const day = days[i++]; const times = await collectData("/sales/times", "times", new URLSearchParams({ mall_id: MALL_ID, start_date: day, end_date: day }), token); out.push({ date: day, revenue: times.reduce((t, r) => t + num(r.order_amount), 0), order_count: times.reduce((t, r) => t + num(r.order_count), 0) }); } };
+      await Promise.all(Array.from({ length: Math.min(4, days.length) }, worker));
+      out.sort((a, b) => a.date.localeCompare(b.date));
+      const body = { period: { start: s, end: e }, days: out };
+      await cacheSet(cacheKey, body);
+      return json(body);
+    }
+
     if (action === "revenue") {
       // 총 매출액은 관리자 전용 (직원은 서버 차단)
       if (authed.role !== "admin") return json({ error: "접근 권한이 없습니다" }, 403);
