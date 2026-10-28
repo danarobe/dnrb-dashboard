@@ -313,17 +313,33 @@ Deno.serve(async (req) => {
       const s = url.searchParams.get("start_date") ?? "", e = url.searchParams.get("end_date") ?? "";
       if (!/^\d{4}-\d{2}-\d{2}$/.test(s) || !/^\d{4}-\d{2}-\d{2}$/.test(e)) return json({ error: "start_date, end_date 필수 (YYYY-MM-DD)" }, 400);
       const cacheKey = `meta:addaily:${s}:${e}`;
-      const hit = await cacheGet(cacheKey, 10 * 60 * 1000);
+      const hit = url.searchParams.get("nocache") ? null : await cacheGet(cacheKey, 10 * 60 * 1000);
       if (hit) return json(hit);
-      const rows = await graphGetAll(`${c.account}/insights`, {
+      // ⚠ 2026-10-28 실사례: graphGetAll은 중간 페이지가 503이면 조용히 멈춰 **앞쪽 날짜만 든 반쪽 자료**를 돌려주고 그게 10분 캐시에 남아
+      //   광고 운영 보고서가 "어제 지출 0원"으로 나갔다. → 페이지마다 3회 재시도(2·4초), 끝내 실패하면 오류(반쪽 자료를 내보내지 않음)·캐시 안 함.
+      const rows: Record<string, unknown>[] = [];
+      let body = await graphGet(`${c.account}/insights`, {
         time_range: JSON.stringify({ since: s, until: e }), time_increment: "1", level: "ad", limit: "500",
         fields: "date_start,ad_id,ad_name,adset_id,adset_name,campaign_name,spend,impressions,clicks,frequency,actions,action_values",
-      }, c.token, 12).catch((err) => { throw new Error(`소재 일별 성과: ${(err as Error).message}`); });
+      }, c.token).catch((err) => { throw new Error(`소재 일별 성과: ${(err as Error).message}`); });
+      for (let page = 0; page < 12; page++) {
+        rows.push(...((body.data ?? []) as Record<string, unknown>[]));
+        const next = (body.paging as Record<string, unknown> | undefined)?.next as string | undefined;
+        if (!next) break;
+        if (page === 11) throw new Error("소재 일별 성과: 12쪽을 넘어 잘림 — 기간을 줄이세요");
+        let nb: Record<string, unknown> | null = null, lastErr = "";
+        for (let tries = 0; tries < 3 && !nb; tries++) {
+          if (tries) await new Promise((r) => setTimeout(r, tries * 2000));
+          try { const res = await fetch(next); const j = await res.json(); if (res.ok) nb = j; else lastErr = `HTTP ${res.status} ${JSON.stringify(j?.error?.message ?? "").slice(0, 120)}`; } catch (err) { lastErr = String((err as Error).message ?? err); }
+        }
+        if (!nb) throw new Error(`소재 일별 성과: ${page + 2}쪽에서 실패(${lastErr}) — 반쪽 자료는 내보내지 않음`);
+        body = nb;
+      }
       const out = rows.map((r) => ({
         date: String(r.date_start ?? "").slice(0, 10), ad_id: String(r.ad_id ?? ""), ad_name: String(r.ad_name ?? ""), adset_id: String(r.adset_id ?? ""), adset_name: String(r.adset_name ?? ""), campaign_name: String(r.campaign_name ?? ""),
         spend: num(r.spend), impressions: num(r.impressions), clicks: num(r.clicks), frequency: num(r.frequency), purchases: pickPurchase(r.actions), purchase_value: pickPurchase(r.action_values),
       })).filter((r) => r.date && (r.spend > 0 || r.purchases > 0));
-      const body = { period: { start: s, end: e }, rows: out.length, truncated: rows.length >= 500 * 12, items: out };
+      const body = { period: { start: s, end: e }, rows: out.length, truncated: false, items: out };
       await cacheSet(cacheKey, body);
       return json(body);
     }
