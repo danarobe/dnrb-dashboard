@@ -433,15 +433,16 @@ Deno.serve(async (req) => {
     // ── 기간 광고비(2026-10-26 사용자 요청 — 종합 판매 데이터 'ON 광고' 아래에 고른 기간의 누적 지출) ──
     //   GET ?action=periodads&start_date&end_date → 그 기간에 지출이 있는 광고 전부(지금 꺼진 광고 포함)의 이름·지출. 상품 매칭은 브라우저(paPickBest)가 한다.
     //   호출 = insights(level=ad) 페이지 끝까지 한 번. 30분 캐시(같은 기간을 여러 명이 봐도 Meta는 30분에 한 번).
+    //   광고마다 Meta 구매·구매 전환값도(2026-10-30 사용자 요청 — ROAS는 Meta 광고관리자 기준 = 구매 전환값 ÷ 지출).
     if (action === "periodads") {
       const s = url.searchParams.get("start_date") ?? "", e = url.searchParams.get("end_date") ?? "";
       if (!/^\d{4}-\d{2}-\d{2}$/.test(s) || !/^\d{4}-\d{2}-\d{2}$/.test(e) || s > e) return json({ error: "start_date, end_date 필수 (YYYY-MM-DD)" }, 400);
-      const cacheKey = `meta:periodads:${s}:${e}`;
+      const cacheKey = `meta:periodads3:${s}:${e}`;
       const hit = await cacheGet(cacheKey, 30 * 60 * 1000);
       if (hit) return json(hit);
-      const rows = await graphGetAll(`${c.account}/insights`, { time_range: JSON.stringify({ since: s, until: e }), level: "ad", fields: "ad_id,ad_name,spend", limit: "500" }, c.token);
-      const ads = rows.map((r) => ({ ad_id: String(r.ad_id ?? ""), ad_name: String(r.ad_name ?? ""), spend: num(r.spend) })).filter((a) => a.spend > 0);
-      const body = { period: { start: s, end: e }, count: ads.length, total_spend: ads.reduce((t, a) => t + a.spend, 0), truncated: rows.length >= 500 * 8, ads };
+      const rows = await graphGetAll(`${c.account}/insights`, { time_range: JSON.stringify({ since: s, until: e }), level: "ad", fields: "ad_id,ad_name,spend,actions,action_values", limit: "500" }, c.token);
+      const ads = rows.map((r) => ({ ad_id: String(r.ad_id ?? ""), ad_name: String(r.ad_name ?? ""), spend: num(r.spend), purchases: pickPurchase(r.actions), purchase_value: pickPurchase(r.action_values) })).filter((a) => a.spend > 0 || a.purchase_value > 0);   // 지출 0인데 전환값만 잡힌 광고(늦게 잡힌 구매)도 넣어 Meta 합계와 맞춤
+      const body = { period: { start: s, end: e }, count: ads.length, total_spend: ads.reduce((t, a) => t + a.spend, 0), total_value: ads.reduce((t, a) => t + a.purchase_value, 0), truncated: rows.length >= 500 * 8, ads };
       await cacheSet(cacheKey, body);
       return json(body);
     }
