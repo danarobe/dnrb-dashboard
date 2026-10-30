@@ -820,7 +820,7 @@
     <div class="menu-sec-body">
       <button class="menu-item" data-menu="adv"  id="menu-adv" onclick="showMenu('adv')"><i class="fa-solid fa-bullhorn" style="width:18px;text-align:center;color:#818cf8;"></i>광고 효율</button>
       <button class="menu-item" id="menu-addash" style="display:none;" title="광고 대시보드 — 같은 계정으로 자동 로그인, 새 탭으로 열립니다" onclick="adDashOpen()"><i class="fa-solid fa-sitemap" style="width:18px;text-align:center;color:#818cf8;"></i>광고관리자<i class="fa-solid fa-arrow-up-right-from-square" style="font-size:.62rem;color:#9ca3af;margin-left:auto;"></i></button>
-      <button class="menu-item" data-menu="meet" onclick="showMenu('meet')"><i class="fa-solid fa-clipboard-list" style="width:18px;text-align:center;color:#818cf8;"></i>광고 회의록</button>
+      <button class="menu-item" data-menu="meet" onclick="showMenu('meet')"><i class="fa-solid fa-clipboard-list" style="width:18px;text-align:center;color:#818cf8;"></i>광고/상품 회의록</button>
       <button class="menu-item" data-menu="admgr" id="menu-admgr" style="display:none;" onclick="showMenu('admgr')"><i class="fa-solid fa-sitemap" style="width:18px;text-align:center;color:#818cf8;"></i>광고관리자(기존)</button>
     </div>
   </div>
@@ -2656,7 +2656,7 @@
   ════════════════════════════════════════ -->
   <div class="section-card page-sec" id="sec-meet">
     <div class="section-header" style="cursor:default;">
-      <h2><span><i class="fa-solid fa-clipboard-list" style="color:#4f46e5;font-size:.9em;"></i></span> 광고 회의록</h2>
+      <h2><span><i class="fa-solid fa-clipboard-list" style="color:#4f46e5;font-size:.9em;"></i></span> 광고/상품 회의록</h2>
       <button class="toggle-btn" onclick="loadAdTopics()"><i class="fa-solid fa-rotate"></i> 새로고침</button>
     </div>
     <div class="section-body">
@@ -2700,8 +2700,8 @@
           <input type="date" id="note-date" style="border:1.5px solid #d1d5db;border-radius:8px;padding:8px 10px;font-size:.82rem;" />
           <span style="font-size:.75rem;color:#6b7280;">작성자: <b id="note-author"></b> · 저장하면 나에게만 보이고, <b>공유</b>하면 모두에게 표시됩니다</span>
         </div>
-        <textarea id="note-content" class="mention-field" rows="4" placeholder="회의 내용을 기록하세요 (@이름=멘션 — 공유 저장 시 알림)"
-          style="width:100%;box-sizing:border-box;border:1.5px solid #d1d5db;border-radius:10px;padding:10px 12px;font-size:.88rem;font-family:inherit;outline:none;resize:vertical;"></textarea>
+        <textarea id="note-content" class="mention-field keep-fmt" rows="4" placeholder="회의 내용을 기록하세요 (@이름=멘션 — 공유 저장 시 알림) · 워드·한글에서 붙여넣으면 들여쓰기·띄어쓰기가 그대로 들어가요"
+          style="tab-size:4;width:100%;box-sizing:border-box;border:1.5px solid #d1d5db;border-radius:10px;padding:10px 12px;font-size:.88rem;font-family:inherit;outline:none;resize:vertical;"></textarea>
         <div style="display:flex;gap:8px;margin-top:8px;">
           <button onclick="addMeetNote(false)" style="background:#fff;border:1.5px solid #c7d2fe;color:#4f46e5;border-radius:8px;padding:8px 16px;font-size:.82rem;cursor:pointer;font-weight:700;">비공개 저장</button>
           <button class="btn-analyze" style="padding:8px 16px;" onclick="addMeetNote(true)">저장 + 바로 공유</button>
@@ -10012,7 +10012,7 @@ async function loadMeetNotes() {
             <span style="font-size:.7rem;color:#9ca3af;">${(n.updated_at || n.created_at || '').slice(0, 16).replace('T', ' ')}</span>
             <span style="margin-left:auto;display:flex;gap:6px;">${btns}</span>
           </div>
-          <div id="note-body-${n.id}" style="white-space:pre-wrap;color:#374151;line-height:1.6;">${escHtml(n.content)}</div>
+          <div id="note-body-${n.id}" style="white-space:pre-wrap;tab-size:4;color:#374151;line-height:1.6;">${escHtml(n.content)}</div>
           ${social}
         </div>`;
       }).join('');
@@ -10324,7 +10324,7 @@ async function addNoteComment(noteId) {
     });
     meetOpenComments.add(noteId);
     loadMeetNotes();
-    notifyMentions(content, '광고 회의록 댓글', 'meet');   // @이름 있으면 그 사용자에게 알림
+    notifyMentions(content, '광고/상품 회의록 댓글', 'meet');   // @이름 있으면 그 사용자에게 알림
   } catch (e) { showToast('댓글 등록 실패: ' + e.message); }
 }
 
@@ -10339,8 +10339,135 @@ async function deleteNoteComment(commentId, noteId) {
   } catch (e) { showToast('삭제 실패: ' + e.message); }
 }
 
+/* ══════════════════════════════════════════════════════
+   서식 유지 붙여넣기 (.keep-fmt 입력란 — 회의 기록, 2026-10-30 사용자 요청)
+   워드·한글·구글 문서에서 복사하면 클립보드의 HTML을 읽어 문단 들여쓰기(margin-left·text-indent)·
+   목록 번호/글머리·연속 띄어쓰기·탭·빈 줄을 공백 글자로 옮겨 넣는다. 저장은 지금처럼 글자만(굵게·색은 안 남음).
+   ══════════════════════════════════════════════════════ */
+function keepFmtTrim(v) {                     // 앞쪽 빈 줄과 끝 공백만 정리 — 첫 줄 들여쓰기는 남긴다
+  return String(v || '').replace(/^(?:[ \t\u00a0]*\r?\n)+/, '').replace(/\s+$/, '');
+}
+const KF_BULLET = { 'Symbol': { '·': '•', '': '•' }, 'Wingdings': { '§': '▪', 'Ø': '➢', 'ü': '✓', 'v': '❖', 'q': '❑', 'n': '■', 'l': '●', 'Ÿ': '•', 'ð': '➔' } };
+const KF_PUA = { '\uf0b7': '•', '\uf0a7': '▪', '\uf0d8': '➢', '\uf0fc': '✓', '\uf076': '❖', '\uf071': '❑', '\uf06e': '■', '\uf06c': '●', '\uf0e0': '➔' };
+function kfFixPua(t) { return t.replace(/[\uf000-\uf0ff]/g, c => KF_PUA[c] || '•'); }
+function kfLen(v, fs) {                        // CSS 길이 → pt (em은 글자 크기 기준)
+  const m = String(v || '').trim().match(/^(-?[\d.]+)\s*(pt|px|cm|mm|in|em|ch)?$/i); if (!m) return 0;
+  const n = parseFloat(m[1]), u = (m[2] || 'px').toLowerCase();
+  return u === 'pt' ? n : u === 'px' ? n * 0.75 : u === 'cm' ? n * 28.35 : u === 'mm' ? n * 2.835 : u === 'in' ? n * 72 : n * (fs || 10);
+}
+function kfStyle(el, name) {
+  const st = (el.getAttribute && el.getAttribute('style')) || '';
+  const m = st.match(new RegExp('(?:^|;)\\s*' + name + '\\s*:\\s*([^;]+)', 'i'));
+  return m ? m[1].trim() : '';
+}
+function kfHtmlToText(html) {
+  const doc = new DOMParser().parseFromString(html, 'text/html');   // 파싱만(스크립트·이미지 실행 안 됨)
+  const PT_PER_SPACE = 3;                                           // 공백 한 칸 ≈ 3pt(화면 글꼴 기준) — 워드 들여쓰기 20pt ≈ 공백 7칸
+  const BLOCK = /^(P|DIV|LI|H[1-6]|TR|BLOCKQUOTE|PRE|TABLE|UL|OL|DL|DT|DD|SECTION|ARTICLE|HEADER|FOOTER|CENTER)$/;
+  const SKIP = /^(STYLE|SCRIPT|HEAD|TITLE|META|LINK|XML|TEMPLATE|NOSCRIPT)$/;
+  const lines = [];
+  let cur = null;                                                    // { indent(pt), text }
+  const flush = () => { if (cur) { lines.push(cur); cur = null; } };
+  const start = indentPt => {
+    if (cur && cur.onlyMarker) return;                               // 목록 글머리 바로 뒤 문단(<li><p>)은 같은 줄로
+    if (cur && cur.text) lines.push(cur); cur = { indent: indentPt, text: '' };   // 글자 없는 감싸는 칸은 줄로 안 남김
+  };
+  const endBlock = () => { if (cur && cur.fromBr && !cur.text) cur = null; else flush(); };   // 문단 끝의 <br>은 빈 줄을 만들지 않음
+  let addIndent = 0;
+  const add = t => {
+    if (!cur) cur = { indent: addIndent, text: '' };
+    if (cur.onlyMarker) { if (!/\S/.test(t)) return; cur.onlyMarker = false; t = t.replace(/^ +/, ''); }
+    cur.text += t;
+  };
+  const listCount = [];
+  function walk(node, ctx) {
+    if (node.nodeType === 8) return;                                 // 주석(워드의 <![if …]> 포함)
+    if (node.nodeType === 3) {
+      let t = node.nodeValue;
+      addIndent = ctx.indent;
+      if (!cur && !ctx.pre && !/[^ \t\r\n\f]/.test(t)) return;          // 문단 사이 소스 공백은 무시
+      if (!ctx.pre) t = t.replace(/[ \t\r\n\f]+/g, ' ');             // 일반 공백·줄바꿈은 HTML처럼 한 칸, &nbsp;는 그대로
+      t = t.replace(/\u00a0/g, ' ');
+      if (ctx.pre) { const parts = t.split(/\r?\n/); parts.forEach((x, i) => { if (i) { const ind = cur ? cur.indent : ctx.indent; flush(); cur = { indent: ind, text: '' }; } add(x); }); return; }
+      if (cur && !cur.text && !ctx.keepLead) t = t.replace(/^ /, '');  // 문단 첫머리 소스 줄바꿈 공백 제거
+      add(t); return;
+    }
+    if (node.nodeType !== 1) return;
+    const tag = node.tagName.toUpperCase();
+    if (SKIP.test(tag) || /^O:|^V:|^W:/.test(tag) && tag !== 'O:P') return;
+    if (/display\s*:\s*none/i.test(node.getAttribute('style') || '') || /mso-hide\s*:\s*all/i.test(node.getAttribute('style') || '')) return;
+    if (tag === 'BR') {
+      if (!cur) { lines.push({ indent: ctx.indent, text: '' }); return; }   // 문단 사이 <br> = 빈 줄(구글 문서)
+      const ind = cur.indent; flush(); cur = { indent: ind, text: '', fromBr: true }; return;
+    }
+    const sty = node.getAttribute('style') || '';
+    const fs = kfLen(kfStyle(node, 'font-size'), 10) || ctx.fs;
+    // 워드 탭 · 연속 공백 표시
+    if (tag === 'SPAN' && /mso-tab-count\s*:\s*(\d+)/i.test(sty)) { add('\t'.repeat(+sty.match(/mso-tab-count\s*:\s*(\d+)/i)[1] || 1)); return; }
+    // 워드 목록 번호·글머리(mso-list:Ignore) → 글자 + 한 칸 (뒤의 7pt 채움 공백은 버림)
+    if (/mso-list\s*:\s*ignore/i.test(sty)) {
+      let mk = '';
+      const take = (n, font) => { for (const c of n.childNodes) {
+        if (c.nodeType === 3) { const t = c.nodeValue.replace(/[\s\u00a0]+/g, ''); if (!t) continue; const map = KF_BULLET[font] || null; mk += [...t].map(ch => (map && map[ch]) || ch).join(''); }
+        else if (c.nodeType === 1) { const f = (kfStyle(c, 'font-family').replace(/["']/g, '').split(',')[0] || font).trim(); take(c, f); } } };
+      take(node, (kfStyle(node, 'font-family').replace(/["']/g, '').split(',')[0] || ctx.font || '').trim());
+      if (mk) add(kfFixPua(mk) + ' ');
+      return;
+    }
+    const isBlock = BLOCK.test(tag);
+    const nctx = { ...ctx, fs, font: (kfStyle(node, 'font-family').replace(/["']/g, '').split(',')[0] || ctx.font || '').trim() };
+    if (tag === 'PRE' || /white-space\s*:\s*pre/i.test(sty)) nctx.pre = true;
+    if (/mso-spacerun\s*:\s*yes/i.test(sty)) nctx.keepLead = true;
+    if (isBlock) {
+      const ml = kfLen(kfStyle(node, 'margin-left'), fs) + kfLen(kfStyle(node, 'padding-left'), fs);
+      const ti = kfLen(kfStyle(node, 'text-indent'), fs);
+      let base = ctx.indent + ml;
+      if (tag === 'UL' || tag === 'OL') {
+        listCount.push({ ol: tag === 'OL', n: parseInt(node.getAttribute('start') || '1', 10) - 1 });
+        const lctx = { ...nctx, indent: base + (ml ? 0 : 12), list: listCount[listCount.length - 1] };
+        flush(); for (const c of node.childNodes) walk(c, lctx); flush(); listCount.pop(); return;
+      }
+      if (tag === 'TABLE') { flush(); for (const c of node.childNodes) walk(c, { ...nctx, indent: base }); flush(); return; }
+      if (tag === 'TR') { start(base); let first = true;
+        for (const c of node.childNodes) { if (c.nodeType !== 1 || !/^T[DH]$/i.test(c.tagName)) continue; if (!first) add('\t'); first = false;
+          const cellCtx = { ...nctx, indent: base, inCell: true }; for (const cc of c.childNodes) walk(cc, cellCtx); }
+        flush(); return; }
+      if (ctx.inCell && tag !== 'TABLE') { if (cur && cur.text && !/[\t ]$/.test(cur.text)) add(' '); for (const c of node.childNodes) walk(c, nctx); return; }   // 표 칸 안 문단은 한 줄로
+      start(Math.max(0, base + ti));
+      if (tag === 'LI' && ctx.list && !node.querySelector('[style*="mso-list"]')) { ctx.list.n++; add(ctx.list.ol ? ctx.list.n + '. ' : '• '); cur.onlyMarker = true; }
+      nctx.indent = base;
+      for (const c of node.childNodes) walk(c, nctx);
+      endBlock(); return;
+    }
+    for (const c of node.childNodes) walk(c, nctx);
+  }
+  walk(doc.body, { indent: 0, fs: 10, pre: false, font: '' });
+  flush();
+  let out = lines.map(l => { const t = l.text.replace(/[ ]+$/, ''); return t ? ' '.repeat(Math.round(l.indent / PT_PER_SPACE)) + t : ''; });
+  while (out.length && !out[0]) out.shift();
+  while (out.length && !out[out.length - 1]) out.pop();
+  return kfFixPua(out.join('\n'));
+}
+function keepFmtPaste(e) {
+  const el = e.target;
+  if (!el || !el.classList || !el.classList.contains('keep-fmt')) return;
+  const cd = e.clipboardData; if (!cd) return;
+  const html = cd.getData('text/html'), plain = cd.getData('text/plain') || '';
+  let text = '';
+  try { if (html && /<(p|div|li|br|table|span)\b/i.test(html)) text = kfHtmlToText(html); } catch (err) { console.warn('서식 붙여넣기 변환 실패', err); text = ''; }
+  if (!text.trim()) { if (!/[\uf000-\uf0ff]/.test(plain)) return; text = kfFixPua(plain); }   // HTML이 없으면 기본 붙여넣기(워드 기호 글자만 고침)
+  e.preventDefault();
+  el.focus();
+  if (!document.execCommand || !document.execCommand('insertText', false, text)) {              // 되돌리기(Ctrl+Z)가 되도록 insertText 먼저
+    const a = el.selectionStart, b = el.selectionEnd;
+    el.setRangeText(text, a, b, 'end');
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+  }
+}
+document.addEventListener('paste', keepFmtPaste, true);
+
 async function addMeetNote(share) {
-  const date = $('note-date').value, content = $('note-content').value.trim();
+  const date = $('note-date').value, content = keepFmtTrim($('note-content').value);
   if (!date) { showToast('회의 일자를 선택해주세요'); return; }
   if (!content) { showToast('회의 내용을 입력해주세요'); return; }
   try {
@@ -10354,7 +10481,7 @@ async function addMeetNote(share) {
     $('note-content').value = '';
     showToast(share ? '기록이 저장되고 모두에게 공유됐습니다' : '비공개로 저장됐습니다 — 공유 버튼을 누르면 모두에게 보입니다');
     // @멘션 알림은 공유 저장일 때만 — 비공개 기록은 상대가 볼 수 없어 알림이 무의미 (공유 전환 시 toggleShareNote가 보냄)
-    if (share && content.includes('@')) notifyMentions(content, '광고 회의록', 'meet');
+    if (share && content.includes('@')) notifyMentions(content, '광고/상품 회의록', 'meet');
     loadMeetNotes();
   } catch (e) { showToast('저장 실패: ' + e.message); }
 }
@@ -10369,7 +10496,7 @@ async function toggleShareNote(id, share) {
     // 비공개로 써둔 기록을 공유하는 순간 @멘션 알림 발송 (작성 시엔 비공개라 안 보냈던 것)
     if (share) {
       const raw = JSON.parse($('meet-notes').dataset.raw || '{}')[id] || '';
-      if (raw.includes('@')) notifyMentions(raw, '광고 회의록', 'meet');
+      if (raw.includes('@')) notifyMentions(raw, '광고/상품 회의록', 'meet');
     }
     loadMeetNotes();
   } catch (e) { showToast('변경 실패: ' + e.message); }
@@ -10378,7 +10505,7 @@ async function toggleShareNote(id, share) {
 function editMeetNote(id, mine = true) {
   const body = $('note-body-' + id); if (!body) return;
   const raw = JSON.parse($('meet-notes').dataset.raw || '{}')[id] ?? body.innerText;
-  body.innerHTML = `<textarea id="note-edit-${id}" class="mention-field" rows="4" style="width:100%;box-sizing:border-box;border:1.5px solid #c7d2fe;border-radius:8px;padding:8px 10px;font-size:.82rem;font-family:inherit;outline:none;resize:vertical;">${escHtml(raw)}</textarea>
+  body.innerHTML = `<textarea id="note-edit-${id}" class="mention-field keep-fmt" rows="4" style="tab-size:4;width:100%;box-sizing:border-box;border:1.5px solid #c7d2fe;border-radius:8px;padding:8px 10px;font-size:.82rem;font-family:inherit;outline:none;resize:vertical;">${escHtml(raw)}</textarea>
     <div style="display:flex;gap:6px;margin-top:6px;">
       <button onclick="saveMeetNote('${id}', ${mine})" class="btn-analyze" style="padding:5px 14px;font-size:.82rem;">저장</button>
       <button onclick="loadMeetNotes()" style="border:1px solid #e5e7eb;background:#fff;border-radius:6px;padding:5px 12px;font-size:.82rem;cursor:pointer;">취소</button>
@@ -10386,7 +10513,7 @@ function editMeetNote(id, mine = true) {
 }
 
 async function saveMeetNote(id, mine = true) {
-  const content = $('note-edit-' + id).value.trim();
+  const content = keepFmtTrim($('note-edit-' + id).value);
   if (!content) { showToast('내용을 입력해주세요'); return; }
   try {
     // 본인 글은 작성자 필터로, 남의 공유 글은 관리자만(서버 db 프록시가 admin PATCH 허용).
@@ -19144,7 +19271,7 @@ function renderHomeShortcuts() {
     { key: 'disp',   icon: 'fa-table-cells-large', name: '카테고리별 진열', desc: '주간 진열 순서 계산', show: isAdmin() },
     { key: 'adv',    icon: 'fa-bullhorn', name: '광고 효율', desc: 'Meta 광고 성과·소재', show: isAdmin() || isStaff() },
     { key: 'profit', icon: 'fa-coins', name: '순익 시나리오', desc: '기간 순이익 계산', show: isAdmin() },
-    { key: 'meet',   icon: 'fa-clipboard-list', name: '광고 회의록', desc: '팀 안건·회의 기록', show: !isCS() },
+    { key: 'meet',   icon: 'fa-clipboard-list', name: '광고/상품 회의록', desc: '팀 안건·회의 기록', show: !isCS() },
   ].filter(t => t.show);
   el.innerHTML = tiles.map(t => `
     <button onclick="showMenu('${t.key}')" style="display:flex;align-items:center;gap:12px;text-align:left;cursor:pointer;
