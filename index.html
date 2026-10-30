@@ -20293,7 +20293,7 @@ function paSpendHtml(productNo) {   // ON 광고 칸 아래 작은 글씨 — �
   // ROAS = Meta 광고관리자 기준(2026-10-30 사용자 요청 — 예전 10-26판은 카페24 판매합계 ÷ 광고비였음): 매칭된 광고들의 Meta 구매 전환값 합 ÷ 지출 합. 400%↑ 초록 · 200% 미만 빨강
   //   그 아래 작은 회색 줄 = 카페24 기준(2026-10-30 사용자 요청 "같이 보고 싶다") = 그 상품의 판매합계(표의 '판매합계' 칸, 순판매금액) ÷ 기간 광고비
   const rc = r => r >= 400 ? '#15803d' : r < 200 ? '#b91c1c' : '#4b5563';
-  const row = store.salesData.find(r => r.productNo === productNo), sales = row ? Number(row.salesTotal) || 0 : 0, c24 = sales / e.spend * 100;
+  const row = store.salesData.find(r => r.productNo === productNo), sales = row ? Number(row.roasAmt) || 0 : 0, c24 = sales / e.spend * 100;
   const admin = isAdmin();   // MD·마케터에게는 금액을 말풍선에도 안 보임(판매합계 칸·광고비 블러와 같은 정책)
   const mTip = admin ? `Meta 광고관리자 ROAS = 구매 전환값 ${fmt(Math.round(e.value))}원 ÷ 기간 광고비 ${fmt(Math.round(e.spend))}원 · Meta 구매 ${fmt(e.buys)}건` : `Meta 광고관리자 ROAS = 구매 전환값 ÷ 기간 광고비 · Meta 구매 ${fmt(e.buys)}건`;
   const cTip = admin ? `카페24 ROAS = 판매합계 ${fmt(sales)}원 ÷ 기간 광고비 ${fmt(Math.round(e.spend))}원 (광고 안 보고 산 주문도 포함)` : '카페24 ROAS = 판매합계 ÷ 기간 광고비 (광고 안 보고 산 주문도 포함)';
@@ -20702,6 +20702,7 @@ async function fetchPerfApi() {
         refundQty: r.cancel_qty,
         salesQty,
         salesTotal,
+        roasAmt: r.paid_qty > 0 ? Math.round((r.roas_amt ?? r.order_amount) * salesQty / r.paid_qty) : 0,   // 카페24 ROAS 계산 전용(관리자 = 판매합계와 같음, MD = 서버 roas_amt — 판매합계 칸은 계속 숨김)
         cancelQty: r.cancel_qty,
         returnRate: r.paid_qty > 0 ? r.cancel_qty / r.paid_qty * 100 : 0,
       });

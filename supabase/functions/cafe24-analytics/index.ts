@@ -1327,7 +1327,7 @@ Deno.serve(async (req) => {
     // performance는 역할에 따라 응답이 달라서(비관리자 order_amount=0) 키에 역할 포함.
     const qsKey = new URLSearchParams(url.search);
     qsKey.delete("nocache"); qsKey.sort();
-    const cacheKey = `an:${qsKey.toString()}` + (action === "performance" ? `:${authed.role}:cn4` : "");   // cn3 = 환전 내역·출고 서류 총 합계 반영(2026-10-22)   // cn1 = 중국 사입 실질 단가 반영(2026-10-16) 전 캐시를 쓰지 않게
+    const cacheKey = `an:${qsKey.toString()}` + (action === "performance" ? `:${authed.role}:cn5` : "");   // cn5 = MD에게 roas_amt(2026-10-30)   // cn3 = 환전 내역·출고 서류 총 합계 반영(2026-10-22)   // cn1 = 중국 사입 실질 단가 반영(2026-10-16) 전 캐시를 쓰지 않게
     const noCache = url.searchParams.get("nocache") === "1";
     // 저장 시간: 분석용 조회는 30분(2026-10-01 사용자 결정 — 첫 조회가 6~35초라 다시 기다리는 일을 줄임, 그동안 새 주문·취소는 미반영),
     //   미발송 목록은 10분 그대로(물류팀 실시간 작업 — 화면 새로고침 버튼은 nocache). api_cache 행은 1시간 뒤 자동 삭제.
@@ -4227,7 +4227,9 @@ Deno.serve(async (req) => {
       }
       const rows = [...map.values()].sort((a, b) => b.paid_qty - a.paid_qty);
       // 주문금액(판매합계)은 관리자만 — 직원·CS는 UI에서도 숨김/블러 처리되는 값이라 서버에서 0으로 제거
-      if (authed.role !== "admin") for (const r of rows) r.order_amount = 0;
+      //   단, MD·마케터(staff)에게는 ON 광고 칸의 카페24 ROAS(판매합계 ÷ 기간 광고비)를 계산할 값만 roas_amt로 따로 준다(2026-10-30 사용자 요청 "MD도 카페24 ROAS가 보이게").
+      //   화면은 이 값을 ROAS 계산에만 쓰고 판매합계 칸·합계 타일은 계속 0/숨김. CS·물류는 안 줌.
+      if (authed.role !== "admin") for (const r of rows) { if (authed.role === "staff") (r as Record<string, unknown>).roas_amt = r.order_amount; r.order_amount = 0; }
       return respond({ period: { start: s, end: e }, product_count: rows.length, rows, cn_cost: cnCostOn, cn_cost_error: cnCostError });
     }
 
