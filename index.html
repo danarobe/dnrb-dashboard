@@ -427,6 +427,8 @@
     .cnm-tbl td.cnm-prod { border-top:2px solid #e5e7eb; }
     .cnm-chip { display:inline-flex; align-items:center; gap:5px; border:1.5px solid #e5e7eb; background:#fff; border-radius:10px; padding:5px 10px; font-size:.76rem; color:#374151; }
     .cnm-chip b { color:#1e1b4b; }
+    .cnm-basis-row { display:flex; gap:10px; align-items:flex-start; }
+    .cnm-basis-k { flex:0 0 58px; font-size:.72rem; font-weight:700; color:#6366f1; padding-top:3px; }
     .cnm-when { display:inline-block; border-radius:7px; padding:2px 7px; font-size:.74rem; font-weight:800; white-space:nowrap; }
     .made-cn-tbl .inc-has-tip { cursor:help; border-bottom:1.5px dotted #7dd3fc; }
     .inc-tip { position:fixed; z-index:500; display:none; background:#fff; border:1.5px solid #bae6fd; border-radius:10px; box-shadow:0 10px 28px rgba(15,23,42,.18); padding:9px 12px; font-size:.74rem; color:#374151; max-width:420px; pointer-events:none; line-height:1.45; }
@@ -7654,6 +7656,32 @@ function cnmPhoto(file, sname) {
   if (u && /^data:image\/jpeg;base64,[A-Za-z0-9+/=]+$/.test(u)) return `<img src="${u}" alt="" data-g="${escHtml(sname)}" onclick="cnThumbZoom(this)" title="눌러서 크게 보기" style="width:56px;height:56px;object-fit:cover;border-radius:8px;cursor:zoom-in;display:block;" />`;
   return cnCsOnly() ? '<span style="display:inline-block;width:56px;height:56px;border-radius:8px;background:#f3f4f6;"></span>' : cnThumbHtml(sname);
 }
+// '기준' 칸의 '입고 기준'(2026-10-31 사용자 요청 — 예: '34+9박스 입고 후'), 파일마다 직접 씀. 관리자·MD·물류팀은 쓰기, CS팀은 보기만
+function cnmBasisHtml(f, editing) {
+  const can = cnMisong.canSet && !cnCsOnly(), note = f.arrival_note || '';
+  if (editing) return `<div style="display:flex;gap:4px;align-items:center;flex-wrap:wrap;"><input id="cnm-basis-in" type="text" maxlength="80" value="${escHtml(note)}" placeholder="예: 34+9박스 입고 후" onkeydown="if(event.key==='Enter'){event.preventDefault();cnmBasisSave(${f.id})}else if(event.key==='Escape'){cnmBasisEdit(${f.id},false)}" style="border:1.5px solid #a5b4fc;border-radius:7px;padding:3px 7px;font-size:.84rem;min-width:170px;" /><button class="toggle-btn" style="font-size:.72rem;padding:2px 9px;background:#4f46e5;color:#fff;border-color:#4f46e5;" onclick="cnmBasisSave(${f.id})">저장</button><button class="toggle-btn" style="font-size:.72rem;padding:2px 9px;" onclick="cnmBasisEdit(${f.id},false)">취소</button></div>`;
+  const at = f.arrival_note_at ? new Date(f.arrival_note_at) : null, when = at ? `${at.getMonth() + 1}/${at.getDate()} ${String(at.getHours()).padStart(2, '0')}:${String(at.getMinutes()).padStart(2, '0')}` : '';
+  const pen = can ? ` <button class="toggle-btn" style="font-size:.68rem;padding:1px 7px;display:inline-flex;vertical-align:middle;margin:0 0 0 4px;width:auto;" onclick="cnmBasisEdit(${f.id},true)" title="입고 기준 쓰기"><i class="fa-solid fa-pen"></i>${note ? '' : ' 쓰기'}</button>` : '';
+  if (!note) return `<span style="font-size:.8rem;color:#9ca3af;">아직 안 적었어요</span>${pen}`;
+  return `<div style="font-size:1.05rem;font-weight:900;color:#1e1b4b;">${escHtml(note)}</div><div style="font-size:.7rem;color:#6b7280;white-space:nowrap;">${escHtml(f.arrival_note_by || '')}${when ? ' · ' + escHtml(when) : ''}${pen}</div>`;
+}
+function cnmBasisEdit(fid, on) {
+  const f = (cnMisong.files || []).find(x => x.id === fid), box = $('cnm-basis-note'); if (!f || !box) return;
+  box.innerHTML = cnmBasisHtml(f, on);
+  if (on) { const i = $('cnm-basis-in'); if (i) { i.focus(); i.select(); } }
+}
+async function cnmBasisSave(fid) {
+  const i = $('cnm-basis-in'); if (!i) return;
+  const note = i.value.replace(/\s+/g, ' ').trim();
+  i.disabled = true;
+  try {
+    const r = await cnPost('cn_misong_basis', { id: fid, note });
+    const f = (cnMisong.files || []).find(x => x.id === fid);
+    if (f) { f.arrival_note = r.arrival_note; f.arrival_note_by = r.arrival_note_by; f.arrival_note_at = r.arrival_note_at; }
+    showToast(note ? '입고 기준을 저장했어요' : '입고 기준을 지웠어요');
+    cnmBasisEdit(fid, false);
+  } catch (e) { showToast('저장하지 못했어요: ' + e.message); i.disabled = false; }
+}
 function cnMisongRender() {
   const head = $('cn-misong-head'), body = $('cn-misong-body'); if (!head || !body) return;
   if (!cnMisong.files && !cnMisong.loading && !cnMisong.err) { cnMisongLoad(false); }
@@ -7684,7 +7712,11 @@ function cnMisongRender() {
   const tabs = files.map((x, i) => `<button class="toggle-btn${i === vi ? ' active' : ''}" style="${i === vi ? 'background:#4f46e5;color:#fff;border-color:#4f46e5;' : ''}" onclick="cnMisong.view=${i};cnMisongRender()">${i === 0 ? '최신' : '직전'} · ${x.base_date ? cnmMd(x.base_date) + ' 기준' : '기준일 없음'}</button>`).join('');
   head.innerHTML = `<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px;">${tabs}<span style="margin-left:auto;display:flex;gap:6px;">${upBtn}<button class="toggle-btn" onclick="cnMisongLoad(true)"><i class="fa-solid fa-rotate"></i></button></span></div>
     <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:stretch;margin-bottom:10px;">
-      <div style="border:1.5px solid #c7d2fe;background:#eef2ff;border-radius:12px;padding:10px 14px;min-width:170px;"><div style="font-size:.72rem;color:#4338ca;font-weight:700;">미송 현황 기준일</div><div style="font-size:1.15rem;font-weight:900;color:#1e1b4b;">${base ? `${cnmMd(base)}(${cnmDow(base)}) 기준` : '기준일 모름'}</div><div style="font-size:.7rem;color:#6b7280;">엑셀 머리글 '${escHtml(f.base_label || '—')}'</div></div>
+      <div style="border:1.5px solid #c7d2fe;background:#eef2ff;border-radius:12px;padding:10px 14px;min-width:260px;">
+        <div style="font-size:.72rem;color:#4338ca;font-weight:800;margin-bottom:4px;">기준</div>
+        <div class="cnm-basis-row"><span class="cnm-basis-k">기준일</span><div><div style="font-size:1.05rem;font-weight:900;color:#1e1b4b;">${base ? `${cnmMd(base)}(${cnmDow(base)}) 기준` : '기준일 모름'}</div><div style="font-size:.7rem;color:#6b7280;">엑셀 머리글 '${escHtml(f.base_label || '—')}'</div></div></div>
+        <div class="cnm-basis-row" style="margin-top:6px;"><span class="cnm-basis-k">입고 기준</span><div id="cnm-basis-note">${cnmBasisHtml(f)}</div></div>
+      </div>
       <div style="border:1.5px solid #e5e7eb;background:#fff;border-radius:12px;padding:10px 14px;min-width:170px;"><div style="font-size:.72rem;color:#6b7280;font-weight:700;">엑셀 업로드</div><div style="font-size:1rem;font-weight:800;color:#1e1b4b;">${escHtml(upTxt)}</div><div style="font-size:.7rem;color:#6b7280;">${escHtml(f.uploaded_by_name || '')} · ${escHtml(f.file_name || '')}</div></div>
       <div style="border:1.5px solid #e5e7eb;background:#fff;border-radius:12px;padding:10px 14px;min-width:150px;"><div style="font-size:.72rem;color:#6b7280;font-weight:700;">미송 합계</div><div style="font-size:1.15rem;font-weight:900;color:#1e1b4b;">${fmt(nQty)}장</div><div style="font-size:.7rem;color:#6b7280;">품번 ${nSn}개 · 옵션 ${nOpt}개</div></div>
     </div>
