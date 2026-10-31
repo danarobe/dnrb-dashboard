@@ -638,6 +638,10 @@
     .cn-nm-right { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; flex-wrap: nowrap; }
     .cn-nm-title { font-weight: 800; font-size: .86rem; }
     .cn-nm-fab { display: inline-flex; align-items: center; gap: 5px; flex: 1 1 150px; min-width: 0; }
+    .cn-nm-rmk { display: inline-flex; align-items: center; gap: 5px; flex: 1 1 100%; min-width: 0; }
+    .cn-tbl input.cn-remark { flex: 1 1 260px; min-width: 120px; max-width: 460px; border: 1px dashed #d1d5db; border-radius: 6px; padding: 3px 6px; font-size: .74rem; background: #fff; }
+    .cn-tbl input.cn-remark.on { border: 1px solid #fcd34d; background: #fffbeb; color: #92400e; font-weight: 700; }
+    .cn-rmk-txt { font-size: .76rem; font-weight: 700; color: #92400e; background: #fffbeb; border: 1px solid #fcd34d; border-radius: 6px; padding: 2px 7px; white-space: normal; }
     .cn-nm-meta { font-size: .7rem; color: #6b7280; }
     .cn-nm-meta .cn-c24 { max-width: 190px !important; }
     .cn-tbl thead th { word-break: keep-all; }
@@ -4326,7 +4330,8 @@ function cnBuyRender() {
     const info = (d.prods || {})[p.sname] || {}, sub = p.opts.reduce((t, o) => t + (st.qty[o.key] || 0), 0);
     const price = st.price[p.sname] != null ? st.price[p.sname] : p.price;
     html += `<tr style="background:#f8f9ff;"><td class="cn-name" colspan="4"><div style="display:flex;align-items:center;gap:8px;">${cnThumbHtml(p.sname)}<b style="font-weight:800;">${escHtml(p.sname)}</b><span class="cn-sub">옵션 ${p.opts.length}</span>
-        <span class="cn-label-badge" style="${cnAnyLabelOf(p.sname) ? '' : 'background:#f3f4f6;color:#4b5563;border-color:#e5e7eb;'}" title="주문서 맨 오른쪽 열에 들어가는 라벨 문구 — 입고 검수의 혼용률·라벨(일반·아우터·사이즈)로 정해져요">${escHtml(cnOrderLabelText(p.sname))}</span>
+        <span class="cn-label-badge" style="${cnAnyLabelOf(p.sname) ? '' : 'background:#f3f4f6;color:#4b5563;border-color:#e5e7eb;'}" title="주문서 I열에 들어가는 라벨 문구 — 입고 검수의 혼용률·라벨(일반·아우터·사이즈)로 정해져요">${escHtml(cnOrderLabelText(p.sname))}</span>
+        ${cnRemarkOf(p.sname) ? `<span class="cn-rmk-txt" title="주문서 J열 '특이사항'에 들어가요 — 입고 검수에서 고칠 수 있어요">특이사항: ${escHtml(cnRemarkOf(p.sname))}</span>` : ''}
         <span class="cn-sub" style="display:inline-flex;align-items:center;gap:4px;">매장 <input type="text" maxlength="80" value="${escHtml(info.vendor || '')}" data-s="${escHtml(p.sname)}" data-prev="${escHtml(info.vendor || '')}" onchange="cnBuyVendor(this)" placeholder="예: W-1F-10-30" style="width:120px;border:1px solid #e5e7eb;border-radius:6px;padding:2px 6px;font-size:.74rem;" /></span>
         ${canPrice ? `<span class="cn-sub" style="display:inline-flex;align-items:center;gap:4px;">단가 ¥<input type="number" min="0" step="0.1" value="${price == null ? '' : price}" data-s="${escHtml(p.sname)}" onchange="cnBuyPrice(this)" style="width:70px;border:1px solid #e5e7eb;border-radius:6px;padding:2px 6px;font-size:.74rem;text-align:right;" /></span>` : ''}</div></td>
       <td style="text-align:right;font-weight:800;color:${sub ? '#4338ca' : '#9ca3af'};" data-buy-sub="${escHtml(encodeURIComponent(p.sname))}">${sub ? fmt(sub) + '장' : '—'}</td></tr>`;
@@ -4397,11 +4402,12 @@ async function cnBuyWorkbook(picked, sheetName) {   // 사용자 주문서 양�
   const names = picked.map(p => p.sname).filter(n => !(cnState.thumbs || {})[n]);
   if (names.length) { try { const r = await cnPost('cn_thumbs', { get: names.slice(0, 200) }); cnState.thumbs = Object.assign(cnState.thumbs || {}, r.thumbs || {}); } catch (e) { /* 사진 없이도 만든다 */ } }
   const wb = new ExcelJS.Workbook(), ws = wb.addWorksheet(sheetName);
-  ws.columns = [{ width: 10 }, { width: 15 }, { width: 14 }, { width: 8 }, { width: 8 }, { width: 8 }, { width: 10 }, { width: 14 }, { width: 24 }];
+  ws.columns = [{ width: 10 }, { width: 15 }, { width: 14 }, { width: 8 }, { width: 8 }, { width: 8 }, { width: 10 }, { width: 14 }, { width: 24 }, { width: 30 }];
   const thin = { style: 'thin' }, border = { top: thin, left: thin, bottom: thin, right: thin }, center = { horizontal: 'center', vertical: 'middle' };
   const head = (r, vals) => { const row = ws.getRow(r); vals.forEach((v, i) => { const c = row.getCell(i + 1); c.value = v; c.font = { name: '궁서', size: 10, bold: true }; c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFC5D9F1' } }; c.alignment = center; c.border = border; }); };
   head(1, ['품번', '이미지', '색상', '싸이즈', '수량', '단가', '합계', '매장']);
   head(2, ['款号', '图片', '颜色', '码数', '数量', '单价', '合计', '档口']);
+  ws.mergeCells(1, 10, 2, 10); head(1, [, , , , , , , , , '특이사항\n备注']); ws.getCell(1, 10).alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };   // J열 = 입고 검수의 특이사항(2026-10-31)
   let r = 3;
   for (const p of picked) {
     const n = Math.max(6, p.opts.length), r0 = r;
@@ -4411,9 +4417,10 @@ async function cnBuyWorkbook(picked, sheetName) {   // 사용자 주문서 양�
       if (o) { row.getCell(3).value = o.color || null; row.getCell(4).value = o.size || null; row.getCell(5).value = o.qty; if (p.price != null) row.getCell(6).value = p.price; }
       const g = row.getCell(7); g.value = { formula: `E${r + i}*F${r + i}` }; g.font = { name: '돋움', size: 10, bold: true, color: { argb: 'FF215967' } }; g.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFEBF1DE' } };
     }
-    ws.mergeCells(r0, 1, r0 + n - 1, 1); ws.mergeCells(r0, 2, r0 + n - 1, 2); ws.mergeCells(r0, 9, r0 + n - 1, 9);
+    ws.mergeCells(r0, 1, r0 + n - 1, 1); ws.mergeCells(r0, 2, r0 + n - 1, 2); ws.mergeCells(r0, 9, r0 + n - 1, 9); ws.mergeCells(r0, 10, r0 + n - 1, 10);
     const a = ws.getCell(r0, 1); a.value = /^\d+$/.test(p.sname) ? Number(p.sname) : p.sname; a.font = { name: '궁서', size: 11, bold: true }; a.alignment = center;
     if (p.vendor) ws.getCell(r0, 8).value = p.vendor;
+    const rmk = ws.getCell(r0, 10); rmk.value = cnRemarkOf(p.sname) || null; rmk.alignment = { horizontal: 'left', vertical: 'middle', wrapText: true }; rmk.font = { name: '돋움', size: 10, bold: true, color: { argb: 'FFC00000' } }; rmk.border = border;
     const lab = ws.getCell(r0, 9); lab.value = cnOrderLabelText(p.sname); lab.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true }; lab.font = { name: '돋움', size: 10, bold: true };   // 라벨 문구(2026-10-26 — 옛 '다나로브')
     const url = (cnState.thumbs || {})[p.sname];
     if (url && /^data:image\/(jpeg|png);base64,/.test(url)) {
@@ -6397,11 +6404,32 @@ function cnNameCell(tab, sname, open, nOpt, meta) {   // meta = 셋째 줄(입�
   return `<td class="cn-name"><div class="cn-nm">${cnFoldBtn(tab, sname, open, nOpt)}${cnThumbHtml(sname)}<div class="cn-nm-body">
       <div class="cn-nm-row"><span class="cn-nm-title">${escHtml(sname)}</span><span class="cn-sub">옵션 ${nOpt}</span><span class="cn-nm-right">${cnLineHtml(sname)}${cnInactiveHtml(sname)}</span></div>
       <div class="cn-nm-row">${cnFabricHtml(sname)}</div>
+      ${cnRemarkHtml(sname)}
       ${meta || manual ? `<div class="cn-nm-row cn-nm-meta">${meta || ''}${manual}</div>` : ''}</div></div></td>`;
 }
 // 단가 칸 하나: 위안(굵게) + 아래 작은 글씨로 원(× 환율) — 예전의 단가(CHN)·단가(KRW) 두 열을 합침
 const cnPriceTd = (yuan, tag, tip) => `<td style="text-align:right;"${tip ? ` title="${escHtml(tip)}"` : ''}>${yuan == null ? '<span style="color:#9ca3af;">—</span>' : `<b>${cnYuan(yuan)}</b>${tag || ''}<div class="cn-sub" title="× 누적 평균 1위안 원가 ${Math.round(cnFxAvg() * 100) / 100}원(에이전시 10%·들여오는 비용 전)">${fmt(Math.round(Number(yuan) * cnFxAvg()))}원</div>`}</td>`;
 const cnShipName = x => String((x && (x.order_round || x.title)) || '');   // 입고 건의 짧은 이름(발주 차수)
+/* 특이사항 (2026-10-31 사용자 요청: "상품마다 어떤 옵션을 제거하거나, 라벨 특이사항이 있거나 여러 가지 문제들이 있어서 참고가 필요해") — 상품(사입상품명)마다 하나(cn_products.remark).
+   상품 줄 이름 아래(혼용률 다음 줄)에서 적고(칸을 벗어나거나 Enter면 저장 — 관리자·MD, 물류팀은 글만), 주문하기 엑셀의 I열(라벨 문구) 옆 J열 '특이사항'으로 나간다. */
+const cnRemarkOf = sname => ((((cnState.data || {}).prods || {})[sname]) || {}).remark || '';
+function cnRemarkHtml(sname) {
+  const d = cnState.data || {}, info = (d.prods || {})[sname] || {}, v = info.remark || '';
+  const tip = v && info.remark_by ? `${info.remark_by} · ${unshipKst(info.remark_at)}` : '';
+  if (!d.can_edit) return v ? `<div class="cn-nm-row"><span class="cn-nm-rmk"><span class="cn-sub">특이사항</span><span class="cn-rmk-txt" title="${escHtml(tip)}">${escHtml(v)}</span></span></div>` : '';
+  return `<div class="cn-nm-row"><span class="cn-nm-rmk"><span class="cn-sub">특이사항</span><input type="text" class="cn-remark${v ? ' on' : ''}" maxlength="300" value="${escHtml(v)}" data-s="${escHtml(sname)}" data-prev="${escHtml(v)}" onchange="cnRemarkSave(this)" onkeydown="if(event.key==='Enter')this.blur()" placeholder="예: 블랙 옵션 제거 · 라벨 따로 부착" aria-label="${escHtml(sname)} 특이사항" title="${escHtml(tip || '주문하기 엑셀의 \'특이사항\' 열에도 들어가요')}" /></span></div>`;
+}
+async function cnRemarkSave(el) {
+  const sname = el.dataset.s, v = el.value.replace(/\s+/g, ' ').trim();
+  if (v === el.dataset.prev) { el.value = v; return; }
+  try {
+    const r = await cnPost('cn_remark', { sname, remark: v || null });
+    const d = cnState.data; d.prods = d.prods || {};
+    d.prods[sname] = Object.assign({}, d.prods[sname], { remark: r.remark, remark_by: r.remark_by, remark_at: r.remark_at });
+    el.dataset.prev = r.remark || ''; el.value = r.remark || ''; el.classList.toggle('on', !!r.remark); el.title = r.remark ? `${r.remark_by} · ${unshipKst(r.remark_at)}` : '';
+    showToast(r.remark ? '특이사항 저장' : '특이사항을 지웠어요');
+  } catch (e) { showToast('특이사항 저장 실패: ' + e.message); el.value = el.dataset.prev; }
+}
 async function cnFabricSave(el) {
   const sname = el.dataset.s, v = el.value.replace(/\s+/g, ' ').trim();
   if (v === el.dataset.prev) { el.value = v; return; }

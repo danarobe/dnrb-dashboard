@@ -2170,7 +2170,7 @@ Deno.serve(async (req) => {
     //   cn_vendor POST — 사입상품명별 거래처명 수동 입력 (관리자·MD, 2026-10-01 — 입고 건 단위가 아니라 상품마다)
     //   cn_thumbs POST {get:[사입상품명…]} — 그 상품들의 작은 사진(전원, 한 번에 200개 — 화면에 보이는 것만 받게)
     //             POST {thumbs:{사입상품명:dataURL}} — 사진 저장(관리자·MD, 상품당 1장 — 같은 이름은 덮어씀). 목록과 따로 불러 표를 늦추지 않는다 (2026-10-02)
-    if (action === "cn_list" || action === "cn_upload" || action === "cn_check" || action === "cn_ship" || action === "cn_vendor" || action === "cn_line" || action === "cn_fabric" || action === "cn_label" || action === "cn_c24find" || action === "cn_c24set" || action === "cn_export" || action === "cn_thumbs" || action === "cn_order_upload" || action === "cn_order" || action === "cn_inactive" || action === "cn_manual_ship" || action === "cn_fx_buy_add" || action === "cn_fx_buy_del" || action === "cn_remit_save" || action === "cn_remit_del" || action === "cn_doc_save" || action === "cn_discard" || action === "cn_discard_del" || action === "cn_defect" || action === "cn_defect_del" || action === "cn_gap" || action === "cn_cellmap" || action === "cn_misong_list" || action === "cn_misong_upload" || action === "cn_misong_set" || action === "cn_misong_basis") {
+    if (action === "cn_list" || action === "cn_upload" || action === "cn_check" || action === "cn_ship" || action === "cn_vendor" || action === "cn_line" || action === "cn_fabric" || action === "cn_remark" || action === "cn_label" || action === "cn_c24find" || action === "cn_c24set" || action === "cn_export" || action === "cn_thumbs" || action === "cn_order_upload" || action === "cn_order" || action === "cn_inactive" || action === "cn_manual_ship" || action === "cn_fx_buy_add" || action === "cn_fx_buy_del" || action === "cn_remit_save" || action === "cn_remit_del" || action === "cn_doc_save" || action === "cn_discard" || action === "cn_discard_del" || action === "cn_defect" || action === "cn_defect_del" || action === "cn_gap" || action === "cn_cellmap" || action === "cn_misong_list" || action === "cn_misong_upload" || action === "cn_misong_set" || action === "cn_misong_basis") {
       // 관리자 + MD + 물류팀. **CS팀은 볼 필요 없음(2026-10-02 사용자 지정)** — 서버 역할은 logistics→cs로 합쳐져 있어 원래 역할을 다시 본다(soldoutRoleOk와 같은 방식)
       // 미송 확인 목록만 CS팀에도 열림(2026-10-26 사용자 요청 — "미송 확인은 물류팀과 CS팀도") — 그 밖의 중국 사입 자료는 그대로 CS 제외
       // 물류팀도 서버 역할은 cs라 원래 역할을 다시 읽는다(soldoutRoleOk) — 진짜 CS팀만 '보기 전용'
@@ -2235,12 +2235,12 @@ Deno.serve(async (req) => {
           sbRest("cn_lines?select=*&order=shipment_id.desc,seq.asc&limit=20000"),
           sbRest("cn_orders?select=*&order=id.desc&limit=300"),                                   // 주문서(2026-10-19 다시) — 단가가 없어 역할과 관계없이 그대로
           sbRest("cn_order_lines?select=*&order=order_id.desc,seq.asc&limit=30000"),
-          sbRest("cn_products?select=sname,vendor,updated_by_name,updated_at,line,line_by_name,line_at,fabric,fabric_by_name,fabric_at,label,label_by_name,label_at,outer_label,outer_label_by_name,outer_label_at,size_label,size_label_by_name,size_label_at,c24_nos,c24_by_name,c24_at,inactive,inactive_by_name,inactive_at,cell_map&limit=5000"),
+          sbRest("cn_products?select=sname,vendor,updated_by_name,updated_at,line,line_by_name,line_at,fabric,fabric_by_name,fabric_at,label,label_by_name,label_at,outer_label,outer_label_by_name,outer_label_at,size_label,size_label_by_name,size_label_at,remark,remark_by_name,remark_at,c24_nos,c24_by_name,c24_at,inactive,inactive_by_name,inactive_at,cell_map&limit=5000"),
           sbRest("cn_discards?select=id,sname,color,size,qty,note,created_by_name,created_at&order=created_at.asc&limit=20000"),   // 폐기(2026-10-23) — 잔여 = 주문 − 중국출고 − 폐기
           sbRest("cn_defects?select=id,sname,color,size,shipment_id,qty,found_on,note,created_by_name,created_at&order=found_on.desc,id.desc&limit=20000"),   // 불량 기록(2026-10-26)
         ]) as [Record<string, any>[], Record<string, any>[], Record<string, any>[], Record<string, any>[], Record<string, any>[], Record<string, any>[], Record<string, any>[]];
         const prods: Record<string, unknown> = {};
-        for (const r of prodRows) prods[String(r.sname)] = { vendor: r.vendor ?? null, by: r.updated_by_name ?? null, at: r.updated_at ?? null, line: r.line ?? null, line_by: r.line_by_name ?? null, line_at: r.line_at ?? null, fabric: r.fabric ?? null, fabric_by: r.fabric_by_name ?? null, fabric_at: r.fabric_at ?? null, label: r.label === true, label_by: r.label_by_name ?? null, label_at: r.label_at ?? null, outer: r.outer_label === true, outer_by: r.outer_label_by_name ?? null, outer_at: r.outer_label_at ?? null, size: r.size_label === true, size_by: r.size_label_by_name ?? null, size_at: r.size_label_at ?? null, c24_nos: Array.isArray(r.c24_nos) ? r.c24_nos : null, c24_by: r.c24_by_name ?? null, c24_at: r.c24_at ?? null, inactive: r.inactive === true, inactive_by: r.inactive_by_name ?? null, inactive_at: r.inactive_at ?? null, cell_map: r.cell_map && typeof r.cell_map === "object" ? r.cell_map : null };
+        for (const r of prodRows) prods[String(r.sname)] = { vendor: r.vendor ?? null, by: r.updated_by_name ?? null, at: r.updated_at ?? null, line: r.line ?? null, line_by: r.line_by_name ?? null, line_at: r.line_at ?? null, fabric: r.fabric ?? null, fabric_by: r.fabric_by_name ?? null, fabric_at: r.fabric_at ?? null, label: r.label === true, label_by: r.label_by_name ?? null, label_at: r.label_at ?? null, outer: r.outer_label === true, outer_by: r.outer_label_by_name ?? null, outer_at: r.outer_label_at ?? null, size: r.size_label === true, size_by: r.size_label_by_name ?? null, size_at: r.size_label_at ?? null, c24_nos: Array.isArray(r.c24_nos) ? r.c24_nos : null, c24_by: r.c24_by_name ?? null, c24_at: r.c24_at ?? null, inactive: r.inactive === true, inactive_by: r.inactive_by_name ?? null, inactive_at: r.inactive_at ?? null, remark: r.remark ?? null, remark_by: r.remark_by_name ?? null, remark_at: r.remark_at ?? null, cell_map: r.cell_map && typeof r.cell_map === "object" ? r.cell_map : null };
         const outLines = canPrice ? lines : lines.map((l) => { const { unit_price: _u, ...rest } = l; return rest; });
         const outShips = ships.map(hideCosts);   // 비용(2번째 시트)도 관리자만
         // 카페24 등록 여부 (2026-10-12 규칙 — 사용자 지정 반영): 카페24 상품의 '공급사 상품명'(공백·대소문자 무시)과 사입상품명(품번)을 맞춘다.
@@ -2541,6 +2541,18 @@ Deno.serve(async (req) => {
         const fabric = txt(b.fabric, 200);
         await sbRest("cn_products?on_conflict=sname", { method: "POST", headers: { Prefer: "resolution=merge-duplicates,return=minimal" }, body: JSON.stringify({ sname, fabric, fabric_by_name: authed.name, fabric_at: now }) });
         return json({ ok: true, sname, fabric, fabric_by: authed.name, fabric_at: now });
+      }
+      // 상품별 특이사항(2026-10-31 사용자 요청 — 옵션 제거·라벨 특이사항 등 참고할 글, 주문하기 엑셀 J열로도 나감) — 혼용률과 같은 규칙: 관리자·MD만 쓰기, 물류팀은 보기만. 빈 값 = 지움
+      if (action === "cn_remark") {
+        if (!canEdit) return json({ error: "특이사항은 관리자·MD만 적을 수 있어요" }, 403);
+        const sname = txt(b.sname, 100);
+        if (!sname) return json({ error: "사입상품명이 없어요" }, 400);
+        if (b.remark != null && String(b.remark).trim().length > 300) return json({ error: "특이사항은 300자까지 적을 수 있어요" }, 400);
+        const known = await snameKnown(sname);
+        if (!known.length) return json({ error: "입고 내역에 없는 사입상품명이에요 — 새로고침한 뒤 다시 시도해주세요" }, 404);
+        const remark = txt(b.remark, 300);
+        await sbRest("cn_products?on_conflict=sname", { method: "POST", headers: { Prefer: "resolution=merge-duplicates,return=minimal" }, body: JSON.stringify({ sname, remark, remark_by_name: remark ? authed.name : null, remark_at: remark ? now : null }) });
+        return json({ ok: true, sname, remark, remark_by: remark ? authed.name : null, remark_at: remark ? now : null });
       }
       // 카페24 상품 직접 연결 (2026-10-12 사용자 요청 — 자동으로 맞추기 힘든 상품은 직접 고른다)
       //   cn_c24find { q }: 카페24 상품을 판매 상품명·공급사 상품명으로 찾는다(읽기, 30개까지). cn_c24set { sname, product_nos: [번호…] | [] | null }: 직접 연결 / 해당 없음 / 자동으로 되돌림.
