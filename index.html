@@ -6453,11 +6453,11 @@ const cnAnyLabelOf = sname => cnLabelOf(sname) || cnOuterOf(sname) || cnSizeLabO
 const CN_LABS = [['label', '일반', '일반(혼용률) 라벨'], ['outer', '아우터', '아우터 라벨'], ['size', '사이즈', '사이즈 라벨']];
 const cnLabelNames = sname => CN_LABS.filter(([k]) => ((((cnState.data || {}).prods || {})[sname]) || {})[k] === true).map(([, , full]) => full).join(' · ');
 // 주문서(주문하기 엑셀) 맨 오른쪽 열의 라벨 문구(2026-10-26 사용자 지정): 라벨 체크 없음 = '다나로브 일반 메차 라벨',
-//   라벨 체크 = 혼용률 + ' 라벨'(예: '울 70 폴리 30' → '울70 폴리30 라벨'), 아우터라벨도 체크면 뒤에 ' + 아우터 라벨'.
+//   라벨 체크 = 혼용률만(예: '울 70 폴리 30' → '울70 폴리30' — 2026-11-01 사용자 요청으로 뒤의 ' 라벨'을 뺌), 아우터라벨도 체크면 뒤에 ' + 아우터 라벨'.
 const cnFabricShort = v => String(v || '').replace(/%/g, ' ').replace(/[,/·]+/g, ' ').replace(/\s+/g, ' ').trim().replace(/([가-힣A-Za-z])\s+(\d)/g, '$1$2');
 function cnOrderLabelText(sname) {
   const f = cnFabricShort(cnFabricOf(sname)), hasF = f && /\d/.test(f);
-  const base = cnLabelOf(sname) ? (hasF ? `${f} 라벨` : '혼용률 라벨 (혼용률 미입력)') : '다나로브 일반 메차 라벨';
+  const base = cnLabelOf(sname) ? (hasF ? f : '혼용률 라벨 (혼용률 미입력)') : '다나로브 일반 메차 라벨';
   return base + (cnOuterOf(sname) ? ' + 아우터 라벨' : '') + (cnSizeLabOf(sname) ? ' + 사이즈 라벨' : '');
 }
 // 미진행 상품(2026-10-20 사용자 요청 — "진행하지 않는 상품이어서 미진행 체크하면 안 보이도록"): 입고 검수·상품별 현황의 기본 보기와 합계에서 빠지고, 상품별 현황 '미진행' 칩에서만 보인다
