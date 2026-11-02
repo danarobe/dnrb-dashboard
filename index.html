@@ -9254,7 +9254,7 @@ function rscanIssuesRender() {
   $('rscan-issues-meta').textContent = `최근 ${r.days}일(${r.start_date} ~ 어제) 반품·교환 ${fmt(r.row_count)}건 중 불량·오배송 주문 ${r.issues.length - outN}건${outN ? ` + 90일 지난 특별관리 ${outN}건` : ''}${r.cleared_count ? ` (정리된 ${r.cleared_count}건 제외)` : ''}${r.special_error ? ' · ⚠ ' + r.special_error : ''}`;
   const list = rscanIssueList();
   if (!list.length) { $('rscan-issues').innerHTML = `<div class="empty-state"><p>${rscanState.issueFilter === 'todo' ? '처리전 건이 없어요 — 모두 처리됐어요' : rscanState.issueFilter === 'special' ? '특별관리 주문이 없어요 — 오래 수거되지 않는 주문의 별(☆)을 눌러 표시하세요' : '해당하는 건이 없어요'}</p></div>`; return; }
-  const when = t => t ? String(t).replace('T', ' ').slice(5, 16) : '';
+  const when = t => kstDT(t).slice(5);
   const badge = a => a ? `<span style="background:${a.level === 'alert' ? '#fee2e2' : '#fef3c7'};color:${a.level === 'alert' ? '#b91c1c' : '#92400e'};border-radius:99px;padding:1px 8px;font-size:.7rem;font-weight:800;white-space:nowrap;">${escHtml(a.type || '')}${a.level === 'warn' ? ' 의심' : ''}</span>` : '';
   const stBadge = c => {   // 접수별 주문 상태(수거 단계·교환완료 참고)
     const t = `${c.status || ''}${c.status_extra ? ' · ' + c.status_extra : ''}`; if (!t) return '';
@@ -9331,7 +9331,7 @@ async function rscanIssuesXlsx() {
     const headers = ['처리 상태', '처리자', '처리 시각', '구분', '판정', '주문번호', '주문일', '구매자', '수령인', '주문처', '접수번호', '접수일', '접수 판정', '주문 상태', '접수 상품', '옵션', '수량', '사유 코드', '사유', '네이버 사유', '반품 송장', '택배사', '특별관리', '특별관리 메모', '메모'];
     headers.forEach((h, i) => ws.cell(1, i + 1).value(h).style({ bold: true, fill: 'EEF2FF' }));
     [12, 9, 16, 6, 8, 20, 11, 10, 10, 12, 20, 11, 8, 18, 40, 22, 6, 8, 30, 20, 16, 12, 16, 30, 36].forEach((w, i) => ws.column(i + 1).width(w));
-    const when = t => t ? String(t).replace('T', ' ').slice(0, 16) : '';
+    const when = kstDT;
     const jt = a => a ? `${a.type || ''}${a.level === 'warn' ? ' 의심' : ''}` : '';
     let ri = 2;
     for (const g of list) {
@@ -9656,7 +9656,7 @@ async function rscanStatusLoad() {
 }
 function rscanStatusRender() {
   const st = rscanState.status; if (!st) return;
-  const when = t => t ? String(t).replace('T', ' ').slice(5, 16) : '';
+  const when = t => kstDT(t).slice(5);
   $('rscan-status').innerHTML = `<span><b>카페24 반품·교환 목록</b> ${st.row_count ? `${fmt(st.row_count)}건 · 최근 ${st.days}일(어제까지) · ${st.age_min == null ? '' : st.age_min < 1 ? '방금' : st.age_min + '분 전'} 갱신` : '<span style="color:#c2410c;">아직 없음 — 첫 조회 때 자동으로 만들어요(약 1분)</span>'}</span>
     <span><b>네이버페이센터 표</b> ${st.naver && st.naver.count ? `${fmt(st.naver.count)}건 · ${escHtml((st.naver.last || {}).uploaded_by || '')} ${when((st.naver.last || {}).uploaded_at)}` : '<span style="color:#c2410c;">미업로드 — 네이버페이 주문은 송장으로 못 찾아요</span>'}</span>`;
   const nv = $('rscan-naver-status'); if (nv) nv.textContent = st.naver && st.naver.count ? `현재 ${fmt(st.naver.count)}건 저장됨 (${escHtml((st.naver.last || {}).uploaded_by || '')} ${when((st.naver.last || {}).uploaded_at)})` : '';
@@ -10243,7 +10243,7 @@ async function loadMeetNotes() {
           <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px;">
             <b style="color:#1e1b4b;font-size:.82rem;">${escHtml(n.author_name)}</b>${badge}
             ${n.edited_by_name ? `<span style="background:#eef2ff;color:#4338ca;border-radius:6px;padding:1px 8px;font-size:.7rem;font-weight:700;"><i class="fa-solid fa-pen" style="font-size:.6rem;"></i> ${escHtml(n.edited_by_name)} 수정</span>` : ''}
-            <span style="font-size:.7rem;color:#9ca3af;">${(n.updated_at || n.created_at || '').slice(0, 16).replace('T', ' ')}</span>
+            <span style="font-size:.7rem;color:#9ca3af;">${kstDT(n.updated_at || n.created_at || '')}</span>
             <span style="margin-left:auto;display:flex;gap:6px;">${btns}</span>
           </div>
           <div id="note-body-${n.id}" style="white-space:pre-wrap;tab-size:4;color:#374151;line-height:1.6;">${escHtml(n.content)}</div>
@@ -12198,7 +12198,7 @@ function projOpenBatches() {
   const first = batches.length ? batches[batches.length - 1][0] : null;   // 가장 오래된 = 최초 가져오기
   $('proj-batch-list').innerHTML = batches.length ? batches.map(([ts, items]) => {
     const cats = [...new Set(items.map(r => r.category))];
-    const when = String(ts).slice(0, 16).replace('T', ' ');
+    const when = kstDT(ts);
     const isFirst = ts === first;
     return `<div style="display:flex;align-items:center;gap:10px;border:1px solid #e5e7eb;border-radius:10px;padding:10px 12px;margin-bottom:8px;">
       <div style="flex:1;min-width:0;">
@@ -13210,7 +13210,7 @@ function madeApplyFiles() {
     }
     madeState.ez = m;
   } else madeState.ez = null;
-  const when = t => t ? String(t).replace('T', ' ').slice(0, 16) : '';
+  const when = kstDT;
   const st = $('made-file-status');
   if (st) st.innerHTML = [['cell', '셀메이트 재고 CSV', '#15803d'], ['ez', '이지픽 제작상품 엑셀', '#0369a1']].map(([k, label, color]) => {
     const f = madeState.files[k];
@@ -17124,7 +17124,7 @@ async function wmSlipFilesLoad() {
       const accept = '.pdf,.png,.jpg,.jpeg,.webp,application/pdf,image/png,image/jpeg,image/webp';
       return `<tr>
         <td style="text-align:left;font-weight:600;">${escHtml(e.name)}<div style="font-size:.66rem;color:#6b7280;">${e.type === 'parttime' ? '아르바이트' : '직원'}${e.app_user_id ? '' : ' · <span style="color:#c2410c;">마이페이지 계정 미연결</span>'}</div></td>
-        <td style="text-align:left;">${f ? `<button onclick="wmSlipFileOpen(${f.id}, false)" style="border:none;background:none;color:#4f46e5;font-weight:700;cursor:pointer;text-decoration:underline;font-size:.8rem;">${escHtml(f.file_name)}</button><div style="font-size:.66rem;color:#6b7280;">${slipFmtSize(f.size)} · ${escHtml(f.uploaded_by || '')} · ${String(f.uploaded_at || '').slice(0, 16).replace('T', ' ')}</div>` : '<span style="color:#9ca3af;">미등록</span>'}</td>
+        <td style="text-align:left;">${f ? `<button onclick="wmSlipFileOpen(${f.id}, false)" style="border:none;background:none;color:#4f46e5;font-weight:700;cursor:pointer;text-decoration:underline;font-size:.8rem;">${escHtml(f.file_name)}</button><div style="font-size:.66rem;color:#6b7280;">${slipFmtSize(f.size)} · ${escHtml(f.uploaded_by || '')} · ${kstDT(f.uploaded_at)}</div>` : '<span style="color:#9ca3af;">미등록</span>'}</td>
         <td style="white-space:nowrap;">
           <label class="toggle-btn" style="cursor:pointer;display:inline-flex;align-items:center;gap:5px;margin:0;"><i class="fa-solid fa-upload"></i> ${f ? '교체' : '업로드'}<input type="file" accept="${accept}" style="display:none;" onchange="wmSlipFileUpload(${e.id}, this)" /></label>
           ${f ? `<button class="toggle-btn" onclick="wmSlipFileOpen(${f.id}, true)" title="내려받기"><i class="fa-solid fa-download"></i></button>
@@ -17259,7 +17259,7 @@ function wmDocReqRender() {
       const [sl, sc, sb] = DOC_REQ_STATUS[r.status] || [r.status, '#6b7280', '#f3f4f6'];
       const p = r.payload || {};
       return `<tr>
-        <td style="text-align:left;white-space:nowrap;color:#6b7280;">${String(r.requested_at || '').slice(0, 16).replace('T', ' ')}</td>
+        <td style="text-align:left;white-space:nowrap;color:#6b7280;">${kstDT(r.requested_at)}</td>
         <td style="text-align:left;font-weight:700;white-space:nowrap;">${escHtml(e.name)}</td>
         <td style="text-align:left;">${DOC_TYPE_LABEL[r.doc_type] || r.doc_type}${p.car_no ? `<div style="font-size:.68rem;color:#6b7280;">${escHtml(p.car_no)}${p.car_model ? ' · ' + escHtml(p.car_model) : ''}</div>` : ''}</td>
         <td class="m-hide" style="color:#6b7280;">${escHtml(p.use || '—')}</td>
@@ -17385,7 +17385,7 @@ function wmTripDetail(id) {
   box.innerHTML = `<div style="background:#fff;border-radius:16px;max-width:860px;width:100%;max-height:90vh;overflow:auto;padding:20px 22px;">
     <div style="display:flex;align-items:flex-start;gap:10px;">
       <div style="flex:1;"><div style="font-size:1rem;font-weight:800;color:#1e1b4b;">${escHtml(e.name)} · ${escHtml(c.place)}</div>
-        <div style="font-size:.74rem;color:#6b7280;margin-top:2px;">제출 ${String(c.submitted_at || '').slice(0, 16).replace('T', ' ')}${c.resubmit_count ? ` · <b style="color:#4338ca;">재제출 ${c.resubmit_count}회</b> (최근 ${String(c.resubmitted_at || '').slice(0, 16).replace('T', ' ')})` : ''}</div>
+        <div style="font-size:.74rem;color:#6b7280;margin-top:2px;">제출 ${kstDT(c.submitted_at)}${c.resubmit_count ? ` · <b style="color:#4338ca;">재제출 ${c.resubmit_count}회</b> (최근 ${kstDT(c.resubmitted_at)})` : ''}</div>
         ${c.prev_review_note && !c.review_note ? `<div style="font-size:.74rem;color:#b45309;margin-top:4px;"><i class="fa-solid fa-comment-dots"></i> 직전 보완 요청: ${escHtml(c.prev_review_note)} → 직원이 수정해 다시 제출함</div>` : ''}</div>
       <span style="background:${sb};color:${sc};border-radius:99px;padding:3px 11px;font-size:.74rem;font-weight:700;white-space:nowrap;">${sl}</span>
       <button onclick="wmTripDetailClose()" style="border:none;background:#f3f4f6;border-radius:8px;padding:4px 10px;font-size:.88rem;cursor:pointer;">✕</button></div>
@@ -17402,7 +17402,7 @@ function wmTripDetail(id) {
         <div id="wm-trip-rc-${r.id}" style="height:120px;display:flex;align-items:center;justify-content:center;background:#f9fafb;border-radius:6px;color:#9ca3af;font-size:.72rem;">${/^image\/(png|jpeg|webp)$/.test(r.mime) ? '불러오는 중…' : `<i class="fa-regular fa-file-${r.mime === 'application/pdf' ? 'pdf' : 'image'}" style="font-size:2rem;"></i>`}</div>
         <div style="font-size:.66rem;color:#4b5563;margin-top:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escHtml(r.file_name)}</div></div>`).join('')}</div>`) : ''}
     ${sec('청구 합계', kv('출장비', fmt(c.trip_pay) + '원') + kv('개인 사비', fmt(c.expense_total || 0) + '원') + kv('합계', `<b style="font-size:.95rem;">${fmt((c.trip_pay || 0) + (c.expense_total || 0))}원</b>`))}
-    ${c.reviewed_by || c.review_note ? sec('관리자 확인', kv('처리', `${escHtml(c.reviewed_by || '—')} · ${String(c.reviewed_at || '').slice(0, 16).replace('T', ' ')}`) + (c.review_note ? kv('메모', escHtml(c.review_note)) : '')) : ''}
+    ${c.reviewed_by || c.review_note ? sec('관리자 확인', kv('처리', `${escHtml(c.reviewed_by || '—')} · ${kstDT(c.reviewed_at)}`) + (c.review_note ? kv('메모', escHtml(c.review_note)) : '')) : ''}
     <div style="display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;margin-top:18px;padding-top:12px;border-top:1px solid #eceef2;">
       ${ot.length ? `<button class="toggle-btn" onclick="wmTripOtExport(${c.id})"><i class="fa-solid fa-file-excel" style="color:#15803d;"></i> 초과근로 엑셀</button>` : ''}
       <button class="toggle-btn" onclick="wmTripPrint(${c.id})"><i class="fa-solid fa-print"></i> 인쇄</button>
@@ -20500,6 +20500,14 @@ function renderReasons(reasons, total, barClass) {
   }).join('');
 }
 
+// 서버 시각(UTC로 저장된 timestamptz — '…+00:00'·'Z')을 한국 시간 'YYYY-MM-DD HH:MM'으로 (2026-11-02 — 그대로 잘라 쓰면 9시간 빨리 보였음). 시간대가 없는 글자는 예전처럼 그대로 자름
+function kstDT(t) {
+  if (!t) return '';
+  const s = String(t);
+  if (!/\d:\d\d(:\d\d(\.\d+)?)?(Z|[+-]\d\d(:?\d\d)?)$/.test(s)) return s.replace('T', ' ').slice(0, 16);
+  const d = new Date(s.replace(' ', 'T').replace(/([+-]\d\d)$/, '$1:00'));
+  return isNaN(d) ? s.replace('T', ' ').slice(0, 16) : d.toLocaleString('sv-SE', { timeZone: 'Asia/Seoul' }).slice(0, 16);
+}
 function escHtml(s) {
   return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
 }
