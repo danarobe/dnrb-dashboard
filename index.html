@@ -1763,6 +1763,7 @@
         <div style="font-size:.8rem;color:#6b7280;margin-bottom:10px;line-height:1.7;">
           · <b>결제일부터 오늘까지</b> 발송이 안 된 상품(카페24 상품준비중·배송준비중·배송대기·배송보류)을 <b>거래처별</b>로 모았어요. <b style="color:#4338ca;">교환</b>으로 다시 보낼 상품은 <b>교환 접수일부터</b> 지연을 세요. 지연 기준(5·7·10일)은 바꿀 수 있어요.<br>
           · <b style="color:#b91c1c;">장기 지연</b> = 결제 후 10일 이상 발송이 안 된 옵션이에요.<br>
+          · 셀메이트 주문 화면(재고할당 '부분출고')에서 지금 <b>출고가능</b>으로 나오는 품목은 빼고 보여 줘요 — 이 PC에 셀메이트 연결 스크립트 1.6.0 이상이 있어야 해요.<br>
           · 거래처에 들은 <b>입고일</b>을 상품마다 적어 두세요(팀 전체가 같이 봐요). 카페24에 <b>발송 예정일</b>이 등록된 상품은 그 날짜로 <b style="color:#2563eb;">자동 기입</b>돼요(직접 고치면 그 뒤로는 직접 적은 날짜를 유지). 입고일이 뒤로 바뀌면 <b style="color:#c2410c;">추가 지연</b>, 입고일이 지났는데 아직 미발송이면 <b style="color:#b91c1c;">입고일 지남</b>으로 표시돼요. 따로 챙길 상품은 <b><i class="fa-solid fa-star" style="color:#d97706;"></i> 특수 관리</b>로 지정하세요 — 지연 기준과 관계없이 '특수 관리' 보기에 모여요.<br>
           · 거래처마다 <b>문의 문자</b>가 자동으로 만들어져요 — 상품명은 카페24 <b>공급사 상품명</b>(가격 제외), 옵션은 지연 중인 색상·사이즈만 넣어요. 문자에서 빼고 싶은 상품은 체크를 풀고, 문구는 직접 고친 뒤 <b>문자 복사</b>를 눌러 붙여넣으세요.
         </div>
@@ -5706,6 +5707,75 @@ const unshipState = { data: null, loading: false, tab: 'ask', view: 'all', q: ''
 const unshipLaterCount = m => new Set(((m && m.arrival_history) || []).filter(h => h && h.prev && h.date && h.date > h.prev).map(h => h.prev + '>' + h.date)).size;
 const unshipIsAuto = m => { const h = (m && m.arrival_history) || []; return !!(h.length && h[h.length - 1].auto && m.arrival_date); };
 const unshipOverdue = (m, today) => !!(m && m.arrival_date && String(m.arrival_date).slice(0, 10) < today);
+/* 셀메이트 '출고가능' 빼기 (2026-11-02 사용자 요청 — "셀메이트에 현재 출고 가능한 상태인 상품은 포함되지 않게", 방식 = 셀메이트 주문 화면 그대로).
+   이 PC의 연결 스크립트(1.6.0+ readShippable)가 셀메이트 주문 화면(재고할당 '부분출고', 송장·발송 안 된 주문)을 읽어 줄마다 출고가능/출고불가능을 준다.
+   카페24 미발송 품목 = 주문번호가 같고 상품명·옵션이 맞는 셀메이트 줄이 **모두 '출고가능'**이면 목록에서 뺀다(못 찾거나 출고불가능·미할당이면 그대로 둠).
+   목록은 카페24 결과를 먼저 보여 주고 셀메이트 확인이 끝나면 빠진다. 결과는 이 브라우저에 10분 동안 재사용(새로고침은 다시 읽음). */
+const UNSHIP_SM_TTL = 10 * 60 * 1000, UNSHIP_SM_KEY = 'dnrb_unship_sm';
+const unshipSmBridge = () => (window.SELLMATE_STOCK && typeof window.SELLMATE_STOCK.readShippable === 'function') ? window.SELLMATE_STOCK : null;
+function unshipSmIndex(raw) {   // raw = {atMs, start, end, total, read, complete, rows:[[ono, ok, name, opt]]}
+  const byOrder = new Map();
+  for (const [ono, ok, name, opt] of raw.rows || []) {
+    if (!byOrder.has(ono)) byOrder.set(ono, []);
+    byOrder.get(ono).push({ ok, n: stkNorm(name), t: stkOptTokens(opt) });
+  }
+  return Object.assign({ status: 'ok', byOrder, cache: new Map() }, raw, { rows: undefined });
+}
+function unshipSmRestore() {
+  if (unshipState.sm) return;
+  try { const raw = JSON.parse(localStorage.getItem(UNSHIP_SM_KEY) || 'null'); if (raw && Date.now() - raw.atMs < UNSHIP_SM_TTL) unshipState.sm = unshipSmIndex(raw); } catch {}
+}
+async function unshipSmLoad(force) {
+  const d = unshipState.data; if (!d) return;
+  const cur = unshipState.sm;
+  if (cur && cur.status === 'loading') return;
+  if (!force && cur && cur.status === 'ok' && Date.now() - cur.atMs < UNSHIP_SM_TTL && cur.start <= (d.range && d.range.start || d.today)) return;
+  const b = unshipSmBridge();
+  if (!b) { unshipState.sm = { status: window.SELLMATE_STOCK ? 'old' : 'none' }; unshipRender(); return; }
+  unshipState.sm = { status: 'loading' }; unshipRender();
+  try {
+    const r = JSON.parse(await b.readShippable((d.range && d.range.start) || d.today, d.today));
+    const raw = { atMs: Date.now(), start: r.start, end: r.end, total: r.total, read: r.read, pages: r.pages, complete: r.complete, rows: (r.rows || []).filter(x => x.ono).map(x => [x.ono, x.ok, x.name, x.opt]) };
+    try { localStorage.setItem(UNSHIP_SM_KEY, JSON.stringify(raw)); } catch {}
+    unshipState.sm = unshipSmIndex(raw);
+  } catch (e) { unshipState.sm = { status: 'error', err: String(e && e.message || e), login: e && e.code === 'login' }; }
+  unshipRender();
+}
+// 카페24 품목 → 셀메이트 줄 짝짓기. true = 맞는 줄이 있고 전부 '출고가능'
+function unshipSmShip(it) {
+  const sm = unshipState.sm; if (!sm || sm.status !== 'ok') return false;
+  const key = it.item_code || (it.order_id + '|' + it.product_name + '|' + it.option);
+  if (sm.cache.has(key)) return sm.cache.get(key);
+  const rows = sm.byOrder.get(String(it.order_id)) || [];
+  let ok = false;
+  if (rows.length) {
+    const n = stkNorm(it.product_name), t = stkOptTokens(it.option);
+    const byName = rows.filter(r => r.n && r.n === n);
+    const pool = byName.length ? byName : rows;
+    let hit = pool.filter(r => stkSameOpt(r.t, t));
+    if (!hit.length) hit = pool.filter(r => stkLooseOpt(r.t, t));
+    // 옵션으로 못 찾으면: 그 주문의 셀메이트 줄도 카페24 미발송 품목도 하나뿐일 때만 같은 품목으로 본다
+    if (!hit.length && rows.length === 1 && (unshipState.data.items || []).filter(x => x.order_id === it.order_id).length === 1) hit = rows;
+    ok = hit.length > 0 && hit.every(r => r.ok === 1);
+  }
+  sm.cache.set(key, ok);
+  return ok;
+}
+function unshipSmLine() {
+  const sm = unshipState.sm || { status: 'none' };
+  const btn = `<button class="toggle-btn" style="font-size:.7rem;padding:2px 9px;" onclick="unshipSmLoad(true)"><i class="fa-solid fa-rotate"></i> 셀메이트 다시 확인</button>`;
+  const box = (bg, bd, html) => `<div style="margin-top:8px;padding:7px 11px;border-radius:9px;background:${bg};border:1px solid ${bd};font-size:.74rem;line-height:1.6;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">${html}</div>`;
+  if (sm.status === 'none') return box('#f9fafb', '#e5e7eb', '<span style="color:#6b7280;"><i class="fa-solid fa-plug"></i> 이 PC에 셀메이트 연결 스크립트가 없어 셀메이트에서 <b>출고가능</b>한 상품도 같이 보여요 — 연결 스크립트 1.6.0 이상을 설치하면 자동으로 빠져요.</span>');
+  if (sm.status === 'old') return box('#fffbeb', '#fde68a', '<span style="color:#92400e;"><i class="fa-solid fa-plug-circle-exclamation"></i> 셀메이트 연결 스크립트가 옛 버전이라 <b>출고가능</b> 상품을 못 빼요 — 1.6.0으로 바꿔 주세요(지금은 출고가능 상품도 같이 보여요).</span>');
+  if (sm.status === 'loading') return box('#eef2ff', '#c7d2fe', '<span style="color:#3730a3;"><i class="fa-solid fa-spinner fa-spin"></i> 셀메이트 주문 화면에서 <b>출고가능</b> 상품을 확인하는 중… 끝나면 목록에서 빠져요(보통 몇 초~20초).</span>');
+  if (sm.status === 'error') return box('#fef2f2', '#fecaca', `<span style="color:#b91c1c;"><i class="fa-solid fa-circle-exclamation"></i> ${sm.login ? '셀메이트 로그인이 풀려 있어요 — 이 브라우저에서 셀메이트에 로그인한 뒤 다시 확인하세요.' : '셀메이트 확인 실패 — ' + escHtml(sm.err || '')} 지금은 출고가능 상품도 같이 보여요.</span>${btn}`);
+  const out = unshipState.smOut || [];
+  const at = new Date(sm.atMs).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' });
+  const warn = sm.complete ? '' : ` <b style="color:#b91c1c;">⚠ 셀메이트 주문 ${fmt(sm.total || 0)}줄 중 ${fmt(sm.read || 0)}줄만 읽었어요 — 일부 출고가능 상품이 남아 있을 수 있어요.</b>`;
+  const list = out.length ? `<details style="flex-basis:100%;"><summary style="cursor:pointer;color:#4338ca;font-weight:700;">뺀 품목 보기 ${out.length}개</summary>
+      <div style="max-height:260px;overflow:auto;margin-top:4px;">${out.map(it => `<div style="padding:3px 0;border-top:1px solid #e0e7ff;"><b>${escHtml(it.product_name)}</b> <span style="color:#374151;">${escHtml(it.option || '(옵션 없음)')}</span> · ${it.qty}개 · <span style="color:#b45309;">${it.delay}일</span> · <span style="color:#6b7280;">${escHtml(it.supplier || '')} · 주문 ${escHtml(it.order_id)}</span></div>`).join('')}</div></details>` : '';
+  return box('#eef2ff', '#c7d2fe', `<span style="color:#3730a3;"><i class="fa-solid fa-box-open"></i> 셀메이트에서 지금 <b>출고가능</b>인 품목 <b>${out.length}개</b>는 목록에서 뺐어요 · ${escHtml(at)} 확인(셀메이트 주문 ${fmt(sm.read || 0)}줄)${warn}</span>${btn}${list}`);
+}
 
 /* ══ 중국 사입 관리 (#cnbuy, 2026-10-01 사용자 요청) ══
    중국에서 보낸 입고 엑셀(첫 시트: A 품번(=사입상품명=카페24 공급사 상품명) · C 색상 · D 사이즈 · E 출고 수량 · G 단가(위안) · H 총액 — F 미출고는 읽지 않음, 2026-10-14)을 올리면
@@ -8806,7 +8876,7 @@ async function hireCtPdf() {
 function unshipInit() {
   uiTabs('unship-tabs', UNSHIP_TABS, unshipState.tab, 'unshipSetTab');
   unshipControlsRender();
-  if (!unshipState.data && !unshipState.loading) unshipLoad(); else unshipRender();
+  if (!unshipState.data && !unshipState.loading) unshipLoad(); else { unshipRender(); unshipSmLoad(false); }
 }
 function unshipSetTab(k) { unshipState.tab = k; uiTabs('unship-tabs', UNSHIP_TABS, k, 'unshipSetTab'); }
 async function unshipLoad(force) {
@@ -8817,7 +8887,9 @@ async function unshipLoad(force) {
     unshipState.data = await anGet(Object.assign({ action: 'unship_list' }, force ? { nocache: 1 } : {}));
     unshipState.marks = new Map((unshipState.data.marks || []).map(m => [String(m.key), m]));
     unshipState.msgs = {};
+    unshipSmRestore();
     unshipRender();
+    unshipSmLoad(!!force);   // 셀메이트 출고가능 확인은 목록을 먼저 보여 준 뒤(2026-11-02)
   } catch (e) { $('unship-list').innerHTML = `<div class="empty-state"><p style="color:#b91c1c;">불러오지 못했어요 — ${escHtml(e.message)}</p></div>`; }
   finally { unshipState.loading = false; }
 }
@@ -8890,7 +8962,7 @@ function unshipGroups() {
   const min = view === 'long' ? Math.max(UNSHIP_LONG, unshipState.days) : ['special', 'later', 'overdue'].includes(view) ? 0 : unshipState.days;
   const q = unshipState.q;
   const markOf = it => it.product_no != null ? unshipState.marks.get(String(it.product_no)) : null;
-  const sups = new Map();
+  const sups = new Map(), smOut = [];
   for (const it of d.items || []) {
     if (it.delay < min) continue;
     if (view !== 'all' && view !== 'long') {
@@ -8900,6 +8972,7 @@ function unshipGroups() {
       if (view === 'overdue' && !unshipOverdue(m, today)) continue;
     }
     if (q && ![it.supplier, it.supplier_product, it.product_name, it.option].some(x => String(x || '').toLowerCase().includes(q))) continue;
+    if (unshipSmShip(it)) { smOut.push(it); continue; }   // 셀메이트에서 지금 출고가능 — 목록에서 뺌(2026-11-02)
     const sk = it.supplier_id || it.supplier || '(거래처 없음)';
     let s = sups.get(sk); if (!s) { s = { key: sk, name: it.supplier || '(거래처 정보 없음)', products: new Map(), maxDelay: 0, qty: 0, orders: new Set() }; sups.set(sk, s); }
     const pk = String(it.product_no ?? it.supplier_product ?? it.product_name);
@@ -8919,6 +8992,7 @@ function unshipGroups() {
     p.qty += it.qty; p.orders.add(it.order_id); p.maxDelay = Math.max(p.maxDelay, it.delay);
     s.qty += it.qty; s.orders.add(it.order_id); s.maxDelay = Math.max(s.maxDelay, it.delay);
   }
+  unshipState.smOut = smOut.sort((a, b) => b.delay - a.delay);
   const list = [...sups.values()].map(s => {
     const products = [...s.products.values()].map(p => ({ ...p, opts: [...p.opts.values()].sort((a, b) => b.maxDelay - a.maxDelay || String(a.option).localeCompare(String(b.option), 'ko')) }))
       .sort((a, b) => b.maxDelay - a.maxDelay || b.qty - a.qty);
@@ -8956,7 +9030,7 @@ function unshipRender() {
   const bt = d.built_at ? new Date(d.built_at).toLocaleString('ko-KR', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '';
   const viewLabel = { special: '특수 관리 상품', later: '추가 지연 상품', overdue: '입고일이 지난 상품' }[unshipState.view];
   $('unship-summary').innerHTML = `<div style="display:flex;gap:8px;flex-wrap:wrap;">${tile('거래처', fmt(groups.length) + '곳')}${tile('상품', fmt(nProd) + '개')}${tile('지연 옵션', fmt(nOpt) + '개')}${tile('수량', fmt(nQty) + '개')}${tile('장기 지연 옵션', fmt(nLong) + '개', nLong ? '#b91c1c' : '')}</div>
-    <div style="font-size:.72rem;color:#6b7280;margin-top:6px;">${viewLabel ? `${viewLabel} · 지연 기준과 관계없이 결제 3일↑ 미발송 전부` : `결제일 기준 ${unshipState.view === 'long' ? `${Math.max(UNSHIP_LONG, unshipState.days)}일` : `${unshipState.days}일`} 이상 미발송`} · 오늘 ${escHtml(d.today || '')} · 카페24 조회 ${escHtml(bt)}${when ? '' : ''}</div>`;
+    <div style="font-size:.72rem;color:#6b7280;margin-top:6px;">${viewLabel ? `${viewLabel} · 지연 기준과 관계없이 결제 3일↑ 미발송 전부` : `결제일 기준 ${unshipState.view === 'long' ? `${Math.max(UNSHIP_LONG, unshipState.days)}일` : `${unshipState.days}일`} 이상 미발송`} · 오늘 ${escHtml(d.today || '')} · 카페24 조회 ${escHtml(bt)}${when ? '' : ''}</div>${unshipSmLine()}`;
   let idleHtml = idleSpecial.length ? `<div style="border:1px dashed #f59e0b;border-radius:12px;padding:12px 14px;margin-bottom:12px;background:#fffbeb;">
       <b style="font-size:.85rem;"><i class="fa-solid fa-star" style="color:#d97706;"></i> 지금 미발송이 없는 특수 관리 상품 ${idleSpecial.length}개</b>
       <div style="font-size:.72rem;color:#92400e;margin:3px 0 8px;">발송이 끝났거나 결제 3일이 안 된 주문만 있어요. 관리가 끝났으면 해제하세요.</div>
@@ -14168,6 +14242,7 @@ function stableBridgeState() {
   el.innerHTML = S ? `<span style="color:#065f46;font-weight:700;"><i class="fa-solid fa-plug-circle-check"></i> 셀메이트 연결 스크립트 v${escHtml(String(S.version || ''))} 연결됨</span>`
     : '<span style="color:#b45309;font-weight:700;"><i class="fa-solid fa-plug-circle-xmark"></i> 셀메이트 연결 스크립트 미감지 — 설치 후 새로고침</span>';
 }
+window.addEventListener('sellmate-stock-ready', () => { if (location.hash === '#unship' && unshipState.data && unshipState.sm && ['none', 'old'].includes(unshipState.sm.status)) unshipSmLoad(false); });
 window.addEventListener('sellmate-stock-ready', () => { if (typeof soldoutBridgeRender === 'function' && location.hash === '#soldout') soldoutBridgeRender(); stableBridgeState(); if ($('stable-apply-modal') && $('stable-apply-modal').style.display === 'flex' && !stableApply.busy && $('stable-apply-count')) stableApplyRender(); });
 function stableApplyClose() { if (stableApply.busy) { showToast('반영 중에는 닫을 수 없어요'); return; } $('stable-apply-modal').style.display = 'none'; }
 function stableBridgeHelp() {
