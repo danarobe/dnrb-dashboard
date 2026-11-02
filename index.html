@@ -8179,6 +8179,8 @@ function hireOpenPerson(id) {
   $('hire-p-title').textContent = r ? `${r.name} 수정` : '사람 등록';
   $('hire-p-id').value = r?.id ?? '';
   $('hire-p-kind').value = r?.kind ?? 'daily';   // 새로 등록할 때는 늘 일일알바로 (2026-10-14 사용자 요청)
+  $('hire-p-kind').disabled = !!r?.employee_id;   // 채용 처리한 사람은 '채용됨' 고정 (서버도 막음, 2026-11-02)
+  $('hire-p-kind').title = r?.employee_id ? '근무 관리에 연결된(채용 처리한) 사람은 채용됨으로 고정돼요' : '';
   hireKindFields();
   $('hire-p-name').value = r?.name ?? '';
   $('hire-p-phone').value = r?.phone ?? '';

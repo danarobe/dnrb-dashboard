@@ -185,7 +185,10 @@ Deno.serve(async (req) => {
         row.interview_date = b.interview_date || null;
       }
       if (b.id) {
-        if (!(await hireRow(id))) return json({ error: '없는 사람이에요' }, 404);
+        const cur = await hireRow(id);
+        if (!cur) return json({ error: '없는 사람이에요' }, 404);
+        // 근무 관리에 연결된(채용 처리한) 사람은 늘 '채용됨' — 열어 둔 옛 화면에서 [수정] 저장해 일일알바로 되돌아간 사고(2026-11-02 김미나) 방지
+        if (cur.employee_id && row.kind) row.kind = 'applicant';
         const [h] = await rest(`wm_hires?id=eq.${id}`, { method: 'PATCH', body: JSON.stringify(row) });
         await audit(me, 'update', { hire_id: id, fields: Object.keys(row) });
         return json({ id: h.id });
