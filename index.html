@@ -8106,7 +8106,7 @@ function hireInit() {
 async function hireLoad() {
   try {
     const d = await hireApi({ action: 'list' });
-    hireState.rows = d.hires; hireState.canDeletePaid = d.can_delete_paid;
+    hireState.rows = d.hires; hireState.canDeletePaid = d.can_delete_paid; hireState.canChangePin = !!d.can_change_pin;
     hireRender();
   } catch (e) {
     $('hire-result').innerHTML = `<div class="empty-state"><p>${escHtml(e.message)}</p></div>`;
@@ -8141,7 +8141,7 @@ function hireRender() {
     const total = r.pays.reduce((s, p) => s + p.net, 0);
     return `<tr>
       <td><b>${escHtml(r.name)}</b> <span class="hr-badge" style="${r.gender === 'M' ? 'color:#1d4ed8;background:#dbeafe;' : 'color:#be185d;background:#fce7f3;'}">${r.gender === 'M' ? '남' : '여'}</span>${age != null && age < 18 ? ` <span class="hr-badge" style="color:#b91c1c;background:#fee2e2;" title="${escHtml(hireMinorNote(age))}">만 ${age}세</span>` : ''}${r.memo ? `<div style="font-size:.72rem;color:#6b7280;">${escHtml(r.memo)}</div>` : ''}</td>
-      ${daily ? '' : `<td><span class="hr-badge" style="color:${sc};background:${sb};">${sl}</span>${r.employee_id ? '<div style="font-size:.7rem;color:#166534;">근무 관리 연결됨</div>' : ''}</td>`}
+      ${daily ? '' : `<td><span class="hr-badge" style="color:${sc};background:${sb};">${sl}</span>${r.employee_id ? (r.emp_active === false ? '<div style="font-size:.7rem;color:#9ca3af;">근무 관리 퇴사 · 키오스크 없음</div>' : '<div style="font-size:.7rem;color:#166534;">근무 관리 연결됨</div>') : ''}</td>`}
       <td>${escHtml(r.phone)}</td>
       <td>${r.rrn_mask ? escHtml(r.rrn_mask) : '<span style="color:#b45309;">미입력</span>'}</td>
       <td>${r.account_mask ? `${escHtml((r.bank_name || '') + ' ' + r.account_mask)} <button class="toggle-btn" style="font-size:.66rem;padding:1px 7px;" onclick="hireCopyAccount(${r.id})" title="은행 · 계좌번호 전체 · 예금주를 복사해요 (전체 보기 기록이 남아요)"><i class="fa-regular fa-copy"></i> 복사</button>` : '<span style="color:#b45309;">미입력</span>'}</td>
@@ -8150,7 +8150,8 @@ function hireRender() {
       <td><div style="display:flex;gap:2px;justify-content:flex-end;">
         <button class="toggle-btn" style="font-size:.72rem;padding:3px 8px;color:#4f46e5;font-weight:600;" onclick="hireOpenPay(${r.id})"><i class="fa-solid fa-won-sign"></i> 지급</button>
         <button class="toggle-btn" style="font-size:.72rem;padding:3px 8px;" onclick="hireOpenPerson(${r.id})">수정</button>
-        ${r.employee_id ? `<button class="toggle-btn" style="font-size:.72rem;padding:3px 8px;white-space:nowrap;${r.pin_set ? '' : 'color:#b91c1c;border-color:#fca5a5;background:#fef2f2;font-weight:700;'}" onclick="hireSetPin(${r.id})" title="${r.pin_set ? '키오스크 PIN 바꾸기' : '키오스크 PIN이 없어 아직 출퇴근할 수 없어요 — 눌러서 정하세요'}"><i class="fa-solid fa-key"></i> ${r.pin_set ? 'PIN' : 'PIN 설정 필요'}</button>` : `<button class="toggle-btn" style="font-size:.72rem;padding:3px 8px;" onclick="hireDoHire(${r.id})" title="근무 관리 알바 + 키오스크에 등록 — 시급·키오스크 PIN을 물어봐요">채용 처리</button>`}
+        ${r.employee_id ? (r.emp_active === false ? '' : !r.pin_set ? `<button class="toggle-btn" style="font-size:.72rem;padding:3px 8px;white-space:nowrap;color:#b91c1c;border-color:#fca5a5;background:#fef2f2;font-weight:700;" onclick="hireSetPin(${r.id})" title="키오스크 PIN이 없어 아직 출퇴근할 수 없어요 — 눌러서 정하세요"><i class="fa-solid fa-key"></i> PIN 설정 필요</button>`
+          : hireState.canChangePin ? `<button class="toggle-btn" style="font-size:.72rem;padding:3px 8px;white-space:nowrap;" onclick="hireSetPin(${r.id})" title="키오스크 PIN 바꾸기 (관리자만)"><i class="fa-solid fa-key"></i> PIN</button>` : '') : `<button class="toggle-btn" style="font-size:.72rem;padding:3px 8px;" onclick="hireDoHire(${r.id})" title="근무 관리 알바 + 키오스크에 등록 — 시급·키오스크 PIN을 물어봐요">채용 처리</button>`}
         ${!daily && (r.status === 'hired' || r.employee_id) ? `<button class="toggle-btn" style="font-size:.72rem;padding:3px 8px;white-space:nowrap;" onclick="hireCtOpen(${r.id})" title="프리랜서 업무위탁계약서 — 이름·계약기간·작성일을 채워 PDF 저장·인쇄"><i class="fa-solid fa-file-signature"></i> 계약서</button>` : ''}
         ${(!r.pays.length || hireState.canDeletePaid) ? `<button class="toggle-btn" style="font-size:.72rem;padding:3px 8px;color:#dc2626;" onclick="hireDelete(${r.id})" title="개인정보 파기"><i class="fa-solid fa-trash"></i></button>` : ''}
       </div></td></tr>`;
@@ -8227,13 +8228,19 @@ async function hireSavePerson() {
     const [k0, s0] = hireState.openKS || [];
     if (body.kind === k0) delete body.kind;
     if (body.status === s0) delete body.status;
+    // 채용 처리한 사람의 구분을 바꾸면 근무 관리 재직/퇴사·키오스크도 같이 바뀜 (2026-11-02 사용자 요청)
+    const r = hireState.rows.find(x => x.id === body.id);
+    if (body.kind && r?.employee_id && !confirm(body.kind === 'daily'
+      ? `${r.name}님을 일일알바로 옮기면 근무 관리에서 퇴사 처리되고 키오스크 목록에서 빠져요.\n지금까지의 출퇴근·급여 기록은 근무 관리에 그대로 남아요. 옮길까요?`
+      : `${r.name}님을 다시 채용됨으로 옮기면 근무 관리에서 재직으로 돌아가고 키오스크에 다시 보여요. 옮길까요?`)) return;
   }
   if ($('hire-p-rrn').value.trim()) body.rrn = $('hire-p-rrn').value;     // 비워 두면 기존 값 유지
   if ($('hire-p-acct').value.trim()) body.account = $('hire-p-acct').value;
   try {
-    await hireApi(body);
+    const d = await hireApi(body);
     $('hire-dlg-person').close();
-    showToast('저장했어요');
+    showToast(d?.employee_active === false ? '일일알바로 옮기고 근무 관리 퇴사 처리했어요 — 키오스크에서 빠졌어요(기록은 그대로)'
+      : d?.employee_active === true ? '채용됨으로 옮기고 근무 관리 재직으로 돌렸어요 — 키오스크에 다시 보여요' : '저장했어요');
     if (!body.id) { hireState.kind = body.kind; hireState.filter = 'all'; }   // 새로 등록한 사람이 보이는 탭으로
     hireLoad();
   } catch (e) { showToast(e.message); }
@@ -8281,21 +8288,24 @@ async function hireDoHire(id) {
   if (pin == null) return;
   try {
     await hireApi({ action: 'hire', id, hourly_rate: rate, pin });
-    showToast(`근무 관리 알바 + 키오스크에 등록했어요 — ${r.name}님 키오스크 PIN ${pin}`);
+    showToast(`근무 관리 알바 + 키오스크에 등록했어요 — 정한 PIN을 ${r.name}님에게 알려 주세요`);
     hireState.kind = 'applicant'; hireState.filter = 'all';   // 채용 처리하면 '채용됨' 탭으로 이동 (2026-10-14 사용자 요청)
     hireLoad();
   } catch (e) { showToast(e.message); }
 }
 
-/** 키오스크 PIN 4자리 입력 (기본 = 휴대폰 뒤 4자리) — 취소하면 null */
+/** 키오스크 PIN 4자리 입력 (기본 = 무작위 4자리 — 휴대폰 뒤 4자리처럼 남이 아는 숫자는 서버가 거절) — 취소하면 null */
 function hirePinPrompt(r, again) {
-  let v = String(r.phone || '').replace(/\D/g, '').slice(-4);
+  const easy = p => /^(\d)\1{3}$/.test(p) || p === '1234' || p === '4321' || String(r.phone || '').replace(/\D/g, '').endsWith(p);
+  let v;
+  do { v = String(crypto.getRandomValues(new Uint16Array(1))[0] % 10000).padStart(4, '0'); } while (easy(v));
   for (;;) {
-    v = prompt(`${r.name}님의 키오스크 출퇴근 PIN 4자리${again ? '를 새로 정해요' : ''} (기본: 휴대폰 뒤 4자리)\n본인에게 꼭 알려 주세요.`, v);
+    v = prompt(`${r.name}님의 키오스크 출퇴근 PIN 4자리${again ? '를 새로 정해요' : ''} (무작위로 채워 뒀어요 — 바꿔도 돼요)\n휴대폰 뒤 4자리·0000·1234 같은 쉬운 숫자는 안 돼요. 본인에게 꼭 알려 주세요.`, v);
     if (v == null) return null;
     v = v.replace(/\s/g, '');
-    if (/^\d{4}$/.test(v)) return v;
-    alert('PIN은 숫자 4자리예요');
+    if (!/^\d{4}$/.test(v)) { alert('PIN은 숫자 4자리예요'); continue; }
+    if (easy(v)) { alert('너무 쉽거나 휴대폰 뒤 4자리라 쓸 수 없어요 — 다른 숫자로 정해 주세요'); continue; }
+    return v;
   }
 }
 
@@ -8306,7 +8316,7 @@ async function hireSetPin(id) {
   if (pin == null) return;
   try {
     await hireApi({ action: 'pin', id, pin });
-    showToast(`${r.name}님 키오스크 PIN을 ${pin}(으)로 정했어요 — 키오스크에서 바로 출퇴근할 수 있어요`);
+    showToast(`${r.name}님 키오스크 PIN을 정했어요 — 본인에게 알려 주면 바로 출퇴근할 수 있어요`);
     hireLoad();
   } catch (e) { showToast(e.message); }
 }

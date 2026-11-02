@@ -191,34 +191,47 @@ async function call(as, body) {
   assert.equal((await call('log1', { action: 'delete', id: a.body.id })).status, 403);
   assert.equal((await call('log1', { action: 'hire', id: a.body.id, hourly_rate: 10500 })).status, 400);   // 키오스크 PIN 없으면 거절 (2026-11-02)
   assert.equal((await call('log1', { action: 'hire', id: a.body.id, hourly_rate: 10500, pin: '12a4' })).status, 400);
+  for (const easy of ['1234', '7777', '4321']) assert.equal((await call('log1', { action: 'hire', id: a.body.id, hourly_rate: 10500, pin: easy })).status, 400, easy);   // 쉬운 PIN 거절
+  const ph4 = db.wm_hires.find(x => x.id === a.body.id).phone.replace(/\D/g, '').slice(-4);
+  assert.equal((await call('log1', { action: 'hire', id: a.body.id, hourly_rate: 10500, pin: ph4 })).status, 400);   // 휴대폰 뒤 4자리 거절
   assert.equal(db.wm_employees.length, 0);
-  const h = await call('log1', { action: 'hire', id: a.body.id, hourly_rate: 10500, pin: '1234' });
+  const h = await call('log1', { action: 'hire', id: a.body.id, hourly_rate: 10500, pin: '2580' });
   assert.equal(h.status, 200);
   assert.deepEqual(db.wm_employees[0], { ...db.wm_employees[0], name: '김알바', type: 'parttime', hourly_rate: 10500, birthday: '2005-03-15', bank_account: '123-45-678901' });
   assert.equal(db.wm_employees[0].annual_leave_total, 0);
-  assert.equal(db.wm_employees[0].pin_hash, '$fake$1234'); assert.ok(db.wm_employees[0].pin_set_at);   // 채용 처리 = 키오스크 PIN까지
-  assert.ok(!JSON.stringify(db.wm_kiosk_log).includes('1234'));   // PIN 값은 감사 기록에 안 남김
+  assert.equal(db.wm_employees[0].pin_hash, '$fake$2580'); assert.ok(db.wm_employees[0].pin_set_at);   // 채용 처리 = 키오스크 PIN까지
+  assert.ok(!JSON.stringify(db.wm_kiosk_log).includes('2580'));   // PIN 값은 감사 기록에 안 남김
   const li = (await call('log1', { action: 'list' })).body.hires.find(x => x.id === a.body.id);
   assert.equal(li.pin_set, true); assert.equal(li.emp_active, true); assert.ok(!('pin_hash' in li));   // (이식 시 추가) 알바 연차 총량 0
   assert.equal(db.wm_employees[0].hire_date, '2026-10-12');  // 채용 지원자: 면접일 = 입사일 (2026-10-13)
-  const hd = await call('log1', { action: 'hire', id: d.body.id, hourly_rate: 10500, pin: '1234' });   // 첫 출근일을 안 적은 일일알바 → 입사일 비움
+  const hd = await call('log1', { action: 'hire', id: d.body.id, hourly_rate: 10500, pin: '2580' });   // 첫 출근일을 안 적은 일일알바 → 입사일 비움
   assert.equal(hd.status, 200); assert.equal(db.wm_employees[1].hire_date, null);
   assert.equal(db.wm_hires.find(h => h.id === d.body.id).kind, 'applicant');   // 채용 처리하면 '채용됨'(applicant)으로 옮김 (2026-10-14)
   assert.equal(db.wm_hires.find(h => h.id === d.body.id).status, 'hired');
   const e = await call('log1', { action: 'upsert', kind: 'daily', name: '박첫출근', phone: '01055556666', interview_date: '2026-10-05' });
-  assert.equal((await call('log1', { action: 'hire', id: e.body.id, hourly_rate: 10500, pin: '1234' })).status, 200);
+  assert.equal((await call('log1', { action: 'hire', id: e.body.id, hourly_rate: 10500, pin: '2580' })).status, 200);
   assert.equal(db.wm_employees[2].hire_date, '2026-10-05');   // 일일알바의 첫 출근일 = 입사일
-  assert.equal((await call('log1', { action: 'hire', id: a.body.id, hourly_rate: 10500, pin: '1234' })).status, 409);
+  assert.equal((await call('log1', { action: 'hire', id: a.body.id, hourly_rate: 10500, pin: '2580' })).status, 409);
   // 키오스크 PIN 따로 설정 (PIN 없이 채용 처리된 사람용)
-  assert.equal((await call('log1', { action: 'pin', id: a.body.id, pin: '9876' })).status, 200);
+  assert.equal((await call('log1', { action: 'pin', id: a.body.id, pin: '9876' })).status, 403);   // 이미 있는 PIN 바꾸기는 관리자만
+  assert.equal((await call('admin1', { action: 'pin', id: a.body.id, pin: '9876' })).status, 200);
   assert.equal(db.wm_employees[0].pin_hash, '$fake$9876');
+  db.wm_employees[0].pin_set_at = null;   // PIN 없이 채용 처리된 사람(옛 채용) → 물류팀도 처음 설정은 가능
+  assert.equal((await call('log1', { action: 'pin', id: a.body.id, pin: '3691' })).status, 200);
+  assert.equal((await call('admin1', { action: 'pin', id: a.body.id, pin: '0000' })).status, 400);
   assert.equal((await call('log1', { action: 'pin', id: a.body.id, pin: '98' })).status, 400);
   const nf = await call('log1', { action: 'upsert', kind: 'daily', name: '미채용', phone: '01077778888' });
   assert.equal((await call('log1', { action: 'pin', id: nf.body.id, pin: '1111' })).status, 400);
   assert.equal((await call('cs1', { action: 'pin', id: a.body.id, pin: '1111' })).status, 403);
   // 채용 처리한 사람도 일일알바로 다시 옮길 수 있음 (채용 취소 — 2026-11-02 사용자)
-  assert.equal((await call('log1', { action: 'upsert', id: d.body.id, kind: 'daily', name: db.wm_hires.find(h => h.id === d.body.id).name, phone: db.wm_hires.find(h => h.id === d.body.id).phone })).status, 200);
-  assert.equal(db.wm_hires.find(h => h.id === d.body.id).kind, 'daily');
+  const dh = () => db.wm_hires.find(h => h.id === d.body.id), de = () => db.wm_employees.find(x => x.id === dh().employee_id);
+  const mv = await call('log1', { action: 'upsert', id: d.body.id, kind: 'daily', name: dh().name, phone: dh().phone });
+  assert.equal(mv.status, 200); assert.equal(mv.body.employee_active, false);
+  assert.equal(dh().kind, 'daily'); assert.equal(de().active, false);   // 일일알바로 되돌리면 근무 관리 퇴사(키오스크에서 빠짐), 행은 그대로
+  const mv2 = await call('log1', { action: 'upsert', id: d.body.id, kind: 'applicant', name: dh().name, phone: dh().phone });
+  assert.equal(mv2.body.employee_active, true); assert.equal(de().active, true);   // 다시 채용됨 = 재직
+  const nochg = await call('log1', { action: 'upsert', id: d.body.id, name: dh().name, phone: dh().phone, memo: 'x' });
+  assert.equal(nochg.body.employee_active, undefined); assert.equal(de().active, true);   // 구분을 안 바꾸면 그대로
   for (const bad of [{ action: 'reveal', id: 'abc' }, { action: 'pay_delete' }, { action: 'delete', id: 1.5 }, { action: 'pay_upsert', hire_id: 'x', work_date: '2026-10-12', fixed_amount: 1000 }]) assert.equal((await call('log1', bad)).status, 400, JSON.stringify(bad));   // (이식 시 추가) id는 양의 정수만
   assert.equal((await call('admin1', { action: 'delete', id: a.body.id })).status, 200);
   assert.equal(db.wm_hire_pays.length, 1);   // 일일알바 기록만 남음

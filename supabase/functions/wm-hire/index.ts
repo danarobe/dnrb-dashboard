@@ -90,6 +90,14 @@ async function audit(me: { id: string; name: string }, action: string, detail: u
 }
 
 const D_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+/** 키오스크 PIN 검사 — 4자리 + 쉽게 짐작되는 값 거절(휴대폰 뒤 4자리·같은 숫자 4개·1234/4321, 2026-11-02 보안 점검) */
+function pinError(pin: string, phone: unknown): string | null {
+  if (!/^\d{4}$/.test(pin)) return '키오스크 PIN은 숫자 4자리예요';
+  if (/^(\d)\1{3}$/.test(pin) || pin === '1234' || pin === '4321') return '너무 쉬운 PIN이에요 — 다른 숫자로 정해 주세요';
+  if (String(phone ?? '').replace(/\D/g, '').endsWith(pin)) return '휴대폰 뒤 4자리는 다른 사람도 알 수 있어 PIN으로 쓸 수 없어요';
+  return null;
+}
 const T_RE = /^\d{2}:\d{2}$/;
 const STATUSES = ['interview', 'hired', 'rejected'];
 const KINDS = ['applicant', 'daily'];
@@ -138,7 +146,7 @@ Deno.serve(async (req) => {
           pays: pays.filter(p => p.hire_id === h.id),
         });
       }
-      return json({ hires: out, can_delete_paid: me.role === 'admin' });
+      return json({ hires: out, can_delete_paid: me.role === 'admin', can_change_pin: me.role === 'admin' });
     }
 
     if (action === 'reveal') {
@@ -192,10 +200,24 @@ Deno.serve(async (req) => {
         row.interview_date = b.interview_date || null;
       }
       if (b.id) {
-        if (!(await hireRow(id))) return json({ error: '없는 사람이에요' }, 404);
+        const cur = await hireRow(id);
+        if (!cur) return json({ error: '없는 사람이에요' }, 404);
         const [h] = await rest(`wm_hires?id=eq.${id}`, { method: 'PATCH', body: JSON.stringify(row) });
         await audit(me, 'update', { hire_id: id, fields: Object.keys(row) });
-        return json({ id: h.id });
+        // 채용 처리한 사람의 구분을 바꾸면 근무 관리 재직/퇴사도 같이 (2026-11-02 사용자 요청 "일일알바로 되돌리면 키오스크에서 없어지게, 근무 이력은 남게")
+        //   채용됨 → 일일알바 = 퇴사 처리(active=false — 키오스크 목록·PIN 확인은 active만, 출퇴근·급여 기록은 그대로)
+        //   일일알바 → 채용됨 = 다시 재직(근무 관리 employee_active 복구와 같게 숨김도 풂)
+        let employee_active: boolean | undefined;
+        if (cur.employee_id && row.kind && row.kind !== cur.kind) {
+          employee_active = row.kind === 'applicant';
+          const [emp] = await rest(`wm_employees?id=eq.${cur.employee_id}&type=eq.parttime`, {
+            method: 'PATCH',
+            body: JSON.stringify(employee_active ? { active: true, hidden: false, hidden_by_name: null, hidden_at: null } : { active: false }),
+          });
+          if (emp) await audit(me, employee_active ? 'employee_activate' : 'employee_deactivate', { hire_id: id, employee_id: cur.employee_id, name: cur.name });
+          else employee_active = undefined;
+        }
+        return json({ id: h.id, employee_active });
       }
       row.created_by = me.name;
       const [h] = await rest('wm_hires', { method: 'POST', body: JSON.stringify(row) });
@@ -219,7 +241,13 @@ Deno.serve(async (req) => {
       if (!h) return json({ error: '없는 사람이에요' }, 404);
       if (!h.employee_id) return json({ error: '먼저 채용 처리해 주세요' }, 400);
       const pin = String(b.pin ?? '');
-      if (!/^\d{4}$/.test(pin)) return json({ error: '키오스크 PIN은 숫자 4자리예요' }, 400);
+      const pe = pinError(pin, h.phone);
+      if (pe) return json({ error: pe }, 400);
+      // 물류팀·허용 직원은 처음 설정만 — 이미 있는 PIN을 바꾸는 건 관리자만(남의 출퇴근을 대신 찍지 못하게, 2026-11-02 보안 점검)
+      if (me.role !== 'admin') {
+        const [cur] = await rest(`wm_employees?id=eq.${h.employee_id}&select=pin_set_at`);
+        if (cur?.pin_set_at) return json({ error: '이미 정해진 PIN은 관리자만 바꿀 수 있어요' }, 403);
+      }
       const [emp] = await rest(`wm_employees?id=eq.${h.employee_id}&type=eq.parttime`, {
         method: 'PATCH',
         body: JSON.stringify({ pin_hash: bcrypt.hashSync(pin, 10), pin_set_at: new Date().toISOString(), pin_fail_count: 0, pin_locked_until: null }),
@@ -237,7 +265,8 @@ Deno.serve(async (req) => {
       if (!(rate > 0)) return json({ error: '시급을 입력해 주세요' }, 400);
       // 키오스크 PIN을 채용 처리 때 같이 받아 바로 출퇴근할 수 있게 (2026-11-02 사용자 요청 "채용 처리한 순간 근무 관리·키오스크에 등록")
       const pin = String(b.pin ?? '');
-      if (!/^\d{4}$/.test(pin)) return json({ error: '키오스크 PIN은 숫자 4자리예요' }, 400);
+      const pe = pinError(pin, h.phone);
+      if (pe) return json({ error: pe }, 400);
       // 근무관리 '알바 추가'와 같은 모양 — type은 parttime 고정. PIN·출퇴근은 근무관리에서.
       const [emp] = await rest('wm_employees', {
         method: 'POST',
