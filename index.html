@@ -3068,6 +3068,25 @@
         </div>
       </div>
 
+      <!-- 직원 비밀번호 바꿔 주기 (2026-11-02) — 관리자가 현재 비밀번호 없이 새로 정함 -->
+      <div id="user-pw-modal" onclick="if(event.target===this)userPwClose()"
+           style="display:none;position:fixed;inset:0;background:rgba(15,23,42,.55);z-index:210;align-items:center;justify-content:center;padding:20px;">
+        <div style="background:#fff;border-radius:16px;max-width:380px;width:100%;padding:20px;">
+          <div style="display:flex;align-items:flex-start;gap:8px;margin-bottom:12px;">
+            <b id="user-pw-title" style="flex:1;font-size:.95rem;color:#1e1b4b;"></b>
+            <button onclick="userPwClose()" style="border:none;background:#f3f4f6;border-radius:8px;padding:4px 10px;font-size:.88rem;cursor:pointer;">✕</button>
+          </div>
+          <label style="display:block;font-size:.75rem;color:#4b5563;font-weight:600;margin-bottom:8px;">새 비밀번호
+            <input type="password" id="user-pw-new" autocomplete="new-password" placeholder="4자 이상" style="display:block;width:100%;box-sizing:border-box;margin-top:4px;border:1.5px solid #d1d5db;border-radius:8px;padding:9px 12px;font-size:.85rem;outline:none;" /></label>
+          <label style="display:block;font-size:.75rem;color:#4b5563;font-weight:600;margin-bottom:8px;">새 비밀번호 확인
+            <input type="password" id="user-pw-new2" autocomplete="new-password" onkeydown="if(event.key==='Enter')userPwSave()" style="display:block;width:100%;box-sizing:border-box;margin-top:4px;border:1.5px solid #d1d5db;border-radius:8px;padding:9px 12px;font-size:.85rem;outline:none;" /></label>
+          <label style="display:flex;align-items:center;gap:6px;font-size:.75rem;color:#6b7280;cursor:pointer;margin-bottom:12px;">
+            <input type="checkbox" onchange="['user-pw-new','user-pw-new2'].forEach(i => $(i).type = this.checked ? 'text' : 'password')" /> 입력한 글자 보기</label>
+          <button id="user-pw-save" onclick="userPwSave()" style="width:100%;border:none;background:#4f46e5;color:#fff;border-radius:9px;padding:10px 0;font-size:.82rem;font-weight:800;cursor:pointer;">비밀번호 바꾸기</button>
+          <div style="font-size:.7rem;color:#6b7280;margin-top:10px;line-height:1.5;">현재 비밀번호를 몰라도 바꿀 수 있어요. 바꾼 뒤 새 비밀번호를 직원에게 알려 주세요 — 직원은 마이페이지에서 다시 바꿀 수 있어요. 이미 로그인된 기기는 로그인 유지 기간(최대 3일)이 끝날 때까지 그대로예요. 키오스크 PIN과는 별개예요.</div>
+        </div>
+      </div>
+
       <div style="margin-top:20px;">
         <button onclick="changeMyPassword()" style="background:#f3f4f6;border:1.5px solid #d1d5db;border-radius:8px;padding:8px 16px;font-size:.82rem;cursor:pointer;font-weight:600;">
           내 비밀번호 변경
@@ -3784,6 +3803,8 @@ async function loadUsers() {
               <option value="cs" ${u.role === 'cs' ? 'selected' : ''}>CS팀</option>
               <option value="logistics" ${u.role === 'logistics' ? 'selected' : ''}>물류팀</option>
             </select>`;
+        const pwBtn = (u.role === 'admin' || isMe) ? '' :
+          `<button onclick="userPwOpen(${jsArg(u.id)}, ${jsArg(u.name)})" title="현재 비밀번호 없이 새 비밀번호로 바꿔요" style="border:1px solid #c7d2fe;background:#fff;color:#4338ca;border-radius:6px;padding:4px 10px;font-size:.82rem;cursor:pointer;font-weight:600;white-space:nowrap;"><i class="fa-solid fa-key" style="font-size:.8em;"></i> 비밀번호</button>`;
         const delBtn = (u.role === 'admin') ? '' :
           `<button onclick="deleteUser(${jsArg(u.id)})" style="border:1px solid #fecaca;background:#fff;color:#dc2626;border-radius:6px;padding:4px 12px;font-size:.82rem;cursor:pointer;font-weight:600;">삭제</button>`;
         const roleColor = { admin: '#4f46e5', cs: '#0891b2', marketer: '#b45309', logistics: '#15803d' }[u.role];
@@ -3793,7 +3814,7 @@ async function loadUsers() {
         <td style="${gone(u) ? 'color:#9ca3af;' : ''}">${escHtml(u.id)}</td><td>${nameCell}${wmResignHtml(empOf.get(u.id), false)}${u.login_blocked && u.role !== 'admin' ? '<div style="margin-top:2px;"><span title="근무 관리에서 퇴사 처리해서 워크스페이스에 로그인할 수 없어요 — 근무 관리에서 [복구]하면 다시 로그인돼요" style="display:inline-block;background:#f3f4f6;color:#4b5563;border-radius:6px;padding:1px 7px;font-size:.66rem;font-weight:800;white-space:nowrap;"><i class="fa-solid fa-lock" style="font-size:.6rem;"></i> 로그인 막힘</span></div>' : ''}</td>
         <td>${roleColor ? `<b style="color:${roleColor};">${ROLE_LABEL[u.role]}</b>` : 'MD'}</td>
         <td class="m-hide">${(u.created_at || '').slice(0, 10)}</td>
-        <td style="display:flex;gap:6px;justify-content:center;">${roleBtn}${delBtn}</td>
+        <td style="display:flex;gap:6px;justify-content:center;">${roleBtn}${pwBtn}${delBtn}</td>
       </tr>`; }).join('') + '</tbody></table></div>' +
       (nGone ? `<div style="font-size:.75rem;color:#b91c1c;margin-top:8px;"><b>퇴사</b> 표시 = 근무 관리에서 비활성(퇴사) 처리한 직원이에요(${nGone}명). <b>퇴사 처리한 계정은 지우지 않아도 워크스페이스에 로그인할 수 없어요</b>(관리자 계정은 예외). 받았던 <b>권한 부여</b>(광고 대시보드·AI 에이전트·취소·반품 접수·알바 채용·구매요청 담당)도 함께 해제되고 위 허용 목록에서 빠져요 — 복구해도 권한은 다시 부여해야 해요. 근무 관리에서 [복구]하면 다시 로그인돼요.</div>` : '') +
       '<div style="font-size:.75rem;color:#6b7280;margin-top:8px;">※ 권한 변경은 해당 팀원이 <b>다시 로그인</b>해야 적용됩니다 · MD는 광고 효율의 광고비·전환값·총매출이 가려집니다 · CS팀·물류팀은 판매 성과·반품 스캔·구매요청·마이페이지만 보입니다 · 관리자 계정을 삭제하려면 먼저 MD로 변경하세요 · 이름을 클릭하면 근무 정보(입사일·연봉·계좌·연차)가 열립니다</div>';
@@ -3943,6 +3964,35 @@ async function deleteUser(id) {
     showToast('삭제됐습니다');
     loadUsers();
   } catch (e) { showToast('' + e.message); }
+}
+
+/* 직원 비밀번호 바꿔 주기 (2026-11-02 사용자 요청) — auth reset_password(관리자 전용, 관리자 계정·본인은 서버가 거절) */
+let __userPwId = null;
+function userPwOpen(id, name) {
+  __userPwId = id;
+  $('user-pw-title').textContent = `비밀번호 변경 — ${name} (${id})`;
+  $('user-pw-new').value = ''; $('user-pw-new2').value = '';
+  $('user-pw-modal').style.display = 'flex';
+  setTimeout(() => $('user-pw-new').focus(), 30);
+}
+function userPwClose() {
+  $('user-pw-modal').style.display = 'none';
+  $('user-pw-new').value = ''; $('user-pw-new2').value = '';
+  __userPwId = null;
+}
+async function userPwSave() {
+  const np = $('user-pw-new').value, np2 = $('user-pw-new2').value;
+  if (!__userPwId) return;
+  if (np.length < 4) { showToast('새 비밀번호는 4자 이상이어야 해요'); return; }
+  if (np !== np2) { showToast('새 비밀번호가 서로 달라요'); return; }
+  const btn = $('user-pw-save'); btn.disabled = true;
+  try {
+    await authApi({ action: 'reset_password', token: SESSION.token, id: __userPwId, new_password: np });
+    const name = $('user-pw-title').textContent.replace(/^비밀번호 변경 — /, '');
+    userPwClose();
+    showToast(`${name} 비밀번호를 바꿨어요 — 새 비밀번호를 알려 주세요`);
+  } catch (e) { showToast('' + e.message); }
+  finally { btn.disabled = false; }
 }
 
 async function changeMyPassword() {

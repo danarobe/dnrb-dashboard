@@ -300,6 +300,25 @@ Deno.serve(async (req) => {
       return json({ ok: true });
     }
 
+    // 직원 비밀번호 바꿔 주기 (2026-11-02 사용자 요청) — 현재 비밀번호 없이 관리자가 새로 정함.
+    // 관리자 계정은 대상에서 뺀다(삭제와 같은 이유 — 관리자끼리 서로 잠그지 못하게, 본인은 change_password).
+    if (action === "reset_password") {
+      const id = String(body.id ?? "").trim();
+      const newPw = String(body.new_password ?? "");
+      const target = await getUser(id);
+      if (!target) return json({ error: "존재하지 않는 아이디입니다" }, 404);
+      if (id === me.id) return json({ error: "본인 비밀번호는 '내 비밀번호 변경'에서 바꿔 주세요" }, 400);
+      if (String(target.role) === "admin") return json({ error: "관리자 계정의 비밀번호는 여기서 바꿀 수 없습니다" }, 400);
+      if (newPw.length < 4) return json({ error: "새 비밀번호는 4자 이상이어야 합니다" }, 400);
+      const res = await usersRest(`app_users?id=eq.${encodeURIComponent(id)}`, {
+        method: "PATCH",
+        headers: { Prefer: "return=minimal" },
+        body: JSON.stringify({ password_hash: bcrypt.hashSync(newPw, 10) }),
+      });
+      if (!res.ok) throw new Error("비밀번호 변경 실패 " + res.status);
+      return json({ ok: true });
+    }
+
     if (action === "delete_user") {
       const id = String(body.id ?? "").trim();
       const target = await getUser(id);

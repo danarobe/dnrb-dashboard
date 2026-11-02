@@ -329,6 +329,7 @@ AUTHOR_FIELDS(notes/comments=author_id, likes=user_id): POST는 본인 id 필수
 - **showMenu**: 권한 없는 메뉴는 홈으로 폴백(옛날엔 return→빈 화면 버그). 관리자 전용 메뉴 버튼(cr·disp·stock·stable·profit·wm·users)은 아예 숨김.
 - **근무 관리(`#wm`, 2026-08-26)**: 관리자 전용. 급여·계좌가 노출되므로 `wm-admin` 함수가 `role !== 'admin'`이면 403. 실측 검증: MD 403 / 비로그인 401 / 위조 토큰 401 / 삭제된 계정 토큰 401.
 - **키오스크 인증은 네 번째 경로** (5단계에서 신설 예정): 직원은 app_users 계정이 없다. `wm-kiosk` 함수는 `verifyAuthToken`을 쓰지 않고 **기기 토큰(`x-kiosk-token`) + PIN 세션**으로 검증한다. PIN 세션은 `signAuthToken`을 `{id:'kiosk:'+empId, role:'kiosk'}`로 재사용 — 이 토큰을 `x-auth-token`으로 들이밀어도 `verifyAuthToken`의 app_users 조회에서 걸리므로 두 토큰 네임스페이스는 안전하게 분리된다.
+- **직원 비밀번호 바꿔 주기(2026-11-02 사용자 요청 — 직원이 비밀번호를 잊었을 때)**: HR › 직원 관리 표의 **[비밀번호]** 버튼(관리자 아닌 계정, 본인 제외) → 창에서 새 비밀번호 두 번(4자 이상, '입력한 글자 보기') → 서버 `auth reset_password {id, new_password}`(관리자 전용 — 현재 비밀번호 없이 bcrypt로 바꿈, **관리자 계정·본인은 400**(관리자끼리 서로 잠그지 못하게 — 본인은 change_password), 없는 아이디 404). 화면 `userPwOpen/userPwSave/userPwClose`. 이미 발급된 토큰은 그대로(최대 3일 — 아래 '남긴 것'과 같음). 확인: 임시 계정 10가지(바꾼 뒤 새 비번 200·옛 비번 401·MD 403·관리자 대상 400·본인 400·3자 400·없는 아이디 404·무토큰 401) · 프리뷰 창·짧은/다른 비번 거절.
 - **보안 모델**: 서버 verifyAuthToken이 DB 실계정+role을 매 요청 재확인 → 계정 삭제·권한 변경 즉시 반영. 외부(anon key만)로는 테이블 조회 빈배열·삽입 RLS 거부·함수 401/403. **남은 UI 차단 수준**: 상품분석 summary의 주문금액은 직원에게 서버 미차단(홈 급증 TOP10 금액 표시가 기존 동작), 비공개 회의기록 읽기는 클라이언트 필터.
 
 ---
