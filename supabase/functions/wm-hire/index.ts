@@ -5,6 +5,7 @@
 //
 //   list        {}                         사람 목록(주민번호·계좌는 가린 값) + 지급 기록
 //   reveal      { id }                     주민번호·계좌 전체 (감사 로그 남김)
+//   pin         { id, pin }                채용 처리한 사람의 키오스크 PIN(4자리) 설정·변경 (2026-11-02)
 //   upsert      { id?, kind?, name, phone, rrn?, bank_name?, account?, bank_holder?, status?, interview_date?, memo? }   kind = applicant(채용됨 — 2026-10-14 이름 바꿈, 옛 채용 지원자)|daily(일일알바 — 새 등록의 기본). 채용 처리하면 applicant로 옮겨진다
 //                                          ⚠ 부분 수정 — rrn·account는 보냈을 때만 바뀜(빈 문자열 = 지우기)
 //   delete      { id }                     사람 + 지급 기록 삭제(파기). 지급 기록이 있으면 관리자만
@@ -17,6 +18,7 @@
 //
 // 비밀값: HIRE_ENC_KEY = base64 32바이트 (openssl rand -base64 32). 바꾸면 기존 암호문을 못 푼다.
 // ═══════════════════════════════════════════════════════════════
+import bcrypt from 'npm:bcryptjs@2.4.3';   // 키오스크 PIN (wm-admin set_pin과 같은 방식)
 import { handleOptions, json, verifyAuthToken } from '../_shared/util.ts';
 import { calcPay, lunchRule, LUNCH_MIN, LUNCH_MEAL, normAccount, normPhone, parseRrn } from './calc.ts';
 
@@ -114,18 +116,23 @@ Deno.serve(async (req) => {
     // (이식 시 추가 2026-10-12) id·hire_id는 양의 정수만 — 숫자가 아닌 값이 DB 조회 주소에 들어가 500이 나지 않게
     if (b.id != null && b.id !== '' && !(Number.isInteger(id) && id > 0)) return json({ error: 'id가 올바르지 않아요' }, 400);
     if (b.hire_id != null && !(Number.isInteger(Number(b.hire_id)) && Number(b.hire_id) > 0)) return json({ error: 'hire_id가 올바르지 않아요' }, 400);
-    if (['reveal', 'delete', 'hire', 'pay_paid', 'pay_delete'].includes(action) && !(Number.isInteger(id) && id > 0)) return json({ error: 'id가 필요해요' }, 400);
+    if (['reveal', 'delete', 'hire', 'pin', 'pay_paid', 'pay_delete'].includes(action) && !(Number.isInteger(id) && id > 0)) return json({ error: 'id가 필요해요' }, 400);
 
     if (action === 'list') {
       const [hires, pays] = await Promise.all([
         rest('wm_hires?select=*&order=id.desc'),
         rest(`wm_hire_pays?select=${PAY_COLS}&order=work_date.desc,id.desc`),
       ]);
+      // 근무 관리에 연결된 사람의 키오스크 PIN 설정 여부·재직 여부 (PIN 값·해시는 내보내지 않음)
+      const empIds = [...new Set(hires.map((h: any) => h.employee_id).filter(Boolean))];
+      const emps = empIds.length ? await rest(`wm_employees?id=in.(${empIds.join(',')})&select=id,active,pin_set_at`) : [];
+      const empMap = new Map(emps.map((e: any) => [e.id, e]));
       const out = [];
       for (const h of hires) {
         out.push({
           id: h.id, kind: h.kind, name: h.name, phone: h.phone, birth: h.birth, bank_name: h.bank_name, bank_holder: h.bank_holder, gender: h.gender === 'M' ? 'M' : 'F',
           status: h.status, interview_date: h.interview_date, memo: h.memo, employee_id: h.employee_id,
+          pin_set: !!(empMap.get(h.employee_id) as any)?.pin_set_at, emp_active: h.employee_id ? (empMap.get(h.employee_id) as any)?.active !== false : null,
           created_by: h.created_by, created_at: h.created_at,
           rrn_mask: maskRrn(await dec(h.rrn_enc)), account_mask: maskAcct(await dec(h.account_enc)),
           pays: pays.filter(p => p.hire_id === h.id),
@@ -185,10 +192,7 @@ Deno.serve(async (req) => {
         row.interview_date = b.interview_date || null;
       }
       if (b.id) {
-        const cur = await hireRow(id);
-        if (!cur) return json({ error: '없는 사람이에요' }, 404);
-        // 근무 관리에 연결된(채용 처리한) 사람은 늘 '채용됨' — 열어 둔 옛 화면에서 [수정] 저장해 일일알바로 되돌아간 사고(2026-11-02 김미나) 방지
-        if (cur.employee_id && row.kind) row.kind = 'applicant';
+        if (!(await hireRow(id))) return json({ error: '없는 사람이에요' }, 404);
         const [h] = await rest(`wm_hires?id=eq.${id}`, { method: 'PATCH', body: JSON.stringify(row) });
         await audit(me, 'update', { hire_id: id, fields: Object.keys(row) });
         return json({ id: h.id });
@@ -210,12 +214,30 @@ Deno.serve(async (req) => {
       return json({ ok: true });
     }
 
+    if (action === 'pin') {
+      const h = await hireRow(id);
+      if (!h) return json({ error: '없는 사람이에요' }, 404);
+      if (!h.employee_id) return json({ error: '먼저 채용 처리해 주세요' }, 400);
+      const pin = String(b.pin ?? '');
+      if (!/^\d{4}$/.test(pin)) return json({ error: '키오스크 PIN은 숫자 4자리예요' }, 400);
+      const [emp] = await rest(`wm_employees?id=eq.${h.employee_id}&type=eq.parttime`, {
+        method: 'PATCH',
+        body: JSON.stringify({ pin_hash: bcrypt.hashSync(pin, 10), pin_set_at: new Date().toISOString(), pin_fail_count: 0, pin_locked_until: null }),
+      });
+      if (!emp) return json({ error: '근무 관리의 알바 직원을 찾지 못했어요' }, 404);
+      await audit(me, 'pin', { hire_id: id, employee_id: h.employee_id, name: h.name });   // PIN 값은 남기지 않음
+      return json({ ok: true });
+    }
+
     if (action === 'hire') {
       const h = await hireRow(id);
       if (!h) return json({ error: '없는 사람이에요' }, 404);
       if (h.employee_id) return json({ error: '이미 근무관리에 연결된 사람이에요' }, 409);
       const rate = int(b.hourly_rate);
       if (!(rate > 0)) return json({ error: '시급을 입력해 주세요' }, 400);
+      // 키오스크 PIN을 채용 처리 때 같이 받아 바로 출퇴근할 수 있게 (2026-11-02 사용자 요청 "채용 처리한 순간 근무 관리·키오스크에 등록")
+      const pin = String(b.pin ?? '');
+      if (!/^\d{4}$/.test(pin)) return json({ error: '키오스크 PIN은 숫자 4자리예요' }, 400);
       // 근무관리 '알바 추가'와 같은 모양 — type은 parttime 고정. PIN·출퇴근은 근무관리에서.
       const [emp] = await rest('wm_employees', {
         method: 'POST',
@@ -225,6 +247,7 @@ Deno.serve(async (req) => {
           hire_date: h.interview_date ?? null,   // 면접일(첫 출근일) = 입사일 (2026-10-13 채용 지원자 → 2026-10-14 일일알바도 첫 출근일을 적으니 둘 다)   // 채용 지원자는 면접일 = 입사일 (2026-10-13 사용자 요청). 일일알바는 면접일이 없어 비워 둠
           annual_leave_total: 0,   // (이식 시 추가) 근무 관리의 기존 알바 행은 모두 0 — 표 기본값 15가 들어가지 않게
           bank_name: h.bank_name, bank_account: await dec(h.account_enc), bank_holder: h.bank_holder,
+          pin_hash: bcrypt.hashSync(pin, 10), pin_set_at: new Date().toISOString(),
         }),
       });
       // 채용 처리하면 '채용됨' 탭으로 옮긴다(kind = applicant) — 2026-10-14 사용자 요청 "일일알바에서 채용 처리를 누르면 채용됨으로 이동"
