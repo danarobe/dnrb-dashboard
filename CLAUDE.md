@@ -16,6 +16,8 @@
 
 ## 0-1. 이어서 할 때 (2026-10-22 세션 인수인계 — 새 컨텍스트는 여기부터)
 
+- **🆕 2026-11-02 밤: 중국 사입 / 제작 주문 점검 › [자동화 실행] 버튼**(헤더 오른쪽, 카페24 판매 수집 옆, 관리자만). 대표 맥의 `~/daily-ops`(별도 저장소, Node+Playwright, 엣지) 대기 프로그램(LaunchAgent `com.danarobe.daily-ops-worker`)이 10초마다 `automation_runs`(status=requested)를 보고 **셀메이트 주문관리 8단계(왼쪽 메뉴만 클릭, 결과 화면 버튼은 절대 안 누름) → 재고 엑셀(양식 '자체제작 주문파악') → 이지픽 제작상품 엑셀 → `made_check_files` 저장 2건 → `madeavg` 캐시 데우기**를 돌리고 같은 행에 step/steps/result/error를 적는다(migrations/0076, db 프록시 `automation_runs`·`automation_workers` admin). 화면은 5초마다 읽어 버튼(실행 중·단계)과 상태 상자(마지막 실행·점검 화면 건수)를 보여 주고, 끝나면 `madeFilesLoad()`로 파일을 새로 읽는다. `automation_workers.last_seen`(30초 신호)이 2분 넘게 없으면 '맥이 꺼져 있어요'로 버튼 비활성. 바탕화면 `매일 작업 실행.app`으로도 같은 흐름을 돌릴 수 있다. 실측: 전체 94~200초. 코드 `autoInit/autoRefresh/autoRender/autoRunStart`(madeInit 앞). 맥 쪽 지식은 `~/daily-ops/README.md`와 Claude 스킬 `/daily-ops`.
+
 **⚡ 2026-10-22 밤 기준 — 진행 중인 코드 작업 없음. 워크스페이스·에이전트 저장소 모두 커밋·푸시·배포됨, 마이그레이션 0063까지 적용. 새 세션은 이 묶음 → 아래 10-20 묶음 → 10-13 묶음 순으로 읽고 사용자가 말하는 일을 이어서 한다.**
 - **10-20 밤 ~ 10-22에 만든 것(상세는 각 절 — 절 안에서 날짜 '10-2x'로 찾으면 됨)**:
   - **고액 반품 관리**(§7-11): 네이버페이 반품도 집계(주문 API, 금액은 상품 금액 추정) · 같은 고객 = 휴대전화 번호 · 회원 이름 → 카페24 회원 정보(`member_admin_d_f.php?user_id=…&referer=OrderDetail`) · '불량회원' 탭(회원 읽기 권한 mall.read_customer — 특별 관리 회원 목록은 카페24 개인정보 권한 심사가 필요해 보류, 권한 생기면 자동 전환).

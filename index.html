@@ -2821,9 +2821,14 @@
   <div class="section-card page-sec" id="sec-madechk">
     <div class="section-header" style="cursor:default;">
       <h2><span><i class="fa-solid fa-industry" style="color:#4f46e5;font-size:.9em;"></i></span> 중국 사입 / 제작 주문 점검</h2>
-      <button class="toggle-btn" id="btn-madechk" onclick="madeFetch()"><i class="fa-solid fa-cloud-arrow-down"></i> 카페24 판매 수집</button>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;justify-content:flex-end;">
+        <button class="toggle-btn" id="btn-madechk" onclick="madeFetch()"><i class="fa-solid fa-cloud-arrow-down"></i> 카페24 판매 수집</button>
+        <!-- 자동화 실행 (2026-11-02 사용자 요청): 대표 맥의 daily-ops 대기 프로그램에 실행을 부탁 — 셀메이트 주문 처리 8단계 → 재고 엑셀 → 이지픽 엑셀 → 파일 올리기 → 카페24 판매 수집. 관리자만 보임 -->
+        <button class="toggle-btn" id="btn-automation" onclick="autoRunStart()" style="display:none;background:#059669;color:#fff;border-color:#059669;font-weight:700;padding:9px 18px;font-size:.92rem;"><i class="fa-solid fa-robot"></i> 자동화 실행</button>
+      </div>
     </div>
     <div class="section-body">
+      <div id="auto-status" style="display:none;border-radius:10px;padding:10px 14px;margin-bottom:14px;font-size:.8rem;line-height:1.7;"></div>
       <!-- 소메뉴 (2026-09-21 사용자 요청): ① 재고·입고 점검(맨 위) ② 주문 점검. 파일(셀메이트 CSV·이지픽 엑셀)은 두 탭이 공유하고 서버(made_check_files)에 저장돼 팀 전체가 같은 파일을 본다 -->
       <div id="made-tabs" style="display:flex;gap:2px;border-bottom:2px solid #e5e7eb;margin-bottom:14px;flex-wrap:wrap;"></div>
       <div id="made-files" ondragover="event.preventDefault();this.style.background='#eef2ff'" ondragleave="this.style.background=''" ondrop="event.preventDefault();this.style.background='';handleMadeFiles(event.dataTransfer.files)"
@@ -12999,9 +13004,71 @@ function madeToggleOpts(no) {
   if (tr) tr.style.display = madeState.open.has(no) ? '' : 'none';
   // 버튼 화살표 갱신은 재렌더 없이 두어도 무방 (다음 렌더에서 반영)
 }
+/* ══ 자동화 실행 (2026-11-02 사용자 요청 — "버튼 하나 누르면 자동으로") ══
+   버튼 = automation_runs 에 requested 행 하나 → 대표 맥의 ~/daily-ops 대기 프로그램(LaunchAgent com.danarobe.daily-ops-worker)이 10초마다 보고 실행
+   → 같은 행에 step(지금 단계)·steps(끝난 단계)·result/error 를 적는다. 화면은 5초마다 읽어 버튼·상태 상자에 보여 준다.
+   automation_workers.last_seen(30초마다 신호)이 2분 넘게 없으면 맥이 꺼진 것 → 버튼 비활성. 관리자만(db 프록시도 admin). */
+const autoState = { worker: null, run: null, timer: null, loading: false, wasBusy: false };
+async function autoInit() {
+  const btn = $('btn-automation'); if (!btn) return;
+  if (!isAdmin()) { btn.style.display = 'none'; return; }
+  btn.style.display = '';
+  await autoRefresh();
+  if (!autoState.timer) autoState.timer = setInterval(() => { if (location.hash === '#madechk') autoRefresh(); }, 5000);
+}
+async function autoRefresh() {
+  try {
+    const [workers, runs] = await Promise.all([dbProxy('automation_workers?name=eq.mac&select=*'), dbProxy('automation_runs?order=id.desc&limit=1&select=*')]);
+    autoState.worker = (workers || [])[0] || null; autoState.run = (runs || [])[0] || null;
+  } catch (e) { /* 읽기 실패는 다음 주기에 */ }
+  const r = autoState.run, busy = !!r && (r.status === 'requested' || r.status === 'running');
+  if (autoState.wasBusy && !busy && r) {   // 방금 끝남 → 파일 새로 읽기 + 알림
+    showToast(r.status === 'done' ? `자동화 완료 — ${r.result || ''}` : `자동화 실패 — ${r.error || ''}`);
+    if (r.status === 'done') madeFilesLoad();
+  }
+  autoState.wasBusy = busy;
+  autoRender();
+}
+function autoAlive() { const w = autoState.worker; return !!w && Date.now() - new Date(w.last_seen).getTime() < 2 * 60 * 1000; }
+function autoWhen(iso) { return iso ? new Date(iso).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul', month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : ''; }
+function autoRender() {
+  const btn = $('btn-automation'), box = $('auto-status'); if (!btn || !box) return;
+  const r = autoState.run, alive = autoAlive(), busy = !!r && (r.status === 'requested' || r.status === 'running');
+  btn.disabled = busy || !alive || autoState.loading;
+  btn.style.opacity = (busy || !alive) ? '.6' : '1';
+  btn.title = !alive ? '대표 맥의 대기 프로그램이 꺼져 있어요 (2분 넘게 신호 없음)' : busy ? '지금 실행 중이에요' : '셀메이트 주문 처리 8단계 → 재고 엑셀 → 이지픽 엑셀 → 파일 올리기 → 카페24 판매 수집을 한 번에 (약 2~3분)';
+  btn.innerHTML = busy ? `<i class="fa-solid fa-spinner fa-spin"></i> 실행 중${r.step ? ' · ' + escHtml(r.step) : ''}` : '<i class="fa-solid fa-robot"></i> 자동화 실행';
+  const lines = [];
+  if (!alive) lines.push(`<span style="color:#b91c1c;font-weight:700;"><i class="fa-solid fa-plug-circle-xmark"></i> 대표 맥의 대기 프로그램이 꺼져 있어요</span> — 맥을 켜면 1분 안에 버튼이 살아나요${autoState.worker ? ` (마지막 신호 ${autoWhen(autoState.worker.last_seen)})` : ''}.`);
+  if (r && busy) {
+    const done = (r.steps || []).map(x => `<span style="color:#059669;"><i class="fa-solid fa-check"></i> ${escHtml(x.name)}${x.note ? ` <span style="color:#6b7280;">(${escHtml(x.note)})</span>` : ''}</span>`).join(' · ');
+    lines.push(`<b><i class="fa-solid fa-spinner fa-spin" style="color:#059669;"></i> 자동화 실행 중</b> — ${escHtml(r.requested_by_name || r.requested_by || '')}님이 ${autoWhen(r.requested_at)} 요청${r.started_at ? '' : ' · 맥이 받기를 기다리는 중'}${r.step ? ` · 지금: <b>${escHtml(r.step)}</b>` : ''}${done ? `<br>${done}` : ''}`);
+  } else if (r) {
+    lines.push(r.status === 'done'
+      ? `<span style="color:#059669;font-weight:700;"><i class="fa-solid fa-circle-check"></i> 마지막 자동화 ${autoWhen(r.finished_at)} 완료</span> — ${escHtml(r.result || '')} <span style="color:#6b7280;">(${escHtml(r.requested_by_name || '')})</span>`
+      : `<span style="color:#b91c1c;font-weight:700;"><i class="fa-solid fa-circle-xmark"></i> 마지막 자동화 ${autoWhen(r.finished_at || r.requested_at)} 실패</span> — ${escHtml(r.error || '')} <span style="color:#6b7280;">(${escHtml(r.requested_by_name || '')})</span>`);
+  } else lines.push('아직 자동화를 실행한 적이 없어요. [자동화 실행]을 누르면 대표 맥에서 셀메이트 주문 처리 → 엑셀 2건 → 파일 올리기 → 카페24 판매 수집이 한 번에 돌아가요.');
+  box.style.display = ''; box.style.background = !alive ? '#fef2f2' : busy ? '#ecfdf5' : (r && r.status === 'failed') ? '#fef2f2' : '#f9fafb';
+  box.style.border = `1px solid ${!alive || (r && r.status === 'failed' && !busy) ? '#fecaca' : busy ? '#a7f3d0' : '#e5e7eb'}`;
+  box.innerHTML = lines.join('<br>');
+}
+async function autoRunStart() {
+  if (!isAdmin()) return;
+  if (!autoAlive()) { showToast('대표 맥의 대기 프로그램이 꺼져 있어요 — 맥을 켠 뒤 다시 눌러 주세요'); return; }
+  const r = autoState.run; if (r && (r.status === 'requested' || r.status === 'running')) { showToast('이미 실행 중이에요'); return; }
+  autoState.loading = true; autoRender();
+  try {
+    await dbProxy('automation_runs', { method: 'POST', headers: { Prefer: 'return=minimal' }, body: JSON.stringify({ kind: 'daily', status: 'requested', requested_by: SESSION.id, requested_by_name: SESSION.name }) });
+    showToast('자동화 실행을 요청했어요 — 맥이 10초 안에 시작해요');
+  } catch (e) { showToast('요청 실패: ' + e.message); }
+  autoState.loading = false;
+  await autoRefresh();
+}
+
 function madeInit() {
   madeSetTab(madeState.tab);
   if (!madeState.filesLoaded) madeFilesLoad();
+  autoInit();   // [자동화 실행] 버튼·진행 표시 (2026-11-02)
   madeCnLoad(false);   // 중국 상품 분류용(2026-10-23) — 제작 상품에서 빼고, 중국 상품 보기·주문 점검 탭 제외에 쓴다
 }
 // 주문 점검 탭(이지픽 바로주문)은 자체제작만 — 중국 사입/제작 관리에 등록된 상품은 이름에 made가 있어도 뺀다(2026-10-23 사용자 지정)

@@ -51,6 +51,8 @@ const TABLE_ROLES: Record<string, string[]> = {
   agent_reports: ["admin"],   // 매출 분석 에이전트 리포트 (2026-09-10) — 매출 절대액이 들어 있어 관리자만. 쓰기는 sales-agent 함수(service_role)
   agent_actions: ["admin"],   // 에이전트 할 일 완료 체크 (2026-09-11, ~/dnrb-agents) — 관리자가 읽고 씀(upsert on_conflict=agent,action_id)
   detail_reviews: ["admin"],  // 상세페이지 점검 결과 (2026-09-13, ~/dnrb-agents) — 읽기만(쓰기는 detail-agent 함수 service_role)
+  automation_runs: ["admin"],      // 매일 작업 자동화 실행 요청·진행·결과 (2026-11-02, ~/daily-ops, migrations/0076) — 관리자가 요청, 맥 대기 프로그램이 같은 계정으로 갱신
+  automation_workers: ["admin"],   // 맥 대기 프로그램 생존 신호 (2026-11-02) — 화면은 읽기, 맥이 upsert
 };
 // 본인 것만 쓰기·수정·삭제 가능한 테이블과 작성자 컬럼 (클라이언트 규칙을 서버에서 강제)
 const AUTHOR_FIELDS: Record<string, string> = {
