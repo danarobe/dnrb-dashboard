@@ -3333,7 +3333,17 @@ async function npmOpen() {
    상품관리 시스템(newproduct-manager) /calendar와 같은 자료(업로드 예정일 upload_date + 끌올 calendar_reups)를
    서버 함수 npm-calendar가 상품관리 /api/dnrb-calendar(연동 비밀키)에서 읽기 전용으로 가져온다.
    보기 = 관리자·MD(마케터)·물류팀 — CS팀 제외(서버 npm-calendar도 같은 기준). 등록·삭제는 상품관리에서만. 달마다 한 번 읽고 [새로고침]으로 다시. */
-const upcalState = { ym: null, data: {}, loading: false, sel: null };
+const upcalState = { ym: null, data: {}, loading: false, sel: null, tips: [] };
+// 업로드 예정 목록 상품에 마우스 → 옵션(색상·사이즈) 말풍선 (2026-11-04 사용자 요청). 자료 = 상품관리 /api/dnrb-calendar의 colors·sizes, 말풍선 틀은 중국 상품 입고 예정과 같은 .inc-tip.
+function upcalOptTipHtml(p) {
+  const cs = Array.isArray(p.colors) ? p.colors : [], zs = Array.isArray(p.sizes) ? p.sizes : [];
+  const chips = list => list.map(v => `<span style="display:inline-block;background:#eef2ff;color:#3730a3;border-radius:5px;padding:1px 7px;margin:2px 4px 0 0;font-weight:700;">${escHtml(v)}</span>`).join('');
+  const sec = (label, list) => `<div style="margin-top:6px;"><span style="color:#6b7280;font-weight:700;">${label} ${list.length}</span><div>${chips(list)}</div></div>`;
+  const body = cs.length || zs.length ? (cs.length ? sec('색상', cs) : '') + (zs.length ? sec('사이즈', zs) : '')
+    : '<div style="margin-top:5px;color:#9ca3af;">상품관리 시스템에 옵션(색상·사이즈)이 아직 안 적혀 있어요</div>';
+  const n = (cs.length || 1) * (zs.length || 1);
+  return `<div style="font-weight:800;color:#1e1b4b;">${escHtml(p.name || '')}</div>${body}${cs.length && zs.length ? `<div style="margin-top:6px;color:#9ca3af;">옵션 ${n}개 (색상 ${cs.length} × 사이즈 ${zs.length})</div>` : ''}`;
+}
 function upcalAllowed() { return isAdmin() || isStaff() || isCS(); }   // 관리자·MD·물류팀 + CS팀(2026-10-23 사용자 요청) = 로그인한 직원 전원
 function upcalToday() { return new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Seoul' }); }
 function upcalShift(ym, d) { const [y, m] = ym.split('-').map(Number); const t = y * 12 + (m - 1) + d; return `${Math.floor(t / 12)}-${String(t % 12 + 1).padStart(2, '0')}`; }
@@ -3406,7 +3416,8 @@ function upcalRender() {
       return `<tr id="upcal-row-${k}" style="${hl}"><td style="text-align:left;white-space:nowrap;font-weight:${k === today ? 800 : 600};">${m}월 ${dd}일 (${dw})${k === today ? ' <span style="color:#4f46e5;font-size:.7rem;">오늘</span>' : ''}</td><td>${map[k].length}개</td><td style="text-align:left;white-space:normal;"><div style="display:flex;flex-wrap:wrap;gap:5px;">${map[k].map(rowHtml).join('')}</div></td></tr>`;
     }).join('')}</tbody></table></div>`;
   };
-  html += listTable(`${m}월 업로드 예정 목록`, byDate, p => `<span style="display:inline-flex;align-items:center;gap:5px;border:1px solid #e5e7eb;background:#f9fafb;border-radius:6px;padding:3px 7px;font-size:.76rem;">${escHtml(p.name || '')} ${upcalBadge(p)}</span>`, '이번 달에 업로드 예정인 상품이 없어요');
+  upcalState.tips = [];
+  html += listTable(`${m}월 업로드 예정 목록 <span style="font-weight:500;color:#9ca3af;font-size:.72rem;">· 상품에 마우스를 올리면 옵션</span>`, byDate, p => `<span data-uptip="${upcalState.tips.push(upcalOptTipHtml(p)) - 1}" style="display:inline-flex;align-items:center;gap:5px;border:1px solid #e5e7eb;background:#f9fafb;border-radius:6px;padding:3px 7px;font-size:.76rem;cursor:help;">${escHtml(p.name || '')} ${upcalBadge(p)}</span>`, '이번 달에 업로드 예정인 상품이 없어요');
   html += listTable(`${m}월 끌올 목록`, reupBy, r => `<span style="display:inline-block;border:1px solid #fde68a;background:#fffbeb;border-radius:6px;padding:3px 7px;font-size:.76rem;color:#92400e;">${escHtml(r.title || '')}</span>`, '이번 달 끌올 상품이 없어요');
   box.innerHTML = html;
 }
@@ -13504,8 +13515,9 @@ function madeCnIncTipHtml(opts, title) {
   let box = null;
   const hide = () => { if (box) box.style.display = 'none'; };
   document.addEventListener('mouseover', ev => {
-    const el = ev.target.closest && ev.target.closest('[data-inct]'); if (!el) { hide(); return; }
-    const html = ((madeState || {}).incTips || [])[Number(el.dataset.inct)]; if (!html) { hide(); return; }
+    const el = ev.target.closest && ev.target.closest('[data-inct],[data-uptip]'); if (!el) { hide(); return; }
+    const html = el.dataset.uptip != null ? (upcalState.tips || [])[Number(el.dataset.uptip)]   // 업로드 캘린더 옵션 말풍선(2026-11-04)
+      : ((madeState || {}).incTips || [])[Number(el.dataset.inct)]; if (!html) { hide(); return; }
     if (!box) { box = document.createElement('div'); box.className = 'inc-tip'; document.body.appendChild(box); }
     box.innerHTML = html; box.style.display = 'block';
     const r = el.getBoundingClientRect(), w = box.offsetWidth, h = box.offsetHeight;
