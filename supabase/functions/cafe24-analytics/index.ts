@@ -1327,7 +1327,7 @@ Deno.serve(async (req) => {
     // performance는 역할에 따라 응답이 달라서(비관리자 order_amount=0) 키에 역할 포함.
     const qsKey = new URLSearchParams(url.search);
     qsKey.delete("nocache"); qsKey.sort();
-    const cacheKey = `an:${qsKey.toString()}` + (action === "performance" ? `:${authed.role}:cn5` : "");   // cn5 = MD에게 roas_amt(2026-10-30)   // cn3 = 환전 내역·출고 서류 총 합계 반영(2026-10-22)   // cn1 = 중국 사입 실질 단가 반영(2026-10-16) 전 캐시를 쓰지 않게
+    const cacheKey = `an:${qsKey.toString()}` + (action === "performance" ? `:${authed.role}:cn6` : "");   // cn6 = 취소만 수량 cancel_only_qty(2026-11-04)   // cn5 = MD에게 roas_amt(2026-10-30)   // cn3 = 환전 내역·출고 서류 총 합계 반영(2026-10-22)   // cn1 = 중국 사입 실질 단가 반영(2026-10-16) 전 캐시를 쓰지 않게
     const noCache = url.searchParams.get("nocache") === "1";
     // 저장 시간: 분석용 조회는 30분(2026-10-01 사용자 결정 — 첫 조회가 6~35초라 다시 기다리는 일을 줄임, 그동안 새 주문·취소는 미반영),
     //   미발송 목록은 10분 그대로(물류팀 실시간 작업 — 화면 새로고침 버튼은 nocache). api_cache 행은 1시간 뒤 자동 삭제.
@@ -3683,6 +3683,47 @@ Deno.serve(async (req) => {
     //   모수  = 기간(배송완료일 date_type=shipend_date) 내 모든 주문 품목 수량 합
     //   반품 = 품목 상태 R40(반품완료-환불완료)·R30(처리중-수거전)·R34(처리중-환불전)만
     //   순반품률 = 반품수량 ÷ 전체수량 × 100
+    // ── 순반품률 7·14·30일 창 (2026-11-04 사용자 요청 — 종합 판매 데이터) ──
+    //   end_date = 창의 마지막 날(화면이 '조회 기간 마지막 날 − 1일'을 보냄). 창 = end−6~end / end−13~end / end−29~end, 품목 배송완료일 기준.
+    //   기준·상태(R00·R10·R30·R34·R40)는 netreturns와 같고, 30일 범위를 한 번만 훑어 세 창을 만든다(returnwatch와 같은 방식).
+    //   → { end, windows:{7:start,14:start,30:start}, totals:{7:{total_qty,return_qty},…}, rows:[{product_no, w:{7:{t,r},14:{t,r},30:{t,r}}, options:[{option, w}]}] }
+    if (action === "netreturns_win") {
+      const e = url.searchParams.get("end_date");
+      if (!e || !/^\d{4}-\d{2}-\d{2}$/.test(e)) return json({ error: "end_date 필수 (YYYY-MM-DD)" }, 400);
+      const hit = await fromCache(); if (hit) return json(hit);
+      const RET = new Set(["R00", "R10", "R30", "R34", "R40"]);
+      const WIN = [7, 14, 30];
+      const day = 24 * 3600 * 1000, endMs = new Date(e).getTime();
+      const pad = (t: number) => new Date(t).toISOString().slice(0, 10);
+      const wStart: Record<number, string> = {}; for (const w of WIN) wStart[w] = pad(endMs - (w - 1) * day);
+      const blank = () => ({ 7: { t: 0, r: 0 }, 14: { t: 0, r: 0 }, 30: { t: 0, r: 0 } } as Record<number, { t: number; r: number }>);
+      type Row = { product_no: number; w: Record<number, { t: number; r: number }>; opts: Map<string, Record<number, { t: number; r: number }>> };
+      const map = new Map<number, Row>(), tot = blank();
+      const fetchStart = pad(endMs - 36 * day), fetchEnd = pad(Math.min(endMs + 30 * day, Date.now()));
+      await eachOrder(token, "date_type=shipend_date&embed=items&fields=order_id,items", fetchStart, fetchEnd, (orders) => {
+        for (const o of orders) {
+          for (const it of (o.items ?? []) as Record<string, unknown>[]) {
+            const dd = String(it.delivered_date ?? "").slice(0, 10);
+            if (!dd || dd < wStart[30] || dd > e) continue;
+            const no = Number(it.product_no); if (!no) continue;
+            let row = map.get(no); if (!row) { row = { product_no: no, w: blank(), opts: new Map() }; map.set(no, row); }
+            const optKey = String(it.option_value ?? "").trim() || "(단일 옵션)";
+            let ow = row.opts.get(optKey); if (!ow) { ow = blank(); row.opts.set(optKey, ow); }
+            const qty = num(it.quantity), isRet = RET.has(String(it.order_status ?? ""));
+            for (const w of WIN) {
+              if (dd < wStart[w]) continue;
+              for (const b of [row.w[w], ow[w], tot[w]]) { b.t += qty; if (isRet) b.r += qty; }
+            }
+          }
+        }
+      });
+      const rows = [...map.values()].map((r) => ({
+        product_no: r.product_no, w: r.w,
+        options: [...r.opts.entries()].map(([option, w]) => ({ option, w })).sort((a, b) => b.w[30].t - a.w[30].t),
+      }));
+      return respond({ end: e, windows: { 7: wStart[7], 14: wStart[14], 30: wStart[30] }, basis: "item_delivered_date", totals: tot, rows });
+    }
+
     if (action === "netreturns") {
       const s = url.searchParams.get("start_date");
       const e = url.searchParams.get("end_date");
@@ -4188,7 +4229,7 @@ Deno.serve(async (req) => {
 
       type Perf = {
         product_no: number; product_name: string;
-        paid_qty: number; order_amount: number; cancel_qty: number;
+        paid_qty: number; order_amount: number; cancel_qty: number; cancel_only_qty: number;
         price: number; supply_price: number;
         supply_c24?: number; cost_src?: string; cn_snames?: string[]; cn_with_cost?: boolean;
       };
@@ -4197,7 +4238,7 @@ Deno.serve(async (req) => {
         const no = Number(r.product_no);
         const cur = map.get(no) ?? {
           product_no: no, product_name: String(r.product_name ?? ""),
-          paid_qty: 0, order_amount: 0, cancel_qty: 0, price: 0, supply_price: 0,
+          paid_qty: 0, order_amount: 0, cancel_qty: 0, cancel_only_qty: 0, price: 0, supply_price: 0,
         };
         cur.paid_qty += num(r.order_product_count);
         cur.order_amount += num(r.order_amount);
@@ -4212,7 +4253,7 @@ Deno.serve(async (req) => {
             const st = String(it.order_status ?? "");
             if (st !== "C40" && st !== "R40") continue;
             const row = map.get(Number(it.product_no));
-            if (row) row.cancel_qty += num(it.quantity);
+            if (row) { row.cancel_qty += num(it.quantity); if (st === "C40") row.cancel_only_qty += num(it.quantity); }   // 취소율(2026-11-04) = 취소완료(C40)만
           }
         }
       });
