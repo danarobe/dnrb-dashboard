@@ -1327,7 +1327,7 @@ Deno.serve(async (req) => {
     // performance는 역할에 따라 응답이 달라서(비관리자 order_amount=0) 키에 역할 포함.
     const qsKey = new URLSearchParams(url.search);
     qsKey.delete("nocache"); qsKey.sort();
-    const cacheKey = `an:${qsKey.toString()}` + (action === "performance" ? `:${authed.role}:cn6` : "");   // cn6 = 취소만 수량 cancel_only_qty(2026-11-04)   // cn5 = MD에게 roas_amt(2026-10-30)   // cn3 = 환전 내역·출고 서류 총 합계 반영(2026-10-22)   // cn1 = 중국 사입 실질 단가 반영(2026-10-16) 전 캐시를 쓰지 않게
+    const cacheKey = `an:${qsKey.toString()}` + (action === "performance" ? `:${authed.role}:cn6` : "") + (action === "cancelwatch" ? ":r1" : "");   // r1 = 취소 사유·옵션 포함(2026-11-05)   // cn6 = 취소만 수량 cancel_only_qty(2026-11-04)   // cn5 = MD에게 roas_amt(2026-10-30)   // cn3 = 환전 내역·출고 서류 총 합계 반영(2026-10-22)   // cn1 = 중국 사입 실질 단가 반영(2026-10-16) 전 캐시를 쓰지 않게
     const noCache = url.searchParams.get("nocache") === "1";
     // 저장 시간: 분석용 조회는 30분(2026-10-01 사용자 결정 — 첫 조회가 6~35초라 다시 기다리는 일을 줄임, 그동안 새 주문·취소는 미반영),
     //   미발송 목록은 10분 그대로(물류팀 실시간 작업 — 화면 새로고침 버튼은 nocache). api_cache 행은 1시간 뒤 자동 삭제.
@@ -3977,8 +3977,10 @@ Deno.serve(async (req) => {
       const topN = Math.max(1, Math.min(100, Number(url.searchParams.get("top") ?? 30)));
       const hit = await fromCache(); if (hit) return json(hit);
       const start = ymd(new Date(`${e}T12:00:00Z`).getTime() - (days - 1) * dayMs);
-      type Acc = { name: string; paid: number; cancel: number; pending: number };
+      type Acc = { name: string; paid: number; cancel: number; pending: number; reasons: Map<string, number>; opts: Map<string, number> };
       const acc = new Map<number, Acc>();
+      // 2026-11-05 사용자 요청: 에이전트 화면에서 상품을 눌러 취소 사유를 보게 — 취소완료(C40) 품목의 고객 사유·옵션을 상품별로 센다
+      const bump = (m: Map<string, number>, k: string, q: number) => m.set(k, (m.get(k) ?? 0) + q);
       let orders = 0;
       await eachOrder(token, "date_type=pay_date&embed=items&fields=order_id,items", start, e, (list) => {
         for (const o of list) {
@@ -3986,17 +3988,25 @@ Deno.serve(async (req) => {
           for (const it of (o.items ?? []) as Record<string, unknown>[]) {
             const no = Number(it.product_no); if (!no) continue;
             let a = acc.get(no);
-            if (!a) { a = { name: String(it.product_name ?? ""), paid: 0, cancel: 0, pending: 0 }; acc.set(no, a); }
+            if (!a) { a = { name: String(it.product_name ?? ""), paid: 0, cancel: 0, pending: 0, reasons: new Map(), opts: new Map() }; acc.set(no, a); }
             const q = num(it.quantity), st = String(it.order_status ?? "");
             a.paid += q;
-            if (st === "C40") a.cancel += q;                    // 취소완료 — cohortweeks와 같은 기준
+            if (st === "C40") {                                   // 취소완료 — cohortweeks와 같은 기준
+              a.cancel += q;
+              const { request, accept } = splitClaimReason(it.claim_reason);
+              bump(a.reasons, (request || accept || "사유 미기재").replace(/\s+/g, " ").trim().slice(0, 120) || "사유 미기재", q);
+              const opt = String(it.option_value ?? "").trim();
+              if (opt) bump(a.opts, opt, q);
+            }
             else if (/^C[0-3]\d$/.test(st)) a.pending += q;     // 취소 신청·접수·진행(아직 완료 아님)
           }
         }
       });
       const rate = (n: number, d: number) => d > 0 ? +(n / d * 100).toFixed(2) : null;
+      const top = (m: Map<string, number>, n: number) => [...m.entries()].sort((x, y) => y[1] - x[1]).slice(0, n);
       const products = [...acc.entries()].sort((a, b) => b[1].paid - a[1].paid).slice(0, topN)
-        .map(([no, a], i) => ({ rank: i + 1, product_no: no, product_name: a.name, paid_qty: a.paid, cancel_qty: a.cancel, cancel_pending_qty: a.pending, cancel_rate: rate(a.cancel, a.paid) }));
+        .map(([no, a], i) => ({ rank: i + 1, product_no: no, product_name: a.name, paid_qty: a.paid, cancel_qty: a.cancel, cancel_pending_qty: a.pending, cancel_rate: rate(a.cancel, a.paid),
+          reasons: top(a.reasons, 8).map(([reason, qty]) => ({ reason, qty })), options: top(a.opts, 6).map(([option, qty]) => ({ option, qty })) }));
       const tp = [...acc.values()].reduce((t, a) => t + a.paid, 0), tc = [...acc.values()].reduce((t, a) => t + a.cancel, 0);
       return await respond({ period: { start, end: e, days }, orders, total: { paid_qty: tp, cancel_qty: tc, cancel_rate: rate(tc, tp) }, products,
         note: "결제일 기준 최근 N일 주문의 품목 수량. cancel = 취소완료(C40), pending = 취소 신청~진행 중. 최근 주문은 취소가 더 들어올 수 있음" });
