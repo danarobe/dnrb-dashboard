@@ -1795,6 +1795,7 @@
       <h2><span><i class="fa-solid fa-ban" style="color:#4f46e5;font-size:.9em;"></i></span> 취소·반품 접수</h2>
       <div style="display:flex;gap:8px;flex-wrap:wrap;">
         <button class="toggle-btn" onclick="cxlReload()" title="카페24에서 취소신청을 다시 불러옵니다"><i class="fa-solid fa-rotate"></i> 새로고침</button>
+        <button class="toggle-btn" id="cxl-coupon-btn" onclick="cxlCouponSync()" title="카페24에 새로 만든 쿠폰·바뀐 쿠폰 조건을 지금 읽어 반품 계산에 반영하고, 쿠폰마다 자동/직접 확인을 보여줘요"><i class="fa-solid fa-ticket"></i> 최신 쿠폰 목록 반영</button>
       </div>
     </div>
     <div class="section-body">
@@ -1952,14 +1953,16 @@
             <tr><td>부분 반품 · 남는 금액이 <b>기준 금액 미만</b></td><td><span class="cxu-chip" style="background:#fee2e2;color:#b91c1c;">쿠폰 취소</span></td><td>쿠폰할인만큼 줄어요</td></tr>
             <tr><td>부분 반품 · 남는 금액이 <b>기준 금액 이상</b></td><td><span class="cxu-chip" style="background:#dcfce7;color:#166534;">쿠폰 유지</span></td><td>그대로</td></tr>
           </tbody></table>
-          <div class="cxu-sub" style="margin-top:6px;"><b>기준 금액</b> = 그 쿠폰의 최소 구매 금액. <b>금액 조건이 없는 쿠폰도 3만 원</b>을 기준으로 봐요. 쿠폰 조건은 처리할 때마다 카페24에서 새로 읽어요.</div>
+          <div class="cxu-sub" style="margin-top:6px;"><b>기준 금액</b> = 그 쿠폰의 최소 구매 금액. <b>금액 조건이 없는 쿠폰도 3만 원</b>을 기준으로 봐요. 쿠폰 조건은 처리할 때마다 카페24에서 새로 읽어요(30분 저장 — 쿠폰을 새로 만들거나 조건을 바꿨으면 위의 <b>[최신 쿠폰 목록 반영]</b>을 누르면 바로 반영되고, 쿠폰마다 자동/직접 확인이 보여요).</div>
           <table class="cxu-tbl" style="max-width:640px;"><thead><tr><th>지금 쓰이는 쿠폰(예)</th><th>할인</th><th>기준 금액</th></tr></thead><tbody>
             <tr><td>앱 신규설치 기념쿠폰 · 깜짝 할인 쿠폰</td><td>5,000원 · 3,000원</td><td class="cxu-amt">3만 원</td></tr>
             <tr><td>럭키 찬스 쿠폰 · 쇼핑 응원 쿠폰 <span class="cxu-sub">(조건 없는 쿠폰)</span></td><td>1,000원</td><td class="cxu-amt">3만 원</td></tr>
             <tr><td>생일 쿠폰</td><td>10,000원</td><td class="cxu-amt">5만 원</td></tr>
+            <tr><td>생일쿠폰(2026-10-31 새로 만듦 · 조건 없음)</td><td>10,000원 · 20,000원</td><td class="cxu-amt">3만 원</td></tr>
             <tr><td>10만원 이상 · 20만원 이상 구매 할인 쿠폰</td><td>2,000원 · 3,000원</td><td class="cxu-amt">10만 원 · 20만 원</td></tr>
           </tbody></table>
-          <div class="cxu-sub" style="margin-top:6px;color:#b45309;"><b>직접 확인으로 빠지는 쿠폰</b>: 10% 같은 할인율 쿠폰 · 무료배송 쿠폰 · 조건을 읽지 못한 쿠폰 · 쿠폰을 2장 이상 쓴 주문</div>
+          <div class="cxu-sub" style="margin-top:6px;"><b>무료배송 쿠폰</b>(무료배송 쿠폰 · 카카오톡 채널 추가 무료배송 쿠폰 등, 2026-11-05 사용자 지정): <b>무료배송 주문과 같게</b> — 전체 반품이거나 남는 금액 7만 원 미만이면 <b>반품 배송비 3,000원 + 무료배송 쿠폰 3,000원 취소 = 6,000원</b>, 7만 원 이상이면 <b>반품 배송비 3,000원</b>(쿠폰 유지). 직원들이 해 온 처리와 같은 방식이에요(지난 무료배송 쿠폰 반품 30건 환불액과 원 단위까지 같음).</div>
+          <div class="cxu-sub" style="margin-top:6px;color:#b45309;"><b>직접 확인으로 빠지는 쿠폰</b>: 7%·10%·12% 같은 할인율 쿠폰(사용자 지정) · 조건을 읽지 못한 쿠폰 · 쿠폰을 2장 이상 쓴 주문(무료배송 쿠폰 + 할인 쿠폰 포함)</div>
 
           <div class="cxu-h" style="margin-top:16px;"><span class="cxu-n">3</span> 쓴 적립금 <span class="cxu-sub">— 적립금은 3만 원 이상 주문에만 쓸 수 있어요</span></div>
           <table class="cxu-tbl"><thead><tr><th>경우</th><th>처리</th><th>환불액</th></tr></thead><tbody>
@@ -4896,6 +4899,44 @@ function cxlSetTab(k) {
   if (k === 'ret') { if (!cxrState.data && !cxrState.loading) cxrLoad(); else cxrRender(); }
   if (k === 'refund') { if (!isAdmin()) { cxlSetTab('npay'); return; } if (!cxfState.data && !cxfState.loading) cxfLoad(); else cxfRender(); }   // 환불전 → 환불완료 = 관리자만 (2026-10-15)
 }
+// 최신 쿠폰 목록 반영(2026-11-05 사용자 요청 — "쿠폰이 추가되면 그 쿠폰들도 고려되게"). 서버 retacc_coupons가 카페24 쿠폰 전부를 새로 읽어
+//   반품 계산이 쓰는 쿠폰 조건 저장을 지금 값으로 바꾼다 → 반품접수·환불전 탭을 다시 불러 새 조건으로 계산. 쿠폰마다 자동/직접 확인을 창으로 보여 준다.
+async function cxlCouponSync() {
+  if (cxlState.running || cxsState.running || cxrState.running || cxfState.running) { showToast('처리 중이에요 — 끝난 뒤 눌러주세요'); return; }
+  const btn = $('cxl-coupon-btn'); btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> 쿠폰 읽는 중…';
+  try {
+    const d = await anGet({ action: 'retacc_coupons' });
+    cxlCouponShow(d);
+    if (cxlState.tab === 'ret') { cxrState.lastRun = null; cxrState.status = new Map(); cxrLoad(); }
+    else if (cxlState.tab === 'refund') { cxfState.lastRun = null; cxfState.status = new Map(); cxfLoad(); }
+    showToast(`카페24 쿠폰 ${d.coupons.length}개를 반영했어요`);
+  } catch (e) { showToast('쿠폰 목록을 읽지 못했어요 — ' + e.message); }
+  finally { btn.disabled = false; btn.innerHTML = '<i class="fa-solid fa-ticket"></i> 최신 쿠폰 목록 반영'; }
+}
+function cxlCouponShow(d) {
+  let box = $('cxl-coupon-modal');
+  if (!box) {
+    box = document.createElement('div'); box.id = 'cxl-coupon-modal';
+    box.style.cssText = 'position:fixed;inset:0;background:rgba(15,23,42,.45);z-index:300;display:flex;align-items:flex-start;justify-content:center;padding:40px 16px;overflow:auto;';
+    box.addEventListener('click', e => { if (e.target === box) box.style.display = 'none'; });
+    document.addEventListener('keydown', e => { if (e.key === 'Escape' && box.style.display !== 'none') box.style.display = 'none'; });
+    document.body.appendChild(box);
+  }
+  const list = d.coupons || [], auto = list.filter(c => c.auto).length;
+  const at = d.at ? new Date(d.at).toLocaleString('ko-KR', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '';
+  const rows = list.map(c => `<tr>
+      <td style="white-space:nowrap;">${escHtml(c.created)}</td>
+      <td style="text-align:left;white-space:normal;"><b>${escHtml(c.name)}</b>${c.stopped ? ' <span style="font-size:.66rem;color:#6b7280;">(발급 중지)</span>' : ''}<div style="font-size:.66rem;color:#6b7280;">${escHtml(c.no)} · 발급 ${fmt(c.issued)}장</div></td>
+      <td style="white-space:nowrap;">${escHtml(c.kind)}</td>
+      <td style="text-align:left;white-space:normal;"><span style="display:inline-block;border-radius:6px;padding:0 7px;font-size:.7rem;font-weight:800;margin-right:4px;${c.auto ? 'background:#dcfce7;color:#166534;' : 'background:#fef3c7;color:#92400e;'}">${c.auto ? '자동' : '직접 확인'}</span><span style="font-size:.74rem;color:#374151;">${escHtml(String(c.text).replace(/^(자동|직접 확인) — /, ''))}</span></td></tr>`).join('');
+  box.innerHTML = `<div role="dialog" aria-modal="true" aria-label="최신 쿠폰 목록" style="background:#fff;border-radius:14px;max-width:880px;width:100%;padding:18px 20px;box-shadow:0 20px 50px rgba(15,23,42,.25);">
+    <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px;"><b style="font-size:1rem;color:#1e1b4b;"><i class="fa-solid fa-ticket" style="color:#4f46e5;"></i> 카페24 쿠폰 ${list.length}개 반영</b>
+      <span style="font-size:.74rem;color:#6b7280;">${escHtml(at)} · ${escHtml(d.by || '')}</span>
+      <button class="toggle-btn" style="margin-left:auto;" onclick="$('cxl-coupon-modal').style.display='none'">닫기</button></div>
+    <div style="font-size:.78rem;color:#4b5563;line-height:1.6;margin-bottom:8px;">반품접수·환불전 탭의 계산이 지금 쿠폰 조건으로 바뀌었어요. <b style="color:#166534;">자동 ${auto}개</b> · <b style="color:#92400e;">직접 확인 ${list.length - auto}개</b> — 직접 확인 쿠폰을 쓴 주문은 반품접수 탭에서 '직접 확인 권장'으로 나와요(퍼센트 할인 쿠폰은 사용자 지정으로 직접 확인).</div>
+    <div class="table-wrap" style="max-height:60vh;overflow:auto;"><table style="width:100%;font-size:.78rem;"><thead><tr><th>등록일</th><th style="text-align:left;">쿠폰</th><th>혜택</th><th style="text-align:left;">반품접수에서</th></tr></thead><tbody>${rows}</tbody></table></div></div>`;
+  box.style.display = 'flex';
+}
 function cxlReload() { if (cxlState.running || cxsState.running || cxrState.running || cxfState.running) { showToast('처리 중이에요 — 끝난 뒤 눌러주세요'); return; } if (cxlState.tab === 'rules') { showToast('규칙 화면은 새로 불러올 내용이 없어요'); return; } if (cxlState.tab === 'log') cxlLogLoad(); else if (cxlState.tab === 'refund') { cxfState.lastRun = null; cxfState.status = new Map(); cxfLoad(); } else if (cxlState.tab === 'ret') { cxrState.lastRun = null; cxrState.status = new Map(); cxrLoad(); } else if (cxlState.tab === 'self') { cxsState.lastRun = null; cxsState.status = new Map(); cxsLoad(); } else { cxlState.lastRun = null; cxlState.status = new Map(); cxlLoad(); } }
 async function cxlLoad() {
   if (cxlState.loading) return;
@@ -5480,8 +5521,10 @@ function cxrCalcHtml(g) {
 // 창에 넣을 내용(배송비·쿠폰·적립금)을 칩으로
 function cxrPlanHtml(g) {
   const p = g.plan, chip = (bg, col, t, title) => `<span title="${escHtml(title || '')}" style="display:inline-block;background:${bg};color:${col};border-radius:6px;padding:1px 7px;font-size:.7rem;font-weight:700;margin:1px 3px 1px 0;white-space:nowrap;">${t}</span>`;
-  const out = [chip('#e0e7ff', '#3730a3', `배송비 ${fmt(p.fee)} 차감`, g.calc.ship_paid ? '배송비를 낸 주문 — 반품 배송비 3,000원' : p.fee === 6000 ? (g.full ? '무료배송 주문 전체 반품 — 왕복 6,000원' : '무료배송 주문 · 남는 금액 7만 원 미만 — 왕복 6,000원') : '무료배송 주문 · 남는 금액 7만 원 이상 — 3,000원')];
-  if (p.coupon === 'cancel') out.push(chip('#fee2e2', '#b91c1c', `쿠폰 ${fmt(p.coupon_amount)} 취소`, `${p.coupon_name} — ${g.full ? '전체 반품' : `남는 금액이 ${fmt(p.coupon_min)}원 미만`}${!g.full && !p.coupon_own_min ? ' (쿠폰 자체에는 금액 조건이 없지만 3만 원 미만이면 취소)' : ''}`));
+  const out = [chip('#e0e7ff', '#3730a3', `배송비 ${fmt(p.fee)} 차감`, g.calc.ship_paid ? '배송비를 낸 주문 — 반품 배송비 3,000원' : g.calc.ship_coupon ? (p.coupon === 'cancel' ? `무료배송 쿠폰 주문 ${g.full ? '전체 반품' : '· 남는 금액 7만 원 미만'} — 반품 배송비 3,000원 + 무료배송 쿠폰 3,000원 취소 = 왕복 6,000원` : '무료배송 쿠폰 주문 · 남는 금액 7만 원 이상 — 반품 배송비 3,000원, 쿠폰 유지') : p.fee === 6000 ? (g.full ? '무료배송 주문 전체 반품 — 왕복 6,000원' : '무료배송 주문 · 남는 금액 7만 원 미만 — 왕복 6,000원') : '무료배송 주문 · 남는 금액 7만 원 이상 — 3,000원')];
+  if (p.coupon === 'cancel' && p.coupon_ship) out.push(chip('#fee2e2', '#b91c1c', `무료배송 쿠폰 ${fmt(p.coupon_amount)} 취소`, `${p.coupon_name} — ${g.full ? '전체 반품' : '남는 금액 7만 원 미만'}이라 무료배송 혜택을 거둬요(반품 배송비 3,000 + 쿠폰 3,000 = 왕복 6,000원)`));
+  else if (p.coupon === 'cancel') out.push(chip('#fee2e2', '#b91c1c', `쿠폰 ${fmt(p.coupon_amount)} 취소`, `${p.coupon_name} — ${g.full ? '전체 반품' : `남는 금액이 ${fmt(p.coupon_min)}원 미만`}${!g.full && !p.coupon_own_min ? ' (쿠폰 자체에는 금액 조건이 없지만 3만 원 미만이면 취소)' : ''}`));
+  else if (p.coupon === 'keep' && p.coupon_ship) out.push(chip('#dcfce7', '#166534', `무료배송 쿠폰 ${fmt(p.coupon_amount)} 유지`, `${p.coupon_name} — 남는 금액 7만 원 이상이라 무료배송 그대로(반품 배송비 3,000원만)`));
   else if (p.coupon === 'keep') out.push(chip('#dcfce7', '#166534', `쿠폰 ${fmt(p.coupon_amount)} 유지`, `${p.coupon_name} — 남는 금액이 ${fmt(p.coupon_min)}원 이상${p.coupon_own_min ? '(쿠폰 최소 구매 금액)' : '(금액 조건 없는 쿠폰은 3만 원 기준)'}`));
   if (p.points_used) out.push(p.points_return ? chip('#fef3c7', '#92400e', `적립금 ${fmt(p.points_return)} 반환`, g.full ? '전체 반품 — 쓴 적립금을 돌려줘요' : '남는 금액 3만 원 미만 — 쓴 적립금을 돌려줘요') : chip('#f3f4f6', '#4b5563', `적립금 ${fmt(p.points_used)} 유지`, '남는 금액 3만 원 이상 — 적립금은 쓴 그대로 둬요'));
   // 상품별추가할인 취소 — 할인이 없어도(0원) 늘 표시하고, 있으면 창에서 무엇을 골라 얼마를 취소하는지 보여 준다(2026-10-07 사용자 요청)

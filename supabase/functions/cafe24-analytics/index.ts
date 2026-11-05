@@ -980,7 +980,28 @@ const RET_FREE_SHIP = 70000, RET_POINT_MIN = 30000, RET_FEE = 3000;
 // 쿠폰은 쿠폰 자체에 금액 조건이 없어도 남는 상품 금액이 3만 원 미만이면 취소한다(2026-10-07 사용자 지적 — 조건 없는 1,000원 쿠폰이 '유지'로 나옴.
 // 과거 기록도 조건 없는 쿠폰 + 남는 금액 3만 원 미만 2건이 모두 취소였다). 쿠폰 최소 금액이 3만 원보다 크면 그 금액이 기준.
 const RET_COUPON_FLOOR = 30000;
-const RET_MOVED = new Set(["R30", "R31", "R34", "R36", "R40"]);   // 반품처리중(수거전·수거완료·환불전·환불보류)·반품완료
+const RET_MOVED = new Set(["R30", "R31", "R34", "R36", "R40"]);
+// 무료배송 쿠폰(2026-11-05 사용자 지정 — "무료배송 쿠폰을 쓴 주문의 반품 배송비는 무료배송 주문과 같게"): 카페24 쿠폰 benefit_type E(무료배송 쿠폰)·J(카카오톡 채널 무료배송 등).
+//   주문 금액에는 배송비 3,000 + coupon_shipping_fee_amount 3,000(같은 값이 coupon_discount_price에도 들어 있음)으로 찍힌다(낸 배송비 0).
+//   반품 처리 = 직원들이 해 온 방식 그대로(10/15~11/5 무료배송 쿠폰 주문 반품 32건 실측 — 변심 전체 반품은 모두 환불 = 상품 − 할인 − 6,000,
+//     '반품 배송비 3,000 + 쿠폰할인 취소 3,000' 13건은 환불액 = 상품 − 할인 − 배송비 − 쿠폰 취소로 원 단위까지 같음):
+//     전체 반품이거나 남는 금액 7만 원 미만 → 반품 배송비 3,000 + 무료배송 쿠폰 3,000 취소(합 6,000 = 무료배송 주문의 왕복) / 7만 원 이상 → 반품 배송비 3,000, 쿠폰 유지.
+//   퍼센트 할인 쿠폰(B)은 사용자 지정으로 계속 직접 확인.
+const RET_SHIP_COUPON = new Set(["E", "J"]);   // 반품처리중(수거전·수거완료·환불전·환불보류)·반품완료
+function retCouponPolicy(c: Record<string, any>): Record<string, any> {
+  const n = (v: unknown) => Math.round(Number(v ?? 0) || 0);
+  return { found: true, name: String(c.coupon_name ?? ""), benefit_type: String(c.benefit_type ?? ""), benefit_price: n(c.benefit_price), scope: String(c.available_scope ?? ""), price_type: String(c.available_price_type ?? ""), order_price_type: String(c.available_order_price_type ?? ""), min: n(c.available_min_price) };
+}
+// 쿠폰이 반품접수 규칙에서 어떻게 다뤄지는지(retGroupsOf와 같은 판단) — '최신 쿠폰 목록 반영' 화면용(2026-11-05)
+function retCouponHandling(p: Record<string, any>, pct: number): { auto: boolean; kind: string; text: string } {
+  const won = (v: number) => v.toLocaleString("ko-KR") + "원";
+  if (RET_SHIP_COUPON.has(p.benefit_type)) return { auto: true, kind: "무료배송", text: "자동 — 무료배송 주문과 같게: 전체 반품·남는 금액 7만 원 미만이면 반품 배송비 3,000 + 쿠폰 3,000 취소(합 6,000원), 아니면 반품 배송비 3,000원·쿠폰 유지" };
+  if (p.benefit_type === "B") return { auto: false, kind: `${pct || "?"}% 할인`, text: "직접 확인 — 퍼센트 할인 쿠폰(사용자 지정)" };
+  if (p.benefit_type !== "A") return { auto: false, kind: "그 밖의 혜택", text: "직접 확인 — 정액 할인·무료배송 쿠폰이 아니에요" };
+  if (p.scope !== "O" || !(p.price_type === "U" || (p.price_type === "O" && p.order_price_type === "U"))) return { auto: false, kind: "정액 할인", text: "직접 확인 — 사용 조건이 특수한 쿠폰이에요" };
+  const own = p.price_type === "O" ? p.min : 0, th = Math.max(own, RET_COUPON_FLOOR);
+  return { auto: true, kind: `${won(p.benefit_price)} 할인`, text: `자동 — 전체 반품이거나 남는 금액 ${won(th)} 미만이면 쿠폰할인 취소, 아니면 유지${own ? "" : " (쿠폰엔 금액 조건이 없어 3만 원 기준)"}` };
+}
 async function retCouponInfo(orders: Record<string, any>[], token: string): Promise<RetCoupons> {
   const n = (v: unknown) => Math.round(Number(v ?? 0) || 0);
   const out: RetCoupons = { byOrder: {}, policy: {} };
@@ -1004,7 +1025,7 @@ async function retCouponInfo(orders: Record<string, any>[], token: string): Prom
         p = { found: false };
         for (const q of ["", "&deleted=T"]) {
           const c = (((await apiGet(`${API_BASE}/admin/coupons?shop_no=1&coupon_no=${no}${q}`, token)).coupons ?? []) as Record<string, any>[])[0];
-          if (c) { p = { found: true, name: String(c.coupon_name ?? ""), benefit_type: String(c.benefit_type ?? ""), benefit_price: n(c.benefit_price), scope: String(c.available_scope ?? ""), price_type: String(c.available_price_type ?? ""), order_price_type: String(c.available_order_price_type ?? ""), min: n(c.available_min_price) }; break; }
+          if (c) { p = retCouponPolicy(c); break; }
         }
         await cacheSet(key, p);
       } catch { p = null; }
@@ -1056,7 +1077,11 @@ function retGroupsOf(o: Record<string, any>, nrSets: NrSets, cp: RetCoupons): Re
     if (main.length !== 1 || !SELF_MAIN_OK.has(main[0])) M(`${SELF_PAY_LABEL[main[0] ?? ""] ?? (main[0] || "알 수 없는")} 결제`, `결제 수단(${pay.map((m) => SELF_PAY_LABEL[m] ?? m).join("+") || "알 수 없음"})은 여기서 처리하지 않아요`);
     if (n(init.credits_spent_amount) > 0) M("예치금", "예치금을 쓴 주문이에요");
     if (o.paid !== "T") M("미결제", "결제가 끝나지 않은 주문이에요");
-    const extra = ([["membership_discount_amount", "회원등급할인"], ["shipping_fee_discount_amount", "배송비할인"], ["set_product_discount_amount", "세트할인"], ["app_discount_amount", "앱할인"], ["coupon_shipping_fee_amount", "배송비 쿠폰"], ["market_other_discount_amount", "마켓 할인"]] as [string, string][]).filter(([k]) => n(init[k]) > 0).map(([, label]) => label);
+    // 무료배송 쿠폰 알아보기(2026-11-05) — 쿠폰 목록에서 무료배송 쿠폰 1장이고 금액 = 배송비 쿠폰 할인 = 처음 배송비일 때만
+    const shipCpnAmt = n(init.coupon_shipping_fee_amount), listAll = cp.byOrder[orderId];
+    const shipCpn = shipCpnAmt > 0 && listAll ? listAll.filter((c) => { const p = cp.policy[c.code]; return !!p && RET_SHIP_COUPON.has(String(p.benefit_type)); }) : [];
+    const shipCpnOk = shipCpn.length === 1 && shipCpn[0].value === shipCpnAmt && shipCpnAmt === n(init.shipping_fee);
+    const extra = ([["membership_discount_amount", "회원등급할인"], ["shipping_fee_discount_amount", "배송비할인"], ["set_product_discount_amount", "세트할인"], ["app_discount_amount", "앱할인"], ["coupon_shipping_fee_amount", "배송비 쿠폰"], ["market_other_discount_amount", "마켓 할인"]] as [string, string][]).filter(([k]) => n(init[k]) > 0 && !(k === "coupon_shipping_fee_amount" && shipCpnOk)).map(([, label]) => label);
     if (extra.length) M("그 밖의 할인", `${extra.join("·")}이 적용된 주문이에요`);
     const ship = n(init.shipping_fee);
     if (ship !== 0 && ship !== RET_FEE) M("배송비 확인", `처음 낸 배송비가 ${won(ship)}이에요(지역 추가 배송비 등)`);
@@ -1066,9 +1091,12 @@ function retGroupsOf(o: Record<string, any>, nrSets: NrSets, cp: RetCoupons): Re
     const beforeBad = [...new Set(its.map((it) => String(it.order_status_before_cs ?? "")).filter((b) => b !== "N30" && b !== "N40"))];
     if (beforeBad.length) M("배송 전 상태", `반품 접수 전 상태가 배송중·배송완료가 아니에요(${beforeBad.map((b) => b || "알 수 없음").join(", ")})`);
     // 쿠폰 — 조건이 읽히는 정액 주문서 쿠폰 1장만 자동
-    const cpn = n(init.coupon_discount_price), list = cp.byOrder[orderId];
-    const coupon = { mode: "none" as "none" | "keep" | "cancel", amount: 0, name: "", min: 0, own: 0 };   // min = 판단 기준(쿠폰 최소 금액과 3만 원 중 큰 값), own = 쿠폰 자체의 최소 금액
-    if (cpn > 0 || (list && list.length) || pay.includes("coupon")) {
+    // 무료배송 쿠폰을 알아봤으면 그 쿠폰·금액을 빼고 나머지(상품 쿠폰)만 아래 규칙으로 본다(coupon_discount_price에 배송비 쿠폰 3,000도 들어 있음)
+    const cpn = n(init.coupon_discount_price) - (shipCpnOk ? shipCpnAmt : 0), list = listAll && shipCpnOk ? listAll.filter((c) => c !== shipCpn[0]) : listAll;
+    const coupon = { mode: "none" as "none" | "keep" | "cancel", amount: 0, name: "", min: 0, own: 0, ship: false };   // min = 판단 기준(쿠폰 최소 금액과 3만 원 중 큰 값), own = 쿠폰 자체의 최소 금액, ship = 무료배송 쿠폰
+    if (shipCpnOk && (cpn > 0 || (list && list.length))) M("쿠폰 확인", "무료배송 쿠폰과 할인 쿠폰을 같이 쓴 주문이에요");
+    else if (shipCpnOk) { coupon.mode = "keep"; coupon.amount = shipCpnAmt; coupon.name = shipCpn[0].name; coupon.ship = true; }
+    else if (cpn > 0 || (list && list.length) || pay.includes("coupon")) {
       if (!list) M("쿠폰 확인", "이 주문에 쓰인 쿠폰을 읽지 못했어요");
       else if (list.length !== 1) { if (list.length > 1 || cpn > 0) M("쿠폰 확인", list.length > 1 ? `쿠폰이 ${list.length}장 쓰인 주문이에요` : "쿠폰 할인이 있는데 쿠폰 정보가 없어요"); }
       else {
@@ -1084,9 +1112,12 @@ function retGroupsOf(o: Record<string, any>, nrSets: NrSets, cp: RetCoupons): Re
     const full = others.length === 0;
     const remain = sum(others, price), remainNet = remain - sum(others, disc);
     const straddle = (th: number) => !full && th > 0 && (remain >= th) !== (remainNet >= th);
-    const fee = ship > 0 ? RET_FEE : (full || remain < RET_FREE_SHIP ? RET_FEE * 2 : RET_FEE);
-    if (ship === 0 && straddle(RET_FREE_SHIP)) M("경계 금액", "남는 금액이 할인 전후로 7만 원 기준에 걸려요 — 배송비 차감을 직접 정해주세요");
-    if (coupon.mode !== "none") {
+    const shipEff = shipCpnOk ? 0 : ship;   // 무료배송 쿠폰 주문 = 낸 배송비 0(무료배송 주문과 같은 기준)
+    // 무료배송 쿠폰 주문: 왕복 6,000은 '반품 배송비 3,000 + 쿠폰 3,000 취소'로 나눠 넣는다(위 실측 방식)
+    const fee = shipCpnOk ? RET_FEE : shipEff > 0 ? RET_FEE : (full || remain < RET_FREE_SHIP ? RET_FEE * 2 : RET_FEE);
+    if (coupon.ship) coupon.mode = full || remain < RET_FREE_SHIP ? "cancel" : "keep";
+    if (shipEff === 0 && straddle(RET_FREE_SHIP)) M("경계 금액", "남는 금액이 할인 전후로 7만 원 기준에 걸려요 — 배송비 차감을 직접 정해주세요");
+    if (coupon.mode !== "none" && !coupon.ship) {   // 무료배송 쿠폰은 늘 유지(배송비는 위 반품 배송비로 따짐)
       if (full || remain < coupon.min) coupon.mode = "cancel";
       if (straddle(coupon.min)) M("경계 금액", `남는 금액이 할인 전후로 쿠폰 최소 금액(${won(coupon.min)})에 걸려요`);
     }
@@ -1103,8 +1134,8 @@ function retGroupsOf(o: Record<string, any>, nrSets: NrSets, cp: RetCoupons): Re
     // 계산은 위의 변심 규칙 그대로라, 직접 확인으로 빠진 이유마다 '이 숫자에서 무엇이 달라질 수 있는지'를 함께 적는다.
     const tags = new Set(manual.map((m) => m.tag)), estNotes: string[] = [];
     const defect = tags.has("불량·오배송") || tags.has("사유 글 확인");
-    const defectAdd = fee + (full && ship > 0 ? ship : 0);   // 불량·오배송으로 인정하면: 반품 배송비 차감 없음 + (배송비를 낸 주문의 전체 반품이면) 낸 배송비도 환불
-    if (defect) estNotes.push(`변심 기준(배송비 ${won(fee)} 차감)으로 계산했어요 — 불량·오배송으로 인정하면 차감이 없어${full && ship > 0 ? `지고 낸 배송비 ${won(ship)}도 돌려줘서` : "져서"} ${won(defectAdd)} 늘어요`);
+    const defectAdd = fee + (full && shipEff > 0 ? shipEff : 0) + (coupon.ship && coupon.mode === "cancel" ? coupon.amount : 0);   // 무료배송 쿠폰 주문을 불량으로 인정하면 쿠폰 취소분도 돌려줌(실측: 불량 전체 반품 = 상품 금액 그대로 환불)   // 불량·오배송으로 인정하면: 반품 배송비 차감 없음 + (배송비를 낸 주문의 전체 반품이면) 낸 배송비도 환불
+    if (defect) estNotes.push(`변심 기준(배송비 ${won(fee)} 차감)으로 계산했어요 — 불량·오배송으로 인정하면 차감이 없어${full && shipEff > 0 ? `지고 낸 배송비 ${won(shipEff)}도 돌려줘서` : "져서"} ${won(defectAdd)} 늘어요`);
     if (tags.has("그 밖의 사유")) estNotes.push("변심 기준으로 계산했어요 — 사유에 따라 배송비 차감이 달라질 수 있어요");
     if (couponUnknown) estNotes.push(full ? `쿠폰할인 ${won(cpn)}은 전체 반품이라 취소하는 것으로 계산했어요` : `쿠폰할인 ${won(cpn)}을 취소할지는 넣지 않았어요 — 취소하면 그만큼 줄어요`);
     else if (tags.has("쿠폰 확인")) estNotes.push("쿠폰 정보를 읽지 못해 쿠폰할인 취소는 넣지 않았어요");
@@ -1128,9 +1159,9 @@ function retGroupsOf(o: Record<string, any>, nrSets: NrSets, cp: RetCoupons): Re
       requested_at: its.map((it) => String(it.return_request_date ?? it.return_confirmed_date ?? "").slice(0, 16).replace("T", " ")).sort().pop() ?? "",
       reason_type: reasonType, reason_label: RET_REASON_LABEL[reasonType] ?? "", reason, items, other_items: others.length, full, remain,
       pay, pay_label: pay.map((m) => SELF_PAY_LABEL[m] ?? m).join(" + "), main: main[0] ?? "",
-      plan: { fee, coupon: coupon.mode, coupon_amount: coupon.amount, coupon_name: coupon.name, coupon_min: coupon.min, coupon_own_min: coupon.own, points_used: pts, points_return: pointsReturn,
+      plan: { fee, coupon: coupon.mode, coupon_amount: coupon.amount, coupon_name: coupon.name, coupon_min: coupon.min, coupon_own_min: coupon.own, coupon_ship: coupon.ship, points_used: pts, points_return: pointsReturn,
         add_sale: goodsDisc > 0 ? (full ? "T" : "M") : "none", add_sale_amount: goodsDisc, refund_type: SELF_REFUND_CODE[main[0] ?? ""] ?? "" },
-      calc: { goods, disc: goodsDisc, rest_disc: sum(others, disc), fee, coupon_cancel: couponCancel, ship_paid: ship },
+      calc: { goods, disc: goodsDisc, rest_disc: sum(others, disc), fee, coupon_cancel: couponCancel, ship_paid: shipEff, ship_coupon: shipCpnOk ? shipCpnAmt : 0 },
       expect: { total, amount: cash, points: pointsReturn }, manual, est,
     });
   }
@@ -1963,10 +1994,29 @@ Deno.serve(async (req) => {
     // ── 취소·반품 접수 3단계 — 자사몰 반품접수(R10) → 반품처리중(수거전) (2026-10-06 사용자 요청): 관리자 + 허용 목록(cxl_users). **서버는 카페24에 아무것도 쓰지 않는다.**
     //    retacc_list: 목록·분류·환불 예정액 계산(캐시 없음) / retacc_prepare(POST): 넘기기 직전 최신 주문으로 다시 계산해 연결 스크립트에 줄 작업(job)을 만든다
     //    (화면이 본 예정액과 다르면 409) / retacc_record(POST): 연결 스크립트가 끝난 뒤 주문을 다시 읽어 상태·금액을 확인하고 cancel_accept_log(kind 'ret')에 기록.
-    if (action === "retacc_list" || action === "retacc_prepare" || action === "retacc_record") {
+    if (action === "retacc_list" || action === "retacc_prepare" || action === "retacc_record" || action === "retacc_coupons") {
       if (!(await cxlRoleOk(authed))) return json({ error: "접근 권한이 없습니다" }, 403);   // 관리자 + 허용 목록(cxl_users)
       const nrSets = await rscanNrSets(token).catch(() => null);
       if (!nrSets) return json({ error: "상품 카테고리(1+1·ACC 여부)를 읽지 못했어요 — 잠시 뒤 다시 시도해주세요" }, 502);
+      // 최신 쿠폰 목록 반영(2026-11-05 사용자 요청 — "쿠폰이 추가되면 그 쿠폰들도 고려되게"): 카페24 쿠폰 전부를 새로 읽어
+      //   반품접수 계산이 쓰는 쿠폰 조건 저장(ret:coupon:번호, 원래 30분)을 지금 값으로 바꾸고, 쿠폰마다 자동/직접 확인을 돌려준다(읽기만).
+      if (action === "retacc_coupons") {
+        const list: Record<string, any>[] = [];
+        for (let offset = 0; offset < 2000; offset += 100) {
+          const page = ((await apiGet(`${API_BASE}/admin/coupons?shop_no=1&limit=100&offset=${offset}`, token)).coupons ?? []) as Record<string, any>[];
+          list.push(...page); if (page.length < 100) break;
+        }
+        const at = new Date().toISOString(), out: Record<string, unknown>[] = [];
+        for (const c of list) {
+          const no = String(c.coupon_no ?? ""); if (!/^\d{6,25}$/.test(no)) continue;
+          const p = retCouponPolicy(c);
+          await cacheSet(`ret:coupon:${no}`, p);
+          const h = retCouponHandling(p, Number(c.benefit_percentage) || 0);
+          out.push({ no, name: p.name, created: String(c.created_date ?? "").slice(0, 10), kind: h.kind, auto: h.auto, text: h.text, stopped: c.is_stopped_issued_coupon === "T", issued: Number(c.issued_count) || 0 });
+        }
+        out.sort((a, b) => String(b.created).localeCompare(String(a.created)));
+        return json({ at, by: authed.name, coupons: out });
+      }
       if (action === "retacc_list") {
         const end = rscanYesterday(); end.setUTCDate(end.getUTCDate() + 1);   // 한국 날짜 오늘
         const start = new Date(end); start.setUTCDate(start.getUTCDate() - 89);
