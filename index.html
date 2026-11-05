@@ -1664,7 +1664,7 @@
         <div style="font-size:.8rem;color:#6b7280;margin-bottom:10px;line-height:1.7;">
           · <b>불량률</b> = 불량 수량 ÷ <b>입고 수량</b>(그 상품·옵션이 입고된 모든 차수의 합 — 실입고를 적었으면 실입고, 아직 안 셌으면 중국출고 수량). 아직 도착 전인 차수는 넣지 않아요.<br>
           · 불량을 발견하면 아래 <b>불량 적기</b>에서 품번·옵션·수량을 적어요. 입고 차수는 알면 고르고 몰라도 돼요. 잘못 적었으면 그 기록의 [지우기].<br>
-          · 목록은 <b>상품별</b>(옵션마다 불량률) · <b>날짜별</b>(발견일) · <b>담당자별</b>(기록한 사람)로 볼 수 있어요. 날짜별·담당자별은 기간을 골라 볼 수 있고, 엑셀도 보이는 대로 저장돼요.
+          · 목록은 <b>상품별</b>(옵션마다 불량률) · <b>날짜별</b>(발견일) · <b>담당자별</b>(기록한 사람)로 볼 수 있어요. 날짜별·담당자별은 기간 버튼이나 <b>날짜·담당자 펼치기 목록</b>으로 골라 볼 수 있고, 엑셀도 보이는 대로 저장돼요.
         </div>
         <div id="cn-def-summary" style="margin-bottom:10px;"></div>
         <div id="cn-def-form" style="margin-bottom:12px;"></div>
@@ -1673,6 +1673,7 @@
           <span style="width:1px;height:18px;background:#e5e7eb;"></span>
           <span id="cn-def-chips" class="qp"></span>
           <span id="cn-def-period" class="qp" style="display:none;"></span>
+          <span id="cn-def-picks" style="display:none;gap:6px;align-items:center;flex-wrap:wrap;"></span>
           <input id="cn-def-q" type="search" placeholder="품번·색상·담당자·내용 찾기" oninput="renderSoon('cnDefList')" style="padding:6px 10px;border:1px solid #d1d5db;border-radius:8px;font-size:.8rem;min-width:160px;" />
           <button class="toggle-btn" style="margin-left:auto;" onclick="cnDefXlsx()"><i class="fa-solid fa-file-excel"></i> 엑셀 저장</button>
         </div>
@@ -8108,17 +8109,31 @@ async function cnPendCmpPick(input) {
 /* ══ 불량 기록 (2026-10-26 사용자 요청 — "각 상품의 옵션별 불량 수량을 체크해서, 검수 완료 수량 기준 불량률") ══
    cn_defects 한 줄 = 상품·옵션·(입고 차수)·수량·발견일·메모. 불량률 = 불량 ÷ 입고 수량(그 상품·옵션의 모든 차수 합 — 2026-10-26 같은 날 바꿈, 처음엔 검수 완료 차수 실입고만).
    적기·지우기 = 관리자·MD·물류팀(cnCanDisc와 같은 범위). 옵션 키는 cnLKey(비슷한 색 이름 짝 포함). 입고 검수의 '불량' 칸은 같은 날 없앰. */
-const cnDefState = { filter: 'has', sname: '', view: 'prod', period: 'all' };
+const cnDefState = { filter: 'has', sname: '', view: 'prod', period: 'all', date: '', who: '' };   // date·who = 펼치기 목록에서 고른 발견일·담당자(2026-11-05 사용자 요청), '' = 전체
 // 보기(2026-11-05 사용자 요청 "상품별 말고 기록한 날짜별·담당자별로도"): 상품별(옵션 단위 불량률) / 날짜별(발견일) / 담당자별(기록한 사람) — 뒤의 둘은 기록 한 줄씩, 기간 칩.
 const CN_DEF_VIEWS = [['prod', '상품별'], ['date', '날짜별'], ['who', '담당자별']];
 const CN_DEF_PERIODS = [['all', '전체'], ['7', '최근 7일'], ['30', '최근 30일'], ['month', '이번 달']];
 function cnDefSetView(v) { cnDefState.view = v; cnDefList(); }
-function cnDefSetPeriod(v) { cnDefState.period = v; cnDefList(); }
+function cnDefSetPeriod(v) { cnDefState.period = v; cnDefState.date = ''; cnDefList(); }   // 기간을 바꾸면 고른 날짜는 풂
+function cnDefPick(k, v) { cnDefState[k] = v; cnDefList(); }
+function cnDefPicksHtml() {   // 날짜·담당자 펼치기 목록 — 기록이 있는 날짜(최신부터)·기록한 사람만
+  const L = (cnState.data || {}).defects || [], WD = '일월화수목금토';
+  const cnt = (f, v) => L.filter(x => f(x) === v).length;
+  const dates = [...new Set(L.map(x => String(x.found_on || '')).filter(Boolean))].sort().reverse();
+  const names = [...new Set(L.map(x => x.created_by_name || '(이름 없음)'))].sort((a, b) => a.localeCompare(b, 'ko'));
+  const sel = 'padding:6px 8px;border:1px solid #d1d5db;border-radius:8px;font-size:.8rem;';
+  const md = t => `${Number(t.slice(5, 7))}/${Number(t.slice(8, 10))}(${WD[new Date(t + 'T00:00:00Z').getUTCDay()]})`;
+  return `<select aria-label="날짜 고르기" onchange="cnDefPick('date', this.value)" style="${sel}"><option value="">날짜 전체</option>${dates.map(d => `<option value="${d}"${cnDefState.date === d ? ' selected' : ''}>${md(d)} · ${cnt(x => String(x.found_on || ''), d)}건</option>`).join('')}</select>
+    <select aria-label="담당자 고르기" onchange="cnDefPick('who', this.value)" style="${sel}"><option value="">담당자 전체</option>${names.map(n => `<option value="${escHtml(n)}"${cnDefState.who === n ? ' selected' : ''}>${escHtml(n)} · ${cnt(x => x.created_by_name || '(이름 없음)', n)}건</option>`).join('')}</select>
+    ${cnDefState.date || cnDefState.who ? `<button class="toggle-btn" style="font-size:.72rem;padding:3px 9px;" onclick="cnDefState.date='';cnDefState.who='';cnDefList()">고른 것 풀기</button>` : ''}`;
+}
 function cnDefRecs() {   // 날짜별·담당자별 보기의 기록 줄 — 기간·검색 적용
   const d = cnState.data || {}, today = hireToday(), q = String(($('cn-def-q') || {}).value || '').trim().toLowerCase();
   const ago = n => new Date(new Date(today + 'T00:00:00Z').getTime() - (n - 1) * 864e5).toISOString().slice(0, 10);
   const p = cnDefState.period, from = p === '7' ? ago(7) : p === '30' ? ago(30) : p === 'month' ? today.slice(0, 7) + '-01' : '';
-  return (d.defects || []).filter(x => (!from || String(x.found_on || '') >= from)
+  const pd = cnDefState.date, pw = cnDefState.who;
+  return (d.defects || []).filter(x => (pd ? String(x.found_on || '') === pd : (!from || String(x.found_on || '') >= from))   // 날짜를 고르면 그 날만(기간 칩보다 먼저)
+    && (!pw || (x.created_by_name || '(이름 없음)') === pw)
     && (!q || [x.sname, x.color, x.size, x.note, x.created_by_name].some(v => String(v || '').toLowerCase().includes(q))));
 }
 function cnDefRecList() {
@@ -8252,6 +8267,8 @@ function cnDefList() {
   $('cn-def-period').innerHTML = CN_DEF_PERIODS.map(([k, l]) => `<button class="${cnDefState.period === k ? 'active' : ''}" aria-pressed="${cnDefState.period === k}" onclick="cnDefSetPeriod('${k}')">${l}</button>`).join('');
   $('cn-def-chips').style.display = v === 'prod' ? '' : 'none';
   $('cn-def-period').style.display = v === 'prod' ? 'none' : '';
+  $('cn-def-picks').style.display = v === 'prod' ? 'none' : 'inline-flex';
+  if (v !== 'prod') $('cn-def-picks').innerHTML = cnDefPicksHtml();
   if (v !== 'prod') { cnDefRecList(); return; }
   document.querySelectorAll('#cn-def-chips button').forEach(b => b.classList.toggle('active', b.getAttribute('onclick').includes(`'${cnDefState.filter}'`)));
   const rows = cnDefFiltered(), canEdit = cnCanDisc(), shipOf = new Map((d.ships || []).map(x => [x.id, x]));
@@ -8275,7 +8292,7 @@ async function cnDefXlsx() {
     const byDate = cnDefState.view === 'date', shipOf = new Map((d.ships || []).map(x => [x.id, x]));
     const recs = cnDefRecs().sort((a, b) => byDate ? String(b.found_on || '').localeCompare(String(a.found_on || '')) : String(a.created_by_name || '').localeCompare(String(b.created_by_name || ''), 'ko') || String(b.found_on || '').localeCompare(String(a.found_on || '')));
     const out = recs.map(x => [x.found_on || '', x.created_by_name || '', x.sname, cnColorCanon(x.sname, x.color, x.size) || '', x.size || '', Number(x.qty) || 0, x.shipment_id && shipOf.get(x.shipment_id) ? shipOf.get(x.shipment_id).title : '', x.note || '', kstDT(x.created_at)]);
-    const per = (CN_DEF_PERIODS.find(p => p[0] === cnDefState.period) || [])[1] || '';
+    const per = [cnDefState.date ? `발견일 ${cnDefState.date}` : (CN_DEF_PERIODS.find(p => p[0] === cnDefState.period) || [])[1] || '', cnDefState.who ? `담당자 ${cnDefState.who}` : ''].filter(Boolean).join(' · ');
     try {
       await cnXlsxSave(`중국사입_불량기록_${byDate ? '날짜별' : '담당자별'}_${cnXlsxDay()}`, `중국 사입 불량 기록 — ${byDate ? '날짜별' : '담당자별'}`, `${per} · ${hireToday()}`,
         ['발견일', '기록한 사람', '사입상품명', '색상', '사이즈', '불량', '입고 차수', '불량 내용', '기록 시각'], out, [12, 12, 14, 14, 10, 8, 22, 36, 17],
