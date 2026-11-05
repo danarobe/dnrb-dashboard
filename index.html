@@ -4470,7 +4470,7 @@ function cnBuyRender() {
     const price = st.price[p.sname] != null ? st.price[p.sname] : p.price;
     html += `<tr style="background:#f8f9ff;"><td class="cn-name" colspan="4"><div style="display:flex;align-items:center;gap:8px;">${cnThumbHtml(p.sname)}<b style="font-weight:800;">${escHtml(p.sname)}</b><span class="cn-sub">옵션 ${p.opts.length}</span>
         <span class="cn-label-badge" style="${cnAnyLabelOf(p.sname) ? '' : 'background:#f3f4f6;color:#4b5563;border-color:#e5e7eb;'}" title="주문서 I열에 들어가는 라벨 문구 — 입고 검수의 혼용률·라벨(일반·아우터·사이즈)로 정해져요">${escHtml(cnOrderLabelText(p.sname))}</span>
-        ${cnRemarkOf(p.sname) ? `<span class="cn-rmk-txt" title="주문서 J열 '특이사항'에 들어가요 — 입고 검수에서 고칠 수 있어요">특이사항: ${escHtml(cnRemarkOf(p.sname))}</span>` : ''}
+        ${cnOrderRemarkText(p.sname) ? `<span class="cn-rmk-txt" title="주문서 J열 '특이사항'에 들어가요 — 입고 검수에서 고칠 수 있어요${cnLabelOf(p.sname) ? '&#10;일반(혼용률) 라벨 상품이라 \'다나로브 일반 라벨\'이 자동으로 들어가요' : ''}">특이사항: ${escHtml(cnOrderRemarkText(p.sname).replace(/\n/g, ' · '))}</span>` : ''}
         <span class="cn-sub" style="display:inline-flex;align-items:center;gap:4px;">매장 <input type="text" maxlength="80" value="${escHtml(info.vendor || '')}" data-s="${escHtml(p.sname)}" data-prev="${escHtml(info.vendor || '')}" onchange="cnBuyVendor(this)" placeholder="예: W-1F-10-30" style="width:120px;border:1px solid #e5e7eb;border-radius:6px;padding:2px 6px;font-size:.74rem;" /></span>
         ${canPrice ? `<span class="cn-sub" style="display:inline-flex;align-items:center;gap:4px;">단가 ¥<input type="number" min="0" step="0.1" value="${price == null ? '' : price}" data-s="${escHtml(p.sname)}" onchange="cnBuyPrice(this)" style="width:70px;border:1px solid #e5e7eb;border-radius:6px;padding:2px 6px;font-size:.74rem;text-align:right;" /></span>` : ''}</div></td>
       <td style="text-align:right;font-weight:800;color:${sub ? '#4338ca' : '#6b7280'};" data-buy-sub="${escHtml(encodeURIComponent(p.sname))}">${sub ? fmt(sub) + '장' : '—'}</td></tr>`;
@@ -4559,7 +4559,7 @@ async function cnBuyWorkbook(picked, sheetName) {   // 사용자 주문서 양�
     ws.mergeCells(r0, 1, r0 + n - 1, 1); ws.mergeCells(r0, 2, r0 + n - 1, 2); ws.mergeCells(r0, 9, r0 + n - 1, 9); ws.mergeCells(r0, 10, r0 + n - 1, 10);
     const a = ws.getCell(r0, 1); a.value = /^\d+$/.test(p.sname) ? Number(p.sname) : p.sname; a.font = { name: '궁서', size: 11, bold: true }; a.alignment = center;
     if (p.vendor) ws.getCell(r0, 8).value = p.vendor;
-    const rmk = ws.getCell(r0, 10); rmk.value = cnRemarkOf(p.sname) || null; rmk.alignment = { horizontal: 'left', vertical: 'middle', wrapText: true }; rmk.font = { name: '돋움', size: 10, bold: true, color: { argb: 'FFC00000' } }; rmk.border = border;
+    const rmk = ws.getCell(r0, 10); rmk.value = cnOrderRemarkText(p.sname) || null; rmk.alignment = { horizontal: 'left', vertical: 'middle', wrapText: true }; rmk.font = { name: '돋움', size: 10, bold: true, color: { argb: 'FFC00000' } }; rmk.border = border;
     const lab = ws.getCell(r0, 9); lab.value = cnOrderLabelText(p.sname); lab.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true }; lab.font = { name: '돋움', size: 10, bold: true };   // 라벨 문구(2026-10-26 — 옛 '다나로브')
     const url = (cnState.thumbs || {})[p.sname];
     if (url && /^data:image\/(jpeg|png);base64,/.test(url)) {
@@ -6664,6 +6664,14 @@ const cnShipName = x => String((x && (x.order_round || x.title)) || '');   // �
 /* 특이사항 (2026-10-31 사용자 요청: "상품마다 어떤 옵션을 제거하거나, 라벨 특이사항이 있거나 여러 가지 문제들이 있어서 참고가 필요해") — 상품(사입상품명)마다 하나(cn_products.remark).
    상품 줄 이름 아래(혼용률 다음 줄)에서 적고(칸을 벗어나거나 Enter면 저장 — 관리자·MD, 물류팀은 글만), 주문하기 엑셀의 I열(라벨 문구) 옆 J열 '특이사항'으로 나간다. */
 const cnRemarkOf = sname => ((((cnState.data || {}).prods || {})[sname]) || {}).remark || '';
+// 주문하기 엑셀 J열 '특이사항' 문구(2026-11-05 사용자 요청 — "혼용률 옆에 라벨 안 붙이기로 했으니, 대신 J열 특이사항에 '다나로브 일반 라벨'"):
+//   일반(혼용률) 라벨 체크 상품은 I열이 혼용률만 나가므로 J열 맨 앞에 '다나로브 일반 라벨', 그 아래 줄에 입고 검수의 특이사항. 이미 적혀 있으면 두 번 넣지 않음.
+const CN_GEN_LABEL = '다나로브 일반 라벨';
+function cnOrderRemarkText(sname) {
+  const rm = cnRemarkOf(sname).trim();
+  if (!cnLabelOf(sname) || rm.replace(/\s+/g, '').includes(CN_GEN_LABEL.replace(/\s+/g, ''))) return rm;
+  return rm ? CN_GEN_LABEL + '\n' + rm : CN_GEN_LABEL;
+}
 function cnRemarkHtml(sname) {
   const d = cnState.data || {}, info = (d.prods || {})[sname] || {}, v = info.remark || '';
   const tip = v && info.remark_by ? `${info.remark_by} · ${unshipKst(info.remark_at)}` : '';
