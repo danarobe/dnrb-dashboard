@@ -1327,7 +1327,7 @@ Deno.serve(async (req) => {
     // performance는 역할에 따라 응답이 달라서(비관리자 order_amount=0) 키에 역할 포함.
     const qsKey = new URLSearchParams(url.search);
     qsKey.delete("nocache"); qsKey.sort();
-    const cacheKey = `an:${qsKey.toString()}` + (action === "performance" ? `:${authed.role}:cn6` : "") + (action === "cancelwatch" ? ":r1" : "");   // r1 = 취소 사유·옵션 포함(2026-11-05)   // cn6 = 취소만 수량 cancel_only_qty(2026-11-04)   // cn5 = MD에게 roas_amt(2026-10-30)   // cn3 = 환전 내역·출고 서류 총 합계 반영(2026-10-22)   // cn1 = 중국 사입 실질 단가 반영(2026-10-16) 전 캐시를 쓰지 않게
+    const cacheKey = `an:${qsKey.toString()}` + (action === "performance" ? `:${authed.role}:cn6` : "") + (action === "cancelwatch" ? ":r2" : "");   // r1 = 취소 사유·옵션 포함, r2 = cancel_items(신청 단위) 포함(2026-11-05)   // cn6 = 취소만 수량 cancel_only_qty(2026-11-04)   // cn5 = MD에게 roas_amt(2026-10-30)   // cn3 = 환전 내역·출고 서류 총 합계 반영(2026-10-22)   // cn1 = 중국 사입 실질 단가 반영(2026-10-16) 전 캐시를 쓰지 않게
     const noCache = url.searchParams.get("nocache") === "1";
     // 저장 시간: 분석용 조회는 30분(2026-10-01 사용자 결정 — 첫 조회가 6~35초라 다시 기다리는 일을 줄임, 그동안 새 주문·취소는 미반영),
     //   미발송 목록은 10분 그대로(물류팀 실시간 작업 — 화면 새로고침 버튼은 nocache). api_cache 행은 1시간 뒤 자동 삭제.
@@ -3985,6 +3985,9 @@ Deno.serve(async (req) => {
       const acc = new Map<number, Acc>();
       // 2026-11-05 사용자 요청: 에이전트 화면에서 상품을 눌러 취소 사유를 보게 — 취소완료(C40) 품목의 고객 사유·옵션을 상품별로 센다
       const bump = (m: Map<string, number>, k: string, q: number) => m.set(k, (m.get(k) ?? 0) + q);
+      // 2026-11-05 2차: 여러 상품을 한 번에 취소하면 사유가 하나뿐이라 어느 상품 얘기인지 모른다 → 취소 품목을 신청(claim) 단위로 돌려줘
+      //   에이전트(returns-agent, _shared/claimattr.ts)가 '확실/불확실'을 가른다. 상위 top 상품이 낀 신청의 품목만(같은 신청의 다른 상품 포함).
+      const cItems: { claim: string; product_no: number; product_name: string; option: string; qty: number; request: string; accept: string }[] = [];
       let orders = 0;
       await eachOrder(token, "date_type=pay_date&embed=items&fields=order_id,items", start, e, (list) => {
         for (const o of list) {
@@ -4001,6 +4004,7 @@ Deno.serve(async (req) => {
               bump(a.reasons, (request || accept || "사유 미기재").replace(/\s+/g, " ").trim().slice(0, 120) || "사유 미기재", q);
               const opt = String(it.option_value ?? "").trim();
               if (opt) bump(a.opts, opt, q);
+              cItems.push({ claim: String(it.claim_code ?? o.order_id ?? ""), product_no: no, product_name: String(it.product_name ?? ""), option: opt, qty: q, request, accept });
             }
             else if (/^C[0-3]\d$/.test(st)) a.pending += q;     // 취소 신청·접수·진행(아직 완료 아님)
           }
@@ -4012,7 +4016,10 @@ Deno.serve(async (req) => {
         .map(([no, a], i) => ({ rank: i + 1, product_no: no, product_name: a.name, paid_qty: a.paid, cancel_qty: a.cancel, cancel_pending_qty: a.pending, cancel_rate: rate(a.cancel, a.paid),
           reasons: top(a.reasons, 8).map(([reason, qty]) => ({ reason, qty })), options: top(a.opts, 6).map(([option, qty]) => ({ option, qty })) }));
       const tp = [...acc.values()].reduce((t, a) => t + a.paid, 0), tc = [...acc.values()].reduce((t, a) => t + a.cancel, 0);
-      return await respond({ period: { start, end: e, days }, orders, total: { paid_qty: tp, cancel_qty: tc, cancel_rate: rate(tc, tp) }, products,
+      const topNos = new Set(products.map((p) => p.product_no));
+      const topClaims = new Set(cItems.filter((x) => topNos.has(x.product_no)).map((x) => x.claim));
+      const cancel_items = cItems.filter((x) => topClaims.has(x.claim)).map((x) => ({ ...x, request: x.request.slice(0, 200), accept: x.accept.slice(0, 80) }));
+      return await respond({ period: { start, end: e, days }, orders, total: { paid_qty: tp, cancel_qty: tc, cancel_rate: rate(tc, tp) }, products, cancel_items,
         note: "결제일 기준 최근 N일 주문의 품목 수량. cancel = 취소완료(C40), pending = 취소 신청~진행 중. 최근 주문은 취소가 더 들어올 수 있음" });
     }
 
