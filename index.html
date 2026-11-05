@@ -20804,6 +20804,56 @@ function paShow(productNo) {
     <div style="font-size:.7rem;color:#6b7280;margin-top:8px;">광고명을 누르면 소재(영상·이미지)를 볼 수 있습니다</div>`;
 }
 
+/* ── 반품 사유 귀속 도우미 (2026-11-05) — 에이전트 저장소 _shared/claimattr.ts와 같은 표. 고치면 둘 다 ── */
+const RR_KIND_WORDS = [
+  ['set', /셋업|세트|set\b/i],
+  ['shoes', /슈즈|플랫|로퍼|부츠|부티|샌들|힐|스니커즈|운동화|뮬|슬링백|메리제인|펌프스|블로퍼|슬리퍼|단화|워커/],
+  ['bag', /(?:^|\s)\S*(?:백|가방)(?:\s|$)|토트|숄더|크로스바디|파우치|에코백/],
+  ['acc', /목걸이|귀걸이|이어링|반지|링\b|팔찌|벨트|머플러|스카프|목도리|모자|비니|캡\b|양말|삭스|장갑|헤어|집게|핀\b|브로치|키링|선글라스|워머/],
+  ['dress', /원피스|\bops\b|드레스|점프수트/i],
+  ['bottom', /팬츠|슬랙스|스커트|치마|데님|청바지|진\b|쇼츠|반바지|바지|레깅스|조거|와이드/],
+  ['outer', /코트|자켓|재킷|점퍼|패딩|무스탕|블루종|트렌치|아우터|베스트|조끼/],
+  ['top', /니트|블라우스|셔츠|티셔츠|티\b|맨투맨|후드|가디건|탑\b|나시|슬리브리스|폴라|터틀넥|스웨터|풀오버|카라/],
+];
+// 상품명 마지막 단어를 먼저 본다('제인 워머 폴라' = 상의, '워머'로 액세서리 판정 금지). 모르면 null
+function rrKindOf(name) {
+  const s = paKey(name), last = s.split(/\s+/).pop() || '';
+  for (const [k, re] of RR_KIND_WORDS) if (re.test(last)) return k;
+  for (const [k, re] of RR_KIND_WORDS) if (re.test(s)) return k;
+  return null;
+}
+const RR_APPAREL = ['dress', 'bottom', 'top', 'outer', 'set'];
+// 사유 단서 → 그 말이 나올 수 있는 상품 종류
+const RR_CUES = [
+  [/발볼|발등|발가락|뒤꿈치|뒷꿈치|굽|깔창|신발|발이|발사이즈|발 사이즈|(?<!\d)2[2-6][05](?!\d)/, ['shoes']],
+  [/허리|밑위|엉덩이|힙|허벅지|밴딩|바지|치마/, ['bottom', 'dress', 'set']],
+  [/어깨|소매|팔통|팔 길이|팔길이|팔이|가슴|암홀|목둘레|목이|넥|카라|품이/, ['top', 'outer', 'dress', 'set']],
+  [/기장|총장/, RR_APPAREL],
+  [/사이즈|작아|작음|작네|커요|커서|크고|크네|크다|큼|큽|핏|타이트|끼어|껴서|헐렁|짧|길어|길고|길이/, [...RR_APPAREL, 'shoes']],
+  [/보풀|비침|비쳐|두께|두꺼|얇|원단|소재|까슬|따가|털빠|털 빠|늘어|구김/, [...RR_APPAREL, 'acc']],
+  [/귀가|귀에|알레르기|도금|변색|체인/, ['acc']],
+  [/수납|가방|끈 길이|스트랩/, ['bag', 'shoes']],
+];
+// 사유에서 상품을 가리키는 말 = 이름 마지막 단어 + 같은 뜻의 흔한 말(고객은 '슬랙스'를 '바지'로 쓴다)
+const RR_MENTION_SYN = [
+  [/슬랙스|팬츠|바지|데님|청바지|조거|와이드|레깅스/, ['바지', '팬츠', '슬랙스']],
+  [/스커트|치마/, ['치마', '스커트']],
+  [/원피스|ops|드레스/i, ['원피스', 'ops', '드레스']],
+  [/자켓|재킷|쟈켓/, ['자켓', '재킷', '쟈켓']],
+  [/가디건/, ['가디건', '가디간']],
+  [/니트|스웨터|풀오버/, ['니트']],
+  [/폴라|터틀넥/, ['폴라', '터틀넥', '니트']],
+  [/티셔츠/, ['티셔츠']],
+  [/슈즈|플랫|로퍼|부츠|부티|샌들|힐|뮬|단화|스니커즈|펌프스/, ['신발', '구두']],
+  [/백$|가방/, ['가방']],
+];
+function rrMentionWords(name) {
+  const last = (paKey(name).split(/\s+/).pop() || '').toLowerCase();
+  const ws = new Set(last.length >= 2 ? [last] : []);
+  for (const [re, syn] of RR_MENTION_SYN) if (re.test(last)) syn.forEach(w => ws.add(w));
+  return [...ws];
+}
+
 const rrState = { key: null, byProduct: null, loading: false };
 
 /* 표기 흔들림 흡수 — 공백·문장부호·자음 반복 제거 + 흔한 오타 통일 */
@@ -20843,20 +20893,23 @@ async function rrEnsure(ds, de) {
 
   /* ── 동반 반품 처리 ──
      카페24는 사유를 '클레임(반품 신청) 단위'로 하나만 받는다. 여러 상품을 한 번에 반품하면
-     같은 문장이 모든 상품에 복사된다(실측: 클레임 22%가 다중 상품, 그중 87% 동일 사유).
+     같은 문장이 모든 상품에 복사된다(실측 2026-11-05 2주: 반품 품목 38%가 여러 상품 신청).
      그래서 각 품목을 세 가지로 나눈다:
-       sole   = 단독 반품이라 이 상품 사유가 확실 → TOP5 집계
+       sole   = 이 상품 사유가 확실 → TOP5 집계
        shared = 여러 상품 동반 반품 — 어느 상품 얘기인지 불확실 → 별도 구역 표시
-       other  = 사유에 '다른' 상품 종류가 명시됨(예: 블라우스 반품인데 "원피스가 길어요") → 제외
-     귀속 판별: 사유에 클레임 내 상품의 종류 단어(핵심명 마지막 단어: 원피스·블라우스 등)가
-     정확히 한 상품 것만 나오면 그 상품 사유로 본다. */
+       other  = 사유가 같은 신청의 '다른' 상품을 가리킴(예: 블라우스 반품인데 "원피스가 길어요") → 제외
+     귀속 판별 순서 (에이전트 저장소 _shared/claimattr.ts와 같은 규칙 — 고치면 둘 다):
+       ① 사유에 상품 이름이 있음
+       ② 품목을 가리키는 말(이름 마지막 단어 + 같은 뜻의 말: 슬랙스→바지 등)이 신청 안에서 그 상품 하나에만 해당
+          — "바지는 크고 블라우스는 얇아요"처럼 둘 다 나오면 둘 다 확실, 원피스 2개처럼 겹치면 그 둘은 불확실
+       ③ 단서(2026-11-05 사용자 요청): 발볼·허리·어깨·사이즈 같은 말에 맞는 상품 종류가 신청 안에서 그 상품 하나뿐
+          — 종류를 모르는 상품은 후보로 남긴다(보수적) */
   const claims = new Map();
   for (const x of items) {
     if (!x.claim) continue;
     if (!claims.has(x.claim)) claims.set(x.claim, new Map());
     claims.get(x.claim).set(x.product_no, x.product_name);
   }
-  const catTok = nm => { const w = paKey(nm).split(/\s+/); return w[w.length - 1] || ''; };
   for (const x of items) {
     const prods = x.claim ? claims.get(x.claim) : null;
     x.share = 'sole'; x.others = [];
@@ -20876,13 +20929,27 @@ async function rrEnsure(ds, de) {
       x.share = named.some(p => p.no === x.product_no) ? 'sole' : 'other';
       continue;
     }
-    // ② 종류 단어(원피스·블라우스 등)는 클레임 안에서 유일할 때만 — 같은 종류가 여럿이면
-    //    어느 것인지 알 수 없으므로 '불확실'로 남긴다 (무작위 배정 금지)
-    const toks = [...prods].map(([no, nm]) => ({ no, tok: catTok(nm) }));
-    const cnt = {}; toks.forEach(t => { cnt[t.tok] = (cnt[t.tok] || 0) + 1; });
-    const mentioned = toks.filter(t => t.tok.length >= 2 && cnt[t.tok] === 1 && text.includes(t.tok));
-    if (mentioned.length === 1) x.share = (mentioned[0].no === x.product_no) ? 'sole' : 'other';
-    else x.share = 'shared';
+    // ② 품목을 가리키는 말 — 그 말이 신청 안에서 한 상품 것이면 확실, 여러 상품 것이면 그 상품들은 불확실,
+    //    언급되지 않은 상품은 '다른 상품 얘기'
+    const low = text.toLowerCase();
+    const owners = new Map();
+    for (const [no, nm] of prods) for (const w of rrMentionWords(nm)) owners.set(w, [...(owners.get(w) || []), no]);
+    const sure = new Set(), maybe = new Set();
+    for (const [w, os] of owners) {
+      if (!low.includes(w)) continue;
+      if (os.length === 1) sure.add(os[0]); else os.forEach(o => maybe.add(o));
+    }
+    if (sure.size || maybe.size) {
+      x.share = sure.has(x.product_no) ? 'sole' : maybe.has(x.product_no) ? 'shared' : 'other';
+      continue;
+    }
+    // ③ 단서 — 단서마다 맞는 종류의 교집합에 드는 상품이 하나뿐일 때만
+    const hits = RR_CUES.filter(([re]) => re.test(text)).map(([, ks]) => new Set(ks));
+    if (hits.length) {
+      const fits = [...prods].filter(([, nm]) => { const k = rrKindOf(nm); return k === null || hits.every(s => s.has(k)); }).map(([no]) => no);
+      if (fits.length === 1) { x.share = fits[0] === x.product_no ? 'sole' : 'other'; continue; }
+    }
+    x.share = 'shared';
   }
 
   const by = new Map();
