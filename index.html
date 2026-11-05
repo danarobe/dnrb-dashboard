@@ -1576,7 +1576,7 @@
           <input type="file" accept=".xlsx,.xls" style="display:none;" onchange="cnFilePick(this)" /></label>
         <label class="toggle-btn" id="cn-order-btn" style="cursor:pointer;display:none;" title="주문서 엑셀(품번·색상·사이즈·수량)을 올리면 표의 '주문'·'잔여' 칸에 들어가요"><i class="fa-solid fa-file-signature"></i> 주문서 올리기
           <input type="file" accept=".xlsx,.xls" style="display:none;" onchange="cnOrderPick(this)" /></label>
-        <button class="toggle-btn" onclick="cnCsOnly() ? cnMisongLoad(true) : cnLoad(true)"><i class="fa-solid fa-rotate"></i> 새로고침</button>
+        <button class="toggle-btn" onclick="cnCsOnly() && cnState.tab === 'misong' ? cnMisongLoad(true) : cnLoad(true)"><i class="fa-solid fa-rotate"></i> 새로고침</button>
       </div>
     </div>
     <div class="section-body">
@@ -3711,7 +3711,28 @@ const admgrLegacyAllowed = () => !!SESSION && ADMGR_LEGACY_USERS.includes(SESSIO
 // 품절 재고 점검(#soldout) — 셀메이트 품절분류를 바꾸는 기능. 처음엔 대표 계정만 → 2026-09-29 사용자 요청으로 관리자 전원 + 물류팀(CS팀 제외).
 //   서버(c24var_check·paiditems·soldout_fix_log)도 같은 기준(물류팀은 원래 역할 logistics로 확인). 각 PC 엣지에 셀메이트 연결 스크립트가 있어야 동작.
 const soldoutAllowed = () => !!SESSION && (isAdmin() || SESSION.role === 'logistics');
-const cnCsOnly = () => !!SESSION && SESSION.role === 'cs';   // CS팀 = '미송 확인' 탭만(2026-10-26 사용자 요청) — 그 밖의 중국 사입 자료는 서버도 403
+const cnCsOnly = () => !!SESSION && SESSION.role === 'cs';   // CS팀 = '미송 확인' + '입고 검수'(2026-11-05) 탭만, 둘 다 보기 전용 — 서버는 목록·사진 받기만 허용하고 저장은 모두 403
+// CS팀 보기 전용(2026-11-05 사용자 요청 "입고 검수를 CS팀도 보게, 대신 아무것도 편집 못 하게"): 서버가 저장을 막고(진짜 보호), 화면은 저장하는 칸·버튼을 잠그거나 숨긴다.
+//   저장 함수를 부르는 입력칸·체크칸은 잠그고(값은 보임), 버튼·파일 고르기는 숨긴다. 보기용(펼치기·흐름 보기·사진 크게·엑셀 내려받기)은 그대로.
+//   새 저장 기능을 만들면 이 목록(CN_WRITE_FN)에도 함수 이름을 넣을 것.
+const CN_WRITE_FN = /\bcn(ShipArrivedSet|ShipDoneSet|DefAdd|DefDel|C24Save|C24Open|C24Find|C24Toggle|DocEdit|DiscardAsk|DiscardUndo|UploadSave|ThumbFilePick|SwapFix|ShipOrderSet|ShipEdit|ShipDelete|RemarkSave|MemoSave|ManualShip|LineSet|LabelSet|InactiveSet|GapUndo|GapClose|FillSame|FilePick|FabricSave|CostFilePick|CostClear|ActSave|ActKey|MisongSet|MisongPick|OrderPick|OrderSave|OrderEditOpen|OrderEditSave|OrderDelete|CellMap[A-Za-z]*)\(/;
+function cnViewLock() {
+  if (!cnCsOnly()) return;
+  document.querySelectorAll('[onclick],[onchange],[oninput],[onkeydown]').forEach(el => {
+    if (el.dataset.cnLocked) return;
+    const h = ['onclick', 'onchange', 'oninput', 'onkeydown'].map(a => el.getAttribute(a) || '').join(' ');
+    if (!CN_WRITE_FN.test(h)) return;
+    el.dataset.cnLocked = '1';
+    if (el.matches('input,select,textarea')) {
+      el.disabled = true; el.title = 'CS팀은 보기만 할 수 있어요';
+      const lb = el.type === 'file' ? el.closest('label') : null; if (lb) lb.style.display = 'none';
+    } else el.style.display = 'none';
+  });
+}
+(function cnViewLockWatch() {
+  let q = 0;
+  new MutationObserver(() => { if (!cnCsOnly() || q) return; q = setTimeout(() => { q = 0; cnViewLock(); }, 30); }).observe(document.body, { childList: true, subtree: true });
+})();
 const cnAllowed = () => !!SESSION && (isAdmin() || isStaff() || SESSION.role === 'logistics' || cnCsOnly());   // 중국 사입 관리 = 관리자 + MD + 물류팀 (CS팀은 2026-10-02 사용자 지정으로 제외 → 2026-10-26부터 미송 확인만)
 function logout() {
   localStorage.removeItem(AUTH_KEY);
@@ -5807,13 +5828,13 @@ function unshipSmLine() {
    서버 cafe24-analytics cn_list / cn_upload / cn_check / cn_ship. 단가·비용은 관리자만(2026-10-02 — 서버가 MD·물류팀 응답에서 뺀다). CS팀은 메뉴 자체가 없음. 엑셀 올리기·입고 건 수정·삭제도 관리자·MD. */
 const CN_TABS_FX = ['fx', '원>달러>위안 환전', null, 'fa-solid fa-money-bill-transfer'];   // 2026-10-22 — 관리자만(can_price)
 const CN_TABS = [['check', '입고 검수', null, 'fa-solid fa-clipboard-check'], ['prod', '상품별 현황', null, 'fa-solid fa-layer-group'], ['pend', '미송 점검', null, 'fa-solid fa-hourglass-half'], ['defect', '불량 기록', null, 'fa-solid fa-triangle-exclamation'], ['misong', '미송 확인', null, 'fa-solid fa-truck-ramp-box'], ['order', '주문서', null, 'fa-solid fa-file-signature'], ['buy', '주문하기', null, 'fa-solid fa-cart-plus'], ['cost', '입고 비용', null, 'fa-solid fa-coins']];   // 주문하기 = 2026-10-20 사용자 요청(수량을 적으면 주문서 양식 엑셀로)   // 주문서 탭 = 2026-10-19 사용자 요청('전체' 보기 아래에 늘어서던 주문서 목록을 따로)
-const cnTabs = () => cnCsOnly() ? CN_TABS.filter(t => t[0] === 'misong') : [...CN_TABS, CN_TABS_FX].filter(t => (t[0] !== 'cost' || !cnState.data || cnState.data.can_price) && (t[0] !== 'fx' || (cnState.data && cnState.data.can_price)) && (t[0] !== 'buy' || !cnState.data || cnState.data.can_edit) && (t[0] !== 'order' || !cnState.data || cnState.data.can_edit));   // 물류팀 = 입고 검수·상품별 현황만(2026-10-22 — 주문서·주문하기·입고 비용·환전 숨김)   // 입고 비용 = 관리자만, 주문하기 = 관리자·MD
+const cnTabs = () => cnCsOnly() ? CN_TABS.filter(t => t[0] === 'check' || t[0] === 'misong') : [...CN_TABS, CN_TABS_FX].filter(t => (t[0] !== 'cost' || !cnState.data || cnState.data.can_price) && (t[0] !== 'fx' || (cnState.data && cnState.data.can_price)) && (t[0] !== 'buy' || !cnState.data || cnState.data.can_edit) && (t[0] !== 'order' || !cnState.data || cnState.data.can_edit));   // 물류팀 = 입고 검수·상품별 현황만(2026-10-22 — 주문서·주문하기·입고 비용·환전 숨김)   // 입고 비용 = 관리자만, 주문하기 = 관리자·MD
 const cnState = { data: null, loading: false, tab: 'check', shipId: 'all', costShipId: null, filter: 'all', prodFilter: 'all', pendFilter: 'pend', pendCmp: null, lineFilter: 'all', pending: null, sales: null, salesLoading: false, open: { check: new Set(), prod: new Set() }, thumbs: {}, thumbAsked: new Set(), thumbWant: [], thumbT: null, thumbScroll: false };
 function cnTabRender() { const k = cnState.tab; if (k === 'misong') cnMisongRender(); else if (k === 'pend') cnPendRender(); else if (k === 'defect') cnDefRender(); else if (k === 'check') cnCheckRender(); else if (k === 'cost') cnCostRender(); else if (k === 'fx') cnFxRender(); else if (k === 'order') cnOrderTabRender(); else if (k === 'buy') cnBuyRender(); else { cnProdRender(); cnSalesLoad(); } }
-function cnInit() { cnSetTab(cnState.tab); if (!cnCsOnly() && !cnState.data && !cnState.loading) cnLoad(false); }
+function cnInit() { cnSetTab(cnState.tab); if (!cnState.data && !cnState.loading) cnLoad(false); }   // CS팀도 입고 검수를 보므로 목록을 읽는다(2026-11-05)
 function cnSetTab(k) {
   if (((k === 'cost' || k === 'fx') && cnState.data && !cnState.data.can_price) || ((k === 'buy' || k === 'order') && cnState.data && !cnState.data.can_edit) || ![...CN_TABS, CN_TABS_FX].some(t => t[0] === k)) k = 'check';   // 없어진 탭(미출고 잔여 — 2026-10-14)이면 입고 검수로
-  if (cnCsOnly()) k = 'misong';
+  if (cnCsOnly() && k !== 'misong') k = 'check';   // CS팀 = 입고 검수(보기 전용) + 미송 확인 (2026-11-05)
   cnState.tab = k; uiTabs('cn-tabs', cnTabs(), k, 'cnSetTab');
   document.querySelectorAll('.cn-pane').forEach(el => { el.style.display = 'none'; });
   $('cn-pane-' + k).style.display = 'block';
@@ -6760,7 +6781,7 @@ function cnCheckRender() {
   const lines = isSum ? cnSumLines(cnViewLines(), true) : cnViewLines();   // 전체 보기 = 같은 옵션끼리 합친 줄   // 입고 선택 + 라인 칩(made / 일반 / 미분류) — 요약·건수·표가 모두 이 줄로 계산된다
   const shipById = new Map(ships.map(x => [x.id, x]));
   const canDone = true, canUndo = !!d.can_edit;   // 완료 = 관리자·MD·물류팀(메뉴를 보는 사람 모두), 완료 취소 = 관리자·MD
-  bar.innerHTML = `<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+  bar.innerHTML = (cnCsOnly() ? `<div style="margin-bottom:8px;padding:7px 11px;border-radius:9px;background:#f3f4f6;border:1px solid #e5e7eb;font-size:.78rem;color:#374151;"><i class="fa-solid fa-eye"></i> <b>보기 전용</b> — CS팀은 입고 현황과 수량을 볼 수만 있어요. 실입고·불량·메모는 물류팀·관리자가 적어요.</div>` : '') + `<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
     <select onchange="cnState.shipId=this.value==='all'||this.value==='sum'?this.value:Number(this.value);cnState.filter='all';cnCheckRender()" style="border:1.5px solid #d1d5db;border-radius:8px;padding:6px 10px;font-size:.84rem;font-weight:700;max-width:100%;">
       ${ships.length > 1 ? `<option value="sum"${isSum ? ' selected' : ''}>전체 — 입고 ${ships.length}건 합계 (같은 옵션끼리)</option>` : ''}${pend.length > 1 ? `<option value="all"${isAll ? ' selected' : ''}>검수할 입고 (완료 전 ${pend.length}건)</option>` : ''}${ships.map(x => `<option value="${x.id}"${!isAll && !isSum && x.id === ship.id ? ' selected' : ''}>${cnShipDone(x) ? '✓ ' : ''}${escHtml(x.title)}${x.ship_date ? ' · ' + escHtml(String(x.ship_date).slice(5)) + ' 출고' : ''}${cnShipDone(x) ? ' (검수 완료)' : cnShipArrived(x) ? ' (검수 중)' : ' (입고 대기)'}</option>`).join('')}</select>
     ${isSum ? `<span style="font-size:.76rem;color:#6b7280;">입고 <b>${ships.length}건 전체</b>(검수 완료한 차수 포함)를 <b>같은 품번·옵션끼리 합쳐</b> 보여줘요 — 보기 전용이라 수량·불량·메모는 차수를 골라 고쳐요</span>` : isAll ? `<span style="font-size:.76rem;color:#6b7280;">검수 완료 전인 입고 <b>${pend.length}건</b>을 합쳐 보여줘요 — <b>완료한 차수는 빠져요</b>(위에서 골라 볼 수 있어요)${d.can_price ? " · <b>실질 단가</b> = 단가(KRW) + 100원당 추가 금액" : ''}</span>` : `<span style="font-size:.76rem;color:#6b7280;">${[ship.ship_date ? '중국 출고 ' + escHtml(ship.ship_date) : '', ship.arrival_date ? '입고 예정 <b>' + escHtml(ship.arrival_date) + '</b>' : '', ship.box_count != null ? '<b>' + fmt(ship.box_count) + '박스</b>' : '', '올린 사람 ' + escHtml(ship.created_by_name || '') + ' ' + escHtml(unshipKst(ship.created_at))].filter(Boolean).join(' · ')}${ship.note ? ' · ' + escHtml(ship.note) : ''}</span>`}

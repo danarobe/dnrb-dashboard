@@ -2174,8 +2174,12 @@ Deno.serve(async (req) => {
       // 관리자 + MD + 물류팀. **CS팀은 볼 필요 없음(2026-10-02 사용자 지정)** — 서버 역할은 logistics→cs로 합쳐져 있어 원래 역할을 다시 본다(soldoutRoleOk와 같은 방식)
       // 미송 확인 목록만 CS팀에도 열림(2026-10-26 사용자 요청 — "미송 확인은 물류팀과 CS팀도") — 그 밖의 중국 사입 자료는 그대로 CS 제외
       // 물류팀도 서버 역할은 cs라 원래 역할을 다시 읽는다(soldoutRoleOk) — 진짜 CS팀만 '보기 전용'
-      const misongOnly = action === "cn_misong_list" && authed.role === "cs" && !(await soldoutRoleOk(authed));
-      if (!misongOnly && !(authed.role === "staff" || await soldoutRoleOk(authed))) return json({ error: "접근 권한이 없습니다" }, 403);
+      // CS팀 = 보기 전용(2026-11-05 사용자 요청 "입고 검수를 CS팀도 볼 수 있게, 대신 아무것도 편집할 수 없게") — 목록(cn_list)·미송 확인 목록·사진 받기만.
+      //   그 밖의 액션(실제 수량·메모·불량·검수 완료·입고 완료·폐기·차이 정리 등 모든 저장)은 여기서 403. 사진 저장은 아래 cn_thumbs의 canEdit 검사가 막는다.
+      const csView = authed.role === "cs" && !(await soldoutRoleOk(authed));
+      const misongOnly = csView;
+      if (csView && !(action === "cn_list" || action === "cn_misong_list" || action === "cn_thumbs")) return json({ error: "CS팀은 보기만 할 수 있어요" }, 403);
+      if (!csView && !(authed.role === "staff" || await soldoutRoleOk(authed))) return json({ error: "접근 권한이 없습니다" }, 403);
       const canPrice = authed.role === "admin";   // 단가·비용 = **관리자만** (2026-10-02 사용자 지정 — MD도 안 보이게. 물류팀은 원래 수량만)
       const canEdit = authed.role !== "cs";       // 엑셀 올리기·입고 건 수정·삭제·사진 넣기 = 관리자 + MD (MD는 올릴 수는 있지만 단가·비용은 응답에서 빠진다)
       const hideCosts = <T extends Record<string, any>>(x: T): T => { if (canPrice) return x; const { costs: _c, doc: _d, ...rest } = x; return rest as T; };   // 출고 서류 합계(doc, 위안)도 관리자만(2026-10-22)
@@ -2262,7 +2266,7 @@ Deno.serve(async (req) => {
           const [buys, remits] = await Promise.all([sbRest("cn_fx_buys?select=*&limit=5000"), sbRest("cn_remits?select=*&limit=5000")]) as [Record<string, any>[], Record<string, any>[]];
           fx = cnFxModel(ships, lines, buys, remits);
         }
-        return json({ ships: outShips, lines: outLines, orders: orders ?? [], order_lines: orderLines ?? [], discards: discards ?? [], defects: defects ?? [], prods, c24, c24_warn, c24_error, can_price: canPrice, can_edit: canEdit, fx });
+        return json({ ships: outShips, lines: outLines, orders: orders ?? [], order_lines: orderLines ?? [], discards: discards ?? [], defects: defects ?? [], prods, c24, c24_warn, c24_error, can_price: canPrice, can_edit: canEdit, view_only: csView, fx });
       }
       // ── 미송 확인(2026-10-26 사용자 요청) — 중국에서 받은 미송 엑셀(화면이 읽어 단가·합계를 뺀 묶음만 보냄). 최근 2개(지금 + 직전)만 보관
       if (action === "cn_misong_list") {
