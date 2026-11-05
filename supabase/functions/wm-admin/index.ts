@@ -157,10 +157,11 @@ async function loadForMonth(ym: string) {
   });
   return { employees: kept, attendance, leaves, holidays };
 }
-/** 주급 알바(pay_cycle = weekly)의 금요일별 지급액 (2026-11-05 사용자 요청 — "주마다 얼마가 지급되어야 하는지").
- *  지급 규칙(이 기능에서 정한 것): 그 달의 금요일마다, **바로 전 주(월~일)** 근무분을 준다 — 주휴수당은 일요일까지의 주 근무시간(15시간)이 정해져야 알 수 있어서.
+/** 주급 알바(pay_cycle = weekly)의 지급일별 지급액 (2026-11-05 사용자 요청 — "주마다 얼마가 지급되어야 하는지").
+ *  지급 규칙(사용자 지정 2026-11-05 — "이전 주 월~일 근무분을 돌아오는 주 월요일에"): 그 달의 **월요일**마다 바로 전 주(월~일) 근무분을 준다.
+ *  (처음엔 금요일 지급으로 만들었다가 같은 날 월요일로 바꿈.)
  *  주마다 금액 = 그 주 출퇴근 기록만 넣어 calcParttime(급여 계산과 같은 함수, salary.ts는 그대로)을 돌린 값: 기본급(그 주 시간 × 시급, 원 단위 반올림) + 주휴수당 + 식대.
- *  교통비(월 고정)는 그 달 마지막 금요일에 함께. 월 급여 계산(totalPay·명세서)은 달 기준이라, 달 경계 주·반올림 때문에 금요일 합계와 몇 원~주 단위로 다를 수 있다(화면에 표시). */
+ *  교통비(월 고정)는 그 달 마지막 월요일에 함께. 월 급여 계산(totalPay·명세서)은 달 기준이라, 달 경계 주·반올림 때문에 월요일 지급 합계와 몇 원~주 단위로 다를 수 있다(화면에 표시). */
 // deno-lint-ignore no-explicit-any
 async function attachWeeklyPay(ym: string, rows: any[]) {
   const targets = rows.filter((r) => r.employee?.type === 'parttime' && r.employee?.pay_cycle === 'weekly');
@@ -168,19 +169,19 @@ async function attachWeeklyPay(ym: string, rows: any[]) {
   const [y, m] = ym.split('-').map(Number);
   const last = new Date(Date.UTC(y, m, 0)).getUTCDate();
   const day = 864e5, ymd = (t: number) => new Date(t).toISOString().slice(0, 10);
-  const fris: string[] = [];
-  for (let d = 1; d <= last; d++) if (new Date(Date.UTC(y, m - 1, d)).getUTCDay() === 5) fris.push(`${ym}-${String(d).padStart(2, '0')}`);
+  const mons: string[] = [];   // 그 달의 월요일 = 지급일
+  for (let d = 1; d <= last; d++) if (new Date(Date.UTC(y, m - 1, d)).getUTCDay() === 1) mons.push(`${ym}-${String(d).padStart(2, '0')}`);
   const t0 = (f: string) => new Date(f + 'T00:00:00Z').getTime();
-  const from = ymd(t0(fris[0]) - 11 * day), to = ymd(t0(fris[fris.length - 1]) - 5 * day);
+  const from = ymd(t0(mons[0]) - 7 * day), to = ymd(t0(mons[mons.length - 1]) - 1 * day);
   const ids = targets.map((r) => Number(r.employee.id)).filter(Number.isInteger);
   const att = await rest(`wm_attendance?select=id,employee_id,date,clock_in,clock_out,work_minutes&employee_id=in.(${ids.join(',')})&date=gte.${from}&date=lte.${to}&limit=5000`) as WmAttendance[];
   for (const r of targets) {
     const e = r.employee, rate = Number(e.hourly_rate) || 0, tr = Number(e.transport_allowance) || 0;
-    const days = fris.map((f, i) => {
-      const ws = ymd(t0(f) - 11 * day), we = ymd(t0(f) - 5 * day);
+    const days = mons.map((f, i) => {
+      const ws = ymd(t0(f) - 7 * day), we = ymd(t0(f) - 1 * day);   // 지급일(월) 바로 전 주 월~일
       const recs = att.filter((a) => a.employee_id === Number(e.id) && a.date >= ws && a.date <= we);
       const c = calcParttime(recs, rate, [], null, 0);
-      const transport = i === fris.length - 1 ? tr : 0;
+      const transport = i === mons.length - 1 ? tr : 0;   // 교통비(월 고정)는 그 달 마지막 월요일에
       return { pay_date: f, week_start: ws, week_end: we, hours: c.totalHours, base: c.basePay, holiday: c.holidayPay, meal: c.mealAllowance, meal_days: c.mealDays, transport, total: c.basePay + c.holidayPay + c.mealAllowance + transport };
     });
     r.weeklyPay = { rule: 'prev_week', paydays: days, sum: days.reduce((s, d) => s + d.total, 0) };
@@ -209,7 +210,7 @@ Deno.serve(async (req) => {
     if (action === 'salary_all') {
       const ym = ym2(body.year, body.month);
       const rows = monthRows(ym, await loadForMonth(ym));
-      await attachWeeklyPay(ym, rows);   // 주급 알바의 금요일별 지급액(2026-11-05) — 월 계산 결과는 그대로, 칸만 덧붙임
+      await attachWeeklyPay(ym, rows);   // 주급 알바의 월요일별 지급액(2026-11-05) — 월 계산 결과는 그대로, 칸만 덧붙임
       return json(rows);
     }
 
