@@ -753,7 +753,7 @@ function selfGroupsOf(o: Record<string, any>, nrSets: NrSets): Record<string, an
     if (claims.length > 1) manual.push("한 주문에 취소 접수가 여러 건이에요");
     if (reasonType === "H") manual.push("사유가 품절이에요 — 재고 복구 여부와 환불을 직접 확인해주세요");   // 2026-10-06 사용자 지정: 품절 취소는 직접 확인
     if (all.some((it) => n(it.additional_discount_price) > 0)) manual.push("상품별 추가할인이 적용된 상품이 있어요");
-    if (all.some((it) => n(it.app_item_discount_amount) > 0)) manual.push("할인코드가 적용된 상품이 있어요");   // 카페24 '할인코드'(예: live1019 5%)는 상품별 app_item_discount_amount에 찍힘(2026-10-20 실측·사용자 지정: 세 단계 모두 직접 확인)
+    // 할인코드(app_item_discount_amount)는 2026-11-05부터 직접 확인에서 뺌 — 여기서 자동으로 다루는 건 주문 전체 취소뿐이고, 전체 취소는 처음 결제액 그대로 환불(10-19 할인코드 주문 4건 실측)   // 카페24 '할인코드'(예: live1019 5%)는 상품별 app_item_discount_amount에 찍힘(2026-10-20 실측·사용자 지정: 세 단계 모두 직접 확인)
     if (all.some(onePlusOne)) manual.push("1+1 할인 상품이 들어 있어요");
     if (main.length !== 1 || !SELF_MAIN_OK.has(main[0])) manual.push(`결제 수단(${pay.map((m) => SELF_PAY_LABEL[m] ?? m).join("+") || "알 수 없음"})은 아직 자동 환불 대상이 아니에요`);
     if (n(init.credits_spent_amount) > 0) manual.push("예치금을 쓴 주문이에요");
@@ -1049,6 +1049,10 @@ function retGroupsOf(o: Record<string, any>, nrSets: NrSets, cp: RetCoupons): Re
   const price = (it: Record<string, any>) => unit(it) * qty(it);
   // 상품별 할인 = 상품 추가할인(additional_discount_price) + 할인코드 할인(app_item_discount_amount — 카페24 '할인코드' 5% 등이 여기에 찍힘, 2026-10-20 실측: 주문 단위 app_discount_amount는 0으로 남음)
   const disc = (it: Record<string, any>) => n(it.additional_discount_price) + n(it.app_item_discount_amount);
+  // 할인코드 규칙(2026-11-05 사용자 요청 "할인코드에 대한 규칙 추가"): 카페24가 반품 상품의 할인코드 할인(app_item_discount_amount)을 환불에서 알아서 뺀다 —
+  //   반품 처리 창에 고를 칸이 없고 '상품별추가할인 취소'(add_discount_amount)에도 들어가지 않는다. 실측: 할인코드(live1019 5%·danalive 7%) 주문 반품 12건 모두
+  //   환불 = 상품 − 상품별 추가할인 − 할인코드 할인 − 반품 배송비 − 쿠폰 취소 − 적립금 반환(원 단위 일치). → 예상 환불액엔 disc(둘 다), 창에 넣는 값(add_sale)·'10% 이상'·'수량' 점검은 추가할인만.
+  const addDisc = (it: Record<string, any>) => n(it.additional_discount_price);
   const onePlusOne = (it: Record<string, any>) => /1\s*\+\s*1/.test(String(it.product_name ?? "")) || ((nrSets.sale[String(Number(it.product_no))] ?? []) as string[]).some((c) => /1\s*\+\s*1/.test(c));
   const sum = (list: Record<string, any>[], f: (it: Record<string, any>) => number) => list.reduce((t, it) => t + f(it), 0);
   const won = (v: number) => v.toLocaleString("ko-KR") + "원";
@@ -1067,9 +1071,9 @@ function retGroupsOf(o: Record<string, any>, nrSets: NrSets, cp: RetCoupons): Re
       else M("그 밖의 사유", `사유가 ${RET_REASON_LABEL[reasonType] ?? (reasonType || "없음")}이에요 — 변심·사이즈·상품불만족만 여기서 처리해요`);
     } else if (RET_DEFECT_WORDS.test(reason)) M("사유 글 확인", "고객이 사유에 불량·오배송으로 보이는 내용을 적었어요 — 읽어 보고 처리해주세요");
     if (its.some(onePlusOne)) M("1+1 상품", "반품 상품에 1+1 할인 상품이 있어요");
-    if (its.some((it) => disc(it) > 0 && ((unit(it) > 0 && disc(it) / unit(it) >= 0.1) || (price(it) > 0 && disc(it) / price(it) >= 0.1)))) M("10% 이상 할인", "반품 상품에 10% 이상 할인된 상품이 있어요");
-    if (its.some((it) => disc(it) > 0 && qty(it) !== 1)) M("할인 상품 수량", "할인된 상품을 2개 이상 반품해요 — 할인 금액을 따져야 해요");
-    if (its.some((it) => n(it.app_item_discount_amount) > 0)) M("할인코드", "할인코드가 적용된 상품이 있어요 — 할인 금액이 환불액에 반영됐는지 직접 확인해주세요");   // 2026-10-20 사용자 지정: 할인코드 주문은 직접 확인
+    if (its.some((it) => addDisc(it) > 0 && ((unit(it) > 0 && addDisc(it) / unit(it) >= 0.1) || (price(it) > 0 && addDisc(it) / price(it) >= 0.1)))) M("10% 이상 할인", "반품 상품에 10% 이상 할인된 상품이 있어요");
+    if (its.some((it) => addDisc(it) > 0 && qty(it) !== 1)) M("할인 상품 수량", "할인된 상품을 2개 이상 반품해요 — 할인 금액을 따져야 해요");
+    // (할인코드는 2026-11-05부터 자동 — 위 addDisc 주석. 2026-10-20엔 직접 확인이었음)
     if (others.some((it) => /^[CER]/.test(String(it.order_status ?? "")) || !!it.claim_code) || claims.length > 1) M("다른 취소·교환·반품", "같은 주문에 다른 취소·교환·반품이 있어요 — 남는 금액을 따져야 해요");
     const pk = (ret.pickup ?? {}) as Record<string, any>;
     if (pk.use_pickup !== "T" || ret.pickup_request_state !== "T") M("수거 신청 아님", "수거 신청으로 접수된 반품이 아니에요(고객 직접 발송 등) — 배송비를 따져야 해요");
@@ -1124,7 +1128,7 @@ function retGroupsOf(o: Record<string, any>, nrSets: NrSets, cp: RetCoupons): Re
     const pts = n(init.points_spent_amount);
     const pointsReturn = pts > 0 && (full || remain < RET_POINT_MIN) ? pts : 0;
     if (pts > 0 && straddle(RET_POINT_MIN)) M("경계 금액", "남는 금액이 할인 전후로 적립금 기준 3만 원에 걸려요");
-    const goods = sum(its, price), goodsDisc = sum(its, disc);
+    const goods = sum(its, price), goodsDisc = sum(its, disc), addSale = sum(its, addDisc), codeDisc = goodsDisc - addSale;
     // 자동으로 다루지 않는 쿠폰(직접 확인으로 빠진 것)도 전체 반품이면 쿠폰할인 전액 취소로 계산한다(전체 반품은 과거 기록상 늘 전액 취소) — 예상 환불액(참고)용
     const couponUnknown = coupon.mode === "none" && cpn > 0;
     const couponCancel = coupon.mode === "cancel" ? coupon.amount : (couponUnknown && full ? cpn : 0);
@@ -1160,7 +1164,7 @@ function retGroupsOf(o: Record<string, any>, nrSets: NrSets, cp: RetCoupons): Re
       reason_type: reasonType, reason_label: RET_REASON_LABEL[reasonType] ?? "", reason, items, other_items: others.length, full, remain,
       pay, pay_label: pay.map((m) => SELF_PAY_LABEL[m] ?? m).join(" + "), main: main[0] ?? "",
       plan: { fee, coupon: coupon.mode, coupon_amount: coupon.amount, coupon_name: coupon.name, coupon_min: coupon.min, coupon_own_min: coupon.own, coupon_ship: coupon.ship, points_used: pts, points_return: pointsReturn,
-        add_sale: goodsDisc > 0 ? (full ? "T" : "M") : "none", add_sale_amount: goodsDisc, refund_type: SELF_REFUND_CODE[main[0] ?? ""] ?? "" },
+        add_sale: addSale > 0 ? (full ? "T" : "M") : "none", add_sale_amount: addSale, code_disc: codeDisc, refund_type: SELF_REFUND_CODE[main[0] ?? ""] ?? "" },
       calc: { goods, disc: goodsDisc, rest_disc: sum(others, disc), fee, coupon_cancel: couponCancel, ship_paid: shipEff, ship_coupon: shipCpnOk ? shipCpnAmt : 0 },
       expect: { total, amount: cash, points: pointsReturn }, manual, est,
     });
@@ -1721,7 +1725,7 @@ Deno.serve(async (req) => {
           if (credits > 0) why.push(`예치금 ${credits.toLocaleString("ko-KR")}원이 섞여 있어요`);
           if (amount <= 0) why.push("환불 금액이 0원이에요");
           if (kind === "mixed" || kind === "unknown") why.push("취소·반품 구분이 섞였거나 읽히지 않아요");
-          if (its.some((it) => rfNum(it.app_item_discount_amount) > 0)) why.push("할인코드가 적용된 상품이에요 — 할인 반영을 직접 확인");   // 2026-10-20 사용자 지정
+          // 할인코드(2026-11-05부터 자동): 금액은 접수 때 정해지고, 규칙 점검(rfRuleOf)이 할인코드 할인까지 넣어 다시 계산해 다르면 표시한다
           // 상품 상태가 '취소처리중·환불전'(C34) 또는 '반품처리중·환불전'(R34 — 수거 완료)일 때만. 반품이 아직 수거 전(R30 등)이면 돈만 먼저 나가므로 자동에서 뺀다
           if (st.length && !st.every((x) => x === "C34" || x === "R34")) why.push(`상품 상태가 환불전이 아니에요(${[...new Set(its.map((it) => String(it.status_text ?? it.order_status ?? "") + (it.order_status_additional_info ? "·" + it.order_status_additional_info : "")))].join(", ")})`);
           if (why.length) group = "check";
@@ -2015,7 +2019,21 @@ Deno.serve(async (req) => {
           out.push({ no, name: p.name, created: String(c.created_date ?? "").slice(0, 10), kind: h.kind, auto: h.auto, text: h.text, stopped: c.is_stopped_issued_coupon === "T", issued: Number(c.issued_count) || 0 });
         }
         out.sort((a, b) => String(b.created).localeCompare(String(a.created)));
-        return json({ at, by: authed.name, coupons: out });
+        // 할인코드(2026-11-05) — 반품 계산은 상품별 할인코드 금액을 그대로 쓰므로 조건 저장은 필요 없고, 무엇이 있는지·어떻게 다루는지만 보여 준다
+        const codes: Record<string, unknown>[] = [];
+        try {
+          const cl = ((await apiGet(`${API_BASE}/admin/discountcodes?shop_no=1&limit=100`, token)).discountcodes ?? []) as Record<string, any>[];
+          for (const c of cl.slice(0, 30)) {
+            let d: Record<string, any> = c;
+            try { d = ((await apiGet(`${API_BASE}/admin/discountcodes/${Number(c.discount_code_no)}?shop_no=1`, token)).discountcode ?? c) as Record<string, any>; } catch { /* 목록 값만 */ }
+            codes.push({ no: Number(c.discount_code_no), code: String(c.discount_code ?? ""), name: String(c.discount_code_name ?? ""), created: String(c.created_date ?? "").slice(0, 10),
+              start: String(d.available_start_date ?? "").slice(0, 10), end: String(d.available_end_date ?? "").slice(0, 10), value: Number(d.discount_value) || null,
+              products: Array.isArray(d.available_product) ? d.available_product.length : null, issued: Number(c.issued_count) || 0,
+              text: "자동 — 반품 상품의 할인코드 할인은 카페24가 환불에서 알아서 빼요(예상 환불액에 넣어 계산)" });
+          }
+          codes.sort((a, b) => String(b.created).localeCompare(String(a.created)));
+        } catch { /* 할인코드를 못 읽어도 쿠폰 반영은 그대로 */ }
+        return json({ at, by: authed.name, coupons: out, codes });
       }
       if (action === "retacc_list") {
         const end = rscanYesterday(); end.setUTCDate(end.getUTCDate() + 1);   // 한국 날짜 오늘
