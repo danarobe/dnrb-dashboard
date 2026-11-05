@@ -17817,6 +17817,12 @@ async function wmAttDelete(id) {
 
 /* ── 휴가 관리 ── */
 const WM_LV_TYPE = { annual: '연차', half: '반차', summer: '여름휴가', sick: '병가' };
+// 휴가 종류 색(2026-11-05 사용자 요청 "연차와 반차 색 구분") — [글자, 바탕, 테두리]. 연차 파랑 · 반차 초록 · 여름휴가 주황 · 병가 분홍. 색과 함께 글자(연차/반차)도 늘 보여 준다.
+const WM_LV_COLOR = { annual: ['#1e40af', '#dbeafe', '#93c5fd'], half: ['#047857', '#d1fae5', '#6ee7b7'], summer: ['#9a3412', '#ffedd5', '#fdba74'], sick: ['#9f1239', '#ffe4e6', '#fda4af'] };
+function wmLvChip(type, text) {
+  const [c, b, bd] = WM_LV_COLOR[type] || ['#374151', '#f3f4f6', '#d1d5db'];
+  return `<span style="display:inline-block;background:${b};color:${c};border:1px solid ${bd};border-radius:6px;padding:0 6px;font-size:.7rem;font-weight:700;white-space:nowrap;">${text ?? escHtml(WM_LV_TYPE[type] || type)}</span>`;
+}
 const WM_LV_STATUS = { pending: ['대기', '#d97706', '#fef3c7'], approved: ['승인', '#166534', '#dcfce7'], rejected: ['반려', '#991b1b', '#fee2e2'] };
 
 /* 승인 대기 휴가 배너 (2026-08-27) — 직원이 마이페이지에서 다음 달 휴가를 신청하면
@@ -17836,7 +17842,7 @@ async function wmLoadPendingLeaves() {
       <div style="margin-top:8px;display:flex;flex-direction:column;gap:6px;">
         ${pend.map(l => `<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;background:#fff;border-radius:8px;padding:6px 10px;">
           <b style="font-size:.8rem;">${escHtml(nameOf(l.employee_id))}</b>
-          <span style="font-size:.78rem;color:#374151;">${l.date} ${WM_LV_TYPE[l.type] || l.type}</span>
+          <span style="font-size:.78rem;color:#374151;">${l.date} ${wmLvChip(l.type)}</span>
           <span style="font-size:.72rem;color:#6b7280;">${escHtml(l.reason || '')}</span>
           <span style="margin-left:auto;display:flex;gap:6px;">
             <button class="toggle-btn" style="font-size:.7rem;padding:2px 10px;background:#16a34a;color:#fff;border-color:#16a34a;" onclick="wmLeaveReview(${l.id},'approved')">승인</button>
@@ -17899,7 +17905,7 @@ function wmLvPersonCard(empId) {
   const total = e.annual_leave_total ?? 0, rem = total - used;
   const byMonth = Array.from({ length: 12 }, () => []);
   ok.forEach(r => { const m = Number(r.date.slice(5, 7)) - 1; if (m >= 0 && m < 12) byMonth[m].push(r); });
-  const tag = r => `<span title="${escHtml(r.reason || '')}" style="display:inline-block;background:${r.type === 'annual' ? '#dbeafe' : r.type === 'half' ? '#e0e7ff' : r.type === 'summer' ? '#fef3c7' : '#fee2e2'};color:#1f2937;border-radius:6px;padding:1px 6px;font-size:.7rem;margin:2px 2px 0 0;white-space:nowrap;">${r.date.slice(8)}일${r.type === 'half' ? ' 반' : r.type === 'summer' ? ' 여름' : r.type === 'sick' ? ' 병가' : ''}</span>`;
+  const tag = r => `<span title="${escHtml(r.reason || '')}" style="display:inline-block;margin:2px 2px 0 0;">${wmLvChip(r.type, `${Number(r.date.slice(8))}일 ${escHtml(WM_LV_TYPE[r.type] || r.type)}`)}</span>`;
   const months = byMonth.map((arr, i) => `<div style="border:1px solid #e5e7eb;border-radius:8px;padding:6px 8px;min-height:44px;background:${arr.length ? '#fff' : '#f9fafb'};">
       <div style="font-size:.7rem;color:#6b7280;font-weight:700;">${i + 1}월${arr.length ? ` <span style="color:#2563eb;">${arr.length}건</span>` : ''}</div>${arr.map(tag).join('')}</div>`).join('');
   const tile = (label, val, color) => `<div style="background:#f8f9ff;border:1.5px solid #e0e7ff;border-radius:10px;padding:8px 12px;min-width:96px;">
@@ -17914,7 +17920,8 @@ function wmLvPersonCard(empId) {
       ${tile('연차', cnt('annual') + '건')}${tile('반차', cnt('half') + '건')}${tile('여름휴가', cnt('summer') + '건')}${tile('병가', cnt('sick') + '건')}${mine.some(r => r.status === 'pending') ? tile('대기 중', mine.filter(r => r.status === 'pending').length + '건', '#b45309') : ''}
     </div>
     <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:6px;">${months}</div>
-    <div style="font-size:.68rem;color:#6b7280;margin-top:8px;">연차 1일 · 반차 0.5일 차감, 여름휴가·병가는 연차에서 차감하지 않아요. 올해(${year}년) 승인된 건만 집계합니다.</div></div>`;
+    <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-top:8px;font-size:.68rem;color:#6b7280;">색 구분 ${['annual', 'half', 'summer', 'sick'].map(t => wmLvChip(t)).join('')}</div>
+    <div style="font-size:.68rem;color:#6b7280;margin-top:4px;">연차 1일 · 반차 0.5일 차감, 여름휴가·병가는 연차에서 차감하지 않아요. 올해(${year}년) 승인된 건만 집계합니다.</div></div>`;
 }
 
 function wmRenderLeaves() {
@@ -17936,7 +17943,7 @@ function wmRenderLeaves() {
       <td style="white-space:nowrap;">${r.date}</td>
       <td style="font-weight:600;">${escHtml(e.name || '?')}</td>
       <td><span class="badge badge-${e.type === 'employee' ? 'admin' : 'staff'}" style="font-size:.68rem;">${e.type === 'employee' ? '직원' : '알바'}</span></td>
-      <td>${WM_LV_TYPE[r.type] || r.type}</td>
+      <td>${wmLvChip(r.type)}</td>
       <td style="font-size:.75rem;color:#6b7280;">${escHtml(r.reason || '')}</td>
       <td><span style="background:${sb};color:${sc};border-radius:4px;padding:1px 8px;font-size:.7rem;font-weight:600;">${sl}</span></td>
       <td style="white-space:nowrap;">
