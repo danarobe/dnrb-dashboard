@@ -135,7 +135,7 @@ function nextMonthFirst(ym: string): string {
 async function loadForMonth(ym: string) {
   const { from, to } = getExtendedRange(ym);
   const [employees, attendance, leaves, holidays] = await Promise.all([
-    rest('wm_employees?select=id,name,type,hourly_rate,monthly_salary,transport_allowance,annual_leave_total,fixed_clock_in,birthday,bank_name,bank_account,bank_holder,active,last_work_date') as Promise<WmEmployee[]>,
+    rest('wm_employees?select=id,name,type,hourly_rate,monthly_salary,transport_allowance,annual_leave_total,fixed_clock_in,birthday,bank_name,bank_account,bank_holder,active,last_work_date,pay_cycle') as Promise<WmEmployee[]>,   // pay_cycle = 화면 표시용(주급/월급, 2026-11-05) — 계산엔 안 씀
     // 확장 범위(월 경계 주 포함)만 — salary.js의 getExtendedRecords와 동일 범위
     rest(`wm_attendance?select=id,employee_id,date,clock_in,clock_out,work_minutes&date=gte.${from}&date=lte.${to}&limit=5000`) as Promise<WmAttendance[]>,
     rest(`wm_leaves?select=id,employee_id,date,type,status&date=gte.${ym}-01&date=lt.${nextMonthFirst(ym)}&limit=2000`) as Promise<WmLeave[]>,
@@ -225,7 +225,7 @@ Deno.serve(async (req) => {
       const [emps, approved, users] = await Promise.all([
         rest('wm_employees?select=id,name,type,hourly_rate,monthly_salary,'
           + 'annual_leave_total,transport_allowance,fixed_clock_in,birthday,hire_date,last_work_date,annual_salary,'
-          + 'bank_name,bank_account,bank_holder,active,pin_set_at,app_user_id,hidden,hidden_by_name,hidden_at&order=type,name'),
+          + 'bank_name,bank_account,bank_holder,active,pin_set_at,app_user_id,hidden,hidden_by_name,hidden_at,pay_cycle&order=type,name'),
         rest(`wm_leaves?status=eq.approved&date=gte.${year}-01-01&date=lte.${year}-12-31&select=employee_id,type,reason&limit=3000`),
         rest('app_users?select=id,name'),
       ]);
@@ -486,7 +486,7 @@ Deno.serve(async (req) => {
       // 달라지면 안 됨" 규칙 보호). 12로 나눠떨어지지 않는 연봉을 월급×12로 정확히 표시할 수 없어
       // 계약서 원본 금액을 그대로 담아두는 표시 전용 필드 — 실제 지급액(monthly_salary)은 안 건드린다.
       const FIELDS = ['name', 'type', 'hourly_rate', 'monthly_salary', 'annual_salary', 'annual_leave_total',
-        'transport_allowance', 'fixed_clock_in', 'birthday', 'hire_date', 'last_work_date', 'bank_name', 'bank_account', 'bank_holder'];
+        'transport_allowance', 'fixed_clock_in', 'birthday', 'hire_date', 'last_work_date', 'bank_name', 'bank_account', 'bank_holder', 'pay_cycle'];
       const patch: Record<string, unknown> = {};
       for (const f of FIELDS) if (f in body) patch[f] = body[f];
       if ('hire_date' in patch && patch.hire_date && !/^\d{4}-\d{2}-\d{2}$/.test(String(patch.hire_date))) {
@@ -497,6 +497,11 @@ Deno.serve(async (req) => {
         else if (!/^\d{4}-\d{2}-\d{2}$/.test(String(patch.last_work_date)) || isNaN(new Date(String(patch.last_work_date)).getTime())) {
           return json({ error: '마지막 근무일은 YYYY-MM-DD 형식' }, 400);
         }
+      }
+      // 지급 주기(2026-11-05): 알바만 주급/월급 — 비우면 월급. 급여 계산엔 영향 없음(표시·관리용)
+      if ('pay_cycle' in patch) {
+        if (!patch.pay_cycle) patch.pay_cycle = 'monthly';
+        else if (!['monthly', 'weekly'].includes(String(patch.pay_cycle))) return json({ error: '지급 주기는 monthly/weekly' }, 400);
       }
       if ('type' in patch && !['employee', 'parttime'].includes(String(patch.type))) {
         return json({ error: '직원 유형 오류' }, 400);

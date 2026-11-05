@@ -17017,6 +17017,22 @@ async function wmLoadSal() {
   }
 }
 
+// 주급 알바(2026-11-05 사용자 요청): 매주 금요일 지급 — 총 지급액 아래 '이번 달 N주차 / 전체 M주'.
+//   전체 주 = 그 달의 금요일 수, 이번 주차 = 오늘이 든 주(월~일)의 금요일이 그 달 몇 번째 금요일인지(지난 달은 전부, 다음 달은 0). 금액 계산은 그대로.
+function wmPayWeeks(ym) {
+  const [y, m] = ym.split('-').map(Number), last = new Date(Date.UTC(y, m, 0)).getUTCDate(), fris = [];
+  for (let d = 1; d <= last; d++) if (new Date(Date.UTC(y, m - 1, d)).getUTCDay() === 5) fris.push(`${ym}-${String(d).padStart(2, '0')}`);
+  const t = new Date(new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Seoul' }) + 'T00:00:00Z'), dow = (t.getUTCDay() + 6) % 7;   // 월요일 = 0
+  const thisFri = new Date(t.getTime() + (4 - dow) * 864e5).toISOString().slice(0, 10);
+  return { fris, total: fris.length, cur: fris.filter(f => f <= thisFri).length };
+}
+function wmPayWeekHtml(ym) {
+  if (!ym) return '';
+  const w = wmPayWeeks(ym), days = w.fris.map(f => `${Number(f.slice(5, 7))}/${Number(f.slice(8))}`).join(' · ');
+  const nowYm = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Seoul' }).slice(0, 7);
+  const txt = ym === nowYm && w.cur > 0 ? `이번 달 ${w.cur}주차 / 전체 ${w.total}주` : `전체 ${w.total}주`;   // 지난 달·다음 달은 전체 주만
+  return `<div style="font-size:.68rem;font-weight:600;color:#0e7490;margin-top:2px;white-space:nowrap;" title="주급 — 매주 금요일 지급: ${days}">주급 · ${txt}</div>`;
+}
 function wmRenderSal() {
   const rows = wmState.sal;
   if (!rows.length) { $('wm-sal-result').innerHTML = '<div class="empty-state"><p>데이터가 없습니다.</p></div>'; return; }
@@ -17035,7 +17051,7 @@ function wmRenderSal() {
       <td>${pt ? `<span style="color:#16a34a;">${fmt(r.holidayPay)}원</span>${defer ? `<div style="font-size:.68rem;color:#d97706;">${defer}주 다음 달 이월</div>` : ''}` : '-'}</td>
       <td>${pt && r.mealDays ? `<span style="color:#0ea5e9;">${fmt(r.mealAllowance)}원</span> <span style="font-size:.7rem;color:#6b7280;">(${r.mealDays}일)</span>` : '-'}</td>
       <td>${pt && r.transportAllowance ? `<span style="color:#7c3aed;">${fmt(r.transportAllowance)}원</span>` : '-'}</td>
-      <td style="font-weight:700;color:#4f46e5;">${fmt(r.totalPay)}원</td>
+      <td style="font-weight:700;color:#4f46e5;">${fmt(r.totalPay)}원${pt && e.pay_cycle === 'weekly' ? wmPayWeekHtml(wmState.ym) : ''}</td>
       <td style="white-space:nowrap;"><button class="toggle-btn" style="font-size:.7rem;padding:3px 8px;" onclick="wmShowSlip(${i})">명세서</button> <button class="toggle-btn" style="font-size:.7rem;padding:3px 8px;" onclick="wmSlipPrint([${i}])" title="이 사람 명세서 바로 인쇄 / PDF 저장"><i class="fa-solid fa-file-pdf"></i> PDF</button></td>
     </tr>`;
   }).join('');
@@ -17976,7 +17992,7 @@ function wmEmpRender() {
     const body = rows.map(e => {
       const pt = e.type === 'parttime';
       return `<tr style="${e.active === false ? 'background:#fafafa;color:#6b7280;' : ''}">
-        <td style="font-weight:600;">${escHtml(e.name)}${e.hidden ? `<div style="font-size:.64rem;color:#6b7280;font-weight:500;white-space:nowrap;">삭제 ${escHtml(String(e.hidden_at || '').slice(0, 10))}${e.hidden_by_name ? ' · ' + escHtml(e.hidden_by_name) : ''}</div>` : ''}${e.active === false ? wmResignHtml(e, false) : (e.last_work_date ? `<div style="font-size:.64rem;color:#6b7280;font-weight:500;white-space:nowrap;">마지막 근무일 ${escHtml(String(e.last_work_date).slice(0, 10))} (예정)</div>` : '')}</td>
+        <td style="font-weight:600;">${escHtml(e.name)}${e.type === 'parttime' && e.pay_cycle === 'weekly' ? ' <span style="background:#ecfeff;color:#0e7490;border:1px solid #a5f3fc;border-radius:5px;padding:0 5px;font-size:.66rem;font-weight:700;white-space:nowrap;" title="매주 금요일 지급">주급</span>' : ''}${e.hidden ? `<div style="font-size:.64rem;color:#6b7280;font-weight:500;white-space:nowrap;">삭제 ${escHtml(String(e.hidden_at || '').slice(0, 10))}${e.hidden_by_name ? ' · ' + escHtml(e.hidden_by_name) : ''}</div>` : ''}${e.active === false ? wmResignHtml(e, false) : (e.last_work_date ? `<div style="font-size:.64rem;color:#6b7280;font-weight:500;white-space:nowrap;">마지막 근무일 ${escHtml(String(e.last_work_date).slice(0, 10))} (예정)</div>` : '')}</td>
         <td><span class="badge badge-${pt ? 'staff' : 'admin'}" style="font-size:.68rem;">${pt ? '알바' : '직원'}</span>${!pt ? (e.app_user_id
           ? '<div style="font-size:.66rem;color:#16a34a;white-space:nowrap;"><i class="fa-solid fa-link"></i> 계정 연결됨</div>'
           : `<div style="font-size:.66rem;color:#d97706;white-space:nowrap;">미연결 <button class="toggle-btn" style="font-size:.66rem;padding:1px 6px;" onclick="wmEmpLinkPick(${e.id})">연결</button></div>`) : ''}</td>
@@ -18016,7 +18032,7 @@ const WM_EMP_FIELDS = [
   ['hourly_rate', '시급 (알바)', 'number'], ['monthly_salary', '월급 (직원, 급여계산용)', 'number'],
   ['annual_salary', '연봉 (직원, 계약서 표시용 — 비우면 월급×12로 표시)', 'number'],
   ['annual_leave_total', '연차 총량', 'number'], ['transport_allowance', '교통비 (알바)', 'number'],
-  ['fixed_clock_in', '출근시간 고정 HH:MM (알바)', 'text'], ['birthday', '생일 YYYY-MM-DD', 'text'],
+  ['fixed_clock_in', '출근시간 고정 HH:MM (알바)', 'text'], ['pay_cycle', '급여 지급 (알바)', 'paycycle'], ['birthday', '생일 YYYY-MM-DD', 'text'],
   ['bank_name', '은행', 'text'], ['bank_account', '계좌번호', 'text'], ['bank_holder', '예금주', 'text'],
 ];
 
@@ -18024,6 +18040,13 @@ const WM_EMP_FIELDS = [
 function wmEmpFieldHtml([k, label, kind], v, disabled) {
   const dis = disabled ? ' disabled' : '';
   const disStyle = disabled ? 'background:#f3f4f6;color:#6b7280;' : '';
+  if (kind === 'paycycle') {   // 알바 주급/월급(2026-11-05) — 표시·관리용, 급여 계산은 그대로(주휴수당도 기존 규칙)
+    return `<label style="display:block;font-size:.75rem;color:#4b5563;font-weight:600;margin-bottom:8px;">${label}
+      <select id="wm-empf-${k}"${dis} style="display:block;margin-top:3px;border:1.5px solid #d1d5db;border-radius:8px;padding:6px 10px;font-size:.8rem;width:100%;${disStyle}">
+        <option value="monthly"${v !== 'weekly' ? ' selected' : ''}>월급 (매월)</option>
+        <option value="weekly"${v === 'weekly' ? ' selected' : ''}>주급 (매주 금요일 지급)</option>
+      </select></label>`;
+  }
   if (kind === 'select') {
     return `<label style="display:block;font-size:.75rem;color:#4b5563;font-weight:600;margin-bottom:8px;">${label}
       <select id="wm-empf-${k}"${dis} style="display:block;margin-top:3px;border:1.5px solid #d1d5db;border-radius:8px;padding:6px 10px;font-size:.8rem;width:100%;${disStyle}">
@@ -18051,7 +18074,7 @@ function wmEmpFormOpen(id) {
   wmState.empMode = e ? 'edit' : 'pt';
   const linked = !!(e && e.app_user_id);
   $('wm-empf-title').textContent = e ? `직원 수정 — ${e.name}` : '알바 추가';
-  const skip = e ? [] : ['type', 'monthly_salary', 'annual_salary', 'last_work_date'];   // 알바 추가: 유형 고정(parttime)·월급·연봉·마지막 근무일 없음
+  const skip = e ? (e.type === 'employee' ? ['pay_cycle'] : []) : ['type', 'monthly_salary', 'annual_salary', 'last_work_date'];   // 주급/월급은 알바만(2026-11-05)   // 알바 추가: 유형 고정(parttime)·월급·연봉·마지막 근무일 없음
   $('wm-empf-body').innerHTML =
     (linked ? `<div style="background:#f0fdf4;color:#15803d;border-radius:8px;padding:6px 9px;font-size:.7rem;margin-bottom:10px;"><i class="fa-solid fa-link"></i> 대시보드 계정(${escHtml(e.app_user_id)})과 연결된 직원 — 이름·유형은 '직원 관리'가 원본이라 여기서 바꿀 수 없어요.</div>` : '')
     + WM_EMP_FIELDS.filter(([k]) => !skip.includes(k))
@@ -18068,7 +18091,7 @@ async function wmEmpLinkNew() {
   wmState.empEdit = null;
   wmState.empMode = 'link';
   $('wm-empf-title').textContent = '직원 연결 추가';
-  const skip = ['name', 'type', 'hourly_rate', 'transport_allowance', 'fixed_clock_in'];   // 정직원: 이름은 계정에서, 알바 전용 필드 숨김
+  const skip = ['name', 'type', 'hourly_rate', 'transport_allowance', 'fixed_clock_in', 'pay_cycle'];   // 정직원: 이름은 계정에서, 알바 전용 필드 숨김
   $('wm-empf-body').innerHTML = `
     <div style="font-size:.72rem;color:#6b7280;margin-bottom:8px;">대시보드 '직원 관리' 계정을 골라 정직원으로 등록합니다. 이름은 계정을 따라가요.</div>
     <label style="display:block;font-size:.75rem;color:#4b5563;font-weight:600;margin-bottom:8px;">직원 계정
