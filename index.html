@@ -18688,7 +18688,8 @@ const MY_TABS = [['work', '내 근무 현황', 'fa-regular fa-calendar-check'], 
    주마다 월~금 달력 한 줄. 5분 동안은 다시 묻지 않고(홈을 드나들 때마다 부르지 않게), 홈의 [새로고침]은 새로 읽는다.
    + 중국 물류 입고 예정(2026-10-28 사용자 요청): 같은 응답의 arrivals — 입고 예정일 칸에 '중국물류 N박스' 칩(날짜별 박스 합), 주말 예정은 그 주 달력 아래 한 줄. */
 const homeLv = { data: null, at: 0, loading: false, err: '' };
-const HOME_LV_TYPE = { annual: ['연차', '#3730a3', '#e0e7ff'], half: ['반차', '#0369a1', '#e0f2fe'], summer: ['여름휴가', '#9a3412', '#ffedd5'], sick: ['병가', '#9f1239', '#ffe4e6'], leave: ['휴가', '#374151', '#f3f4f6'] };
+const HOME_LV_TYPE = { annual: ['연차', '#1e40af', '#dbeafe'], half: ['반차', '#047857', '#d1fae5'],   // 2026-11-05 근무 관리 휴가 관리(WM_LV_COLOR)와 같은 색 — 연차 파랑·반차 초록
+  summer: ['여름휴가', '#9a3412', '#ffedd5'], sick: ['병가', '#9f1239', '#ffe4e6'], leave: ['휴가', '#374151', '#f3f4f6'] };
 async function homeLeavesLoad(force) {
   const box = $('home-leaves'); if (!box || !SESSION) return;
   if (homeLv.loading) return;
