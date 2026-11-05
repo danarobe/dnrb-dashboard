@@ -3077,6 +3077,7 @@
       <div id="users-agents" style="display:none;margin-bottom:16px;"></div>
       <div id="users-cxl" style="display:none;margin-bottom:16px;"></div>
       <div id="users-hire" style="display:none;margin-bottom:16px;"></div>
+      <div id="users-seal" style="display:none;margin-bottom:16px;"></div>
       <div id="users-list" style="font-size:.82rem;color:#6b7280;">불러오는 중…</div>
       <!-- 직원 근무 정보 모달 (2026-08-27) — 근무 관리(wm_employees) 연동 데이터 -->
       <div id="user-detail-modal" onclick="if(event.target===this)this.style.display='none'"
@@ -3594,6 +3595,7 @@ async function hireAccessLoad() {
 async function hireUsersPanel() {
   const box = $('users-hire');
   if (!box || !isAdmin()) return;
+  sealUsersPanel();
   box.style.display = '';
   try {
     const [rows, all] = await Promise.all([dbProxy('hire_users?select=user_id'), grantUsers()]);
@@ -3609,6 +3611,30 @@ async function hireUsersPanel() {
     <div style="font-size:.82rem;font-weight:800;color:#4338ca;margin-bottom:4px;"><i class="fa-solid fa-user-plus"></i> 알바 채용·면접비 접근 허용</div>
     <div style="font-size:.74rem;color:#6b7280;margin-bottom:8px;line-height:1.6;">관리자와 <b>물류팀</b>은 항상 쓸 수 있어요. 이름을 누르면 그 직원에게 <b>알바 채용·면접비</b> 메뉴가 열려요(다시 누르면 해제). 허용된 직원은 물류팀과 같은 일을 할 수 있어요 — 사람 등록·지급 기록·채용 처리·계약서·월별 엑셀. <b style="color:#b91c1c;">주민번호·계좌 전체 보기도 포함</b>되니 꼭 필요한 사람에게만 주세요(지급 기록이 있는 사람 삭제는 관리자만).</div>
     <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;">${chips || '<span style="font-size:.76rem;color:#6b7280;">관리자가 아닌 계정이 없어요</span>'}</div></div>`;
+}
+/* 회사 도장 사용 기록 (2026-11-05) — 도장은 대표 본인 계정(admin)만 찍을 수 있다(서버 wm-hire SEAL_OWNER, 허용 목록 없음 — 사용자 결정 "허용할 사람을 만드는 순간 허점").
+   이 칸도 본인 계정에만 보인다: 찍은 기록과, 다른 계정이 찍으려다 막힌 기록. 본인인지는 서버(seal_me)만 안다 — 아이디를 이 파일(공개)에 적지 않음. */
+const SEAL_LOG_TXT = { hire_seal: ['찍음', '#047857'], hire_seal_denied: ['막힘', '#b91c1c'] };
+async function sealUsersPanel() {
+  const box = $('users-seal');
+  if (!box || !isAdmin()) return;
+  if (!(await hireApi({ action: 'seal_me' }).then(d => !!d.ok).catch(() => false))) { box.style.display = 'none'; return; }
+  box.style.display = '';
+  let log = [];
+  try { log = (await hireApi({ action: 'seal_log' })).log || []; }
+  catch (e) { box.innerHTML = `<div style="font-size:.76rem;color:#b91c1c;">도장 사용 기록을 불러오지 못했어요 — ${escHtml(e.message)}</div>`; return; }
+  const denied = log.filter(l => l.action === 'hire_seal_denied').length;
+  const rows = log.slice(0, 30).map(l => {
+    const [t, c] = SEAL_LOG_TXT[l.action] || [l.action, '#374151'], dt = l.detail || {};
+    const what = l.action === 'hire_seal' ? `${escHtml(dt.name || '')} 계약서 (${dt.kind === 'pdf' ? 'PDF' : '인쇄'})`
+      : dt.why === 'too_many' ? '하루 횟수 초과' : dt.why === 'not_contract' ? '계약서 대상이 아님' : '권한 없는 계정';
+    return `<tr><td style="padding:3px 8px 3px 0;white-space:nowrap;color:#6b7280;">${escHtml(kstDT(l.at))}</td><td style="padding:3px 8px;white-space:nowrap;font-weight:600;">${escHtml(dt.by || l.actor || '')}</td><td style="padding:3px 8px;white-space:nowrap;font-weight:700;color:${c};">${t}</td><td style="padding:3px 0 3px 8px;">${what}</td></tr>`;
+  }).join('');
+  box.innerHTML = `<div style="background:#fff7f7;border:1.5px solid #fecaca;border-radius:12px;padding:12px 14px;">
+    <div style="font-size:.82rem;font-weight:800;color:#b91c1c;margin-bottom:4px;"><i class="fa-solid fa-stamp"></i> 회사 도장 사용 기록 <span style="font-size:.7rem;font-weight:600;color:#6b7280;">(이 칸은 대표님 계정에만 보여요)</span></div>
+    <div style="font-size:.74rem;color:#6b7280;margin-bottom:6px;line-height:1.6;">계약서 '대표자 (인)'의 도장은 <b>이 계정만</b> 찍을 수 있어요 — 다른 관리자·직원이 만든 계약서는 (인) 칸이 빈 채로 나와요. 다른 계정이 도장을 받으려 하면 막히고 여기에 <b style="color:#b91c1c;">막힘</b>으로 남아요.${denied ? ` <b style="color:#b91c1c;">최근 막힌 시도 ${denied}건</b>` : ''}</div>
+    <details${denied ? ' open' : ''}><summary style="cursor:pointer;font-size:.76rem;font-weight:700;color:#374151;">최근 기록 ${log.length ? `(${Math.min(log.length, 30)}건)` : ''}</summary>
+      ${rows ? `<div style="overflow-x:auto;"><table style="font-size:.74rem;border-collapse:collapse;margin-top:6px;">${rows}</table></div>` : '<div style="font-size:.74rem;color:#6b7280;margin-top:6px;">아직 기록이 없어요</div>'}</details></div>`;
 }
 async function hireUserToggle(uid) {
   try {
@@ -8920,6 +8946,8 @@ const HIRE_CT_CSS = `
   .ct-sg td { padding:0 1.9mm; height:8.6mm; vertical-align:top; text-align:left; }
   .ct-sg td.l { text-align:center; font-weight:700; }
   .ct-sg .nm { display:inline-block; min-width:31mm; }
+  .ct-sa { position:relative; display:inline-block; }
+  .ct-seal { position:absolute; left:-1.2mm; top:-4.7mm; width:15mm; height:15mm; pointer-events:none; user-select:none; -webkit-user-drag:none; }
 `;
 // 글꼴: 양식의 본문은 함초롬바탕(한컴) — PC에 없으면 웹 글꼴 Noto Serif KR(굵은 글씨가 있는 명조)로, 그것도 못 받으면 바탕·AppleMyungjo.
 // (맥에는 굵은 명조가 없어 조 제목이 굵게 안 나왔다 — 2026-10-13 확인)
@@ -8962,14 +8990,14 @@ function hireCtBlock(b, v) {
       <tr><td class="l">[‘회사’]</td><td></td><td></td><td class="l">[‘계약자’]</td><td></td><td></td></tr>
       <tr><td class="l">업체명</td><td>:</td><td>주식회사 디앤알비</td><td class="l">성 명</td><td>:</td><td><span class="nm">${escHtml(v.name)}</span>(인)</td></tr>
       <tr><td class="l">주&nbsp;&nbsp;소</td><td>:</td><td></td><td class="l">주 소</td><td>:</td><td></td></tr>
-      <tr><td class="l">대표자</td><td>:</td><td>김다나 (인)</td><td class="l"></td><td>:</td><td></td></tr></table>`;
+      <tr><td class="l">대표자</td><td>:</td><td>김다나 <span class="ct-sa">(인)${v.seal ? `<img class="ct-seal" alt="" draggable="false" src="${v.seal}" />` : ''}</span></td><td class="l"></td><td>:</td><td></td></tr></table>`;
     default: return `<div>${fill(b[1])}</div>`;
   }
 }
 // 숨은 A4 틀에 그려 블록 높이를 재고 쪽을 나눈다(문단은 쪼개지 않음, 조 제목은 다음 줄과 같이, 맺음말~서명란은 한 덩어리).
 // 인쇄와 PDF가 같은 쪽 나눔을 쓰게 하려고 브라우저의 자동 쪽 나눔에 맡기지 않는다. 돌려주는 fr(틀)은 부른 쪽이 지운다.
-async function hireCtRender(r) {
-  const v = hireCtInfo(r), B = HIRE_CT_BODY, blocks = B.map(b => hireCtBlock(b, v));
+async function hireCtRender(r, seal) {
+  const v = { ...hireCtInfo(r), seal: /^data:image\/png;base64,[A-Za-z0-9+/=]+$/.test(seal || '') ? seal : '' }, B = HIRE_CT_BODY, blocks = B.map(b => hireCtBlock(b, v));
   const di = B.findIndex(b => b[0] === 'd');
   const keep = B.map((b, i) => b[0] === 'h' || (b[0] === 'p' && /다음과 같다\.$/.test(b[1])) || (i >= di - 2 && i < B.length - 1));
   const title = `프리랜서 업무위탁계약서 - ${v.name}`;
@@ -9007,10 +9035,26 @@ function hireCtOpen(id) {
   $('hire-ct-info').innerHTML = row('계약자', escHtml(v.name))
     + row('계약기간', v.from ? `${hireCtYmd(v.from)} ~ ${hireCtYmd(v.to)} <span style="font-size:.72rem;color:#6b7280;font-weight:500;">(면접일부터 ${HIRE_CT_DAYS}일 뒤까지)</span>` : '<span style="color:#b91c1c;">면접일이 비어 있어요</span>')
     + row('작성일', `${hireCtYmd(v.today)} <span style="font-size:.72rem;color:#6b7280;font-weight:500;">(저장·인쇄하는 오늘)</span>`)
+    + row('회사 도장', '<span id="hire-ct-seal" style="font-size:.78rem;color:#6b7280;font-weight:500;">확인 중…</span>')
     + (v.from ? '<div style="font-size:.75rem;color:#6b7280;margin-top:10px;line-height:1.6;">양식의 나머지 글은 그대로 들어가요(수수료 = 시간당 10,500원). <b>주소 칸과 서명</b>은 인쇄한 뒤 직접 적어요.</div>'
       : '<div style="font-size:.78rem;color:#b91c1c;margin-top:10px;line-height:1.6;">계약기간을 정할 수 없어 계약서를 만들지 않아요 — 목록의 <b>[수정]</b>에서 면접일을 넣은 뒤 다시 눌러 주세요.</div>');
   document.querySelectorAll('#hire-dlg-ct .hire-ct-go').forEach(b => { b.disabled = !v.from; b.style.opacity = v.from ? '' : '.45'; });
   $('hire-dlg-ct').showModal();
+  hireSeal.ok = null;
+  (isAdmin() ? hireApi({ action: 'seal_me' }).then(d => !!d.ok).catch(() => false) : Promise.resolve(false)).then(ok => { hireSeal.ok = ok;
+    const el = $('hire-ct-seal'); if (!el) return;
+    el.innerHTML = hireSeal.ok ? '<span style="color:#b91c1c;font-weight:700;"><i class="fa-solid fa-stamp"></i> 대표자 (인)에 찍혀요</span> <span style="color:#6b7280;">(찍을 때마다 사용 기록이 남아요)</span>'
+      : '도장은 대표님 계정만 찍을 수 있어 <b>(인) 칸이 빈 채로</b> 나와요 — 인쇄 후 직접 날인해 주세요';
+  });
+}
+// 회사 도장 (2026-11-05) — 찍을 때마다 서버에서 받는다(화면·브라우저 저장소에 남겨 두지 않음). 권한이 없거나 막히면 빈 (인)으로 만든다.
+const hireSeal = { ok: null };
+async function hireCtSeal(r, kind) {
+  if (!isAdmin()) return '';   // 관리자가 아니면 서버에 묻지도 않는다(서버는 대표 본인 계정 말고 모두 막음)
+  if (hireSeal.ok === null) hireSeal.ok = await hireApi({ action: 'seal_me' }).then(d => !!d.ok).catch(() => false);
+  if (!hireSeal.ok) return '';
+  try { return (await hireApi({ action: 'seal', id: r.id, kind })).png || ''; }
+  catch (e) { showToast('도장 없이 만들어요 — ' + e.message); return ''; }
 }
 async function hireCtPrint() {
   const r = hireCtRow(); if (!r || !hireCtInfo(r).from) return;
@@ -9018,8 +9062,9 @@ async function hireCtPrint() {
   if (!w) { showToast('팝업이 차단됐어요 — 주소창의 팝업 허용을 켜주세요'); return; }
   let x = null;
   try {
-    x = await hireCtRender(r);
+    x = await hireCtRender(r, await hireCtSeal(r, 'print'));
     w.document.open(); w.document.write(x.html); w.document.close(); w.focus();
+    w.document.addEventListener('contextmenu', ev => { if (ev.target.closest && ev.target.closest('.ct-seal')) ev.preventDefault(); });   // 도장 그림 '이미지 저장' 메뉴 막기
     await hireCtFonts(w.document);
     w.print();
   } catch (e) { w.close(); showToast('계약서를 만들지 못했어요: ' + e.message); }
@@ -9031,7 +9076,7 @@ async function hireCtPdf() {
   let x = null;
   try {
     await loadPdfLibs();
-    x = await hireCtRender(r);
+    x = await hireCtRender(r, await hireCtSeal(r, 'pdf'));
     await hireCtFonts(x.doc);
     await hireCtMainFont(x.doc.body.innerText);
     const { jsPDF } = window.jspdf, pdf = new jsPDF({ unit: 'mm', format: 'a4' });

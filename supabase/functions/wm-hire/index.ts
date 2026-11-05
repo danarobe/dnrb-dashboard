@@ -15,6 +15,11 @@
 //   pay_paid    { id, paid_on|null }       입금 완료 표시/취소
 //   pay_delete  { id }
 //   export      { ym, kind? }              그 달(근무일 기준) 지급 내역 — kind 주면 그 구분만. 주민번호·계좌 전체 포함 (감사 로그)
+//   seal        { id }                     계약서 '대표자 (인)'에 찍을 회사 도장(배경 투명 PNG, data URL) — company_seals(비공개 표) (2026-11-05)
+//                                          ⚠ 도용 방지: 대표 본인 계정(SEAL_OWNER)만 — 허용 목록 같은 건 일부러 두지 않음(사용자 결정 "허용할 사람을 만드는 순간 허점")
+//                                          · 채용됨+면접일 있는 사람의 계약서에만 · 하루 20번까지 · 매번 감사 로그(거절도)
+//   seal_me     {}                         나도 도장을 쓸 수 있는지 (계약서 창 안내용)
+//   seal_log    {}                         (대표 본인만) 최근 도장 사용·거절 기록 60건
 //
 // 비밀값: HIRE_ENC_KEY = base64 32바이트 (openssl rand -base64 32). 바꾸면 기존 암호문을 못 푼다.
 // ═══════════════════════════════════════════════════════════════
@@ -90,6 +95,13 @@ async function audit(me: { id: string; name: string }, action: string, detail: u
 }
 
 const D_RE = /^\d{4}-\d{2}-\d{2}$/;
+const SEAL_DAY_MAX = 20;   // 도장: 한 사람 24시간에 20번까지 (2026-11-05 도용 방지)
+
+// ── 회사 도장 사용 권한 (2026-11-05 사용자 요청 "아무나 쓸 수 있으면 안 돼 · 나만") — 대표 본인 계정 하나만. 다른 관리자도 안 됨.
+//    그 계정 아이디는 코드(공개 저장소)에 적지 않고 비밀값 SEAL_OWNER에만 둔다 — 바꾸려면 `supabase secrets set SEAL_OWNER=…`(화면에서 허용·추가하는 길 없음).
+//    비밀값이 비어 있으면 아무도 못 찍는다. verifyAuthToken이 매번 DB 실계정·역할을 다시 확인한다.
+const SEAL_OWNER = (Deno.env.get('SEAL_OWNER') ?? '').trim();
+const sealOk = (me: { id: string; role: string }) => !!SEAL_OWNER && me.id === SEAL_OWNER && me.role === 'admin';
 
 /** 키오스크 PIN 검사 — 4자리 + 쉽게 짐작되는 값 거절(휴대폰 뒤 4자리·같은 숫자 4개·1234/4321, 2026-11-02 보안 점검) */
 function pinError(pin: string, phone: unknown): string | null {
@@ -125,6 +137,37 @@ Deno.serve(async (req) => {
     if (b.id != null && b.id !== '' && !(Number.isInteger(id) && id > 0)) return json({ error: 'id가 올바르지 않아요' }, 400);
     if (b.hire_id != null && !(Number.isInteger(Number(b.hire_id)) && Number(b.hire_id) > 0)) return json({ error: 'hire_id가 올바르지 않아요' }, 400);
     if (['reveal', 'delete', 'hire', 'pin', 'pay_paid', 'pay_delete'].includes(action) && !(Number.isInteger(id) && id > 0)) return json({ error: 'id가 필요해요' }, 400);
+
+    if (action === 'seal_me') return json({ ok: sealOk(me) });
+
+    if (action === 'seal') {
+      if (!sealOk(me)) {
+        await audit(me, 'seal_denied', { hire_id: Number.isInteger(id) && id > 0 ? id : null });
+        return json({ error: '도장은 대표님 계정만 찍을 수 있어요' }, 403);
+      }
+      if (!(Number.isInteger(id) && id > 0)) return json({ error: 'id가 필요해요' }, 400);
+      const h = await hireRow(id);
+      // 실제 계약서를 만들 수 있는 사람(채용됨 + 면접일)에게만 — 도장만 따로 받아 가는 길을 막는다
+      if (!h || h.kind !== 'applicant' || !(h.status === 'hired' || h.employee_id) || !D_RE.test(String(h.interview_date ?? ''))) {
+        await audit(me, 'seal_denied', { hire_id: id, why: 'not_contract' });
+        return json({ error: '계약서를 만들 수 있는 사람(채용됨·면접일 있음)에게만 도장을 찍어요' }, 400);
+      }
+      const since = new Date(Date.now() - 24 * 3600e3).toISOString();
+      const used = await rest(`wm_kiosk_log?actor=eq.${encodeURIComponent(me.id)}&action=eq.hire_seal&at=gte.${since}&select=id`);
+      if (used.length >= SEAL_DAY_MAX) {
+        await audit(me, 'seal_denied', { hire_id: id, why: 'too_many' });
+        return json({ error: `도장은 하루 ${SEAL_DAY_MAX}번까지만 찍을 수 있어요 — 더 필요하면 대표님께 말씀해 주세요` }, 429);
+      }
+      const [row] = await rest(`company_seals?key=eq.ceo&select=png_b64`);
+      if (!row?.png_b64) return json({ error: '도장 이미지가 등록되어 있지 않아요' }, 404);
+      await audit(me, 'seal', { hire_id: h.id, name: h.name, kind: String(b.kind ?? '') === 'pdf' ? 'pdf' : 'print' });
+      return json({ png: 'data:image/png;base64,' + row.png_b64 });
+    }
+
+    if (action === 'seal_log') {
+      if (!sealOk(me)) return json({ error: '대표님 계정만 볼 수 있어요' }, 403);
+      return json({ log: await rest('wm_kiosk_log?action=in.(hire_seal,hire_seal_denied)&select=actor,action,detail,at&order=at.desc&limit=60') });
+    }
 
     if (action === 'list') {
       const [hires, pays] = await Promise.all([
