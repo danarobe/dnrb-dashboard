@@ -20,6 +20,8 @@
 //                                          · 채용됨+면접일 있는 사람의 계약서에만 · 하루 20번까지 · 매번 감사 로그(거절도)
 //   seal_me     {}                         나도 도장을 쓸 수 있는지 (계약서 창 안내용)
 //   seal_log    {}                         (대표 본인만) 최근 도장 사용·거절 기록 60건
+//   ct_sign     { id, from, signed }       계약서 회차 서명 완료 체크/해제 (2026-11-06) — 채용됨+면접일 있는 사람만, from = 회차 시작일(ctPeriods)
+//                                          1회차 = 면접일 ~ +30일, 다음 회차 = 앞 회차 끝 다음 날 ~ +30일. list가 contracts[{from,to,by,at}]를 같이 준다
 //
 // 비밀값: HIRE_ENC_KEY = base64 32바이트 (openssl rand -base64 32). 바꾸면 기존 암호문을 못 푼다.
 // ═══════════════════════════════════════════════════════════════
@@ -95,6 +97,13 @@ async function audit(me: { id: string; name: string }, action: string, detail: u
 }
 
 const D_RE = /^\d{4}-\d{2}-\d{2}$/;
+// 계약 회차 (화면 hireCtPeriod와 같은 식) — 1회차 = 면접일 ~ 면접일+30일, n회차 시작 = 면접일 + 31×(n−1)일
+const CT_DAYS = 30;
+const addDays = (s: string, n: number) => { const d = new Date(s + 'T12:00:00Z'); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); };
+const ctIndexOf = (start: string, from: string) => {
+  const diff = Math.round((Date.parse(from + 'T12:00:00Z') - Date.parse(start + 'T12:00:00Z')) / 86400000);
+  return diff >= 0 && diff % (CT_DAYS + 1) === 0 ? diff / (CT_DAYS + 1) : -1;
+};
 const SEAL_DAY_MAX = 20;   // 도장: 한 사람 24시간에 20번까지 (2026-11-05 도용 방지)
 
 // ── 회사 도장 사용 권한 (2026-11-05 사용자 요청 "아무나 쓸 수 있으면 안 돼 · 나만") — 대표 본인 계정 하나만. 다른 관리자도 안 됨.
@@ -170,9 +179,10 @@ Deno.serve(async (req) => {
     }
 
     if (action === 'list') {
-      const [hires, pays] = await Promise.all([
+      const [hires, pays, cts] = await Promise.all([
         rest('wm_hires?select=*&order=id.desc'),
         rest(`wm_hire_pays?select=${PAY_COLS}&order=work_date.desc,id.desc`),
+        rest('wm_hire_contracts?select=hire_id,period_from,period_to,signed_by_name,signed_at&order=period_from.asc'),
       ]);
       // 근무 관리에 연결된 사람의 키오스크 PIN 설정 여부·재직 여부 (PIN 값·해시는 내보내지 않음)
       const empIds = [...new Set(hires.map((h: any) => h.employee_id).filter(Boolean))];
@@ -187,9 +197,33 @@ Deno.serve(async (req) => {
           created_by: h.created_by, created_at: h.created_at,
           rrn_mask: maskRrn(await dec(h.rrn_enc)), account_mask: maskAcct(await dec(h.account_enc)),
           pays: pays.filter(p => p.hire_id === h.id),
+          contracts: cts.filter((c: any) => c.hire_id === h.id).map((c: any) => ({ from: c.period_from, to: c.period_to, by: c.signed_by_name, at: c.signed_at })),
         });
       }
       return json({ hires: out, can_delete_paid: me.role === 'admin', can_change_pin: me.role === 'admin' });
+    }
+
+    if (action === 'ct_sign') {
+      const h = await hireRow(id);
+      if (!h) return json({ error: '없는 사람이에요' }, 404);
+      if (h.kind !== 'applicant' || !(h.status === 'hired' || h.employee_id)) return json({ error: '채용된 사람만 계약서 서명을 기록할 수 있어요' }, 400);
+      if (!D_RE.test(String(h.interview_date ?? ''))) return json({ error: '면접일이 비어 있어 계약 기간을 정할 수 없어요' }, 400);
+      const from = String(b.from ?? '');
+      if (!D_RE.test(from) || ctIndexOf(h.interview_date, from) < 0) return json({ error: '계약 회차 시작일이 올바르지 않아요' }, 400);
+      if (from > addDays(new Date(Date.now() + 9 * 3600000).toISOString().slice(0, 10), 62)) return json({ error: '너무 먼 회차예요' }, 400);
+      if (typeof b.signed !== 'boolean') return json({ error: 'signed 값이 필요해요' }, 400);
+      const n = ctIndexOf(h.interview_date, from) + 1;
+      if (b.signed) {
+        await rest('wm_hire_contracts?on_conflict=hire_id,period_from', {
+          method: 'POST', headers: { Prefer: 'resolution=merge-duplicates,return=representation' },
+          body: JSON.stringify({ hire_id: id, period_from: from, period_to: addDays(from, CT_DAYS), signed_by_name: me.name, signed_at: new Date().toISOString() }),
+        });
+      } else {
+        await rest(`wm_hire_contracts?hire_id=eq.${id}&period_from=eq.${from}`, { method: 'DELETE' });
+      }
+      await audit(me, b.signed ? 'ct_sign' : 'ct_unsign', { hire_id: id, name: h.name, round: n, from });
+      const rows = await rest(`wm_hire_contracts?hire_id=eq.${id}&select=period_from,period_to,signed_by_name,signed_at&order=period_from.asc`);
+      return json({ contracts: rows.map((c: any) => ({ from: c.period_from, to: c.period_to, by: c.signed_by_name, at: c.signed_at })) });
     }
 
     if (action === 'reveal') {

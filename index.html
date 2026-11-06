@@ -8464,7 +8464,7 @@ function hireRender() {
     && (!q || r.name.includes(q) || r.phone.replace(/-/g, '').includes(q)));
   if (!rows.length) { $('hire-result').innerHTML = `<div class="empty-state"><p>${mine.length ? '조건에 맞는 사람이 없어요' : `등록된 ${HIRE_KIND[hireState.kind]}가 없어요 — [사람 등록]으로 시작하세요`}</p></div>`; return; }
   const today = hireToday();
-  $('hire-result').innerHTML = `${daily ? '<div style="font-size:.85rem;font-weight:700;margin:4px 0 8px;">등록된 일일알바</div>' : ''}<table><thead><tr><th>이름</th>${daily ? '' : '<th>상태</th>'}<th>휴대폰</th><th>주민번호</th><th>계좌</th><th>면접일(첫 출근일)</th><th>지급 (전체)</th><th></th></tr></thead><tbody>${rows.map(r => {
+  $('hire-result').innerHTML = `${daily ? '<div style="font-size:.85rem;font-weight:700;margin:4px 0 8px;">등록된 일일알바</div>' : ''}<table><thead><tr><th>이름</th>${daily ? '' : '<th>상태</th>'}<th>휴대폰</th><th>주민번호</th><th>계좌</th><th>면접일(첫 출근일)</th>${daily ? '' : '<th>계약서 서명<div style="font-size:.66rem;color:#6b7280;font-weight:600;">1달마다 다시 서명</div></th>'}<th>지급 (전체)</th><th></th></tr></thead><tbody>${rows.map(r => {
     const [sl, sc, sb] = HIRE_STATUS[r.status];
     const age = hireAge(r.birth, today);
     const unpaid = r.pays.filter(p => !p.paid_on);
@@ -8476,6 +8476,7 @@ function hireRender() {
       <td>${r.rrn_mask ? escHtml(r.rrn_mask) : '<span style="color:#b45309;">미입력</span>'}</td>
       <td>${r.account_mask ? `${escHtml((r.bank_name || '') + ' ' + r.account_mask)} <button class="toggle-btn" style="font-size:.66rem;padding:1px 7px;" onclick="hireCopyAccount(${r.id})" title="은행 · 계좌번호 전체 · 예금주를 복사해요 (전체 보기 기록이 남아요)"><i class="fa-regular fa-copy"></i> 복사</button>` : '<span style="color:#b45309;">미입력</span>'}</td>
       <td>${r.interview_date || ''}${daily && r.pays[0]?.work_date ? `<div style="font-size:.7rem;color:#6b7280;">최근 근무 ${escHtml(String(r.pays[0].work_date).slice(5))}</div>` : ''}</td>
+      ${daily ? '' : `<td>${hireCtSignCell(r, today)}</td>`}
       <td>${r.pays.length ? `${hireWon(total)}${unpaid.length ? ` <span class="hr-badge" style="color:#b45309;background:#fef3c7;">미지급 ${unpaid.length}</span>` : ' <span style="color:#16a34a;font-size:.75rem;">완료</span>'}` : '<span style="color:#6b7280;">-</span>'}</td>
       <td><div style="display:flex;gap:2px;justify-content:flex-end;">
         <button class="toggle-btn" style="font-size:.72rem;padding:3px 8px;color:#4f46e5;font-weight:600;" onclick="hireOpenPay(${r.id})"><i class="fa-solid fa-won-sign"></i> 지급</button>
@@ -8980,9 +8981,51 @@ async function hireCtMainFont(text) {
 const hireCtYmd = s => `${s.slice(0, 4)}년 ${s.slice(5, 7)}월 ${s.slice(8, 10)}일`;   // 사용자 지정 양식 xxxx년 xx월 xx일
 function hireCtAddDays(s, n) { const d = new Date(s + 'T12:00:00Z'); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); }
 // 계약서에 들어갈 값 — 면접일이 없으면 from/to가 빈 값(만들지 않는다)
-function hireCtInfo(r) {
-  const from = /^\d{4}-\d{2}-\d{2}$/.test(r.interview_date || '') ? r.interview_date : '';
-  return { name: String(r.name || '').trim(), from, to: from ? hireCtAddDays(from, HIRE_CT_DAYS) : '', today: hireToday() };
+// 계약 회차(2026-11-06 사용자 요청 — "1달 단위로 다시 서명"): 1회차 = 면접일 ~ +30일, 다음 회차 = 앞 회차 끝 다음 날 ~ +30일 (서버 wm-hire ctIndexOf와 같은 식)
+//   회차 시작일 = 그 회차 계약서에 서명해야 할 날짜. 서명 완료는 wm_hire_contracts(서버 ct_sign), list의 r.contracts[{from,to,by,at}]
+const hireCtStart = r => /^\d{4}-\d{2}-\d{2}$/.test(r.interview_date || '') ? r.interview_date : '';
+function hireCtPeriod(start, i) { const from = hireCtAddDays(start, i * (HIRE_CT_DAYS + 1)); return { i, n: i + 1, from, to: hireCtAddDays(from, HIRE_CT_DAYS) }; }
+function hireCtState(r) {   // { start, signed(Map from→기록), due(서명 안 한 첫 회차), last(그 앞 회차) } — 면접일 없으면 null
+  const start = hireCtStart(r); if (!start) return null;
+  const signed = new Map((r.contracts || []).map(c => [c.from, c]));
+  let i = 0; while (i < 240 && signed.has(hireCtPeriod(start, i).from)) i++;
+  return { start, signed, due: hireCtPeriod(start, i), last: i ? hireCtPeriod(start, i - 1) : null };
+}
+const hireCtEligible = r => r.kind === 'applicant' && (r.status === 'hired' || r.employee_id) && r.emp_active !== false;
+// 계약서에 들어갈 값 — 회차(i)를 안 주면 서명이 필요한 회차. 면접일이 없으면 from/to가 빈 값(만들지 않는다)
+function hireCtInfo(r, i) {
+  const st = hireCtState(r), p = st ? hireCtPeriod(st.start, i == null ? st.due.i : i) : null;
+  return { name: String(r.name || '').trim(), from: p ? p.from : '', to: p ? p.to : '', n: p ? p.n : 0, today: hireToday() };
+}
+const hireMD = s => `${Number(s.slice(5, 7))}/${Number(s.slice(8, 10))}`;
+function hireCtDayBadge(from, today) {
+  const d = Math.round((Date.parse(from + 'T12:00:00Z') - Date.parse(today + 'T12:00:00Z')) / 86400000);
+  const [t, c, bg] = d < 0 ? [`${-d}일 지남`, '#b91c1c', '#fee2e2'] : d === 0 ? ['오늘', '#b91c1c', '#fee2e2'] : d <= 7 ? [`D-${d}`, '#92400e', '#fef3c7'] : [`D-${d}`, '#374151', '#f3f4f6'];
+  return `<span class="hr-badge" style="color:${c};background:${bg};">${t}</span>`;
+}
+// 채용됨 표의 '계약서 서명' 칸 — 다음에 서명할 날짜(회차 시작일)와 [서명 완료] 체크, 직전 회차 되돌리기
+function hireCtSignCell(r, today) {
+  if (!hireCtEligible(r)) return r.kind === 'applicant' && r.emp_active === false ? '<span style="color:#6b7280;font-size:.75rem;">퇴사</span>' : '<span style="color:#6b7280;">-</span>';
+  const st = hireCtState(r);
+  if (!st) return '<span style="color:#b45309;font-size:.75rem;">면접일 없음</span>';
+  const d = st.due, lastRec = st.last ? st.signed.get(st.last.from) : null;
+  return `<div style="white-space:nowrap;"><b>${d.n}회차</b> 서명일 <b>${hireMD(d.from)}</b> ${hireCtDayBadge(d.from, today)}</div>
+    <div style="font-size:.7rem;color:#6b7280;">계약기간 ${hireMD(d.from)} ~ ${hireMD(d.to)}</div>
+    <label style="display:inline-flex;align-items:center;gap:4px;font-size:.74rem;font-weight:700;color:#166534;margin-top:3px;cursor:pointer;"><input type="checkbox" onchange="hireCtSign(${r.id}, '${d.from}', true, this)" aria-label="${escHtml(r.name)} ${d.n}회차 계약서 서명 완료" /> 서명 완료</label>
+    ${lastRec ? `<div style="font-size:.68rem;color:#6b7280;margin-top:2px;" title="${escHtml((lastRec.by || '') + ' · ' + kstDT(lastRec.at))}">${st.last.n}회차 서명함 ${hireMD(lastRec.at ? kstDT(lastRec.at).slice(0, 10) : st.last.from)} · <button type="button" class="hr-link" onclick="hireCtSign(${r.id}, '${st.last.from}', false, this)" style="background:none;border:0;padding:0;color:#4f46e5;font-size:.68rem;text-decoration:underline;cursor:pointer;">되돌리기</button></div>` : ''}`;
+}
+async function hireCtSign(id, from, signed, el) {
+  const r = hireState.rows.find(x => x.id === id); if (!r) return;
+  const st = hireCtState(r), i = st ? Math.round((Date.parse(from + 'T12:00:00Z') - Date.parse(st.start + 'T12:00:00Z')) / 86400000 / (HIRE_CT_DAYS + 1)) : 0;
+  if (!signed && !confirm(`${r.name}님 ${i + 1}회차 계약서 서명 완료를 취소할까요?`)) { return; }
+  if (el) el.disabled = true;
+  try {
+    const d = await hireApi({ action: 'ct_sign', id, from, signed });
+    r.contracts = d.contracts || [];
+    const nx = hireCtState(r);
+    showToast(signed ? `${r.name}님 ${i + 1}회차 서명 완료 — 다음 서명일 ${hireMD(nx.due.from)}` : `${r.name}님 ${i + 1}회차 서명 완료를 취소했어요`);
+    hireRender();
+  } catch (e) { showToast('저장 실패: ' + e.message); if (el) { el.disabled = false; if (el.type === 'checkbox') el.checked = !signed; } }
 }
 function hireCtBlock(b, v) {
   const fill = t => escHtml(t).replace('{NAME}', escHtml(v.name)).replace('{FROM}', hireCtYmd(v.from)).replace('{TO}', hireCtYmd(v.to));
@@ -9004,11 +9047,11 @@ function hireCtBlock(b, v) {
 }
 // 숨은 A4 틀에 그려 블록 높이를 재고 쪽을 나눈다(문단은 쪼개지 않음, 조 제목은 다음 줄과 같이, 맺음말~서명란은 한 덩어리).
 // 인쇄와 PDF가 같은 쪽 나눔을 쓰게 하려고 브라우저의 자동 쪽 나눔에 맡기지 않는다. 돌려주는 fr(틀)은 부른 쪽이 지운다.
-async function hireCtRender(r, seal) {
-  const v = { ...hireCtInfo(r), seal: /^data:image\/png;base64,[A-Za-z0-9+/=]+$/.test(seal || '') ? seal : '' }, B = HIRE_CT_BODY, blocks = B.map(b => hireCtBlock(b, v));
+async function hireCtRender(r, seal, i) {
+  const v = { ...hireCtInfo(r, i), seal: /^data:image\/png;base64,[A-Za-z0-9+/=]+$/.test(seal || '') ? seal : '' }, B = HIRE_CT_BODY, blocks = B.map(b => hireCtBlock(b, v));
   const di = B.findIndex(b => b[0] === 'd');
   const keep = B.map((b, i) => b[0] === 'h' || (b[0] === 'p' && /다음과 같다\.$/.test(b[1])) || (i >= di - 2 && i < B.length - 1));
-  const title = `프리랜서 업무위탁계약서 - ${v.name}`;
+  const title = `프리랜서 업무위탁계약서 - ${v.name}${v.n ? ` (${v.n}회차)` : ""}`;
   const wrap = body => `<!doctype html><html lang="ko"><head><meta charset="utf-8" /><title>${escHtml(title)}</title>${HIRE_CT_FONT}<style>${HIRE_CT_CSS}</style></head><body>${body}</body></html>`;
   const fr = document.createElement('iframe');
   fr.style.cssText = 'position:fixed;left:-10000px;top:0;width:794px;height:1123px;border:0;opacity:0;pointer-events:none;';
@@ -9036,12 +9079,22 @@ async function hireCtRender(r, seal) {
   return { fr, doc, v, title, pages: pages.length, html: wrap(body) };
 }
 function hireCtRow() { return hireState.rows.find(x => x.id === Number($('hire-ct-id').value)); }
+const hireCtSel = { i: null };   // 계약서 창에서 고른 회차 (null = 서명이 필요한 회차)
+function hireCtPeriodHtml(r) {
+  const st = hireCtState(r); if (!st) return '<span style="color:#b91c1c;">면접일이 비어 있어요</span>';
+  const max = Math.max(st.due.i, hireCtSel.i ?? 0), cur = hireCtSel.i ?? st.due.i, p = hireCtPeriod(st.start, cur);
+  const opts = []; for (let i = 0; i <= max; i++) { const q = hireCtPeriod(st.start, i); opts.push(`<option value="${i}"${i === cur ? ' selected' : ''}>${q.n}회차 · ${hireMD(q.from)} ~ ${hireMD(q.to)}${st.signed.has(q.from) ? ' (서명 완료)' : i === st.due.i ? ' (서명 필요)' : ''}</option>`); }
+  return `<select id="hire-ct-round" onchange="hireCtSel.i=Number(this.value);$('hire-ct-period').innerHTML=hireCtPeriodHtml(hireCtRow())" aria-label="계약 회차" style="border:1.5px solid #d1d5db;border-radius:7px;padding:3px 6px;font-size:.8rem;font-weight:600;">${opts.join('')}</select>
+    <div style="margin-top:4px;">${hireCtYmd(p.from)} ~ ${hireCtYmd(p.to)}</div><div style="font-size:.72rem;color:#6b7280;font-weight:500;">1회차 = 면접일부터 ${HIRE_CT_DAYS}일 뒤까지, 그다음은 앞 회차 끝 다음 날부터 ${HIRE_CT_DAYS}일 뒤까지 — 이 기간이 계약서 제1조에 들어가요</div>`;
+}
 function hireCtOpen(id) {
-  const r = hireState.rows.find(x => x.id === id), v = hireCtInfo(r);
+  const r = hireState.rows.find(x => x.id === id);
+  hireCtSel.i = null;
+  const v = hireCtInfo(r);
   $('hire-ct-id').value = id;
   const row = (k, t) => `<div style="display:flex;gap:10px;padding:5px 0;border-bottom:1px solid #f3f4f6;"><span style="flex:0 0 76px;color:#6b7280;font-size:.78rem;font-weight:600;">${k}</span><span style="font-size:.85rem;font-weight:600;">${t}</span></div>`;
   $('hire-ct-info').innerHTML = row('계약자', escHtml(v.name))
-    + row('계약기간', v.from ? `${hireCtYmd(v.from)} ~ ${hireCtYmd(v.to)} <span style="font-size:.72rem;color:#6b7280;font-weight:500;">(면접일부터 ${HIRE_CT_DAYS}일 뒤까지)</span>` : '<span style="color:#b91c1c;">면접일이 비어 있어요</span>')
+    + row('계약기간', `<div id="hire-ct-period">${hireCtPeriodHtml(r)}</div>`)
     + row('작성일', `${hireCtYmd(v.today)} <span style="font-size:.72rem;color:#6b7280;font-weight:500;">(저장·인쇄하는 오늘)</span>`)
     + row('회사 도장', '<span id="hire-ct-seal" style="font-size:.78rem;color:#6b7280;font-weight:500;">확인 중…</span>')
     + (v.from ? '<div style="font-size:.75rem;color:#6b7280;margin-top:10px;line-height:1.6;">양식의 나머지 글은 그대로 들어가요(수수료 = 시간당 10,500원). <b>주소 칸과 서명</b>은 인쇄한 뒤 직접 적어요.</div>'
@@ -9065,12 +9118,12 @@ async function hireCtSeal(r, kind) {
   catch (e) { showToast('도장 없이 만들어요 — ' + e.message); return ''; }
 }
 async function hireCtPrint() {
-  const r = hireCtRow(); if (!r || !hireCtInfo(r).from) return;
+  const r = hireCtRow(); if (!r || !hireCtInfo(r, hireCtSel.i).from) return;
   const w = window.open('', '_blank');   // 누른 순간에 열어야 팝업 차단에 안 걸린다 — 내용은 쪽을 나눈 뒤 넣음
   if (!w) { showToast('팝업이 차단됐어요 — 주소창의 팝업 허용을 켜주세요'); return; }
   let x = null;
   try {
-    x = await hireCtRender(r, await hireCtSeal(r, 'print'));
+    x = await hireCtRender(r, await hireCtSeal(r, 'print'), hireCtSel.i);
     w.document.open(); w.document.write(x.html); w.document.close(); w.focus();
     w.document.addEventListener('contextmenu', ev => { if (ev.target.closest && ev.target.closest('.ct-seal')) ev.preventDefault(); });   // 도장 그림 '이미지 저장' 메뉴 막기
     await hireCtFonts(w.document);
@@ -9079,12 +9132,12 @@ async function hireCtPrint() {
   finally { if (x) x.fr.remove(); }
 }
 async function hireCtPdf() {
-  const r = hireCtRow(); if (!r || !hireCtInfo(r).from) return;
+  const r = hireCtRow(); if (!r || !hireCtInfo(r, hireCtSel.i).from) return;
   showToast('PDF를 만드는 중…');
   let x = null;
   try {
     await loadPdfLibs();
-    x = await hireCtRender(r, await hireCtSeal(r, 'pdf'));
+    x = await hireCtRender(r, await hireCtSeal(r, 'pdf'), hireCtSel.i);
     await hireCtFonts(x.doc);
     await hireCtMainFont(x.doc.body.innerText);
     const { jsPDF } = window.jspdf, pdf = new jsPDF({ unit: 'mm', format: 'a4' });
@@ -9094,7 +9147,7 @@ async function hireCtPdf() {
       if (i) pdf.addPage();
       pdf.addImage(canvas.toDataURL('image/jpeg', 0.95), 'JPEG', 0, 0, 210, canvas.height * 210 / canvas.width);
     }
-    pdf.save(`프리랜서 업무위탁계약서_${x.v.name}_${x.v.today.replace(/-/g, '')}.pdf`);
+    pdf.save(`프리랜서 업무위탁계약서_${x.v.name}_${x.v.n}회차_${x.v.today.replace(/-/g, '')}.pdf`);
     showToast('PDF를 저장했어요');
   } catch (e) { showToast('PDF 저장 실패: ' + e.message); }
   finally { if (x) x.fr.remove(); }
