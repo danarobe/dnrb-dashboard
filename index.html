@@ -1871,13 +1871,14 @@
             <span style="background:#dcfce7;color:#166534;border-radius:99px;padding:5px 12px;font-weight:800;white-space:nowrap;"><i class="fa-solid fa-circle-check"></i> 돈은 아직 안 나가요 — 환불은 수거 뒤</span>
           </div>
           <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(215px,1fr));gap:8px;">
-            <div style="border:1px solid #e5e7eb;border-radius:10px;padding:8px 11px;background:#fff;"><div style="font-size:.72rem;font-weight:800;color:#4338ca;"><i class="fa-solid fa-truck"></i> 반품 배송비 차감</div><div style="font-size:.8rem;line-height:1.55;margin-top:3px;">배송비 낸 주문 <b>3,000</b><br>무료배송 주문 <b>6,000</b> <span style="color:#6b7280;font-size:.72rem;">(남는 금액 7만 원↑이면 3,000)</span></div></div>
-            <div style="border:1px solid #e5e7eb;border-radius:10px;padding:8px 11px;background:#fff;"><div style="font-size:.72rem;font-weight:800;color:#b91c1c;"><i class="fa-solid fa-ticket"></i> 쿠폰</div><div style="font-size:.8rem;line-height:1.55;margin-top:3px;">남는 금액이 <b>쿠폰 기준(보통 3만 원) 미만</b>이면 <b>취소</b><br><span style="color:#6b7280;font-size:.72rem;">전체 반품도 취소 · 그 밖엔 유지</span></div></div>
+            <div style="border:1px solid #e5e7eb;border-radius:10px;padding:8px 11px;background:#fff;"><div style="font-size:.72rem;font-weight:800;color:#4338ca;"><i class="fa-solid fa-truck"></i> 반품 배송비 차감</div><div style="font-size:.8rem;line-height:1.55;margin-top:3px;">배송비 낸 주문 <b>3,000</b><br>무료배송 주문 <b>6,000</b> <span style="color:#6b7280;font-size:.72rem;">(남는 금액 7만 원↑이면 3,000)</span><br><span style="color:#6b7280;font-size:.72rem;">무료배송 쿠폰 주문도 무료배송 주문과 같게</span></div></div>
+            <div style="border:1px solid #e5e7eb;border-radius:10px;padding:8px 11px;background:#fff;"><div style="font-size:.72rem;font-weight:800;color:#b91c1c;"><i class="fa-solid fa-ticket"></i> 쿠폰</div><div style="font-size:.8rem;line-height:1.55;margin-top:3px;">남는 금액이 <b>쿠폰 기준(보통 3만 원) 미만</b>이면 <b>취소</b><br><span style="color:#6b7280;font-size:.72rem;">전체 반품도 취소 · 그 밖엔 유지 · 할인율 쿠폰은 직접 확인</span></div></div>
+            <div style="border:1px solid #e5e7eb;border-radius:10px;padding:8px 11px;background:#fff;"><div style="font-size:.72rem;font-weight:800;color:#0e7490;"><i class="fa-solid fa-tag"></i> 할인코드</div><div style="font-size:.8rem;line-height:1.55;margin-top:3px;">반품 상품의 할인코드 할인은 <b>카페24가 자동 차감</b><br><span style="color:#6b7280;font-size:.72rem;">따로 넣을 것 없음 · 자동 처리</span></div></div>
             <div style="border:1px solid #e5e7eb;border-radius:10px;padding:8px 11px;background:#fff;"><div style="font-size:.72rem;font-weight:800;color:#92400e;"><i class="fa-solid fa-coins"></i> 쓴 적립금</div><div style="font-size:.8rem;line-height:1.55;margin-top:3px;">남는 금액 <b>3만 원 미만</b>이면 <b>반환</b><br><span style="color:#6b7280;font-size:.72rem;">전체 반품도 반환 · 그 밖엔 유지</span></div></div>
             <div style="border:1px solid #bbf7d0;border-radius:10px;padding:8px 11px;background:#f0fdf4;"><div style="font-size:.72rem;font-weight:800;color:#15803d;"><i class="fa-solid fa-shield-halved"></i> 안전장치</div><div style="font-size:.8rem;line-height:1.55;margin-top:3px;">카페24 계산과 <b>1원이라도 다르면 멈춤</b><br><span style="color:#6b7280;font-size:.72rem;">[검사만 하기]로 먼저 확인할 수 있어요</span></div></div>
           </div>
           <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:8px;font-size:.76rem;color:#6b7280;">
-            <span><b style="color:#b45309;">직접 확인 권장</b>(불량·오배송, 1+1·10% 이상 할인, 할인율 쿠폰 주문 등)은 지금처럼 카페24에서 처리해요.</span>
+            <span><b style="color:#b45309;">직접 확인 권장</b>(불량·오배송, 1+1·10% 이상 할인, 할인율 쿠폰(7%·10%·12%) 주문 등)은 지금처럼 카페24에서 처리해요.</span>
             <button class="toggle-btn" style="font-size:.72rem;padding:2px 10px;" onclick="cxlSetTab('rules')"><i class="fa-solid fa-book-open"></i> 기준 자세히 보기</button>
           </div>
         </div>
@@ -1929,7 +1930,7 @@
           .cxu-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(250px,1fr)); gap:10px; }
           .cxu-box { border:1px solid #e5e7eb; border-radius:12px; padding:11px 13px; background:#f9fafb; font-size:.8rem; line-height:1.65; }
         </style>
-        <div style="font-size:.8rem;color:#6b7280;margin-bottom:12px;line-height:1.7;">이 메뉴가 주문을 <b>어떤 기준으로 나누고, 환불 금액을 어떻게 계산하는지</b> 모아 둔 곳이에요. 여기 적힌 기준에 맞는 건만 자동으로 처리하고, 하나라도 벗어나면 <b style="color:#b45309;">직접 확인 권장</b>으로 빼요. <span style="color:#6b7280;">(2026-10-07 기준 — 기준이 바뀌면 이 화면도 함께 고쳐요)</span></div>
+        <div style="font-size:.8rem;color:#6b7280;margin-bottom:12px;line-height:1.7;">이 메뉴가 주문을 <b>어떤 기준으로 나누고, 환불 금액을 어떻게 계산하는지</b> 모아 둔 곳이에요. 여기 적힌 기준에 맞는 건만 자동으로 처리하고, 하나라도 벗어나면 <b style="color:#b45309;">직접 확인 권장</b>으로 빼요. <span style="color:#6b7280;">(2026-11-05 기준 — 무료배송 쿠폰·할인코드 규칙 추가. 기준이 바뀌면 이 화면도 함께 고쳐요)</span></div>
 
         <div class="cxu-card" style="background:#f5f3ff;border-color:#ddd6fe;">
           <div class="cxu-h"><i class="fa-solid fa-map" style="color:#7c3aed;"></i> 한눈에 보기 — 이 메뉴가 하는 세 가지 일</div>
@@ -1942,7 +1943,7 @@
 
         <div class="cxu-card">
           <div class="cxu-h"><i class="fa-solid fa-truck-ramp-box" style="color:#7c3aed;"></i> 자사몰 반품 — 환불 금액 계산 기준</div>
-          <div class="cxu-ex" style="margin-top:0;background:#eef2ff;border-color:#c7d2fe;border-style:solid;"><b>환불 예정액 = 반품 상품 금액 − 상품별 할인 − 반품 배송비 − 쿠폰할인 취소</b><br>그 가운데 <b>적립금 반환</b>이 있으면 그만큼은 적립금으로 돌려주고, 나머지를 카드·계좌·선불금으로 환불해요.<br><span style="color:#6b7280;">'남는 금액' = 반품하지 않고 남는 상품의 판매가 합계</span></div>
+          <div class="cxu-ex" style="margin-top:0;background:#eef2ff;border-color:#c7d2fe;border-style:solid;"><b>환불 예정액 = 반품 상품 금액 − 상품별 할인 − 할인코드 할인 − 반품 배송비 − 쿠폰할인 취소</b><br><span style="color:#6b7280;">할인코드 할인은 카페24가 환불에서 알아서 빼요(아래 5번).</span><br>그 가운데 <b>적립금 반환</b>이 있으면 그만큼은 적립금으로 돌려주고, 나머지를 카드·계좌·선불금으로 환불해요.<br><span style="color:#6b7280;">'남는 금액' = 반품하지 않고 남는 상품의 판매가 합계</span></div>
 
           <div class="cxu-h" style="margin-top:16px;"><span class="cxu-n">1</span> 반품 배송비 <span class="cxu-sub">— 환불액에서 빼요</span></div>
           <table class="cxu-tbl"><thead><tr><th>주문</th><th>반품 범위</th><th>차감</th><th>이유</th></tr></thead><tbody>
@@ -1950,7 +1951,10 @@
             <tr><td rowspan="3"><b>무료배송</b> 주문<br><span class="cxu-sub">(7만 원 이상 구매)</span></td><td>전체 반품</td><td class="cxu-amt" style="color:#b91c1c;">6,000원</td><td>무료배송 조건이 깨져서 왕복 배송비</td></tr>
             <tr><td>부분 반품 · 남는 금액 <b>7만 원 미만</b></td><td class="cxu-amt" style="color:#b91c1c;">6,000원</td><td>남은 주문이 무료배송 조건에 못 미쳐서 왕복 배송비</td></tr>
             <tr><td>부분 반품 · 남는 금액 <b>7만 원 이상</b></td><td class="cxu-amt" style="color:#4338ca;">3,000원</td><td>무료배송 조건이 유지돼서 반품 배송비만</td></tr>
+            <tr style="background:#f0f9ff;"><td rowspan="2"><b>무료배송 쿠폰</b>을 쓴 주문 <span class="cxu-chip" style="background:#dbeafe;color:#1e40af;">2026-11-05 추가</span><br><span class="cxu-sub">(무료배송 쿠폰 · 카카오톡 채널 추가 무료배송 쿠폰 등)</span></td><td>전체 반품 · 부분 반품 남는 금액 <b>7만 원 미만</b></td><td class="cxu-amt" style="color:#b91c1c;">6,000원</td><td><b>무료배송 주문과 같게</b> — 반품 배송비 3,000원 + 무료배송 쿠폰 3,000원 취소로 나눠 넣어요</td></tr>
+            <tr style="background:#f0f9ff;"><td>부분 반품 · 남는 금액 <b>7만 원 이상</b></td><td class="cxu-amt" style="color:#4338ca;">3,000원</td><td>반품 배송비 3,000원만 · 무료배송 쿠폰은 유지</td></tr>
           </tbody></table>
+          <div class="cxu-sub" style="margin-top:6px;">무료배송 쿠폰은 카페24 주문 금액에 '배송비 3,000원 + 배송비 쿠폰 3,000원'으로 찍혀서, 고객이 낸 배송비는 0원인 무료배송 주문으로 봐요. 직원들이 해 온 처리와 같은 방식이에요(지난 무료배송 쿠폰 반품 30건 환불액과 원 단위까지 같음).</div>
 
           <div class="cxu-h" style="margin-top:16px;"><span class="cxu-n">2</span> 쿠폰할인 <span class="cxu-sub">— 남는 금액이 쿠폰을 쓸 수 있는 금액에 못 미치면 할인을 취소해요</span></div>
           <table class="cxu-tbl"><thead><tr><th>경우</th><th>처리</th><th>환불액</th></tr></thead><tbody>
@@ -1966,9 +1970,13 @@
             <tr><td>생일쿠폰(2026-10-31 새로 만듦 · 조건 없음)</td><td>10,000원 · 20,000원</td><td class="cxu-amt">3만 원</td></tr>
             <tr><td>10만원 이상 · 20만원 이상 구매 할인 쿠폰</td><td>2,000원 · 3,000원</td><td class="cxu-amt">10만 원 · 20만 원</td></tr>
           </tbody></table>
-          <div class="cxu-sub" style="margin-top:6px;"><b>무료배송 쿠폰</b>(무료배송 쿠폰 · 카카오톡 채널 추가 무료배송 쿠폰 등, 2026-11-05 사용자 지정): <b>무료배송 주문과 같게</b> — 전체 반품이거나 남는 금액 7만 원 미만이면 <b>반품 배송비 3,000원 + 무료배송 쿠폰 3,000원 취소 = 6,000원</b>, 7만 원 이상이면 <b>반품 배송비 3,000원</b>(쿠폰 유지). 직원들이 해 온 처리와 같은 방식이에요(지난 무료배송 쿠폰 반품 30건 환불액과 원 단위까지 같음).</div>
-          <div class="cxu-sub" style="margin-top:6px;"><b>할인코드</b>(라이브 할인 등 — danalive 7%·live1019 5%, 2026-11-05 규칙 추가): 반품 상품에 들어간 할인코드 할인은 <b>카페24가 환불에서 알아서 빼요</b>(처리 창에 고를 칸이 없고 '상품별추가할인 취소'에도 넣지 않아요). 그래서 예상 환불액 = 상품 금액 − 상품별 할인 − <b>할인코드 할인</b> − 반품 배송비 − 쿠폰 취소 − 적립금 반환. 지난 할인코드 주문 반품 12건 환불액과 원 단위까지 같아요. 취소 접수(주문 전체 취소 = 처음 결제액 그대로)·환불전 단계도 할인코드만으로는 직접 확인으로 빼지 않아요.</div>
-          <div class="cxu-sub" style="margin-top:6px;color:#b45309;"><b>직접 확인으로 빠지는 쿠폰</b>: 7%·10%·12% 같은 할인율 쿠폰(사용자 지정) · 조건을 읽지 못한 쿠폰 · 쿠폰을 2장 이상 쓴 주문(무료배송 쿠폰 + 할인 쿠폰 포함)</div>
+          <div style="font-size:.84rem;font-weight:800;color:#374151;margin-top:12px;">쿠폰 종류별 처리 <span class="cxu-chip" style="background:#dbeafe;color:#1e40af;">2026-11-05 새 쿠폰 반영</span></div>
+          <table class="cxu-tbl"><thead><tr><th>쿠폰 종류</th><th>처리</th><th>기준</th></tr></thead><tbody>
+            <tr><td><b>정액 할인 쿠폰</b><br><span class="cxu-sub">생일쿠폰 10,000·20,000원, 앱 설치·깜짝 할인 쿠폰 등</span></td><td><span class="cxu-chip" style="background:#e0e7ff;color:#3730a3;">자동</span></td><td>위 표 — 남는 금액이 기준 금액(조건 없으면 3만 원) 미만이면 쿠폰 취소</td></tr>
+            <tr><td><b>무료배송 쿠폰</b><br><span class="cxu-sub">무료배송 쿠폰 · 카카오톡 채널 추가 무료배송 쿠폰 등</span></td><td><span class="cxu-chip" style="background:#e0e7ff;color:#3730a3;">자동</span></td><td>무료배송 주문과 같게 — 1번 '반품 배송비' 표의 무료배송 쿠폰 줄</td></tr>
+            <tr><td><b>할인율 쿠폰</b><br><span class="cxu-sub">7%·10%·12% 할인쿠폰(최소 5만·7만·10만 원)</span></td><td><span class="cxu-chip" style="background:#fde68a;color:#92400e;">직접 확인</span></td><td>사용자 지정 — 카페24에서 직접 처리</td></tr>
+            <tr><td>무료배송 쿠폰 + 할인 쿠폰을 <b>같이</b> 쓴 주문 · 쿠폰을 <b>2장 이상</b> 쓴 주문 · 조건을 읽지 못한 쿠폰</td><td><span class="cxu-chip" style="background:#fde68a;color:#92400e;">직접 확인</span></td><td>—</td></tr>
+          </tbody></table>
 
           <div class="cxu-h" style="margin-top:16px;"><span class="cxu-n">3</span> 쓴 적립금 <span class="cxu-sub">— 적립금은 3만 원 이상 주문에만 쓸 수 있어요</span></div>
           <table class="cxu-tbl"><thead><tr><th>경우</th><th>처리</th><th>환불액</th></tr></thead><tbody>
@@ -1983,18 +1991,29 @@
             <tr><td>반품 상품이 <b>10% 미만</b> 할인 <span class="cxu-sub">(신상 7% 등)</span></td><td><span class="cxu-chip" style="background:#ffedd5;color:#9a3412;">할인액만큼 차감</span> 전체 반품은 '전체취소', 부분 반품은 '품목별 취소'</td></tr>
             <tr><td>반품 상품이 <b>10% 이상</b> 할인 · <b>1+1</b> 상품</td><td><span class="cxu-chip" style="background:#fde68a;color:#92400e;">직접 확인</span> 반품하는 상품만 봐요(남는 상품은 안 봄)</td></tr>
           </tbody></table>
+          <div class="cxu-sub" style="margin-top:6px;">'10% 이상 할인'은 상품별 추가할인만 보고 따져요. 할인코드 할인은 여기에 넣지 않아요(아래 5번).</div>
+
+          <div class="cxu-h" style="margin-top:16px;"><span class="cxu-n">5</span> 할인코드 <span class="cxu-sub">— 라이브 할인 등(danalive 7% · live1019 5% · danarobevip 30%)</span> <span class="cxu-chip" style="background:#dbeafe;color:#1e40af;">2026-11-05 추가</span></div>
+          <table class="cxu-tbl"><thead><tr><th>단계</th><th>처리</th></tr></thead><tbody>
+            <tr><td><b>반품접수</b></td><td><span class="cxu-chip" style="background:#e0e7ff;color:#3730a3;">자동</span> 반품 상품에 들어간 할인코드 할인은 <b>카페24가 환불에서 알아서 빼요</b>(처리 창에 고를 칸이 없고 '상품별추가할인 취소'에도 넣지 않아요). 화면에는 '할인코드 N원 자동 차감'으로 보여요.</td></tr>
+            <tr><td><b>취소접수</b>(주문 전체 취소)</td><td><span class="cxu-chip" style="background:#e0e7ff;color:#3730a3;">자동</span> 처음 결제한 금액 그대로 환불해요(할인코드로 깎인 값이 이미 빠져 있음).</td></tr>
+            <tr><td><b>환불전 → 환불완료</b></td><td><span class="cxu-chip" style="background:#e0e7ff;color:#3730a3;">자동</span> 규칙 점검이 할인코드 할인까지 넣어 다시 계산해요.</td></tr>
+          </tbody></table>
+          <div class="cxu-sub" style="margin-top:6px;">할인코드만으로는 '직접 확인'으로 빼지 않아요. 지난 할인코드 주문 반품 12건 가운데 10건이 환불액·처리 창 값까지 원 단위로 같았고, 나머지 2건은 한 주문에 반품이 여러 건이라 원래 직접 확인인 주문이었어요.</div>
 
           <div class="cxu-h" style="margin-top:16px;"><i class="fa-solid fa-calculator" style="color:#818cf8;"></i> 계산 예</div>
           <div class="cxu-ex"><b>예 1 · 배송비 낸 주문의 부분 반품 + 조건 없는 쿠폰</b><br>16,000원 + 19,000원 주문(배송비 3,000원 결제, 1,000원 쿠폰) 중 16,000원 상품 반품 → 남는 금액 19,000원<br>배송비 3,000원 차감 · 남는 금액이 3만 원 미만이라 <b>쿠폰 취소</b> → 16,000 − 3,000 − 1,000 = <b style="color:#4338ca;">12,000원</b></div>
           <div class="cxu-ex"><b>예 2 · 무료배송 주문의 부분 반품 + 쿠폰 유지</b><br>46,000원 × 2개 주문(무료배송, 5,000원 쿠폰·기준 3만 원) 중 1개 반품 → 남는 금액 46,000원<br>남는 금액 7만 원 미만이라 6,000원 차감 · 3만 원 이상이라 <b>쿠폰 유지</b> → 46,000 − 6,000 = <b style="color:#4338ca;">40,000원</b></div>
           <div class="cxu-ex"><b>예 3 · 전체 반품 + 적립금</b><br>54,000원 주문(배송비 3,000원 결제, 적립금 2,000원 사용) 전체 반품<br>배송비 3,000원 차감 → 51,000원 가운데 <b>적립금 2,000원 반환</b> + 카드 환불 <b style="color:#4338ca;">49,000원</b></div>
+          <div class="cxu-ex"><b>예 4 · 무료배송 쿠폰 주문의 전체 반품</b><br>45,000원 주문(카카오톡 채널 무료배송 쿠폰 사용 — 낸 배송비 0원) 전체 반품<br>반품 배송비 3,000원 + 무료배송 쿠폰 3,000원 취소 → 45,000 − 3,000 − 3,000 = <b style="color:#4338ca;">39,000원</b> <span class="cxu-sub">(무료배송 주문 전체 반품과 같아요)</span></div>
+          <div class="cxu-ex"><b>예 5 · 할인코드 주문의 반품</b><br>50,000원 상품을 할인코드 7%(3,500원 할인)로 산 주문(배송비 3,000원 결제) 전체 반품<br>할인코드 3,500원은 카페24가 알아서 빼고, 배송비 3,000원 차감 → 50,000 − 3,500 − 3,000 = <b style="color:#4338ca;">43,500원</b></div>
 
           <div class="cxu-h" style="margin-top:16px;"><i class="fa-solid fa-triangle-exclamation" style="color:#d97706;"></i> 자동으로 넘기지 않는 반품 <span class="cxu-sub">— '직접 확인 권장'에 예상 환불액(참고)과 함께 나와요</span></div>
           <div class="cxu-grid">
             <div class="cxu-box"><span class="cxu-chip" style="background:#fde68a;color:#92400e;">불량·오배송</span><span class="cxu-chip" style="background:#fde68a;color:#92400e;">그 밖의 사유</span><span class="cxu-chip" style="background:#fde68a;color:#92400e;">사유 글 확인</span><br>물건을 본 뒤 정해야 해요. 불량·오배송으로 인정하면 <b>배송비 차감 없음</b>, 배송비를 낸 주문의 전체 반품이면 <b>낸 배송비 3,000원도 환불</b>해요. 사유는 변심인데 글에 '불량·오배송'이 적혀 있어도 여기로 와요.</div>
-            <div class="cxu-box"><span class="cxu-chip" style="background:#fde68a;color:#92400e;">1+1 상품</span><span class="cxu-chip" style="background:#fde68a;color:#92400e;">10% 이상 할인</span><span class="cxu-chip" style="background:#fde68a;color:#92400e;">반품 불가 품목</span><br>반품 상품이 1+1·세일 상품이거나, 수영복·주얼리·양말·모자처럼 반품이 안 되는 품목일 때. (할인코드로 산 상품은 2026-11-05부터 자동 — 아래 '할인코드')</div>
+            <div class="cxu-box"><span class="cxu-chip" style="background:#fde68a;color:#92400e;">1+1 상품</span><span class="cxu-chip" style="background:#fde68a;color:#92400e;">10% 이상 할인</span><span class="cxu-chip" style="background:#fde68a;color:#92400e;">반품 불가 품목</span><br>반품 상품이 1+1·세일 상품이거나, 수영복·주얼리·양말·모자처럼 반품이 안 되는 품목일 때. (할인코드로 산 상품은 2026-11-05부터 자동 — 위 5번)</div>
             <div class="cxu-box"><span class="cxu-chip" style="background:#fde68a;color:#92400e;">다른 취소·교환·반품</span><span class="cxu-chip" style="background:#fde68a;color:#92400e;">수거 신청 아님</span><br>같은 주문에 다른 취소·교환·반품이 섞여 있어 남는 금액을 따져야 하거나, 고객이 직접 보낸 반품(수거 신청이 아님)일 때.</div>
-            <div class="cxu-box"><span class="cxu-chip" style="background:#fde68a;color:#92400e;">쿠폰 확인</span><span class="cxu-chip" style="background:#fde68a;color:#92400e;">무통장입금 결제</span><span class="cxu-chip" style="background:#fde68a;color:#92400e;">예치금</span><span class="cxu-chip" style="background:#fde68a;color:#92400e;">그 밖의 할인</span><span class="cxu-chip" style="background:#fde68a;color:#92400e;">경계 금액</span><br>할인율·무료배송 쿠폰, 카드·계좌이체·선불금이 아닌 결제, 회원등급·세트 할인, 남는 금액이 할인 전후로 기준선(7만·3만 원)에 걸리는 주문.</div>
+            <div class="cxu-box"><span class="cxu-chip" style="background:#fde68a;color:#92400e;">쿠폰 확인</span><span class="cxu-chip" style="background:#fde68a;color:#92400e;">무통장입금 결제</span><span class="cxu-chip" style="background:#fde68a;color:#92400e;">예치금</span><span class="cxu-chip" style="background:#fde68a;color:#92400e;">그 밖의 할인</span><span class="cxu-chip" style="background:#fde68a;color:#92400e;">경계 금액</span><br>할인율 쿠폰(7%·10%·12%)·무료배송 쿠폰과 할인 쿠폰을 같이 쓴 주문, 카드·계좌이체·선불금이 아닌 결제, 회원등급·세트 할인, 남는 금액이 할인 전후로 기준선(7만·3만 원)에 걸리는 주문.</div>
           </div>
         </div>
 
@@ -2004,7 +2023,7 @@
             <tr><td><b>주문 전체 취소</b><br><span class="cxu-sub">카드·계좌이체·선불금 결제 · 아직 보내지 않은 주문</span></td><td><span class="cxu-chip" style="background:#e0e7ff;color:#3730a3;">자동</span> 기본은 '환불전으로 넘기기', '최종 환불까지 한 번에 진행'을 체크하면 환불까지<span class="cxu-sub"> (최종 환불은 관리자만 — 허용받은 직원은 넘기기까지)</span></td><td><b>결제한 금액 그대로</b>(배송비 포함) · 쓴 적립금은 전액 반환</td></tr>
             <tr><td>부분 취소 · 사유가 <b>품절</b> · 상품별 할인·1+1 상품이 든 주문 · 무통장·예치금 결제 · 접수가 여러 건</td><td><span class="cxu-chip" style="background:#fde68a;color:#92400e;">직접 확인</span> 카페24에서 처리</td><td>—</td></tr>
           </tbody></table>
-          <div class="cxu-sub" style="margin-top:8px;">넘긴 뒤 카페24가 계산한 환불액이 화면의 환불 예정액과 1원이라도 다르면 환불을 보내지 않고 멈춰요.</div>
+          <div class="cxu-sub" style="margin-top:8px;">넘긴 뒤 카페24가 계산한 환불액이 화면의 환불 예정액과 1원이라도 다르면 환불을 보내지 않고 멈춰요. <b>할인코드로 산 주문</b>도 주문 전체 취소면 자동이에요(2026-11-05 — 처음 결제액 그대로).</div>
           <div class="cxu-ex"><b>부분 취소를 직접 처리할 때의 기준</b> <span class="cxu-sub">(아직 자동 처리하지 않아요 — 카페24에서 직접)</span><br>
             · <b>변심</b>: 남는 금액이 7만 원 미만이면 배송비 3,000원 차감, 그 밖은 차감 없음<br>
             · <b>배송지연·품절</b>(우리 쪽 사유): 차감 없음<br>
