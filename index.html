@@ -10363,7 +10363,7 @@ function anSortRows(rows) {
 /* ── 코디 구매 비율(2026-11-06 사용자 요청 — "에이전트처럼 코디 구매가 많은 상품 옆에 간단한 표기") ──
    AI 에이전트 상품 전략 담당과 같은 서버 액션 codi: 부모 = 이 기간 판매수량 상위 40개, 그 상품 페이지의 '코디 상품'(카페24 추가구성상품)으로 걸린 상품마다
    이 기간 주문 중 부모와 같은 주문에 담긴 비율(share). 20% 이상만 칩(40% 이상 빨강 — 에이전트 기준과 같음). 주문을 세어 보는 상품은 주문 많은 순 최대 60개. */
-const AN_CODI_MIN = 20, AN_CODI_HI = 40, AN_CODI_MIN_ORDERS = 3;   // 주문 3건 미만은 비율이 우연이라 표시 안 함(1건 중 1건 = 100%)
+const AN_CODI_MIN = 20, AN_CODI_HI = 50, AN_CODI_MIN_ORDERS = 3;   // 2026-11-06 사용자 지정: 20~50% 노랑 · 50% 이상 빨강 ·   // 주문 3건 미만은 비율이 우연이라 표시 안 함(1건 중 1건 = 100%)
 async function anCodiLoad(ds, de) {
   const key = ds + '|' + de;
   if (anState.codi && anState.codi.key === key && (anState.codi.data || anState.codi.loading)) return;
@@ -10392,10 +10392,8 @@ function anCodiChip(r) {
   const nameOf = no => { const x = anState.rows.find(y => y.product_no === Number(no)); return x ? x.product_name : `상품 ${no}`; };
   const ps = Object.entries(c.by_parent || {}).sort((a, b) => b[1] - a[1]);
   const top = ps.length ? nameOf(ps[0][0]) : (c.parents || []).length ? nameOf(c.parents[0]) : '';
-  const tip = `잘 팔리는 상품 페이지의 '코디 상품'이에요 — 이 기간 주문 ${fmt(c.orders)}건 중 ${fmt(c.with_parent)}건(${c.share}%)이 부모 상품과 같은 주문` +
-    (ps.length ? '\n' + ps.slice(0, 4).map(([no, n]) => `· ${nameOf(no)} ${fmt(n)}건`).join('\n') : '') +
-    (c.share >= AN_CODI_HI ? '\n주문율이 부모 상품 덕일 수 있어요(부모가 덜 팔리면 같이 줄어요)' : '') +
-    (c.partial ? '\n(주문이 많아 앞 300건만 셌어요)' : '');
+  const tip = `주문 ${fmt(c.orders)}건 중 ${fmt(c.with_parent)}건이 같이 주문됨` +
+    (ps.length ? '\n' + ps.slice(0, 3).map(([no, n]) => `· ${nameOf(no)} ${fmt(n)}건`).join('\n') : '');
   const [bg, fg, bd] = c.share >= AN_CODI_HI ? ['#fee2e2', '#b91c1c', '#fecaca'] : ['#fef3c7', '#92400e', '#fde68a'];
   return ` <span title="${escHtml(tip)}" style="display:inline-block;background:${bg};color:${fg};border:1px solid ${bd};border-radius:6px;padding:0 6px;font-size:.68rem;font-weight:800;white-space:nowrap;cursor:help;vertical-align:1px;"><i class="fa-solid fa-link"></i> 코디 ${c.share}%</span>` +
     (top ? `<div style="font-size:.66rem;color:#6b7280;margin-top:1px;">↳ ${escHtml(String(top).slice(0, 24))}${ps.length > 1 ? ` 외 ${ps.length - 1}` : ''}</div>` : '');
@@ -10407,7 +10405,7 @@ function anCodiNote() {
   if (c.error) return `<div style="font-size:.74rem;color:#b45309;margin-bottom:6px;"><i class="fa-solid fa-triangle-exclamation"></i> 코디 구매 비율을 못 읽었어요 — ${escHtml(c.error)} (다시 조회하면 다시 시도해요)</div>`;
   const all = Object.values((c.data && c.data.children) || {}).filter(x => x.share != null);
   const n = all.filter(x => x.share >= AN_CODI_MIN && x.orders >= AN_CODI_MIN_ORDERS).length;
-  return `<div style="font-size:.74rem;color:#6b7280;margin-bottom:6px;line-height:1.6;"><span style="display:inline-block;background:#fef3c7;color:#92400e;border:1px solid #fde68a;border-radius:6px;padding:0 6px;font-weight:800;"><i class="fa-solid fa-link"></i> 코디 N%</span> = 이 기간 판매 상위 40개 상품의 페이지에 '코디 상품'으로 걸린 상품 중, 주문의 N%가 그 상품과 같은 주문이었다는 뜻 — 주문율이 부모 상품 덕일 수 있어요. 20% 이상만 표시(주문 3건 이상), <b style="color:#b91c1c;">40% 이상 빨강</b>. 지금 ${fmt(n)}개${(c.data && c.data.skipped) ? ` · 주문 적은 코디 상품 ${fmt(c.data.skipped)}개는 세지 않음` : ''}</div>`;
+  return `<div style="font-size:.74rem;color:#6b7280;margin-bottom:6px;line-height:1.6;"><span style="display:inline-block;background:#fef3c7;color:#92400e;border:1px solid #fde68a;border-radius:6px;padding:0 6px;font-weight:800;"><i class="fa-solid fa-link"></i> 코디 N%</span> 주문 3건 이상 · <b style="color:#92400e;">20~50% 노랑</b> · <b style="color:#b91c1c;">50% 이상 빨강</b></div>`;
 }
 
 function anRateBadge(rate) {
