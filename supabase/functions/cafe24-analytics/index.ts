@@ -3506,10 +3506,12 @@ Deno.serve(async (req) => {
     //   parents = 잘 팔리는 상품들(≤60). 각 상품 페이지의 '코디 상품'(카페24 추가구성상품: GET products/{no}/additionalproducts — 관련상품(relational_product)은 우리 몰이 안 씀)을 읽어
     //   children(점검할 상품) 중 어느 부모의 코디 상품인지 뒤집어 잇고, 그런 상품은 최근 기간 주문(GET orders?product_no=)에서 **부모 상품과 같은 주문에 담긴 비율(share)**을 센다.
     //   추가구성 설정은 하루 캐시(addp:{no}) — 하루 호출 ≈ 부모 수. 주문 조회는 자식당 1~3쪽(100건씩).
+    //   2026-11-06: 상품 분석 화면(관리자·MD)도 씀 — children는 주문 있는 상품 전부(≤600, 잇기만 하므로 호출 수와 무관), max = 주문을 세어 볼 자식 수(기본 30, 최대 60).
     if (action === "codi") {
-      if (authed.role !== "admin") return json({ error: "접근 권한이 없습니다" }, 403);
+      if (authed.role !== "admin" && authed.role !== "staff") return json({ error: "접근 권한이 없습니다" }, 403);
       const parse = (k: string, cap: number) => [...new Set((url.searchParams.get(k) ?? "").split(",").map((x) => Number(x)).filter((n) => n > 0))].slice(0, cap);
-      const parents = parse("parents", 60), children = parse("children", 60);
+      const parents = parse("parents", 60), children = parse("children", 600);
+      const maxT = Math.min(60, Math.max(1, Number(url.searchParams.get("max") ?? 30) || 30));
       const sd = url.searchParams.get("start_date") ?? "", ed = url.searchParams.get("end_date") ?? "";
       if (!parents.length || !children.length || !/^\d{4}-\d{2}-\d{2}$/.test(sd) || !/^\d{4}-\d{2}-\d{2}$/.test(ed)) return json({ error: "parents·children·start_date·end_date 필수" }, 400);
       const addp: Record<string, number[]> = {};
@@ -3534,7 +3536,7 @@ Deno.serve(async (req) => {
       for (const [pno, list] of Object.entries(addp)) for (const c of list) if (childSet.has(c) && c !== Number(pno)) (parentsOf.get(c) ?? parentsOf.set(c, []).get(c)!).push(Number(pno));
       // 부모가 있는 자식만 주문 조회(최대 30개, children 순서대로) — 부모와 같은 주문에 담긴 비율
       const out: Record<string, { parents: number[]; orders: number; with_parent: number; share: number | null; by_parent: Record<string, number>; partial: boolean }> = {};
-      const targets = children.filter((c) => parentsOf.has(c)).slice(0, 30);
+      const targets = children.filter((c) => parentsOf.has(c)).slice(0, maxT);
       let ci = 0;
       const cWorker = async () => {
         while (ci < targets.length) {

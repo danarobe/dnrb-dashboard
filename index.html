@@ -1240,8 +1240,22 @@
         <input type="number" id="anMinQty" placeholder="0" min="0" oninput="renderSoon('renderAnalytics')"
                style="border:1.5px solid #d1d5db;border-radius:8px;padding:6px 10px;font-size:.82rem;outline:none;width:80px;" />
         <span style="font-size:.82rem;color:#6b7280;">개 이상</span>
-        <label style="font-size:.82rem;color:#6b7280;font-weight:600;">정렬</label>
+        <label for="anMinViews" style="font-size:.82rem;color:#6b7280;font-weight:600;">조회수</label>
+        <input type="number" id="anMinViews" placeholder="0" min="0" oninput="renderSoon('renderAnalytics')" aria-label="조회수 최소"
+               style="border:1.5px solid #d1d5db;border-radius:8px;padding:6px 10px;font-size:.82rem;outline:none;width:90px;" />
+        <span style="font-size:.82rem;color:#6b7280;">회 이상</span>
+        <label for="anSort" style="font-size:.82rem;color:#6b7280;font-weight:600;">1차 정렬</label>
         <select id="anSort" onchange="renderAnalytics()" style="border:1.5px solid #d1d5db;border-radius:8px;padding:6px 10px;font-size:.82rem;">
+          <option value="views">조회수순</option>
+          <option value="order_count">주문수순</option>
+          <option value="rate">주문율순</option>
+          <option value="margin">마진율순</option>
+          <option value="order_amount">매출액순</option>
+          <option value="order_qty">판매수량순</option>
+        </select>
+        <label for="anSort2" style="font-size:.82rem;color:#6b7280;font-weight:600;">2차 정렬</label>
+        <select id="anSort2" onchange="renderAnalytics()" title="1차 정렬 값이 같은 상품끼리 이 순서로 다시 정렬해요" style="border:1.5px solid #d1d5db;border-radius:8px;padding:6px 10px;font-size:.82rem;">
+          <option value="">없음</option>
           <option value="views">조회수순</option>
           <option value="order_count">주문수순</option>
           <option value="rate">주문율순</option>
@@ -10274,6 +10288,7 @@ async function fetchAnalytics(auto = false) {
     // 마진율(2026-10-18 사용자 요청 — 종합 판매 데이터와 같은 계산): (판매가 − 공급가×1.1) ÷ 판매가. 중국 사입 상품은 서버가 공급가 자리에 실질 단가를 넣어 줌(관리자·MD)
     anState.rows = (data.rows || []).map(r => ({ ...r, margin: r.price > 0 && r.supply_price > 0 ? (r.price - mgCost(r.supply_price, r.cost_vat)) / r.price * 100 : NaN }));
     anState.costError = data.cost_error || null;
+    anCodiLoad(ds, de);   // 코디 구매 비율(백그라운드 — 표는 먼저 그림)
     if (!auto) showToast(`${data.product_count}개 상품 · 조회 ${fmt(data.totals.views)} / 주문 ${fmt(data.totals.order_count)}건`);
     // 카테고리가 선택돼 있으면 필터 Set 재적용, 아니면 바로 렌더
     if ($('anCategory').value) await applyAnCategory();
@@ -10320,7 +10335,79 @@ function anFilteredRows() {
   // 판매수량 N개 이상
   const minQty = parseInt($('anMinQty').value, 10);
   if (minQty > 0) rows = rows.filter(r => r.order_qty >= minQty);
+  // 조회수 N회 이상(2026-11-06)
+  const minViews = parseInt($('anMinViews').value, 10);
+  if (minViews > 0) rows = rows.filter(r => r.views >= minViews);
   return rows;
+}
+
+/* 정렬(2026-11-06 사용자 요청 — 1차 정렬 뒤 2차 정렬): 모두 큰 값부터. 1차 값은 화면에 보이는 자리수로 비교(주문율 소수 둘째, 마진율 소수 첫째 자리) —
+   보이는 값이 같은 상품끼리 2차 정렬 순서로. 마진율이 없는 상품은 맨 뒤. */
+const AN_SORT_LABEL = { views: '조회수', order_count: '주문수', rate: '주문율', margin: '마진율', order_amount: '매출액', order_qty: '판매수량' };
+function anSortVal(r, k) {
+  const v = r[k];
+  if (!Number.isFinite(v)) return -Infinity;
+  if (k === 'rate') return Math.round(v * 100) / 100;
+  if (k === 'margin') return Math.round(v * 10) / 10;
+  return v;
+}
+function anSortRows(rows) {
+  const k1 = $('anSort').value, k2 = $('anSort2') ? $('anSort2').value : '';
+  return [...rows].sort((a, b) => {
+    const d1 = anSortVal(b, k1) - anSortVal(a, k1);
+    if (d1 || !k2 || k2 === k1) return d1 || 0;
+    return (anSortVal(b, k2) - anSortVal(a, k2)) || 0;
+  });
+}
+
+/* ── 코디 구매 비율(2026-11-06 사용자 요청 — "에이전트처럼 코디 구매가 많은 상품 옆에 간단한 표기") ──
+   AI 에이전트 상품 전략 담당과 같은 서버 액션 codi: 부모 = 이 기간 판매수량 상위 40개, 그 상품 페이지의 '코디 상품'(카페24 추가구성상품)으로 걸린 상품마다
+   이 기간 주문 중 부모와 같은 주문에 담긴 비율(share). 20% 이상만 칩(40% 이상 빨강 — 에이전트 기준과 같음). 주문을 세어 보는 상품은 주문 많은 순 최대 60개. */
+const AN_CODI_MIN = 20, AN_CODI_HI = 40, AN_CODI_MIN_ORDERS = 3;   // 주문 3건 미만은 비율이 우연이라 표시 안 함(1건 중 1건 = 100%)
+async function anCodiLoad(ds, de) {
+  const key = ds + '|' + de;
+  if (anState.codi && anState.codi.key === key && (anState.codi.data || anState.codi.loading)) return;
+  const sold = anState.rows.filter(r => r.order_count > 0 && r.product_no > 0);
+  const parents = [...sold].sort((a, b) => b.order_qty - a.order_qty).slice(0, 40).map(r => r.product_no);
+  const children = [...sold].sort((a, b) => b.order_count - a.order_count).map(r => r.product_no).slice(0, 600);
+  anState.codi = { key, loading: true, data: null, error: null };
+  if (!parents.length) { anState.codi = { key, loading: false, data: { children: {} }, error: null }; return; }
+  try {
+    const d = await anGet({ action: 'codi', parents: parents.join(','), children: children.join(','), start_date: ds, end_date: de, max: 60 });
+    if (!anState.codi || anState.codi.key !== key) return;   // 그사이 다른 기간을 조회함
+    anState.codi = { key, loading: false, data: d, error: null };
+  } catch (e) {
+    if (!anState.codi || anState.codi.key !== key) return;
+    anState.codi = { key, loading: false, data: null, error: e.message };
+  }
+  renderAnalytics();
+}
+function anCodiOf(no) {
+  const c = anState.codi && anState.codi.data && anState.codi.data.children ? anState.codi.data.children[String(no)] : null;
+  return c && c.share != null ? c : null;
+}
+function anCodiChip(r) {
+  const c = anCodiOf(r.product_no);
+  if (!c || c.share < AN_CODI_MIN || c.orders < AN_CODI_MIN_ORDERS) return '';
+  const nameOf = no => { const x = anState.rows.find(y => y.product_no === Number(no)); return x ? x.product_name : `상품 ${no}`; };
+  const ps = Object.entries(c.by_parent || {}).sort((a, b) => b[1] - a[1]);
+  const top = ps.length ? nameOf(ps[0][0]) : (c.parents || []).length ? nameOf(c.parents[0]) : '';
+  const tip = `잘 팔리는 상품 페이지의 '코디 상품'이에요 — 이 기간 주문 ${fmt(c.orders)}건 중 ${fmt(c.with_parent)}건(${c.share}%)이 부모 상품과 같은 주문` +
+    (ps.length ? '\n' + ps.slice(0, 4).map(([no, n]) => `· ${nameOf(no)} ${fmt(n)}건`).join('\n') : '') +
+    (c.share >= AN_CODI_HI ? '\n주문율이 부모 상품 덕일 수 있어요(부모가 덜 팔리면 같이 줄어요)' : '') +
+    (c.partial ? '\n(주문이 많아 앞 300건만 셌어요)' : '');
+  const [bg, fg, bd] = c.share >= AN_CODI_HI ? ['#fee2e2', '#b91c1c', '#fecaca'] : ['#fef3c7', '#92400e', '#fde68a'];
+  return ` <span title="${escHtml(tip)}" style="display:inline-block;background:${bg};color:${fg};border:1px solid ${bd};border-radius:6px;padding:0 6px;font-size:.68rem;font-weight:800;white-space:nowrap;cursor:help;vertical-align:1px;"><i class="fa-solid fa-link"></i> 코디 ${c.share}%</span>` +
+    (top ? `<div style="font-size:.66rem;color:#6b7280;margin-top:1px;">↳ ${escHtml(String(top).slice(0, 24))}${ps.length > 1 ? ` 외 ${ps.length - 1}` : ''}</div>` : '');
+}
+function anCodiNote() {
+  const c = anState.codi;
+  if (!c) return '';
+  if (c.loading) return '<div style="font-size:.74rem;color:#6b7280;margin-bottom:6px;"><i class="fa-solid fa-spinner fa-spin"></i> 코디 구매 비율 확인 중… (표는 그대로 쓸 수 있어요)</div>';
+  if (c.error) return `<div style="font-size:.74rem;color:#b45309;margin-bottom:6px;"><i class="fa-solid fa-triangle-exclamation"></i> 코디 구매 비율을 못 읽었어요 — ${escHtml(c.error)} (다시 조회하면 다시 시도해요)</div>`;
+  const all = Object.values((c.data && c.data.children) || {}).filter(x => x.share != null);
+  const n = all.filter(x => x.share >= AN_CODI_MIN && x.orders >= AN_CODI_MIN_ORDERS).length;
+  return `<div style="font-size:.74rem;color:#6b7280;margin-bottom:6px;line-height:1.6;"><span style="display:inline-block;background:#fef3c7;color:#92400e;border:1px solid #fde68a;border-radius:6px;padding:0 6px;font-weight:800;"><i class="fa-solid fa-link"></i> 코디 N%</span> = 이 기간 판매 상위 40개 상품의 페이지에 '코디 상품'으로 걸린 상품 중, 주문의 N%가 그 상품과 같은 주문이었다는 뜻 — 주문율이 부모 상품 덕일 수 있어요. 20% 이상만 표시(주문 3건 이상), <b style="color:#b91c1c;">40% 이상 빨강</b>. 지금 ${fmt(n)}개${(c.data && c.data.skipped) ? ` · 주문 적은 코디 상품 ${fmt(c.data.skipped)}개는 세지 않음` : ''}</div>`;
 }
 
 function anRateBadge(rate) {
@@ -10367,13 +10454,14 @@ function renderAnalytics() {
   if (anState.filterSet) filterParts.push(`카테고리: ${$('anCategory').selectedOptions[0].textContent.trim()} (하위 포함)`);
   if (($('anSearch').value || '').trim()) filterParts.push(`검색: "${$('anSearch').value.trim()}"`);
   if (parseInt($('anMinQty').value, 10) > 0) filterParts.push(`판매수량 ${parseInt($('anMinQty').value, 10)}개 이상`);
+  if (parseInt($('anMinViews').value, 10) > 0) filterParts.push(`조회수 ${fmt(parseInt($('anMinViews').value, 10))}회 이상`);
   $('an-filter-info').textContent = filterParts.length ? `필터 — ${filterParts.join(' · ')} → ${rows.length}개 상품` : '';
 
   // 정렬 + 테이블
-  const key = $('anSort').value;
-  const sv = (r, k) => { const v = r[k]; return Number.isFinite(v) ? v : -Infinity; };   // 마진율 없는 상품은 맨 뒤
-  const sorted = [...rows].sort((a, b) => sv(b, key) - sv(a, key));
-  let html = `${anState.costError ? `<div style="font-size:.76rem;color:#b45309;margin-bottom:6px;"><i class="fa-solid fa-triangle-exclamation"></i> ${escHtml(anState.costError)}</div>` : ''}<div class="table-wrap"><table>
+  const sorted = anSortRows(rows);
+  const k2 = $('anSort2').value;
+  const sortNote = k2 && k2 !== $('anSort').value ? `<div style="font-size:.74rem;color:#6b7280;margin-bottom:6px;">정렬 — ${AN_SORT_LABEL[$('anSort').value]} 높은 순, 값이 같으면 ${AN_SORT_LABEL[k2]} 높은 순</div>` : '';
+  let html = `${sortNote}${anCodiNote()}${anState.costError ? `<div style="font-size:.76rem;color:#b45309;margin-bottom:6px;"><i class="fa-solid fa-triangle-exclamation"></i> ${escHtml(anState.costError)}</div>` : ''}<div class="table-wrap"><table>
     <thead><tr>
       <th style="width:44px;" class="m-hide">#</th><th style="text-align:left;">상품</th>
       <th>조회수</th><th class="m-hide">주문수</th><th>판매수량</th>${isStaff() ? '' : '<th class="m-hide">주문금액</th>'}<th>주문율</th><th>마진율<br class="m-hide"><span class="m-hide" style="font-size:.7rem;font-weight:400;color:#6b7280;">공급가×1.1 기준<br>중국 사입은 실질 단가 + 수입 부가세</span></th>
@@ -10381,7 +10469,7 @@ function renderAnalytics() {
   sorted.forEach((r, i) => {
     html += `<tr>
       <td style="color:#6b7280;" class="m-hide">${i + 1}</td>
-      <td style="text-align:left;"><span style="color:#6b7280;font-size:.75rem;">[${r.product_no}]</span> ${escHtml(r.product_name)}</td>
+      <td style="text-align:left;"><span style="color:#6b7280;font-size:.75rem;">[${r.product_no}]</span> ${escHtml(r.product_name)}${anCodiChip(r)}</td>
       <td>${fmt(r.views)}</td>
       <td class="m-hide">${fmt(r.order_count)}</td>
       <td>${fmt(r.order_qty)}</td>
@@ -10397,16 +10485,15 @@ function renderAnalytics() {
 function downloadAnalyticsCSV() {
   const rows = anFilteredRows();
   if (rows.length === 0) { showToast('다운로드할 데이터가 없습니다'); return; }
-  const key = $('anSort').value;
-  const sv = (r, k) => { const v = r[k]; return Number.isFinite(v) ? v : -Infinity; };
-  const sorted = [...rows].sort((a, b) => sv(b, key) - sv(a, key));
+  const sorted = anSortRows(rows);
   const mg = r => Number.isFinite(r.margin) ? r.margin.toFixed(1) : '';
+  const cd = r => { const c = anCodiOf(r.product_no); return c ? c.share : ''; };
   const lines = [isStaff()
-    ? '상품번호,상품명,조회수,주문수,판매수량,주문율(%),마진율(%),원가 기준'
-    : '상품번호,상품명,조회수,주문수,판매수량,주문금액,주문율(%),마진율(%),원가 기준'];
+    ? '상품번호,상품명,조회수,주문수,판매수량,주문율(%),마진율(%),원가 기준,코디 구매 비율(%)'
+    : '상품번호,상품명,조회수,주문수,판매수량,주문금액,주문율(%),마진율(%),원가 기준,코디 구매 비율(%)'];
   sorted.forEach(r => lines.push(isStaff()
-    ? `${r.product_no},"${(r.product_name || '').replace(/"/g, '""')}",${r.views},${r.order_count},${r.order_qty},${r.rate},${mg(r)},${r.cost_src === 'cn' ? '중국 사입 실질 단가' : '공급가'}`
-    : `${r.product_no},"${(r.product_name || '').replace(/"/g, '""')}",${r.views},${r.order_count},${r.order_qty},${r.order_amount},${r.rate},${mg(r)},${r.cost_src === 'cn' ? '중국 사입 실질 단가' : '공급가'}`,
+    ? `${r.product_no},"${(r.product_name || '').replace(/"/g, '""')}",${r.views},${r.order_count},${r.order_qty},${r.rate},${mg(r)},${r.cost_src === 'cn' ? '중국 사입 실질 단가' : '공급가'},${cd(r)}`
+    : `${r.product_no},"${(r.product_name || '').replace(/"/g, '""')}",${r.views},${r.order_count},${r.order_qty},${r.order_amount},${r.rate},${mg(r)},${r.cost_src === 'cn' ? '중국 사입 실질 단가' : '공급가'},${cd(r)}`,
   ));
   dlCSV(lines.join('\n'), `상품_조회수_주문율_${$('anDateStart').value}_${$('anDateEnd').value}.csv`);
 }
