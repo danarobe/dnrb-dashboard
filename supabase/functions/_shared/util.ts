@@ -1,3 +1,4 @@
+import "./sbkey.ts";   // 서비스 키 자동 전환(2026-11-07) — 맨 앞에 둘 것
 // 공용 유틸 — Edge Functions 전용
 
 export const CORS_HEADERS: Record<string, string> = {
