@@ -24,7 +24,7 @@ import { cacheGet, cacheSet, handleOptions, json, verifyAuthToken, safeEqual } f
 
 const GRAPH = "https://graph.facebook.com/v23.0";
 const SB_URL = Deno.env.get("SUPABASE_URL")!;
-const SB_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+const SB_KEY = (Deno.env.get("SB_SERVICE_KEY") || Deno.env.get("SUPABASE_SERVICE_ROLE_KEY"))!;
 const MAX_BUDGET = 300_000;   // 개당 일예산 상한 (사용자 지정 2026-08-26 — 처음 50만원에서 30만원으로 정정)
 const MIN_BUDGET = 1_000;
 

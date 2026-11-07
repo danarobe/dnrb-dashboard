@@ -141,8 +141,8 @@ Deno.serve(async (req) => {
       // ad_test_state 판정 합치기 (service_role 직접 조회 — RLS 통과)
       const stRes = await fetch(`${Deno.env.get("SUPABASE_URL")}/rest/v1/ad_test_state?select=ad_id,verdict,hidden`, {
         headers: {
-          apikey: Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
-          Authorization: `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!}`,
+          apikey: (Deno.env.get("SB_SERVICE_KEY") || Deno.env.get("SUPABASE_SERVICE_ROLE_KEY"))!,
+          Authorization: `Bearer ${(Deno.env.get("SB_SERVICE_KEY") || Deno.env.get("SUPABASE_SERVICE_ROLE_KEY"))!}`,
         },
       });
       const stRows = stRes.ok ? (await stRes.json()) as { ad_id: string; verdict: string | null; hidden: boolean }[] : [];
@@ -661,7 +661,7 @@ Deno.serve(async (req) => {
       let goneAds: Record<string, unknown>[] = [];
       try {
         const sbUrl = Deno.env.get("SUPABASE_URL");
-        const sbKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+        const sbKey = (Deno.env.get("SB_SERVICE_KEY") || Deno.env.get("SUPABASE_SERVICE_ROLE_KEY"))!;
         const snapHeaders = { apikey: sbKey, Authorization: `Bearer ${sbKey}`, "Content-Type": "application/json" };
         if (ads.length) {
           await fetch(`${sbUrl}/rest/v1/test_ad_snap?on_conflict=ad_id`, {

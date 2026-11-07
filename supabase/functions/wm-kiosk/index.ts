@@ -30,7 +30,7 @@
 import bcrypt from 'npm:bcryptjs@2.4.3';
 
 const SB_URL = Deno.env.get('SUPABASE_URL')!;
-const SB_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+const SB_KEY = (Deno.env.get("SB_SERVICE_KEY") || Deno.env.get("SUPABASE_SERVICE_ROLE_KEY"))!;
 const AUTH_SECRET = Deno.env.get('AUTH_SECRET') ?? '';
 
 // util.ts의 CORS_HEADERS에는 x-kiosk-token이 없어 브라우저 preflight가 거부된다.

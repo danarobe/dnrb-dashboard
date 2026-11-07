@@ -92,7 +92,7 @@ export function handleOptions(req: Request): Response | null {
 
 // ── Supabase PostgREST 접근 (service_role — api_tokens 테이블용) ──
 const SB_URL = Deno.env.get("SUPABASE_URL")!;
-const SB_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+const SB_KEY = (Deno.env.get("SB_SERVICE_KEY") || Deno.env.get("SUPABASE_SERVICE_ROLE_KEY"))!;
 
 async function rest(path: string, init: RequestInit = {}): Promise<Response> {
   return await fetch(`${SB_URL}/rest/v1/${path}`, {

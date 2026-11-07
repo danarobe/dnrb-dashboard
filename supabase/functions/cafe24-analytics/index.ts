@@ -70,7 +70,7 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 async function sbRest(path: string, init: RequestInit = {}): Promise<any> {
   const res = await fetch(`${Deno.env.get("SUPABASE_URL")}/rest/v1/${path}`, {
     ...init,
-    headers: { apikey: Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!, Authorization: `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`, "Content-Type": "application/json", Prefer: "return=representation", ...(init.headers ?? {}) },
+    headers: { apikey: (Deno.env.get("SB_SERVICE_KEY") || Deno.env.get("SUPABASE_SERVICE_ROLE_KEY"))!, Authorization: `Bearer ${(Deno.env.get("SB_SERVICE_KEY") || Deno.env.get("SUPABASE_SERVICE_ROLE_KEY"))}`, "Content-Type": "application/json", Prefer: "return=representation", ...(init.headers ?? {}) },
   });
   const text = await res.text();
   if (!res.ok) throw new Error(`db ${res.status}: ${text.slice(0, 200)}`);
@@ -2848,7 +2848,7 @@ Deno.serve(async (req) => {
           if (targets.length) {
             const md = (d: unknown) => { const v = String(d ?? ""); return /^\d{4}-\d{2}-\d{2}$/.test(v) ? `${Number(v.slice(5, 7))}/${Number(v.slice(8, 10))}` : ""; };
             const msg = `새 입고 등록: ${title}${ship.box_count != null ? ` · ${ship.box_count}박스` : ""}${md(ship.arrival_date) ? ` · 입고 예정 ${md(ship.arrival_date)}` : ""} — 도착하면 [입고 완료]를 눌러 주세요`;
-            const key = Deno.env.get("SUPABASE_ANON_KEY") ?? Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+            const key = Deno.env.get("SUPABASE_ANON_KEY") ?? (Deno.env.get("SB_SERVICE_KEY") || Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")) ?? "";
             const r = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/notify`, { method: "POST",
               headers: { "Content-Type": "application/json", apikey: key, Authorization: `Bearer ${key}`, "x-auth-token": req.headers.get("x-auth-token") ?? "" },
               body: JSON.stringify({ targets, message: msg.slice(0, 200), link_menu: "cnbuy", title: "중국 사입 새 입고" }) });

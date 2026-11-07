@@ -27,7 +27,7 @@
 import { CORS_HEADERS, handleOptions, json, verifyAuthToken } from "../_shared/util.ts";
 
 const SB_URL = Deno.env.get("SUPABASE_URL")!;
-const SB_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+const SB_KEY = (Deno.env.get("SB_SERVICE_KEY") || Deno.env.get("SUPABASE_SERVICE_ROLE_KEY"))!;
 
 async function rest(path: string, init: RequestInit = {}): Promise<any> {
   const res = await fetch(`${SB_URL}/rest/v1/${path}`, {

@@ -22,7 +22,7 @@ import bcrypt from "npm:bcryptjs@2.4.3";
 import { handleOptions, json, signAuthToken, verifyAuthTokenString, cacheGet, cacheSet, safeEqual, AUTH_MAX_AGE, authEffectiveExp } from "../_shared/util.ts";
 
 const SB_URL = Deno.env.get("SUPABASE_URL")!;
-const SB_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+const SB_KEY = (Deno.env.get("SB_SERVICE_KEY") || Deno.env.get("SUPABASE_SERVICE_ROLE_KEY"))!;
 const TOKEN_TTL = AUTH_MAX_AGE; // 3일 (2026-09-28, 옛 7일) — 새 토큰엔 발급 시각 iat도 싣는다
 
 // ── 외부 앱 전용 토큰 (aud) — AUTH_SECRET에서 파생한 키로 서명. 표준 토큰과 서명 키가 달라 서로 호환되지 않는다.

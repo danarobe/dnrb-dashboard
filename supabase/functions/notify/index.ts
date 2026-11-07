@@ -10,7 +10,7 @@ import webpush from "npm:web-push@3.6.7";
 import { handleOptions, json, verifyAuthToken, cacheGet, cacheSet } from "../_shared/util.ts";
 
 const SB_URL = Deno.env.get("SUPABASE_URL")!;
-const SB_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+const SB_KEY = (Deno.env.get("SB_SERVICE_KEY") || Deno.env.get("SUPABASE_SERVICE_ROLE_KEY"))!;
 
 const rest = (path: string, init: RequestInit = {}) =>
   fetch(`${SB_URL}/rest/v1/${path}`, {

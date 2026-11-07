@@ -9,7 +9,7 @@
 import { handleOptions, json, verifyAuthToken, CORS_HEADERS, safeEqual } from "../_shared/util.ts";
 
 const SB_URL = Deno.env.get("SUPABASE_URL")!;
-const SB_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+const SB_KEY = (Deno.env.get("SB_SERVICE_KEY") || Deno.env.get("SUPABASE_SERVICE_ROLE_KEY"))!;
 
 // 테이블별 접근 가능 역할 (회의 보드용 topics는 이 대시보드 소관이 아니므로 미포함)
 const TABLE_ROLES: Record<string, string[]> = {
