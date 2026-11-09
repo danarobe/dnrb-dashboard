@@ -657,6 +657,13 @@
     .cn-tbl .cn-under { display: block; line-height: 1.3; }   /* 숫자 아래 작은 글씨(미확인 N · 비용 미반영) — 옆에 두면 칸이 넓어짐 */
     .cn-tbl .cn-c24col .cn-c24 { max-width: 170px !important; }
     @media (max-width: 1250px) { .cn-tbl .cn-c24col .cn-c24 { max-width: 140px !important; } }
+    /* 중국 사입/제작 탭 설명(2026-11-09 사용자 요청 "줄글 설명 최소화") — 핵심 식만 칩으로, 나머지는 접힌 '사용법' */
+    .cn-help { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-bottom: 10px; font-size: .76rem; }
+    .cn-help-k { background: #f3f4f6; color: #374151; border-radius: 6px; padding: 2px 8px; font-weight: 600; white-space: nowrap; }
+    .cn-help details { color: #4b5563; }
+    .cn-help details[open] { flex-basis: 100%; }
+    .cn-help summary { cursor: pointer; color: #4f46e5; font-weight: 700; width: max-content; }
+    .cn-help ul { margin: 6px 0 0; padding-left: 18px; line-height: 1.6; }
     .cn-tbl .cn-sub { font-size: .64rem; color: #6b7280; font-weight: 500; line-height: 1.35; white-space: nowrap; }
     .cn-tbl thead .cn-sub { font-size: .66rem; }
     .cn-tbl .cn-name .cn-line, .cn-tbl .cn-name .cn-line-badge { margin-left: 0; }
@@ -1605,11 +1612,7 @@
         </div>
       </div>
       <div id="cn-pane-check" class="cn-pane">
-        <div style="font-size:.8rem;color:#6b7280;margin-bottom:10px;line-height:1.7;">
-          · 중국에서 받은 <b>입고 엑셀</b>을 올리면 <b>중국출고</b>(엑셀 출고 수량)가 옵션별로 들어와요. 상자를 열어 센 수량을 <b>실입고</b>에 적으면 <b>차이(중국출고 − 실입고)</b>가 바로 표시돼요. <b>[주문서 올리기]</b>로 주문서를 올리면 <b>주문</b>(모든 주문서 합)과 <b>잔여(주문 − 중국출고)</b>가 채워져요 — 주문서 목록은 <b>'주문서'</b> 탭에서 봐요.<br>
-          · 상품 줄의 <b>▸</b>를 누르면 그 상품의 옵션이 펼쳐져요(<b>전체 펼치기</b>도 있어요). 실제 수량 칸에서 <b>Enter</b>를 누르면 저장하고 다음 칸으로 넘어가요. 전달 수량과 같으면 상품 줄의 <b>[전달 수량과 같음]</b>으로 한 번에 채울 수 있어요.<br>
-          · <b>사입상품명</b>은 카페24 <b>공급사 상품명</b>과 같은 이름이에요 — 카페24에 등록되면 자동으로 '등록됨'으로 바뀌어요.
-        </div>
+        <div class="cn-help"><span class="cn-help-k">잔여 = 주문 − 중국출고</span><span class="cn-help-k">차이 = 중국출고 − 실입고</span><details><summary>사용법</summary><ul><li><b>[입고 엑셀 올리기]</b> → 중국출고 수량이 옵션별로 들어와요</li><li>상자에서 센 수량을 <b>실입고</b>에 적기 · <b>Enter</b> = 저장 후 다음 칸</li><li>수량이 같으면 상품 줄의 <b>[전달 수량과 같음]</b>으로 한 번에</li><li><b>▸</b> = 옵션 펼치기 · 사입상품명 = 카페24 <b>공급사 상품명</b>(등록되면 자동 '등록됨')</li></ul></details></div>
         <div id="cn-ship-board" style="margin-bottom:12px;"></div>
         <div id="cn-ship-bar" style="margin-bottom:10px;"></div>
         <div id="cn-check-summary" style="margin-bottom:10px;"></div>
@@ -1622,18 +1625,11 @@
         <div id="cn-check-list"><div class="empty-state"><p>불러오는 중…</p></div></div>
       </div>
       <div id="cn-pane-order" class="cn-pane" style="display:none;">
-        <div style="font-size:.8rem;color:#6b7280;margin-bottom:10px;line-height:1.7;">
-          · 올린 <b>주문서</b> 목록이에요. 입고 검수·상품별 현황의 <b>주문</b> = 모든 주문서에서 같은 품번·색상·사이즈의 수량을 더한 값, <b>잔여</b> = 주문 − 중국출고.<br>
-          · 새 주문서는 위의 <b>[주문서 올리기]</b>로 올려요(품번 A · 그림 B · 색상 C · 사이즈 D · 수량 E열, 수량 <b>−1</b>은 그만큼 취소). 주문서마다 <b>▸ 옵션 보기</b>로 담긴 수량을 확인할 수 있어요.<br>
-          · 주문서 파일이 아직 없으면 <b>주문 일자만 먼저 등록</b>해 두세요 — <b style="color:#dc2626;">주문서 업로드 필요</b>로 남아 있다가 파일을 올리면 없어져요.
-        </div>
+        <div class="cn-help"><span class="cn-help-k">주문 = 모든 주문서 합</span><span class="cn-help-k">잔여 = 주문 − 중국출고</span><details><summary>사용법</summary><ul><li>엑셀 열: 품번 A · 그림 B · 색상 C · 사이즈 D · 수량 E (<b>−1</b> = 취소)</li><li>파일이 없으면 <b>일자만 먼저 등록</b> → 파일을 올리면 <b style="color:#dc2626;">업로드 필요</b>가 사라져요</li><li><b>▸ 옵션 보기</b> = 주문서에 담긴 수량</li></ul></details></div>
         <div id="cn-order-body"></div>
       </div>
       <div id="cn-pane-buy" class="cn-pane" style="display:none;">
-        <div style="font-size:.8rem;color:#6b7280;margin-bottom:10px;line-height:1.7;">
-          · 등록된 상품·옵션마다 <b>이번에 주문할 수량</b>을 적고 <b>[엑셀 받기]</b>를 누르면 중국에 보내는 <b>주문서 양식</b>(품번·이미지·색상·싸이즈·수량·단가·합계·매장, 합계·10% 줄)으로 받아요. 적은 수량은 이 PC에 저장돼 있어 나갔다 와도 그대로예요.<br>
-          · <b>[엑셀 받고 주문서로 등록]</b>을 누르면 같은 내용이 '주문서' 탭에도 들어가 주문·잔여 수량에 바로 더해져요(따로 올리지 않아도 돼요). 미진행 상품은 나오지 않아요.
-        </div>
+        <div class="cn-help"><span class="cn-help-k">수량 적기 → [엑셀 받기] = 중국 주문서 양식</span><details><summary>사용법</summary><ul><li><b>[엑셀 받고 주문서로 등록]</b> = '주문서' 탭에도 바로 들어가요</li><li>적은 수량은 이 PC에 저장돼요 · 미진행 상품은 안 나와요</li></ul></details></div>
         <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px;">
           <input id="cn-buy-q" type="search" placeholder="품번·색상 찾기" oninput="renderSoon('cnBuyRender')" style="padding:6px 10px;border:1.5px solid #d1d5db;border-radius:8px;font-size:.82rem;min-width:180px;" />
           <span id="cn-buy-chips" class="qp"></span>
@@ -1643,28 +1639,17 @@
         <div id="cn-buy-bar" style="position:sticky;bottom:0;z-index:5;background:#fff;border-top:2px solid #e0e7ff;padding:10px 4px;margin-top:10px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;"></div>
       </div>
       <div id="cn-pane-cost" class="cn-pane" style="display:none;">
-        <div style="font-size:.8rem;color:#6b7280;margin-bottom:10px;line-height:1.7;">
-          · 입고 엑셀의 <b>두 번째 시트</b>(물류비·검품비·관세·부가세 등 들여오는 비용, 물건 결제)를 <b>입고 차수별</b>로 보여줘요. 관리자만 볼 수 있어요.<br>
-          · <b>물건값 원화</b> = 출고 서류 총 합계(물건값 + 에이전시 수수료 + 경비·특송, 위안) × 1위안 원가('원>달러>위안 환전' 탭). <b>물건값 대비</b> = 부가세를 뺀 들여오는 비용 ÷ 물건값 원화. 비용 시트의 물건결제 줄은 쓰지 않아요(없어도 돼요). <b>실질 단가(원)</b> = 단가(위안) × 물건값 1위안당 원가('원>달러>위안 환전' 탭 — 환전 내역 선입선출 × 출고 서류 총 합계) × (1 + 들여오는 비용 비율 = 부가세 제외 비용 ÷ 물건값 원화) — 부가세는 제외. <b>장당 들여오는 비용</b> = 부가세 제외 총합 ÷ 그 입고의 수량(참고용).
-        </div>
+        <div class="cn-help"><span class="cn-help-k">물건값 대비 = 들여오는 비용(부가세 제외) ÷ 물건값 원화</span><span class="cn-help-k">관리자 전용</span><details><summary>사용법</summary><ul><li>입고 엑셀 <b>두 번째 시트</b>(물류비·검품비·관세 등)를 입고 차수별로 보여 줘요</li><li><b>물건값 원화</b> = 출고 서류 총 합계(위안) × 1위안 원가</li><li><b>실질 단가</b> = 단가(위안) × 물건값 1위안당 원가 × (1 + 물건값 대비) — 부가세 제외</li><li><b>장당 들여오는 비용</b> = 부가세 제외 총합 ÷ 입고 수량 (참고)</li></ul></details></div>
         <div id="cn-cost-body"></div>
       </div>
       <!-- 원>달러>위안 환전 (2026-10-22 사용자 요청 — 관리자만) -->
       <div id="cn-pane-fx" class="cn-pane" style="display:none;">
-        <div style="font-size:.8rem;color:#6b7280;margin-bottom:10px;line-height:1.7;">
-          · <b>① 원→달러</b>: 은행 '바로환전' 체결 내역을 엑셀에서 복사해 아래 칸에 붙여넣으면 추가돼요(같은 주문번호는 한 번만). <b>② 달러→위안</b>: 송금마다 보낸 달러와 <b>에이전시 통장에 들어온 위안</b>(포워딩 100위안·에이전시 0.003%를 뺀 금액)을 직접 적어요.<br>
-          · 달러 통장·위안 통장을 <b>들어온 순서대로 꺼내 쓴다(선입선출)</b>고 보고, 입고마다 <b>출고 서류 총 합계(위안)</b>를 꺼낸 송금들의 원가로 <b>1위안 원가</b>를 계산해요. 송금이 출고 서류와 딱 맞지 않아도(일부씩 송금) 그대로 맞춰져요.<br>
-          · <b>실질 단가</b> = 단가(위안) × 물건값 1위안당 원가(총 합계 × 1위안 원가 ÷ 물건값 — 에이전시 10%·경비 포함) × (1 + 들여오는 비용 비율). 종합 판매 데이터·상품 분석·순익 시나리오의 중국 사입 마진에도 이 값이 들어가요. 관리자만 볼 수 있어요.
-        </div>
+        <div class="cn-help"><span class="cn-help-k">선입선출로 입고별 1위안 원가 계산</span><span class="cn-help-k">관리자 전용</span><details><summary>사용법</summary><ul><li><b>①</b> 은행 '바로환전' 내역을 복사해 붙여넣기 (같은 주문번호는 한 번만)</li><li><b>②</b> 송금마다 보낸 달러 · 에이전시 통장에 들어온 위안 입력</li><li><b>실질 단가</b>는 종합 판매·상품 분석·순익 시나리오 마진에도 쓰여요</li></ul></details></div>
         <div id="cn-fx-body"></div>
       </div>
       <!-- 미송 점검 (2026-10-23 사용자 요청 — 아직 안 들어온 수량 다시 체크 + 미송 엑셀과 비교 + 주문 − 출고 − 미출고 = 0 확인) -->
       <div id="cn-pane-pend" class="cn-pane" style="display:none;">
-        <div style="font-size:.8rem;color:#6b7280;margin-bottom:10px;line-height:1.7;">
-          · <b>미송</b> = 아직 안 들어온 수량 = 주문(모든 주문서 합) − 중국출고(모든 출고 서류의 E열 합) − <b>폐기</b>. 원단 사정 등으로 더 나오지 않을 수량은 <b>[폐기]</b>로 정리하면 미송에서 빠져요(되돌릴 수 있어요).<br>
-          · <b>에이전시 미출고</b> = 가장 최근 출고 서류의 <b>F열</b>('출완' = 0). 출고 서류마다 <b>그날까지의 주문 − 출고 누적 − 미출고 = 0</b>이어야 해요 — 안 맞으면 <b>'수량 확인'</b>이 뜨고, 상품을 누르면 <b>언제부터 왜</b> 어긋났는지 보여 줘요. 출고 서류에 없는 품목은 주문 − 출고만 봐요.<br>
-          · <b>[미송 엑셀과 비교]</b>: 에이전시가 보낸 미송 목록 엑셀을 올리면 우리 미송과 옵션별로 맞춰 봐요(이미지는 글자를 읽을 수 없어 엑셀·CSV만).
-        </div>
+        <div class="cn-help"><span class="cn-help-k">미송 = 주문 − 중국출고 − 폐기</span><span class="cn-help-k">미출고 = 최근 출고 서류 F열</span><details><summary>사용법</summary><ul><li>더 안 나올 수량은 <b>[폐기]</b> → 미송에서 빠져요(되돌리기 가능)</li><li>출고 서류마다 주문 − 출고 누적 − 미출고 = 0 · 안 맞으면 <b>'수량 확인'</b> → 상품을 누르면 이유</li><li><b>[미송 엑셀과 비교]</b> = 에이전시 미송 엑셀(엑셀·CSV)과 옵션별 비교</li></ul></details></div>
         <div id="cn-pend-summary" style="margin-bottom:10px;"></div>
         <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px;">
           <span id="cn-pend-chips" class="qp"></span>
@@ -1676,11 +1661,7 @@
       </div>
       <!-- 미송 확인 (2026-10-26 사용자 요청 — 중국에서 받은 미송 엑셀: 업로드 일자·며칠 기준·사진·품번·쇼핑몰 상품명·미송 항목·수량·항목별 입고 날짜, 단가·합계는 안 보임) -->
       <div id="cn-pane-defect" class="cn-pane" style="display:none;">
-        <div style="font-size:.8rem;color:#6b7280;margin-bottom:10px;line-height:1.7;">
-          · <b>불량률</b> = 불량 수량 ÷ <b>입고 수량</b>(그 상품·옵션이 입고된 모든 차수의 합 — 실입고를 적었으면 실입고, 아직 안 셌으면 중국출고 수량). 아직 도착 전인 차수는 넣지 않아요.<br>
-          · 불량을 발견하면 아래 <b>불량 적기</b>에서 품번·옵션·수량을 적어요. 입고 차수는 알면 고르고 몰라도 돼요. 잘못 적었으면 그 기록의 [지우기].<br>
-          · 목록은 <b>상품별</b>(옵션마다 불량률) · <b>날짜별</b>(발견일) · <b>담당자별</b>(기록한 사람)로 볼 수 있어요. 날짜별·담당자별은 기간 버튼이나 <b>날짜·담당자 펼치기 목록</b>으로 골라 볼 수 있고, 엑셀도 보이는 대로 저장돼요.
-        </div>
+        <div class="cn-help"><span class="cn-help-k">불량률 = 불량 ÷ 입고 수량</span><details><summary>사용법</summary><ul><li>입고 수량 = 실입고(안 셌으면 중국출고) · 도착 전 차수는 빼요</li><li><b>불량 적기</b>에 품번·옵션·수량 (차수는 몰라도 돼요) · 잘못 적으면 [지우기]</li><li>상품별 · 날짜별 · 담당자별 보기 · 엑셀은 보이는 대로 저장</li></ul></details></div>
         <div id="cn-def-summary" style="margin-bottom:10px;"></div>
         <div id="cn-def-form" style="margin-bottom:12px;"></div>
         <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px;">
@@ -1706,11 +1687,7 @@
         </div>
       </div>
       <div id="cn-pane-prod" class="cn-pane" style="display:none;">
-        <div style="font-size:.8rem;color:#6b7280;margin-bottom:10px;line-height:1.7;">
-          · 올린 입고 엑셀을 <b>사입상품명·옵션별로 합쳐</b> 보여줘요. <b>주문</b> = 모든 주문서 합, <b>중국출고</b> = 차수별 입고 엑셀의 <b>출고 수량(E열)</b>을 모두 더한 값, <b>실입고</b>는 현장에서 센 수량, <b>잔여</b> = 주문 − 중국출고, <b>차이</b> = 중국출고 − 실입고예요.<br>
-          <span id="cn-prod-price-note" style="display:none;">· <b>실질 단가</b> = 단가(위안) × 그 입고의 <b>실질 단가 계수</b>(물건값 1위안당 원화 = (출고 서류 총 합계 × 1위안 원가 + 들여오는 비용) ÷ 물건값 — 에이전시 수수료·경비·환전 원가 포함, '입고 비용' 탭에 차수별로 나와요). 금액 아래 '100원당 N원 추가'는 들여오는 비용 비율이에요. 여러 번 입고된 상품은 <b>들어온 수량 전체 기준</b>으로 계산해요 — 숫자에 마우스를 올리면 입고별 값이 나와요.<br></span>
-          · <b>카페24</b> = 카페24 상품의 '공급사 상품명'이 사입상품명(품번)으로 시작하는 상품이 있는지 (예: 26K07가디건(네이비) 79위안 → 26K07). 등록된 상품은 최근 판매량을 같이 보여줘요(관리자·MD).
-        </div>
+        <div class="cn-help"><span class="cn-help-k">잔여 = 주문 − 중국출고</span><span class="cn-help-k">차이 = 중국출고 − 실입고</span><details><summary>사용법</summary><ul><li>중국출고 = 차수별 입고 엑셀 E열 합 · 실입고 = 현장에서 센 수량</li><li id="cn-prod-price-note" style="display:none;"><b>실질 단가</b> = 단가(위안) × 그 입고의 실질 단가 계수('입고 비용' 탭) · 여러 번 입고된 상품은 수량 전체 기준 · 숫자에 마우스 → 입고별 값</li><li><b>카페24</b> = 공급사 상품명이 품번으로 시작하는 상품 (예: 26K07가디건(네이비) → 26K07) · 최근 판매량 함께</li></ul></details></div>
         <div id="cn-prod-summary" style="margin-bottom:10px;"></div>
         <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px;">
           <span id="cn-prod-chips" class="qp"></span>
@@ -6372,7 +6349,7 @@ function cnOrderReserveHtml() {
   const inp = (id, label, val, ph, type, w) => `<label style="font-size:.74rem;color:#4b5563;font-weight:600;flex:${w || '1 1 150px'};">${label}<input id="${id}" type="${type || 'text'}" value="${escHtml(val || '')}" placeholder="${ph || ''}" style="display:block;margin-top:3px;border:1.5px solid #d1d5db;border-radius:8px;padding:6px 10px;font-size:.82rem;width:100%;box-sizing:border-box;" /></label>`;
   return `<div style="border:1.5px solid #e5e7eb;background:#fff;border-radius:12px;padding:12px 14px;margin-bottom:12px;">
     <div style="font-size:.84rem;font-weight:800;color:#1e1b4b;margin-bottom:4px;"><i class="fa-solid fa-calendar-plus" style="color:#4f46e5;"></i> 주문 일자만 먼저 등록</div>
-    <div style="font-size:.76rem;color:#6b7280;margin-bottom:8px;">주문서 파일이 아직 없을 때 주문한 날짜만 적어 두세요. 목록에 <b style="color:#dc2626;">주문서 업로드 필요</b>로 남아 있다가, 파일을 받으면 그 줄의 <b>[주문서 올리기]</b>로 올리면 돼요.</div>
+    <div style="font-size:.76rem;color:#6b7280;margin-bottom:8px;">파일이 없을 때 날짜만 등록 → <b style="color:#dc2626;">주문서 업로드 필요</b>로 남아요</div>
     <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;">
       ${inp('cn-ordr-date', '주문 일자', cnKstToday(), '', 'date', '0 0 160px')}${inp('cn-ordr-title', '이름 (비워도 돼요)', '', '예: 광저우 니트 주문')}${inp('cn-ordr-note', '메모', '', '예: 거래처·품번')}
       <button class="toggle-btn" id="cn-ordr-btn" style="background:#4f46e5;color:#fff;border-color:#4f46e5;height:34px;" onclick="cnOrderReserve()"><i class="fa-solid fa-calendar-check"></i> 일자만 등록</button>
@@ -6393,7 +6370,7 @@ function cnOrderTabRender() {   // '주문서' 탭 — 주문일 최근 순, 주
   const pend = cnOrderPendingList(), pendIds = new Set(pend.map(o => o.id));
   const orders = (d.orders || []).filter(o => !pendIds.has(o.id));
   const top = (canEdit ? cnOrderReserveHtml() : '') + (pend.length ? `<div style="margin-bottom:12px;">
-      <div style="font-size:.84rem;font-weight:800;color:#b91c1c;margin-bottom:6px;"><i class="fa-solid fa-bell"></i> 주문서 업로드 필요 ${fmt(pend.length)}건 <span style="font-size:.74rem;font-weight:600;color:#6b7280;">— 일자만 등록한 주문이에요. 주문서를 올려야 주문 수량이 잡혀요.</span></div>
+      <div style="font-size:.84rem;font-weight:800;color:#b91c1c;margin-bottom:6px;"><i class="fa-solid fa-bell"></i> 주문서 업로드 필요 ${fmt(pend.length)}건 <span style="font-size:.74rem;font-weight:600;color:#6b7280;">— 올려야 주문 수량이 잡혀요</span></div>
       <div style="display:flex;flex-direction:column;gap:6px;">${pend.map(o => cnOrderPendingHtml(o, canEdit)).join('')}</div></div>` : '');
   if (!orders.length) { box.innerHTML = top + `<div class="empty-state"><p>올린 주문서가 없어요${canEdit ? ' — 위의 <b>[주문서 올리기]</b>로 올리면 입고 검수·상품별 현황에 주문·잔여가 채워져요' : ''}.</p></div>`; return; }
   orders.sort((a, b) => String(b.order_date || '').localeCompare(String(a.order_date || '')) || b.id - a.id);
@@ -6496,7 +6473,7 @@ function cnOrderTargetHtml(p) {   // 일자만 등록한 주문이 있으면 '�
       <select id="cn-ord-target" onchange="cnOrderTargetPick(this.value)" style="margin-left:6px;border:1.5px solid #d1d5db;border-radius:8px;padding:4px 8px;font-size:.8rem;">
         ${opt('', '새 주문서로 저장')}${pend.map(o => opt(o.id, `${o.order_date || '주문일 없음'} · ${o.title} (일자만 등록 — 업로드 필요)`)).join('')}
       </select></label>
-    <div style="color:#6b7280;margin-top:4px;">${p.target ? '고른 주문에 이 파일 내용이 채워지고 <b>주문서 업로드 필요</b> 표시가 없어져요.' : `일자만 등록한 주문이 <b>${pend.length}건</b> 있어요 — 그 주문의 주문서라면 위에서 골라 주세요(안 고르면 따로 한 건 더 생기고 업로드 필요 표시는 남아요).`}</div>
+    <div style="color:#6b7280;margin-top:4px;">${p.target ? '고른 주문에 채워져요' : `일자만 등록한 주문 <b>${pend.length}건</b> — 그 주문이면 위에서 고르기(안 고르면 새 주문서)`}</div>
   </div>`;
 }
 function cnOrderTargetPick(v) {
@@ -6664,7 +6641,7 @@ function cnC24Render() {
       <span style="background:${tb};color:${tc};border-radius:99px;padding:1px 8px;font-size:.66rem;font-weight:700;white-space:nowrap;">${tl}</span></label>`; }).join('');
   $('cn-c24-modal').innerHTML = `<div role="dialog" aria-modal="true" aria-label="카페24 상품 연결" style="background:#fff;border-radius:16px;max-width:620px;width:100%;max-height:88vh;overflow:auto;padding:20px 22px;">
     <div style="display:flex;align-items:flex-start;gap:10px;"><div style="flex:1;"><div style="font-size:1rem;font-weight:800;color:#1e1b4b;">카페24 상품 연결 — ${escHtml(g.sname)}</div>
-      <div style="font-size:.76rem;color:#6b7280;margin-top:4px;line-height:1.6;">카페24 상품의 <b>공급사 상품명</b>이 이 품번으로 시작하면 자동으로 연결돼요. 자동으로 못 찾았거나 품번이 비슷해 헷갈리는 상품은 여기서 직접 골라 주세요.<br>지금: <b style="color:${manual ? '#3730a3' : '#166534'};">${manual ? `직접 정함${info.c24_by ? ' — ' + escHtml(info.c24_by) + ' · ' + escHtml(unshipKst(info.c24_at)) : ''}` : '자동'}</b></div></div>
+      <div style="font-size:.76rem;color:#6b7280;margin-top:4px;line-height:1.6;"><b>공급사 상품명</b>이 품번으로 시작하면 자동 연결 · 틀리면 직접 고르기<br>지금: <b style="color:${manual ? '#3730a3' : '#166534'};">${manual ? `직접 정함${info.c24_by ? ' — ' + escHtml(info.c24_by) + ' · ' + escHtml(unshipKst(info.c24_at)) : ''}` : '자동'}</b></div></div>
       <button onclick="cnC24Close()" aria-label="닫기" style="border:none;background:#f3f4f6;border-radius:8px;padding:4px 10px;font-size:.88rem;cursor:pointer;">✕</button></div>
     <div style="display:flex;gap:6px;margin:14px 0 10px;"><input id="cn-c24-q" type="search" value="${escHtml(g.q)}" placeholder="카페24 판매 상품명·공급사 상품명·상품 번호로 찾기" onkeydown="if(event.key==='Enter')cnC24Find()" style="flex:1;border:1.5px solid #d1d5db;border-radius:8px;padding:7px 10px;font-size:.84rem;" /><button class="toggle-btn" onclick="cnC24Find()" ${g.busy ? 'disabled' : ''}><i class="fa-solid fa-magnifying-glass"></i> 찾기</button></div>
     <div>${rows || '<div style="font-size:.8rem;color:#6b7280;padding:10px 2px;">아직 고를 상품이 없어요 — 위에서 카페24 상품을 찾아 주세요.</div>'}</div>
@@ -6969,7 +6946,7 @@ function cnCheckRender() {
   bar.innerHTML = (cnCsOnly() ? `<div style="margin-bottom:8px;padding:7px 11px;border-radius:9px;background:#f3f4f6;border:1px solid #e5e7eb;font-size:.78rem;color:#374151;"><i class="fa-solid fa-eye"></i> <b>보기 전용</b> — CS팀은 입고 현황과 수량을 볼 수만 있어요. 실입고·불량·메모는 물류팀·관리자가 적어요.</div>` : '') + `<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
     <select onchange="cnState.shipId=this.value==='all'||this.value==='sum'?this.value:Number(this.value);cnState.filter='all';cnCheckRender()" style="border:1.5px solid #d1d5db;border-radius:8px;padding:6px 10px;font-size:.84rem;font-weight:700;max-width:100%;">
       ${ships.length > 1 ? `<option value="sum"${isSum ? ' selected' : ''}>전체 — 입고 ${ships.length}건 합계 (같은 옵션끼리)</option>` : ''}${pend.length > 1 ? `<option value="all"${isAll ? ' selected' : ''}>검수할 입고 (완료 전 ${pend.length}건)</option>` : ''}${ships.map(x => `<option value="${x.id}"${!isAll && !isSum && x.id === ship.id ? ' selected' : ''}>${cnShipDone(x) ? '✓ ' : ''}${escHtml(x.title)}${x.ship_date ? ' · ' + escHtml(String(x.ship_date).slice(5)) + ' 출고' : ''}${cnShipDone(x) ? ' (검수 완료)' : cnShipArrived(x) ? ' (검수 중)' : ' (입고 대기)'}</option>`).join('')}</select>
-    ${isSum ? `<span style="font-size:.76rem;color:#6b7280;">입고 <b>${ships.length}건 전체</b>(검수 완료한 차수 포함)를 <b>같은 품번·옵션끼리 합쳐</b> 보여줘요 — 보기 전용이라 수량·불량·메모는 차수를 골라 고쳐요</span>` : isAll ? `<span style="font-size:.76rem;color:#6b7280;">검수 완료 전인 입고 <b>${pend.length}건</b>을 합쳐 보여줘요 — <b>완료한 차수는 빠져요</b>(위에서 골라 볼 수 있어요)${d.can_price ? " · <b>실질 단가</b> = 단가(KRW) + 100원당 추가 금액" : ''}</span>` : `<span style="font-size:.76rem;color:#6b7280;">${[ship.ship_date ? '중국 출고 ' + escHtml(ship.ship_date) : '', ship.arrival_date ? '입고 예정 <b>' + escHtml(ship.arrival_date) + '</b>' : '', ship.box_count != null ? '<b>' + fmt(ship.box_count) + '박스</b>' : '', '올린 사람 ' + escHtml(ship.created_by_name || '') + ' ' + escHtml(unshipKst(ship.created_at))].filter(Boolean).join(' · ')}${ship.note ? ' · ' + escHtml(ship.note) : ''}</span>`}
+    ${isSum ? `<span style="font-size:.76rem;color:#6b7280;">입고 <b>${ships.length}건 전체</b> 합계 · 보기 전용(고치려면 차수 고르기)</span>` : isAll ? `<span style="font-size:.76rem;color:#6b7280;">검수 전 입고 <b>${pend.length}건</b> 합계 · 완료 차수 제외${d.can_price ? " · <b>실질 단가</b> = 단가(KRW) + 100원당 추가 금액" : ''}</span>` : `<span style="font-size:.76rem;color:#6b7280;">${[ship.ship_date ? '중국 출고 ' + escHtml(ship.ship_date) : '', ship.arrival_date ? '입고 예정 <b>' + escHtml(ship.arrival_date) + '</b>' : '', ship.box_count != null ? '<b>' + fmt(ship.box_count) + '박스</b>' : '', '올린 사람 ' + escHtml(ship.created_by_name || '') + ' ' + escHtml(unshipKst(ship.created_at))].filter(Boolean).join(' · ')}${ship.note ? ' · ' + escHtml(ship.note) : ''}</span>`}
     ${d.can_edit && !isAll && !isSum ? `<label class="toggle-btn" style="font-size:.7rem;padding:3px 9px;cursor:pointer;" title="이 입고의 엑셀을 다시 고르면 상품 사진만 작게 줄여 넣어요(수량은 그대로)"><i class="fa-regular fa-image"></i> 사진 넣기<input type="file" accept=".xlsx" style="display:none;" onchange="cnThumbFilePick(this)" /></label><button class="toggle-btn" style="font-size:.7rem;padding:3px 9px;" onclick="cnShipEdit()">정보 수정</button><button class="toggle-btn" style="font-size:.7rem;padding:3px 9px;color:#dc2626;" onclick="cnShipDelete()">삭제</button>` : ''}</div>
     <div style="display:flex;flex-direction:column;gap:6px;margin-top:8px;">${(isSum ? [] : isAll ? pend : [ship]).map(x => `<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;border:1.5px solid ${cnShipDone(x) ? '#bbf7d0' : '#e0e7ff'};background:${cnShipDone(x) ? '#f0fdf4' : '#f8f9ff'};border-radius:10px;padding:6px 12px;">${isAll ? `<span style="font-size:.78rem;font-weight:700;color:#3730a3;">${escHtml(cnShipName(x))}</span>` : '<span style="font-size:.78rem;font-weight:700;color:#3730a3;">실물 검수</span>'}${cnShipDoneHtml(x, canUndo)}${cnShipDone(x) ? '<span class="cn-sub" style="display:inline;">이 차수는 고칠 수 없어요 — 고치려면 관리자·MD가 완료를 취소해요</span>' : ''}</div>`).join('')}</div>`;
   $('cn-check-summary').innerHTML = cnCheckSummaryHtml(lines);
@@ -7342,7 +7319,7 @@ function cnCostRender() {
             ${(c.items || []).map(x => `<tr${/부가세/.test(x.name) ? ' style="color:#6b7280;"' : ''}><td style="text-align:left;font-weight:600;">${escHtml(x.name)}${/부가세/.test(x.name) ? ' <span style="font-size:.66rem;">(원가 제외)</span>' : ''}</td>${num(cnWon(x.amount))}<td style="text-align:left;font-size:.74rem;color:#6b7280;">${escHtml(x.note || '')}</td><td style="text-align:left;font-size:.74rem;color:#6b7280;">${escHtml(x.calc || '')}</td></tr>`).join('')}
             <tr style="background:#f8f9ff;font-weight:800;"><td style="text-align:left;">총합</td>${num(cnWon(s.sum))}<td></td><td></td></tr>
             <tr style="background:#f8f9ff;font-weight:800;"><td style="text-align:left;">부가세 제외 총합 <span style="font-size:.66rem;font-weight:500;color:#6b7280;">← 원가에 들어가는 금액</span></td>${num(cnWon(s.exVat))}<td></td><td></td></tr></tbody></table></div>`}`;
-  box.innerHTML = `<div style="font-size:.84rem;font-weight:800;margin-bottom:4px;">입고 차수별 원가 <span style="font-size:.7rem;color:#6b7280;font-weight:500;">줄을 누르면 아래에 상세가 나와요 · 1위안 원가는 '원>달러>위안 환전' 탭의 송금 기록으로 계산</span></div>
+  box.innerHTML = `<div style="font-size:.84rem;font-weight:800;margin-bottom:4px;">입고 차수별 원가 <span style="font-size:.7rem;color:#6b7280;font-weight:500;">줄을 누르면 상세</span></div>
     <div class="table-wrap" style="margin-bottom:14px;"><table style="width:100%;font-size:.76rem;"><thead><tr><th style="text-align:left;">입고</th><th>수량</th><th>물건값<div class="cn-sub">위안</div></th><th>에이전시 수수료<div class="cn-sub">위안</div></th><th>경비·특송<div class="cn-sub">위안</div></th><th>총 합계<div class="cn-sub">위안 · 출고 서류</div></th><th>1위안 원가</th><th>물건값 원화<div class="cn-sub">총 합계 × 1위안 원가</div></th><th>들여오는 비용<div class="cn-sub">부가세 제외</div></th><th>물건값 대비</th><th>실질 단가 계수<div class="cn-sub">물건값 1위안당</div></th></tr></thead>
       <tbody>${allRows}${totalRow}</tbody></table></div>
     <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px;"><b style="font-size:.9rem;">${escHtml(ship.title)}</b>${ship.order_round ? `<span style="font-size:.76rem;color:#6b7280;">발주 ${escHtml(ship.order_round)}</span>` : ''}
@@ -7506,7 +7483,7 @@ function cnFxRender() {
       ${num(`<b style="color:#4338ca;">${r2(sh.rate)}원</b>`)}${num(`${r2(sh.base)}원`)}${num(sh.ratio != null ? (Math.round(sh.ratio * 10000) / 100).toFixed(2) + '%' : '<span style="color:#b45309;">비용 시트 없음</span>')}${num(`<b>${r2(k)}원</b>`)}</tr>`; }).join('');
   const ed = cnState.fxEdit ? remits.find(r => r.id === cnState.fxEdit) : null;
   box.innerHTML = tiles + `
-    <div style="font-size:.88rem;font-weight:800;margin-bottom:6px;"><span style="color:#4f46e5;">①</span> 원→달러 환전 <span style="font-size:.72rem;color:#6b7280;font-weight:500;">은행 바로환전 내역 — 엑셀에서 복사해 붙여넣으면 자동으로 읽어 표에 추가돼요(같은 주문번호는 한 번만)</span></div>
+    <div style="font-size:.88rem;font-weight:800;margin-bottom:6px;"><span style="color:#4f46e5;">①</span> 원→달러 환전 <span style="font-size:.72rem;color:#6b7280;font-weight:500;">바로환전 내역 붙여넣기 · 같은 주문번호는 한 번만</span></div>
     <textarea id="cn-fx-paste" rows="3" placeholder="여기에 붙여넣으면 바로 표에 추가돼요 — 은행 환전 내역 엑셀에서 머리글 줄과 함께 복사(원주문번호	주문번호	주문상태	…)" onpaste="cnFxPasteAuto()" oninput="if (!cnState.fxSaving) cnFxPastePreview()" style="width:100%;border:1.5px solid #c7d2fe;border-radius:8px;padding:8px 10px;font-size:.78rem;font-family:monospace;"></textarea>
     <div id="cn-fx-paste-prev">${cnState.fxPasteMsg ? `<div style="font-size:.78rem;margin:6px 0;">${cnState.fxPasteMsg}</div>` : ''}</div>
     <div class="table-wrap" style="margin:8px 0 16px;"><table style="width:100%;font-size:.8rem;"><thead><tr><th style="text-align:left;">체결일시</th><th style="text-align:left;">주문번호</th><th>달러</th><th>원화</th><th>체결환율(원/달러)</th><th>송금에 쓴 것</th><th></th></tr></thead>
@@ -7521,7 +7498,7 @@ function cnFxRender() {
       <button class="toggle-btn" id="cn-rm-cancel" style="${ed ? '' : 'display:none;'}" onclick="cnRemitCancel()">취소</button></div>
     <div class="table-wrap" style="margin-bottom:16px;"><table style="width:100%;font-size:.8rem;"><thead><tr><th style="text-align:left;">송금일</th><th>보낸 달러</th><th>원/달러<div class="cn-sub">환전 선입선출</div></th><th>원화 원가</th><th>받은 위안</th><th>달러당 위안</th><th>1위안 원가</th><th>남은 위안</th><th style="text-align:left;">메모</th><th></th></tr></thead>
       <tbody>${remitRows || '<tr><td colspan="10" style="color:#6b7280;">아직 송금 기록이 없어요</td></tr>'}</tbody></table></div>
-    <div style="font-size:.88rem;font-weight:800;margin-bottom:6px;"><span style="color:#4f46e5;">③</span> 입고별 위안 사용 <span style="font-size:.72rem;color:#6b7280;font-weight:500;">중국 출고일 순으로 위안 통장에서 꺼내 써요(선입선출)</span></div>
+    <div style="font-size:.88rem;font-weight:800;margin-bottom:6px;"><span style="color:#4f46e5;">③</span> 입고별 위안 사용 <span style="font-size:.72rem;color:#6b7280;font-weight:500;">출고일 순 선입선출</span></div>
     <div class="table-wrap"><table style="width:100%;font-size:.8rem;"><thead><tr><th style="text-align:left;">입고</th><th>물건값</th><th>출고 서류 총 합계</th><th style="text-align:left;">꺼내 쓴 송금</th><th>1위안 원가</th><th>물건값 1위안당<div class="cn-sub">1위안 원가 × 총 합계 ÷ 물건값</div></th><th>들여오는 비용<div class="cn-sub">÷ 물건값 원화</div></th><th>실질 단가 계수<div class="cn-sub">단가(위안) × 이 값</div></th></tr></thead>
       <tbody>${shipRows || '<tr><td colspan="8" style="color:#6b7280;">입고 건이 없어요</td></tr>'}</tbody></table></div>`;
 }
@@ -7799,7 +7776,7 @@ function cnFlowOpen(sname) {
   const th = 'style="text-align:right;padding:4px 6px;font-size:.7rem;color:#6b7280;font-weight:700;border-bottom:1px solid #e5e7eb;white-space:nowrap;"';
   const td = 'style="text-align:right;padding:4px 6px;border-bottom:1px solid #f3f4f6;"';
   const swaps = cnSwapsOf(sname);
-  $('cn-flow-body').innerHTML = !opts.length ? '<div class="empty-state"><p>주문서·출고 서류에 이 상품이 없어요.</p></div>' : `<div style="font-size:.76rem;color:#6b7280;margin-bottom:10px;line-height:1.6;">출고 서류마다 <b>그날까지의 주문 − 출고 누적 − 미출고 = 차이</b>(0이면 맞음). 주문서·출고 서류·폐기를 날짜순으로 보여 줘요.</div>`
+  $('cn-flow-body').innerHTML = !opts.length ? '<div class="empty-state"><p>주문서·출고 서류에 이 상품이 없어요.</p></div>' : `<div style="font-size:.76rem;color:#6b7280;margin-bottom:10px;line-height:1.6;">출고 서류마다 <b>주문 − 출고 누적 − 미출고 = 차이</b> (0 = 맞음)</div>`
     + (swaps.length ? `<div style="border:1.5px solid #fdba74;background:#fff7ed;border-radius:12px;padding:10px 12px;margin-bottom:10px;font-size:.8rem;color:#7c2d12;line-height:1.6;"><b><i class="fa-solid fa-shuffle"></i> 옵션이 바뀌어 나간 것 같아요</b> — ${swaps.map(p => `<b>${escHtml(cnOptName(p.short))}</b> ${fmt(p.n)}장 대신 <b>${escHtml(cnOptName(p.over))}</b> ${fmt(p.n)}장`).join(', ')}. 총 수량은 맞아요.${canEdit ? ` <button class="toggle-btn" style="font-size:.74rem;padding:3px 10px;margin-left:6px;" data-s="${escHtml(sname)}" onclick="cnSwapFix(this.dataset.s)"><i class="fa-solid fa-check"></i> 바뀜으로 정리</button><div style="font-size:.72rem;color:#9a3412;">덜 온 옵션은 폐기, 더 온 옵션은 초과 인정으로 기록돼요 — 미송·'주문보다 더 출고'에서 빠지고 되돌릴 수 있어요.</div>` : ''}</div>` : '')
     + opts.map(e => {
     const evs = [...e.orders.map(o => ({ date: o.date || '', kind: 'o', o })), ...e.rows.map(r => ({ date: r.ship.ship_date || '9999-12-31', kind: 's', r })), ...cnDiscList(e.k).map(x => ({ date: String(x.created_at || '').slice(0, 10), kind: 'd', x }))]
@@ -8076,7 +8053,7 @@ function cnMisongRender() {
   if (cnMisong.loading && !cnMisong.files) { head.innerHTML = ''; body.innerHTML = '<div class="empty-state"><p><i class="fa-solid fa-spinner fa-spin"></i> 불러오는 중…</p></div>'; return; }
   if (cnMisong.err) { head.innerHTML = upBtn; body.innerHTML = `<div class="empty-state"><p style="color:#b91c1c;">불러오지 못했어요 — ${escHtml(cnMisong.err)}</p></div>`; return; }
   const files = cnMisong.files || [];
-  if (!files.length) { head.innerHTML = `<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">${upBtn}<span style="font-size:.8rem;color:#6b7280;">중국에서 받은 미송 엑셀을 올리면 품번별 미송 수량과 입고 날짜가 보여요. 단가·합계는 읽지 않아요.</span></div>`; body.innerHTML = '<div class="empty-state"><p>아직 올린 미송 엑셀이 없어요.</p></div>'; return; }
+  if (!files.length) { head.innerHTML = `<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">${upBtn}<span style="font-size:.8rem;color:#6b7280;">미송 엑셀을 올리면 품번별 미송 수량·입고 날짜가 보여요</span></div>`; body.innerHTML = '<div class="empty-state"><p>아직 올린 미송 엑셀이 없어요.</p></div>'; return; }
   const vi = Math.min(cnMisong.view, files.length - 1), f = files[vi], base = f.base_date;
   const up = f.uploaded_at ? new Date(f.uploaded_at) : null;
   const upTxt = up ? `${up.toLocaleDateString('sv-SE')} ${String(up.getHours()).padStart(2, '0')}:${String(up.getMinutes()).padStart(2, '0')}` : '';
@@ -8106,7 +8083,7 @@ function cnMisongRender() {
       <div style="border:1.5px solid #e5e7eb;background:#fff;border-radius:12px;padding:10px 14px;min-width:170px;"><div style="font-size:.72rem;color:#6b7280;font-weight:700;">엑셀 업로드</div><div style="font-size:1rem;font-weight:800;color:#1e1b4b;">${escHtml(upTxt)}</div><div style="font-size:.7rem;color:#6b7280;">${escHtml(f.uploaded_by_name || '')} · ${escHtml(f.file_name || '')}</div></div>
       <div style="border:1.5px solid #e5e7eb;background:#fff;border-radius:12px;padding:10px 14px;min-width:150px;"><div style="font-size:.72rem;color:#6b7280;font-weight:700;">미송 합계</div><div style="font-size:1.15rem;font-weight:900;color:#1e1b4b;">${fmt(nQty)}장</div><div style="font-size:.7rem;color:#6b7280;">품번 ${nSn}개 · 옵션 ${nOpt}개</div></div>
     </div>
-    <div style="font-size:.78rem;font-weight:800;color:#1e1b4b;margin-bottom:5px;"><i class="fa-regular fa-calendar"></i> 물류공장 입고 일정 → 한국 도착 예상 <span style="font-weight:500;color:#6b7280;">(입고 = 기준일 + 엑셀 I열의 '내일'·'N일' · 한국 도착 = 입고 + ${CNM_KR_DAYS}일, 주말·공휴일이면 다음 날)</span></div>
+    <div style="font-size:.78rem;font-weight:800;color:#1e1b4b;margin-bottom:5px;"><i class="fa-regular fa-calendar"></i> 물류공장 입고 일정 → 한국 도착 예상 <span style="font-weight:500;color:#6b7280;">(입고 = 기준일 + I열 · 도착 = 입고 + ${CNM_KR_DAYS}일)</span></div>
     <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px;">${dateChips || '<span style="font-size:.78rem;color:#6b7280;">일정이 적힌 항목이 없어요</span>'}</div>
     ${checks.length ? `<div style="border:1.5px solid #fde68a;background:#fffbeb;border-radius:10px;padding:8px 12px;font-size:.76rem;color:#92400e;margin-bottom:8px;"><b><i class="fa-solid fa-triangle-exclamation"></i> 엑셀에서 확인해 볼 줄</b><br>${checks.map(escHtml).join('<br>')}</div>` : ''}`;
   let html = `<div class="table-wrap"><table class="cnm-tbl" style="width:100%;font-size:.8rem;"><thead><tr><th style="width:64px;">사진</th><th style="text-align:left;">품번 · 쇼핑몰 상품명</th><th style="text-align:left;">색상</th><th>사이즈</th><th>미송 수량</th><th style="text-align:left;">물류공장 입고 예정</th><th style="text-align:left;">한국 도착 예상</th></tr></thead><tbody>`;
