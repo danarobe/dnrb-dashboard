@@ -17445,6 +17445,12 @@ function wmPayWeekHtml(ym) {
 }
 // 주별 지급액(2026-11-05 사용자 요청 "주급인 사람은 주마다 얼마가 지급돼야 하는지") — 서버 salary_all의 weeklyPay.
 //   월요일마다 바로 전 주(월~일) 근무분 = 기본급 + 주휴수당 + 식대(급여 계산과 같은 함수로 그 주만 계산), 교통비(월 고정)는 그 달 마지막 월요일에.
+//   3.3% 공제(2026-11-09 사용자 요청 "다른 알바와 같은 서식으로") — 명세서(wmSlipHtml)·엑셀(wmExportSalary)과 같은 식을 주마다:
+//   소득세 = 세전×3%, 지방소득세 = 세전×0.3%, 각각 10원 미만 버림, 실지급 = 세전 − 둘. 화면 계산만(서버 salary.ts·월 금액은 그대로).
+function wmTax33(v) {
+  const tax = Math.floor((v || 0) * 0.03 / 10) * 10, local = Math.floor((v || 0) * 0.003 / 10) * 10;
+  return { tax, local, net: (v || 0) - tax - local };
+}
 function wmWeeklyPayHtml(r) {
   const wp = r.weeklyPay, md = d => `${Number(d.slice(5, 7))}/${Number(d.slice(8))}`;
   const wd = d => '일월화수목금토'[new Date(d + 'T00:00:00Z').getUTCDay()];
@@ -17457,13 +17463,17 @@ function wmWeeklyPayHtml(r) {
       <td style="text-align:left;white-space:nowrap;">${md(d.week_start)}(${wd(d.week_start)}) ~ ${md(d.week_end)}(${wd(d.week_end)})</td>
       <td>${d.hours ? d.hours + '시간' : '<span style="color:#6b7280;">—</span>'}</td><td>${cell(d.base)}</td><td>${cell(d.holiday)}</td>
       <td>${d.meal ? fmt(d.meal) + '원 <span style="font-size:.68rem;color:#6b7280;">(' + d.meal_days + '일)</span>' : '<span style="color:#6b7280;">—</span>'}</td><td>${cell(d.transport)}</td>
-      <td style="font-weight:800;color:#0f766e;">${fmt(d.total)}원</td></tr>`;
+      <td style="font-weight:600;">${fmt(d.total)}원</td>
+      <td style="color:#dc2626;">${d.total ? '−' + fmt(wmTax33(d.total).tax) + '원' : '<span style="color:#6b7280;">—</span>'}</td>
+      <td style="color:#dc2626;">${d.total ? '−' + fmt(wmTax33(d.total).local) + '원' : '<span style="color:#6b7280;">—</span>'}</td>
+      <td style="font-weight:800;color:#0f766e;">${fmt(wmTax33(d.total).net)}원</td></tr>`;
   }).join('');
+  const st = wp.paydays.reduce((a, d) => { const x = wmTax33(d.total); return { tax: a.tax + x.tax, local: a.local + x.local, net: a.net + x.net }; }, { tax: 0, local: 0, net: 0 });
   const diff = wp.sum - (r.totalPay || 0);
-  return `<div style="font-weight:800;color:#0f766e;margin-bottom:4px;"><i class="fa-solid fa-calendar-week"></i> ${escHtml(r.employee.name)} 주별 지급액 <span style="font-weight:500;color:#4b5563;font-size:.74rem;">— 월요일마다 바로 전 주(월~일) 근무분 · 기본급 + 주휴수당 + 식대 · 교통비(월 고정)는 마지막 월요일에</span></div>
-    <table style="width:auto;min-width:560px;font-size:.78rem;background:#fff;border-radius:8px;"><thead><tr><th style="text-align:left;">지급일</th><th style="text-align:left;">근무한 주</th><th>근무시간</th><th>기본급</th><th>주휴수당</th><th>식대</th><th>교통비</th><th>지급액</th></tr></thead>
-    <tbody>${rows}<tr style="background:#f0fdfa;"><td colspan="7" style="text-align:right;font-weight:700;">이 달 월요일 지급 합계</td><td style="font-weight:800;color:#0f766e;">${fmt(wp.sum)}원</td></tr></tbody></table>
-    ${diff ? `<div style="font-size:.72rem;color:#b45309;margin-top:5px;">월 급여 계산(총 지급액 ${fmt(r.totalPay)}원)과 ${fmt(Math.abs(diff))}원 ${diff > 0 ? '많아요' : '적어요'} — 월 계산은 달 안의 근무만 세고, 주별은 달을 넘는 주(예: 첫 월요일의 전 주)를 통째로 월요일에 줘서 생기는 차이예요. 달이 바뀌어도 사람에게 가는 돈의 합은 같아요(반올림 몇 원 차이 제외).</div>` : ''}`;
+  return `<div style="font-weight:800;color:#0f766e;margin-bottom:4px;"><i class="fa-solid fa-calendar-week"></i> ${escHtml(r.employee.name)} 주별 지급액 <span style="font-weight:500;color:#4b5563;font-size:.74rem;">— 월요일마다 바로 전 주(월~일) 근무분 · 기본급 + 주휴수당 + 식대 · 교통비(월 고정)는 마지막 월요일에 · 3.3% 공제(소득세 3%·지방소득세 0.3%, 10원 미만 버림) 후 실지급액을 보내요</span></div>
+    <table style="width:auto;min-width:820px;font-size:.78rem;background:#fff;border-radius:8px;"><thead><tr><th style="text-align:left;">지급일</th><th style="text-align:left;">근무한 주</th><th>근무시간</th><th>기본급</th><th>주휴수당</th><th>식대</th><th>교통비</th><th>세전 지급액</th><th>소득세 3%</th><th>지방소득세 0.3%</th><th>실지급액</th></tr></thead>
+    <tbody>${rows}<tr style="background:#f0fdfa;"><td colspan="7" style="text-align:right;font-weight:700;">이 달 월요일 지급 합계</td><td style="font-weight:700;">${fmt(wp.sum)}원</td><td style="color:#dc2626;font-weight:700;">−${fmt(st.tax)}원</td><td style="color:#dc2626;font-weight:700;">−${fmt(st.local)}원</td><td style="font-weight:800;color:#0f766e;">${fmt(st.net)}원</td></tr></tbody></table>
+    ${diff ? `<div style="font-size:.72rem;color:#b45309;margin-top:5px;">월 급여 계산(세전 총 지급액 ${fmt(r.totalPay)}원)과 세전 기준 ${fmt(Math.abs(diff))}원 ${diff > 0 ? '많아요' : '적어요'} — 월 계산은 달 안의 근무만 세고, 주별은 달을 넘는 주(예: 첫 월요일의 전 주)를 통째로 월요일에 줘서 생기는 차이예요. 달이 바뀌어도 사람에게 가는 돈의 합은 같아요(반올림 몇 원 차이 제외).</div>` : ''}`;
 }
 function wmWpToggle(i) {
   const tr = $('wm-wp-' + i), btn = $('wm-wp-btn-' + i); if (!tr) return;
