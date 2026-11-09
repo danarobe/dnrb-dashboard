@@ -2238,7 +2238,7 @@ Deno.serve(async (req) => {
     //   cn_vendor POST — 사입상품명별 거래처명 수동 입력 (관리자·MD, 2026-10-01 — 입고 건 단위가 아니라 상품마다)
     //   cn_thumbs POST {get:[사입상품명…]} — 그 상품들의 작은 사진(전원, 한 번에 200개 — 화면에 보이는 것만 받게)
     //             POST {thumbs:{사입상품명:dataURL}} — 사진 저장(관리자·MD, 상품당 1장 — 같은 이름은 덮어씀). 목록과 따로 불러 표를 늦추지 않는다 (2026-10-02)
-    if (action === "cn_list" || action === "cn_upload" || action === "cn_check" || action === "cn_ship" || action === "cn_vendor" || action === "cn_line" || action === "cn_fabric" || action === "cn_remark" || action === "cn_label" || action === "cn_c24find" || action === "cn_c24set" || action === "cn_export" || action === "cn_thumbs" || action === "cn_order_upload" || action === "cn_order" || action === "cn_inactive" || action === "cn_manual_ship" || action === "cn_fx_buy_add" || action === "cn_fx_buy_del" || action === "cn_remit_save" || action === "cn_remit_del" || action === "cn_doc_save" || action === "cn_discard" || action === "cn_discard_del" || action === "cn_defect" || action === "cn_defect_del" || action === "cn_gap" || action === "cn_cellmap" || action === "cn_misong_list" || action === "cn_misong_upload" || action === "cn_misong_set" || action === "cn_misong_basis") {
+    if (action === "cn_list" || action === "cn_upload" || action === "cn_check" || action === "cn_ship" || action === "cn_vendor" || action === "cn_line" || action === "cn_fabric" || action === "cn_remark" || action === "cn_label" || action === "cn_c24find" || action === "cn_c24set" || action === "cn_export" || action === "cn_thumbs" || action === "cn_order_upload" || action === "cn_order_reserve" || action === "cn_order" || action === "cn_inactive" || action === "cn_manual_ship" || action === "cn_fx_buy_add" || action === "cn_fx_buy_del" || action === "cn_remit_save" || action === "cn_remit_del" || action === "cn_doc_save" || action === "cn_discard" || action === "cn_discard_del" || action === "cn_defect" || action === "cn_defect_del" || action === "cn_gap" || action === "cn_cellmap" || action === "cn_misong_list" || action === "cn_misong_upload" || action === "cn_misong_set" || action === "cn_misong_basis") {
       // 관리자 + MD + 물류팀. **CS팀은 볼 필요 없음(2026-10-02 사용자 지정)** — 서버 역할은 logistics→cs로 합쳐져 있어 원래 역할을 다시 본다(soldoutRoleOk와 같은 방식)
       // 미송 확인 목록만 CS팀에도 열림(2026-10-26 사용자 요청 — "미송 확인은 물류팀과 CS팀도") — 그 밖의 중국 사입 자료는 그대로 CS 제외
       // 물류팀도 서버 역할은 cs라 원래 역할을 다시 읽는다(soldoutRoleOk) — 진짜 CS팀만 '보기 전용'
@@ -2433,7 +2433,19 @@ Deno.serve(async (req) => {
         return rows.length;
       };
       // ── 주문서 (2026-10-19 다시 — 사용자 요청 "언제 얼마나 주문했는지 보이게"). 품번·색상·사이즈·수량만 저장(단가 없음) ──
-      // 올리기: { title, order_date?, note?, file_name?, lines:[{sname,color?,size?,qty,sheet?}], ship_ids:[이 주문서의 입고 건], thumbs? } — 관리자·MD
+      // 주문 일자만 먼저 등록(2026-11-08 사용자 요청 — "주문한 걸 까먹지 않게"): { order_date, title?, note? } — 관리자·MD.
+      //   옵션 줄 없는 주문서 한 건을 만든다 → 화면에 '주문서 업로드 필요'. 나중에 cn_order_upload {id}로 그 주문서에 파일 내용을 채운다.
+      if (action === "cn_order_reserve") {
+        if (!canEdit) return json({ error: "주문 등록은 관리자·MD만 할 수 있어요" }, 403);
+        const od = dateOrNull(b.order_date);
+        if (!od || Number.isNaN(Date.parse(od + "T00:00:00Z"))) return json({ error: "주문 일자를 골라 주세요" }, 400);
+        const title = txt(b.title, 100) || `${od.slice(5)} 주문`;
+        const [order] = await sbRest("cn_orders", { method: "POST", body: JSON.stringify({
+          title, order_date: od, file_name: null, note: txt(b.note, 300), created_by: authed.id, created_by_name: authed.name,
+        }) }) as Record<string, any>[];
+        return json({ ok: true, order });
+      }
+      // 올리기: { id?(일자만 등록한 주문서에 채울 때), title, order_date?, note?, file_name?, lines:[{sname,color?,size?,qty,sheet?}], ship_ids:[이 주문서의 입고 건], thumbs? } — 관리자·MD
       if (action === "cn_order_upload") {
         if (!canEdit) return json({ error: "주문서 올리기는 관리자·MD만 할 수 있어요" }, 403);
         const title = txt(b.title, 100);
@@ -2449,14 +2461,30 @@ Deno.serve(async (req) => {
           if (!sname || Number.isNaN(qty)) return json({ error: `${i + 1}번째 줄 값이 올바르지 않아요 (품번·수량 확인)` }, 400);
           rows.push({ seq: i, sheet: txt(r.sheet, 60), sname, color: txt(r.color, 60), size: txt(r.size, 40), qty });
         }
-        const [order] = await sbRest("cn_orders", { method: "POST", body: JSON.stringify({
-          title, order_date: dateOrNull(b.order_date), file_name: txt(b.file_name, 200), note: txt(b.note, 300), created_by: authed.id, created_by_name: authed.name,
-        }) }) as Record<string, any>[];
-        try {
-          await sbRest("cn_order_lines", { method: "POST", headers: { Prefer: "return=minimal" }, body: JSON.stringify(rows.map((r) => ({ ...r, order_id: order.id }))) });
-        } catch (e) {
-          await sbRest(`cn_orders?id=eq.${order.id}`, { method: "DELETE", headers: { Prefer: "return=minimal" } }).catch(() => null);   // 줄 저장 실패 → 빈 주문서를 남기지 않는다
-          return json({ error: "저장하지 못했어요 — " + String(e).slice(0, 150) }, 500);
+        let order: Record<string, any>;
+        if (b.id != null && b.id !== "") {
+          // 일자만 등록해 둔 주문서에 채우기 — 그 주문서가 아직 비어 있을 때만(이미 올린 주문서를 덮어쓰지 않게)
+          const oid = await orderIdOrNull(b.id);
+          if (oid === null) return json({ error: "일자만 등록한 주문을 찾지 못했어요 — 새로고침해 주세요" }, 404);
+          const has = ((await sbRest(`cn_order_lines?order_id=eq.${oid}&select=id&limit=1`)) ?? []) as unknown[];
+          if (has.length) return json({ error: "이 주문에는 이미 주문서가 올라가 있어요 — 새로고침해 주세요" }, 409);
+          try {
+            await sbRest("cn_order_lines", { method: "POST", headers: { Prefer: "return=minimal" }, body: JSON.stringify(rows.map((r) => ({ ...r, order_id: oid }))) });
+          } catch (e) { return json({ error: "저장하지 못했어요 — " + String(e).slice(0, 150) }, 500); }
+          const patch: Record<string, unknown> = { title, file_name: txt(b.file_name, 200) || "(파일 이름 없음)" };
+          const od = dateOrNull(b.order_date); if (od) patch.order_date = od;
+          if (txt(b.note, 300)) patch.note = txt(b.note, 300);
+          [order] = await sbRest(`cn_orders?id=eq.${oid}`, { method: "PATCH", body: JSON.stringify(patch) }) as Record<string, any>[];
+        } else {
+          [order] = await sbRest("cn_orders", { method: "POST", body: JSON.stringify({
+            title, order_date: dateOrNull(b.order_date), file_name: txt(b.file_name, 200), note: txt(b.note, 300), created_by: authed.id, created_by_name: authed.name,
+          }) }) as Record<string, any>[];
+          try {
+            await sbRest("cn_order_lines", { method: "POST", headers: { Prefer: "return=minimal" }, body: JSON.stringify(rows.map((r) => ({ ...r, order_id: order.id }))) });
+          } catch (e) {
+            await sbRest(`cn_orders?id=eq.${order.id}`, { method: "DELETE", headers: { Prefer: "return=minimal" } }).catch(() => null);   // 줄 저장 실패 → 빈 주문서를 남기지 않는다
+            return json({ error: "저장하지 못했어요 — " + String(e).slice(0, 150) }, 500);
+          }
         }
         let linked = 0;
         if (ids.length) linked = (((await sbRest(`cn_shipments?id=in.(${ids.join(",")})`, { method: "PATCH", body: JSON.stringify({ order_id: order.id }) })) ?? []) as unknown[]).length;

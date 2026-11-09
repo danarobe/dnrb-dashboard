@@ -1624,7 +1624,8 @@
       <div id="cn-pane-order" class="cn-pane" style="display:none;">
         <div style="font-size:.8rem;color:#6b7280;margin-bottom:10px;line-height:1.7;">
           · 올린 <b>주문서</b> 목록이에요. 입고 검수·상품별 현황의 <b>주문</b> = 모든 주문서에서 같은 품번·색상·사이즈의 수량을 더한 값, <b>잔여</b> = 주문 − 중국출고.<br>
-          · 새 주문서는 위의 <b>[주문서 올리기]</b>로 올려요(품번 A · 그림 B · 색상 C · 사이즈 D · 수량 E열, 수량 <b>−1</b>은 그만큼 취소). 주문서마다 <b>▸ 옵션 보기</b>로 담긴 수량을 확인할 수 있어요.
+          · 새 주문서는 위의 <b>[주문서 올리기]</b>로 올려요(품번 A · 그림 B · 색상 C · 사이즈 D · 수량 E열, 수량 <b>−1</b>은 그만큼 취소). 주문서마다 <b>▸ 옵션 보기</b>로 담긴 수량을 확인할 수 있어요.<br>
+          · 주문서 파일이 아직 없으면 <b>주문 일자만 먼저 등록</b>해 두세요 — <b style="color:#dc2626;">주문서 업로드 필요</b>로 남아 있다가 파일을 올리면 없어져요.
         </div>
         <div id="cn-order-body"></div>
       </div>
@@ -5939,7 +5940,7 @@ function unshipSmLine() {
    서버 cafe24-analytics cn_list / cn_upload / cn_check / cn_ship. 단가·비용은 관리자만(2026-10-02 — 서버가 MD·물류팀 응답에서 뺀다). CS팀은 메뉴 자체가 없음. 엑셀 올리기·입고 건 수정·삭제도 관리자·MD. */
 const CN_TABS_FX = ['fx', '원>달러>위안 환전', null, 'fa-solid fa-money-bill-transfer'];   // 2026-10-22 — 관리자만(can_price)
 const CN_TABS = [['check', '입고 검수', null, 'fa-solid fa-clipboard-check'], ['prod', '상품별 현황', null, 'fa-solid fa-layer-group'], ['pend', '미송 점검', null, 'fa-solid fa-hourglass-half'], ['defect', '불량 기록', null, 'fa-solid fa-triangle-exclamation'], ['misong', '미송 확인', null, 'fa-solid fa-truck-ramp-box'], ['order', '주문서', null, 'fa-solid fa-file-signature'], ['buy', '주문하기', null, 'fa-solid fa-cart-plus'], ['cost', '입고 비용', null, 'fa-solid fa-coins']];   // 주문하기 = 2026-10-20 사용자 요청(수량을 적으면 주문서 양식 엑셀로)   // 주문서 탭 = 2026-10-19 사용자 요청('전체' 보기 아래에 늘어서던 주문서 목록을 따로)
-const cnTabs = () => cnCsOnly() ? CN_TABS.filter(t => t[0] === 'check' || t[0] === 'misong') : [...CN_TABS, CN_TABS_FX].filter(t => (t[0] !== 'cost' || !cnState.data || cnState.data.can_price) && (t[0] !== 'fx' || (cnState.data && cnState.data.can_price)) && (t[0] !== 'buy' || !cnState.data || cnState.data.can_edit) && (t[0] !== 'order' || !cnState.data || cnState.data.can_edit));   // 물류팀 = 입고 검수·상품별 현황만(2026-10-22 — 주문서·주문하기·입고 비용·환전 숨김)   // 입고 비용 = 관리자만, 주문하기 = 관리자·MD
+const cnTabs = () => cnCsOnly() ? CN_TABS.filter(t => t[0] === 'check' || t[0] === 'misong') : [...CN_TABS, CN_TABS_FX].map(t => { const n = t[0] === 'order' ? cnOrderPendingList().length : 0; return n ? [t[0], t[1], `<span style="color:#dc2626;">업로드 필요 ${n}</span>`, t[3]] : t; }).filter(t => (t[0] !== 'cost' || !cnState.data || cnState.data.can_price) && (t[0] !== 'fx' || (cnState.data && cnState.data.can_price)) && (t[0] !== 'buy' || !cnState.data || cnState.data.can_edit) && (t[0] !== 'order' || !cnState.data || cnState.data.can_edit));   // 물류팀 = 입고 검수·상품별 현황만(2026-10-22 — 주문서·주문하기·입고 비용·환전 숨김)   // 입고 비용 = 관리자만, 주문하기 = 관리자·MD
 const cnState = { data: null, loading: false, tab: 'check', shipId: 'all', costShipId: null, filter: 'all', prodFilter: 'all', pendFilter: 'pend', pendCmp: null, lineFilter: 'all', pending: null, sales: null, salesLoading: false, open: { check: new Set(), prod: new Set() }, thumbs: {}, thumbAsked: new Set(), thumbWant: [], thumbT: null, thumbScroll: false };
 function cnTabRender() { const k = cnState.tab; if (k === 'misong') cnMisongRender(); else if (k === 'pend') cnPendRender(); else if (k === 'defect') cnDefRender(); else if (k === 'check') cnCheckRender(); else if (k === 'cost') cnCostRender(); else if (k === 'fx') cnFxRender(); else if (k === 'order') cnOrderTabRender(); else if (k === 'buy') cnBuyRender(); else { cnProdRender(); cnSalesLoad(); } }
 function cnInit() { cnSetTab(cnState.tab); if (!cnState.data && !cnState.loading) cnLoad(false); }   // CS팀도 입고 검수를 보므로 목록을 읽는다(2026-11-05)
@@ -6349,13 +6350,55 @@ async function cnShipOrderSet(id, sel) {   // 입고 건 ↔ 주문서 연결 �
   try { const r = await cnPost('cn_ship', { id, order_id: v }); const x = (cnState.data.ships || []).find(s => s.id === id); if (x) Object.assign(x, r.shipment || { order_id: v }); cnState._oc = null; cnCheckRender(); showToast(v ? '주문서에 연결했어요' : '주문서 연결을 끊었어요'); }
   catch (e) { showToast('저장 실패: ' + e.message); cnCheckRender(); }
 }
+// 주문 일자만 먼저 등록(2026-11-08 사용자 요청 — "주문한 걸 까먹지 않게"): 옵션 줄도 파일도 없는 주문서 = '주문서 업로드 필요'
+function cnOrderPendingList() {
+  const d = cnState.data || {}, has = new Set((d.order_lines || []).map(x => x.order_id));
+  return (d.orders || []).filter(o => !has.has(o.id) && !o.file_name).sort((a, b) => String(a.order_date || '').localeCompare(String(b.order_date || '')) || a.id - b.id);
+}
+const cnKstToday = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(new Date());
+async function cnOrderReserve() {
+  const date = ($('cn-ordr-date') || {}).value || '', title = (($('cn-ordr-title') || {}).value || '').trim(), note = (($('cn-ordr-note') || {}).value || '').trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) { showToast('주문 일자를 골라 주세요'); return; }
+  const same = cnOrderPendingList().filter(o => o.order_date === date);
+  if (same.length && !confirm(`${date}에 일자만 등록한 주문이 이미 ${same.length}건 있어요 ("${same[0].title}").\n그래도 하나 더 등록할까요?`)) return;
+  const btn = $('cn-ordr-btn'); if (btn) btn.disabled = true;
+  try {
+    const r = await cnPost('cn_order_reserve', { order_date: date, title, note });
+    showToast(`${date} 주문을 등록했어요 — 주문서를 받으면 그 줄의 [주문서 올리기]로 올려 주세요`);
+    cnState.loading = false; await cnLoad(true); cnSetTab('order');
+  } catch (e) { if (btn) btn.disabled = false; showToast('등록 실패: ' + e.message); }
+}
+function cnOrderReserveHtml() {
+  const inp = (id, label, val, ph, type, w) => `<label style="font-size:.74rem;color:#4b5563;font-weight:600;flex:${w || '1 1 150px'};">${label}<input id="${id}" type="${type || 'text'}" value="${escHtml(val || '')}" placeholder="${ph || ''}" style="display:block;margin-top:3px;border:1.5px solid #d1d5db;border-radius:8px;padding:6px 10px;font-size:.82rem;width:100%;box-sizing:border-box;" /></label>`;
+  return `<div style="border:1.5px solid #e5e7eb;background:#fff;border-radius:12px;padding:12px 14px;margin-bottom:12px;">
+    <div style="font-size:.84rem;font-weight:800;color:#1e1b4b;margin-bottom:4px;"><i class="fa-solid fa-calendar-plus" style="color:#4f46e5;"></i> 주문 일자만 먼저 등록</div>
+    <div style="font-size:.76rem;color:#6b7280;margin-bottom:8px;">주문서 파일이 아직 없을 때 주문한 날짜만 적어 두세요. 목록에 <b style="color:#dc2626;">주문서 업로드 필요</b>로 남아 있다가, 파일을 받으면 그 줄의 <b>[주문서 올리기]</b>로 올리면 돼요.</div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;">
+      ${inp('cn-ordr-date', '주문 일자', cnKstToday(), '', 'date', '0 0 160px')}${inp('cn-ordr-title', '이름 (비워도 돼요)', '', '예: 광저우 니트 주문')}${inp('cn-ordr-note', '메모', '', '예: 거래처·품번')}
+      <button class="toggle-btn" id="cn-ordr-btn" style="background:#4f46e5;color:#fff;border-color:#4f46e5;height:34px;" onclick="cnOrderReserve()"><i class="fa-solid fa-calendar-check"></i> 일자만 등록</button>
+    </div></div>`;
+}
+function cnOrderPendingHtml(o, canEdit) {
+  const by = o.created_by_name ? ` · ${escHtml(o.created_by_name)} 등록` : '';
+  return `<div style="border:1.5px solid #fca5a5;background:#fef2f2;border-radius:10px;padding:9px 12px;font-size:.8rem;display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+    <i class="fa-solid fa-triangle-exclamation" style="color:#dc2626;"></i><b style="color:#7f1d1d;">${escHtml(o.title)}</b>
+    <span style="background:#dc2626;color:#fff;border-radius:999px;padding:1px 9px;font-size:.7rem;font-weight:800;">주문서 업로드 필요</span>
+    <span class="cn-sub" style="display:inline;">${o.order_date ? `주문일 <b>${escHtml(o.order_date)}</b>` : '주문일 미입력'}${by}${o.note ? ` · ${escHtml(o.note)}` : ''}</span>
+    ${canEdit ? `<span style="margin-left:auto;display:flex;gap:6px;flex-wrap:wrap;"><label class="toggle-btn" style="font-size:.7rem;padding:2px 9px;cursor:pointer;background:#dc2626;color:#fff;border-color:#dc2626;"><i class="fa-solid fa-file-arrow-up"></i> 주문서 올리기<input type="file" accept=".xlsx,.xls" style="display:none;" onchange="cnOrderPick(this, ${o.id})" /></label><button class="toggle-btn" style="font-size:.7rem;padding:2px 9px;" onclick="cnOrderEditOpen(${o.id})"><i class="fa-solid fa-pen"></i> 정보 수정</button><button class="toggle-btn" style="font-size:.7rem;padding:2px 9px;color:#dc2626;" onclick="cnOrderDelete(${o.id})">삭제</button></span>` : ''}
+  </div>`;
+}
 function cnOrderTabRender() {   // '주문서' 탭 — 주문일 최근 순, 주문서마다 옵션 목록 펼쳐 보기
-  const d = cnState.data || {}, orders = (d.orders || []).slice(), canEdit = !!d.can_edit, box = $('cn-order-body');
+  const d = cnState.data || {}, canEdit = !!d.can_edit, box = $('cn-order-body');
   if (!box) return;
-  if (!orders.length) { box.innerHTML = `<div class="empty-state"><p>올린 주문서가 없어요${canEdit ? ' — 위의 <b>[주문서 올리기]</b>로 올리면 입고 검수·상품별 현황에 주문·잔여가 채워져요' : ''}.</p></div>`; return; }
+  const pend = cnOrderPendingList(), pendIds = new Set(pend.map(o => o.id));
+  const orders = (d.orders || []).filter(o => !pendIds.has(o.id));
+  const top = (canEdit ? cnOrderReserveHtml() : '') + (pend.length ? `<div style="margin-bottom:12px;">
+      <div style="font-size:.84rem;font-weight:800;color:#b91c1c;margin-bottom:6px;"><i class="fa-solid fa-bell"></i> 주문서 업로드 필요 ${fmt(pend.length)}건 <span style="font-size:.74rem;font-weight:600;color:#6b7280;">— 일자만 등록한 주문이에요. 주문서를 올려야 주문 수량이 잡혀요.</span></div>
+      <div style="display:flex;flex-direction:column;gap:6px;">${pend.map(o => cnOrderPendingHtml(o, canEdit)).join('')}</div></div>` : '');
+  if (!orders.length) { box.innerHTML = top + `<div class="empty-state"><p>올린 주문서가 없어요${canEdit ? ' — 위의 <b>[주문서 올리기]</b>로 올리면 입고 검수·상품별 현황에 주문·잔여가 채워져요' : ''}.</p></div>`; return; }
   orders.sort((a, b) => String(b.order_date || '').localeCompare(String(a.order_date || '')) || b.id - a.id);
   const all = d.order_lines || [], tot = all.reduce((t, x) => t + x.qty, 0);
-  box.innerHTML = `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:8px;margin-bottom:12px;">${admgrTile('주문서', fmt(orders.length) + '건', false) + admgrTile('품번', fmt(new Set(all.map(x => x.sname)).size) + '개', false) + admgrTile('옵션 줄', fmt(all.length) + '줄', false) + admgrTile('주문 합계', fmt(tot) + '장', false)}</div>
+  box.innerHTML = top + `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:8px;margin-bottom:12px;">${admgrTile('주문서', fmt(orders.length) + '건', false) + admgrTile('품번', fmt(new Set(all.map(x => x.sname)).size) + '개', false) + admgrTile('옵션 줄', fmt(all.length) + '줄', false) + admgrTile('주문 합계', fmt(tot) + '장', false)}</div>
     <div style="display:flex;flex-direction:column;gap:8px;">${orders.map(o => {
       const ols = all.filter(x => x.order_id === o.id), q = ols.reduce((t, x) => t + x.qty, 0);
       return `<details style="border:1.5px solid #e0e7ff;background:#f8f9ff;border-radius:10px;padding:8px 12px;font-size:.8rem;">
@@ -6396,7 +6439,7 @@ function cnParseOrderGrid(grid) {
   }
   return { lines, skipped, headerFound: hr >= 0, rowNames };
 }
-async function cnOrderPick(input) {
+async function cnOrderPick(input, targetId) {   // targetId = 일자만 등록한 주문서 줄의 [주문서 올리기](2026-11-08)
   const file = input.files[0]; input.value = '';
   if (!file) return;
   const panel = $('cn-upload-panel');
@@ -6412,8 +6455,9 @@ async function cnOrderPick(input) {
     const lines = parts.flatMap(p => p.lines.map(l => ({ ...l, sheet: p.sheet })));
     const thumbs = {};
     for (const p of parts) { try { const t = await cnExtractThumbs(buf, XLSX, p.rowNames, p.index); for (const [k, v] of Object.entries(t)) if (!thumbs[k]) thumbs[k] = v; } catch (e2) { /* 사진은 못 꺼내도 주문서는 올린다 */ } }
-    cnState.pendingOrder = { file_name: file.name.normalize('NFC'), title: file.name.replace(/\.(xlsx|xls)$/i, '').normalize('NFC'), parts, lines, skipped: parts.flatMap(p => p.skipped.map(t => `[${p.sheet}] ${t}`)), headerFound: withHead.length > 0, thumbs };
+    cnState.pendingOrder = { target: targetId || null, file_name: file.name.normalize('NFC'), title: file.name.replace(/\.(xlsx|xls)$/i, '').normalize('NFC'), parts, lines, skipped: parts.flatMap(p => p.skipped.map(t => `[${p.sheet}] ${t}`)), headerFound: withHead.length > 0, thumbs };
     cnOrderPanelRender();
+    panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
   } catch (e) { panel.innerHTML = `<div style="border:1.5px solid #fca5a5;background:#fef2f2;border-radius:12px;padding:10px 14px;font-size:.82rem;color:#b91c1c;margin-bottom:12px;">주문서를 읽지 못했어요 — ${escHtml(e.message)}</div>`; }
 }
 function cnOrderPanelRender() {
@@ -6433,12 +6477,34 @@ function cnOrderPanelRender() {
     <details style="font-size:.76rem;margin-bottom:10px;"><summary style="cursor:pointer;color:#4f46e5;font-weight:700;">읽은 내용 미리 보기</summary>
       <div class="table-wrap" style="max-height:260px;overflow:auto;margin-top:6px;"><table style="width:100%;font-size:.76rem;"><thead><tr><th style="text-align:left;">품번</th><th style="text-align:left;">색상</th><th style="text-align:left;">사이즈</th><th>주문 수량</th></tr></thead>
       <tbody>${p.lines.map(l => `<tr><td style="text-align:left;">${escHtml(l.sname)}</td><td style="text-align:left;">${escHtml(l.color || '')}</td><td style="text-align:left;">${escHtml(l.size || '')}</td><td style="text-align:right;">${fmt(l.qty)}</td></tr>`).join('')}</tbody></table></div></details>
+    ${cnOrderTargetHtml(p)}
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;margin-bottom:10px;">
-      ${inp('cn-ord-title', '주문서 이름', p.title, '예: 9월 광저우 주문')}${inp('cn-ord-date', '주문일 (비워도 돼요)', '', '', 'date')}${inp('cn-ord-note', '메모', '', '')}
+      ${inp('cn-ord-title', '주문서 이름', p.title, '예: 9월 광저우 주문')}${inp('cn-ord-date', '주문일 (비워도 돼요)', cnOrderTargetDate(p.target), '', 'date')}${inp('cn-ord-note', '메모', '', '')}
     </div>
     <div style="display:flex;gap:8px;"><button class="toggle-btn" id="cn-ord-save" style="background:#4f46e5;color:#fff;border-color:#4f46e5;" onclick="cnOrderSave()"><i class="fa-solid fa-floppy-disk"></i> 이 내용으로 저장</button>
       <button class="toggle-btn" onclick="cnState.pendingOrder=null;cnOrderPanelRender()">취소</button></div>
   </div>`;
+}
+function cnOrderTargetDate(id) { const o = id ? cnOrderPendingList().find(x => x.id === id) : null; return o ? (o.order_date || '') : ''; }
+function cnOrderTargetHtml(p) {   // 일자만 등록한 주문이 있으면 '어느 주문의 주문서인지' 고르기(헤더 버튼으로 올려도 그 주문에 채울 수 있게)
+  const pend = cnOrderPendingList();
+  if (p.target && !pend.some(o => o.id === p.target)) p.target = null;
+  if (!pend.length) return '';
+  const opt = (v, label) => `<option value="${v}"${String(p.target || '') === String(v) ? ' selected' : ''}>${escHtml(label)}</option>`;
+  return `<div style="border:1.5px solid ${p.target ? '#86efac' : '#fcd34d'};background:${p.target ? '#f0fdf4' : '#fffbeb'};border-radius:10px;padding:8px 12px;margin-bottom:10px;font-size:.78rem;">
+    <label style="font-weight:700;color:#374151;">어느 주문의 주문서인가요?
+      <select id="cn-ord-target" onchange="cnOrderTargetPick(this.value)" style="margin-left:6px;border:1.5px solid #d1d5db;border-radius:8px;padding:4px 8px;font-size:.8rem;">
+        ${opt('', '새 주문서로 저장')}${pend.map(o => opt(o.id, `${o.order_date || '주문일 없음'} · ${o.title} (일자만 등록 — 업로드 필요)`)).join('')}
+      </select></label>
+    <div style="color:#6b7280;margin-top:4px;">${p.target ? '고른 주문에 이 파일 내용이 채워지고 <b>주문서 업로드 필요</b> 표시가 없어져요.' : `일자만 등록한 주문이 <b>${pend.length}건</b> 있어요 — 그 주문의 주문서라면 위에서 골라 주세요(안 고르면 따로 한 건 더 생기고 업로드 필요 표시는 남아요).`}</div>
+  </div>`;
+}
+function cnOrderTargetPick(v) {
+  const p = cnState.pendingOrder; if (!p) return;
+  const keep = { title: ($('cn-ord-title') || {}).value, note: ($('cn-ord-note') || {}).value };
+  p.target = v ? Number(v) : null; p.title = keep.title || p.title;
+  cnOrderPanelRender();
+  if ($('cn-ord-note')) $('cn-ord-note').value = keep.note || '';
 }
 async function cnOrderSave() {
   const p = cnState.pendingOrder; if (!p) return;
@@ -6448,9 +6514,9 @@ async function cnOrderSave() {
   if (dup && !confirm(`같은 파일 이름의 주문서가 이미 있어요 ("${dup.title}").\n그래도 새 주문서로 저장할까요?`)) return;
   const btn = $('cn-ord-save'); btn.disabled = true;
   try {
-    const r = await cnPost('cn_order_upload', { title, order_date: $('cn-ord-date').value || null, note: $('cn-ord-note').value, file_name: p.file_name, lines: p.lines, ship_ids: [], thumbs: p.thumbs || {} });
+    const r = await cnPost('cn_order_upload', Object.assign({ title, order_date: $('cn-ord-date').value || null, note: $('cn-ord-note').value, file_name: p.file_name, lines: p.lines, ship_ids: [], thumbs: p.thumbs || {} }, p.target ? { id: p.target } : {}));
     cnState.pendingOrder = null; cnOrderPanelRender();
-    showToast(`주문서 저장 완료 — 옵션 ${fmt(r.line_count)}줄 · 입고 ${fmt(r.linked)}건 연결`);
+    showToast(`주문서 저장 완료 — 옵션 ${fmt(r.line_count)}줄${p.target ? ' · 일자만 등록한 주문에 채웠어요' : ''}`);
     cnState.loading = false; await cnLoad(true); cnSetTab('order');
   } catch (e) { btn.disabled = false; showToast('저장 실패: ' + e.message); }
 }
