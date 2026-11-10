@@ -4490,7 +4490,7 @@ function cnBuyRender() {
   if (q) prods = prods.filter(p => p.sname.toLowerCase().includes(q) || p.opts.some(o => (o.color + ' ' + o.size).toLowerCase().includes(q)));
   const num = v => `<td style="text-align:right;">${v}</td>`, dash = '<span style="color:#6b7280;">—</span>';
   if (!prods.length) { $('cn-buy-list').innerHTML = `<div class="empty-state"><p>${st.only ? '수량을 적은 상품이 없어요.' : '조건에 맞는 상품이 없어요.'}</p></div>`; cnBuyBarRender(); return; }
-  let html = `<div class="table-wrap"><table class="cn-tbl" style="width:100%;font-size:.8rem;"><thead><tr><th style="text-align:left;">품번 / 옵션<div class="cn-sub">매장·위치·위챗${canPrice ? ' · 단가(위안)' : ''}</div></th><th>지금까지 주문<div class="cn-sub">모든 주문서 합</div></th><th>중국출고</th><th>잔여<div class="cn-sub">주문 − 중국출고</div></th><th style="background:#eef2ff;">이번 주문 수량</th></tr></thead><tbody>`;
+  let html = `<div class="table-wrap"><table class="cn-tbl" style="width:100%;font-size:.8rem;"><thead><tr><th style="text-align:left;">품번 / 옵션<div class="cn-sub">매장·위챗${canPrice ? ' · 단가(위안)' : ''}</div></th><th>지금까지 주문<div class="cn-sub">모든 주문서 합</div></th><th>중국출고</th><th>잔여<div class="cn-sub">주문 − 중국출고</div></th><th style="background:#eef2ff;">이번 주문 수량</th></tr></thead><tbody>`;
   for (const p of prods) {
     const info = (d.prods || {})[p.sname] || {}, sub = p.opts.reduce((t, o) => t + (st.qty[o.key] || 0), 0);
     const price = st.price[p.sname] != null ? st.price[p.sname] : p.price;
@@ -4526,13 +4526,14 @@ function cnBuyQty(el) {
   cnBuyBarRender();
 }
 function cnBuyPrice(el) { const st = cnBuyState(), v = String(el.value).trim(); if (v === '') delete st.price[el.dataset.s]; else st.price[el.dataset.s] = Number(v); cnBuySave(); cnBuyBarRender(); }
-/* 매장 · 매장 위치 · 매장 위챗(2026-11-10 사용자 요청) — 상품(cn_products)마다 저장: vendor(档口 번호) · vendor_loc(건물) · vendor_wechat.
-   매장 번호를 적으면 같은 매장 번호를 쓰는 다른 상품의 위치·위챗을 빈 칸에 채워 같이 저장한다. */
-const CN_VENDOR_F = { vendor: ['매장', '예: W-1F-10-30', 120], loc: ['위치', '예: W동', 70], wechat: ['위챗', '위챗 아이디', 140] };
+/* 매장 · 매장 위챗(2026-11-10 사용자 요청) — 상품(cn_products)마다 저장: vendor(档口 번호) · vendor_wechat.
+   '위치' 칸은 같은 날 사용자 요청으로 화면에서 뺌(DB vendor_loc·서버 loc는 남아 있지만 화면은 안 씀).
+   매장 번호를 적으면 같은 매장 번호를 쓰는 다른 상품의 위챗을 빈 칸에 채워 같이 저장한다. */
+const CN_VENDOR_F = { vendor: ['매장', '예: W-1F-10-30', 120], wechat: ['위챗', '위챗 아이디', 140] };
 function cnBuyVendorHtml(sname, info) {
   const inp = f => { const [label, ph, w] = CN_VENDOR_F[f], v = info[f] || '';
     return `<label style="display:inline-flex;align-items:center;gap:4px;">${label} <input type="text" maxlength="80" value="${escHtml(v)}" data-s="${escHtml(sname)}" data-f="${f}" data-prev="${escHtml(v)}" onchange="cnBuyVendor(this)" placeholder="${ph}" aria-label="${escHtml(sname)} ${label}" style="width:${w}px;border:1px solid #e5e7eb;border-radius:6px;padding:2px 6px;font-size:.74rem;" /></label>`; };
-  return `<span class="cn-sub cn-vendor" data-vs="${escHtml(sname)}" style="display:inline-flex;align-items:center;gap:8px;flex-wrap:wrap;">${inp('vendor')}${inp('loc')}${inp('wechat')}<button type="button" class="hr-jump" onclick="cnBuyWxCopy(this)" ${info.wechat ? '' : 'hidden'} title="위챗 아이디 복사">복사</button></span>`;
+  return `<span class="cn-sub cn-vendor" data-vs="${escHtml(sname)}" style="display:inline-flex;align-items:center;gap:8px;flex-wrap:wrap;">${inp('vendor')}${inp('wechat')}<button type="button" class="hr-jump" onclick="cnBuyWxCopy(this)" ${info.wechat ? '' : 'hidden'} title="위챗 아이디 복사">복사</button></span>`;
 }
 function cnBuyWxCopy(btn) {
   const el = btn.parentElement.querySelector('input[data-f="wechat"]'), v = el ? el.value.trim() : '';
@@ -4545,7 +4546,7 @@ async function cnBuyVendor(el) {   // 매장·위치·위챗 — 상품 정보�
   const sname = el.dataset.s, cur = d.prods[sname] || {}, body = { sname, [f]: v };
   if (f === 'vendor' && v) {   // 같은 매장 번호를 쓰는 다른 상품의 위치·위챗을 빈 칸에
     const same = Object.entries(d.prods).filter(([k, x]) => k !== sname && x && String(x.vendor || '').trim().toLowerCase() === v.toLowerCase()).map(([, x]) => x);
-    for (const k of ['loc', 'wechat']) { if (!cur[k]) { const hit = same.find(x => x[k]); if (hit) body[k] = hit[k]; } }
+    if (!cur.wechat) { const hit = same.find(x => x.wechat); if (hit) body.wechat = hit.wechat; }
   }
   try {
     const r = await cnPost('cn_vendor', body);
@@ -4553,8 +4554,7 @@ async function cnBuyVendor(el) {   // 매장·위치·위챗 — 상품 정보�
     const box = document.querySelector(`.cn-vendor[data-vs="${CSS.escape(sname)}"]`);
     if (box) { for (const k of Object.keys(CN_VENDOR_F)) { const i = box.querySelector(`input[data-f="${k}"]`); if (i) { i.value = d.prods[sname][k] || ''; i.dataset.prev = i.value; } }
       const b = box.querySelector('button'); if (b) b.hidden = !d.prods[sname].wechat; }
-    const filled = ['loc', 'wechat'].filter(k => k in body && k !== f).map(k => CN_VENDOR_F[k][0]);
-    showToast(`${CN_VENDOR_F[f][0]}${f === 'loc' ? '를' : '을'} 저장했어요${filled.length ? ` (같은 매장의 ${filled.join('·')}도 채움)` : ''}`);
+    showToast(`${CN_VENDOR_F[f][0]}을 저장했어요${f === 'vendor' && 'wechat' in body ? ' (같은 매장의 위챗도 채움)' : ''}`);
   }
   catch (e) { showToast('저장 실패: ' + e.message); el.value = el.dataset.prev; }
 }
