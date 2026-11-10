@@ -18550,6 +18550,27 @@ function hrPeriod(hire) {   // 입사일 → 오늘 "xx개월 xx일"(사용자 �
   if (anchor > t) { months--; anchor = new Date(h); anchor.setUTCMonth(anchor.getUTCMonth() + months); }
   return `${months}개월 ${Math.round((t - anchor) / 86400000)}일`;
 }
+/* 연락처·주민번호·계좌(2026-11-10 사용자 요청 "인사 명부에 계좌번호·주민번호·핸드폰번호도") — 근무자(wm_employees.phone·rrn_mask·bank_*) 값 우선,
+   없으면 알바 채용 기록(wm_hires.phone·rrn_mask·bank_name+account_mask). 주민번호는 가린 값만, [전체 보기]는 서버가 감사 로그를 남김. */
+function hrPii(p) {
+  const e = p.e, h = p.h || (e && wmHireRec[wmHireOf[e.id]]) || null;
+  const acct = e && (e.bank_name || e.bank_account) ? { text: `${e.bank_name || ''} ${e.bank_account || ''}`.trim(), holder: e.bank_holder || '', src: 'emp' }
+    : h && h.account_mask ? { text: `${h.bank_name || ''} ${h.account_mask}`.trim(), holder: h.bank_holder || '', src: 'hire' } : null;
+  return {
+    phone: (e && e.phone) || (h && h.phone) || '',
+    rrn: (e && e.rrn_mask) || (h && h.rrn_mask) || '',
+    rrnSrc: e && e.rrn_mask ? 'emp' : h && h.rrn_mask ? 'hire' : '',
+    acct, hireId: h ? h.id : null,
+  };
+}
+async function hrRrnReveal(btn, src, id) {   // 주민번호 전체 — 근무자 = wm-admin employee_reveal / 알바 채용 = wm-hire reveal (둘 다 감사 로그)
+  try {
+    const d = src === 'emp' ? await wmApi({ action: 'employee_reveal', id }) : await hireApi({ action: 'reveal', id });
+    const box = btn.closest('[data-rrn]');
+    if (box) box.querySelector('.hr-rrn-v').textContent = d.rrn || '없음';
+    btn.remove();
+  } catch (e) { showToast('주민번호를 불러오지 못했어요 — ' + e.message); }
+}
 function hrRosterRender() {
   const box = $('hr-roster'); if (!box) return;
   const emps = wmState.emps || [], users = hrState.users || [];
@@ -18583,10 +18604,13 @@ function hrRosterRender() {
     const leave = e && !pt ? `<b style="color:${(e.annual_leave_total - e.annual_used) <= 2 ? '#dc2626' : '#2563eb'};">${e.annual_leave_total - e.annual_used}</b><span style="font-size:.7rem;color:#6b7280;"> / ${e.annual_leave_total}</span>` : dash;
     const acct = u ? `<span style="font-family:ui-monospace,monospace;font-size:.76rem;">${escHtml(u.id)}</span> · ${hrRoleHtml(u)}`
       : e && !pt ? '<span style="color:#d97706;font-weight:600;">미연결</span>' : dash;
-    const pin = !e ? dash : e.pin_set_at ? '<span style="color:#16a34a;font-size:.72rem;">설정됨</span>' : '<span style="color:#6b7280;font-size:.72rem;">미설정</span>';
+    const pi = hrPii(p), mono = 'font-family:ui-monospace,monospace;font-size:.74rem;white-space:nowrap;';
+    const phone = pi.phone ? `<span style="${mono}">${escHtml(pi.phone)}</span>` : dash;
+    const rrn = pi.rrn ? `<span style="${mono}">${escHtml(pi.rrn)}</span>` : (e || h ? '<span style="color:#b45309;font-size:.72rem;">미입력</span>' : dash);
+    const bank = pi.acct ? `<span style="font-size:.74rem;">${escHtml(pi.acct.text)}</span>${pi.acct.holder ? `<div style="font-size:.66rem;color:#6b7280;">${escHtml(pi.acct.holder)}</div>` : ''}` : dash;
     return `<tr${e ? ` data-hr-emp="${e.id}"` : ''}${u ? ` data-hr-user="${escHtml(u.id)}"` : ''}${h ? ` data-hr-daily="${h.id}"` : ''} onclick="hrPersonOpen(${e ? e.id : 'null'}, ${u ? jsArg(u.id) : 'null'}${h ? ', ' + h.id : ''})" style="cursor:pointer;${isOn(p) && !(e && e.hidden) ? '' : 'background:#fafafa;color:#6b7280;'}">
       <td style="font-weight:700;text-align:left;">${name}${hid ? hrLink(h ? 'daily' : 'hire', hid, h ? '지급 기록' : '채용 기록', '알바 채용·면접비에서 이 사람(계약서·지급 기록) 보기') : ''}${tags}</td>
-      <td>${kind}</td><td>${hrStatusHtml(p)}</td><td>${pay}</td><td>${leave}</td><td style="text-align:left;">${acct}</td><td>${pin}</td>
+      <td>${kind}</td><td>${hrStatusHtml(p)}</td><td>${pay}</td><td>${leave}</td><td>${phone}</td><td>${rrn}</td><td style="text-align:left;">${bank}</td><td style="text-align:left;">${acct}</td>
       <td><span style="color:#4338ca;font-size:.74rem;font-weight:700;white-space:nowrap;">자세히 ›</span></td></tr>`;
   }).join('');
   box.innerHTML = `<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px;">
@@ -18600,7 +18624,7 @@ function hrRosterRender() {
         <button class="toggle-btn" onclick="const d=$('hr-add-acct');d.open=true;d.scrollIntoView({block:'center',behavior:'smooth'});setTimeout(()=>$('user-add-id').focus(),300)"><i class="fa-solid fa-user-plus"></i> 계정 만들기</button>
       </span></div>
     ${rows.length ? `<div style="overflow-x:auto;"><table style="width:100%;font-size:.8rem;">
-      <thead><tr><th style="text-align:left;">이름</th><th>구분</th><th>상태</th><th>급여</th><th>연차 잔여</th><th style="text-align:left;">워크스페이스 계정</th><th>키오스크 PIN</th><th></th></tr></thead>
+      <thead><tr><th style="text-align:left;">이름</th><th>구분</th><th>상태</th><th>급여</th><th>연차 잔여</th><th>연락처</th><th>주민번호</th><th style="text-align:left;">계좌</th><th style="text-align:left;">워크스페이스 계정</th><th></th></tr></thead>
       <tbody>${body}</tbody></table></div>` : `<div class="empty-state"><p>${q ? `'${escHtml(hrState.q)}'에 맞는 사람이 없어요` : view === 'hidden' ? '삭제한 사람이 없어요' : view === 'inactive' ? '퇴사한 사람이 없어요' : '등록된 사람이 없어요'}</p></div>`}
     <div style="font-size:.72rem;color:#6b7280;margin-top:8px;">줄을 누르면 근무 조건·계정·채용 기록 · 퇴사 처리하면 로그인·권한도 함께 해제 · 역할 변경은 다시 로그인해야 적용</div>`;
   hrFocusApply('emp'); hrFocusApply('user');
@@ -18628,7 +18652,7 @@ function hrPersonOpen(empId, uid, dailyId) {
         : row('연봉', `${fmt(e.annual_salary || (e.monthly_salary || 0) * 12)}원 <span style="font-size:.72rem;color:#6b7280;">(월 ${fmt(e.monthly_salary || 0)}원)</span>`)
           + row('연차', `잔여 ${(e.annual_leave_total || 0) - (e.annual_used || 0)}일 <span style="font-size:.72rem;color:#6b7280;">(총 ${e.annual_leave_total ?? 0} · 사용 ${e.annual_used || 0})</span>`))
       + row('생일', escHtml(e.birthday || '—'))
-      + row('급여 계좌', (e.bank_name || e.bank_account) ? `${escHtml(e.bank_name || '')} ${escHtml(e.bank_account || '')}${e.bank_holder ? `<div style="font-size:.72rem;color:#6b7280;">예금주 ${escHtml(e.bank_holder)}</div>` : ''}` : '—')
+      + hrPiiRows({ e, u }, row)
       + row('키오스크 PIN', e.pin_set_at ? '설정됨' : '<span style="color:#6b7280;">미설정</span>')
       + btns(btn('edit', '<i class="fa-solid fa-pen"></i> 근무 조건 수정', primary)
         + (e.hidden ? btn('unhide', '되살리기') : btn(e.active === false ? 'activate' : 'resign', e.active === false ? '복구(재직)' : '퇴사 처리', e.active === false ? '' : 'color:#dc2626;'))
@@ -18654,6 +18678,15 @@ function hrPersonOpen(empId, uid, dailyId) {
   $('user-detail-body').innerHTML = sec('fa-briefcase', '근무 조건', work) + sec('fa-id-badge', '워크스페이스 계정', acct) + (hire ? sec('fa-user-plus', '채용 기록', hire) : '');
   $('user-detail-modal').style.display = 'flex';
 }
+function hrPiiRows(p, row) {   // 상세 창의 연락처·주민번호·계좌 줄
+  const pi = hrPii(p);
+  const rid = pi.rrnSrc === 'emp' ? p.e.id : pi.hireId;
+  const rrn = pi.rrn ? `<span data-rrn><span class="hr-rrn-v" style="font-family:ui-monospace,monospace;">${escHtml(pi.rrn)}</span> <button type="button" class="hr-jump" onclick="hrRrnReveal(this,'${pi.rrnSrc}',${rid})" title="전체 보기 — 누가 언제 봤는지 기록돼요">전체 보기</button></span>`
+    : '<span style="color:#b45309;">미입력</span>' + (p.e ? ' <span style="font-size:.7rem;color:#6b7280;">(근무 조건 수정에서 입력)</span>' : '');
+  return row('연락처', pi.phone ? escHtml(pi.phone) : '—')
+    + row('주민번호', rrn + (pi.rrnSrc === 'hire' ? '<div style="font-size:.68rem;color:#6b7280;">알바 채용 기록</div>' : ''))
+    + row('급여 계좌', pi.acct ? `${escHtml(pi.acct.text)}${pi.acct.holder ? `<div style="font-size:.72rem;color:#6b7280;">예금주 ${escHtml(pi.acct.holder)}</div>` : ''}${pi.acct.src === 'hire' ? '<div style="font-size:.68rem;color:#6b7280;">알바 채용 기록 · 전체는 알바 채용에서 [복사]</div>' : ''}` : '—');
+}
 function hrDailyOpen(id) {   // 일일알바 — 인사 명부에서는 보기만, 등록·지급은 알바 채용·면접비에서
   const h = (hrState.daily || []).find(x => x.id === id); if (!h) return;
   hrState.open = null;
@@ -18661,7 +18694,7 @@ function hrDailyOpen(id) {   // 일일알바 — 인사 명부에서는 보기�
   const pays = h.pays || [], total = pays.reduce((t, x) => t + (x.net || 0), 0), unpaid = pays.filter(x => !x.paid_on).length;
   $('user-detail-title').textContent = h.name;
   $('user-detail-body').innerHTML = `<div style="margin-top:6px;">${hrStatusHtml({ h: { ...h, pays: [] } })}</div>`
-    + row('휴대폰', escHtml(h.phone || '—'))
+    + hrPiiRows({ h }, row)
     + row('최근 근무', escHtml(pays[0] && pays[0].work_date ? String(pays[0].work_date).slice(0, 10) : '—'))
     + row('지급 기록', pays.length ? `${pays.length}건 · 실지급 ${fmt(total)}원${unpaid ? ` <span style="color:#b45309;">(미지급 ${unpaid})</span>` : ''}` : '없음')
     + `<div style="font-size:.74rem;color:#6b7280;margin-top:10px;">일일알바 등록·지급은 알바 채용·면접비에서 해요</div>
@@ -18692,7 +18725,13 @@ const WM_EMP_FIELDS = [
   ['annual_leave_total', '연차 총량', 'number'], ['transport_allowance', '교통비 (알바)', 'number'],
   ['fixed_clock_in', '출근시간 고정 HH:MM (알바)', 'text'], ['pay_cycle', '급여 지급 (알바)', 'paycycle'], ['birthday', '생일 YYYY-MM-DD', 'text'],
   ['bank_name', '은행', 'text'], ['bank_account', '계좌번호', 'text'], ['bank_holder', '예금주', 'text'],
+  ['phone', '연락처 010-1234-5678', 'text'],   // 2026-11-10 인사 명부
 ];
+// 주민번호(2026-11-10 인사 명부) — 서버가 암호화해 저장, 화면엔 가린 값만. 비우면 그대로(지우려면 '지움'을 적음)
+const wmEmpRrnHtml = e => `
+  <label style="display:block;font-size:.75rem;color:#4b5563;font-weight:600;margin-bottom:8px;">주민등록번호 <span style="font-weight:500;color:#6b7280;">${e && e.rrn_mask ? `지금 ${escHtml(e.rrn_mask)} — 바꿀 때만 입력` : '암호화해서 저장돼요'}</span>
+    <input id="wm-empf-rrn" type="text" inputmode="numeric" autocomplete="off" placeholder="900101-1234567"
+      style="display:block;margin-top:3px;border:1.5px solid #d1d5db;border-radius:8px;padding:6px 10px;font-size:.8rem;width:100%;" /></label>`;
 
 /* 입력칸 한 개 렌더 (disabled = 연결된 정직원의 이름·유형 — 계정이 원본) */
 function wmEmpFieldHtml([k, label, kind], v, disabled) {
@@ -18737,7 +18776,7 @@ function wmEmpFormOpen(id) {
     (linked ? `<div style="background:#f0fdf4;color:#15803d;border-radius:8px;padding:6px 9px;font-size:.7rem;margin-bottom:10px;"><i class="fa-solid fa-link"></i> 대시보드 계정(${escHtml(e.app_user_id)})과 연결된 직원 — 이름·유형은 '인사 명부'이 원본이라 여기서 바꿀 수 없어요.</div>` : '')
     + WM_EMP_FIELDS.filter(([k]) => !skip.includes(k))
       .map(f => wmEmpFieldHtml(f, e ? (e[f[0]] ?? '') : '', linked && (f[0] === 'name' || f[0] === 'type'))).join('')
-    + WM_EMP_PIN_HTML;
+    + wmEmpRrnHtml(e) + WM_EMP_PIN_HTML;
   $('wm-emp-modal').style.display = 'flex';
 }
 
@@ -18757,7 +18796,7 @@ async function wmEmpLinkNew() {
         ${users.map(u => `<option value="${escHtml(u.id)}">${escHtml(u.name)} (${escHtml(u.id)})</option>`).join('')}
       </select></label>`
     + WM_EMP_FIELDS.filter(([k]) => !skip.includes(k)).map(f => wmEmpFieldHtml(f, '', false)).join('')
-    + WM_EMP_PIN_HTML;
+    + wmEmpRrnHtml(null) + WM_EMP_PIN_HTML;
   $('wm-emp-modal').style.display = 'flex';
 }
 
@@ -18799,6 +18838,8 @@ async function wmEmpSave() {
     body[k] = kind === 'number' ? (raw === '' ? 0 : Number(raw)) : (raw || null);
   }
   if (!body.id && !body.app_user_id && !body.name) { showToast('이름은 필수예요'); return; }
+  const rrnIn = $('wm-empf-rrn') ? $('wm-empf-rrn').value.trim() : '';
+  if (rrnIn) body.rrn = rrnIn === '지움' ? '' : rrnIn;   // 비우면 보내지 않음 = 그대로
   const pin = $('wm-empf-pin') ? $('wm-empf-pin').value.trim() : '';
   if (pin && !/^\d{4}$/.test(pin)) { showToast('PIN은 숫자 4자리여야 해요'); return; }
   try {

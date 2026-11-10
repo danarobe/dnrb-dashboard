@@ -22,6 +22,8 @@
 //   employee_upsert   { id?, ...필드 }            ⚠️ 부분 수정 — 보낸 필드만 갱신 (기존 Express PUT의
 //                                                  "일부만 보내면 나머지 초기화" 함정을 의도적으로 제거)
 //   employee_active   { id, active }              소프트 삭제/복구 (하드 삭제 없음 — 급여 기록 보존)
+//   employee_reveal   { id }                      주민번호 전체 (감사 로그 employee_reveal) — 2026-11-10 인사 명부
+//   (employee_upsert에 phone·rrn 2026-11-10: phone = 010 번호(빈 값 = 지움), rrn = 주민번호(암호화 저장, 빈 값 = 지움, 안 보내면 그대로))
 //   employee_hide     { id, hidden }              '삭제' = 직원 관리 목록에서만 숨김(+퇴사 처리). 기록은 그대로. hidden:false = 되살리기
 //   set_pin           { employee_id, pin }        4자리 → bcrypt 저장 (4단계 배포용)
 //   holiday_create    { date, name, hours? }
@@ -44,6 +46,8 @@
 // ═══════════════════════════════════════════════════════════════
 import bcrypt from 'npm:bcryptjs@2.4.3';
 import { CORS_HEADERS, handleOptions, json, verifyAuthToken } from '../_shared/util.ts';
+import { piiEnc, piiDec, maskRrn, fmtRrn } from '../_shared/pii.ts';   // 근무자 주민번호(2026-11-10 인사 명부) — 알바 채용과 같은 암호화
+import { normPhone, parseRrn } from '../wm-hire/calc.ts';
 import {
   calcOne, calcParttime, getExtendedRange, sortEmployees,
   type WmAttendance, type WmEmployee, type WmHoliday, type WmLeave,
@@ -257,7 +261,7 @@ Deno.serve(async (req) => {
       const [emps, approved, users] = await Promise.all([
         rest('wm_employees?select=id,name,type,hourly_rate,monthly_salary,'
           + 'annual_leave_total,transport_allowance,fixed_clock_in,birthday,hire_date,last_work_date,annual_salary,'
-          + 'bank_name,bank_account,bank_holder,active,pin_set_at,app_user_id,hidden,hidden_by_name,hidden_at,pay_cycle&order=type,name'),
+          + 'bank_name,bank_account,bank_holder,active,pin_set_at,app_user_id,hidden,hidden_by_name,hidden_at,pay_cycle,phone,rrn_enc&order=type,name'),
         rest(`wm_leaves?status=eq.approved&date=gte.${year}-01-01&date=lte.${year}-12-31&select=employee_id,type,reason&limit=3000`),
         rest('app_users?select=id,name'),
       ]);
@@ -285,7 +289,14 @@ Deno.serve(async (req) => {
         const [row] = await rest(`wm_attendance?employee_id=eq.${Number(e.id)}&select=date&order=date.desc&limit=1`).catch(() => []);
         if (row?.date) lastAttend[e.id] = String(row.date).slice(0, 10);
       }));
-      return json(emps.map((e: any) => ({ ...e, annual_used: used[e.id] || 0, last_attend_date: lastAttend[e.id] ?? null })));
+      // 주민번호는 가린 값만(앞 6자리-성별 1자리 ******) — 암호문은 내보내지 않는다. 전체는 employee_reveal(감사 로그)
+      const out = await Promise.all((emps as any[]).map(async (e) => {
+        const { rrn_enc, ...rest } = e;
+        let rrn_mask: string | null = null;
+        try { rrn_mask = maskRrn(await piiDec(rrn_enc)); } catch (_) { rrn_mask = rrn_enc ? '(읽기 실패)' : null; }
+        return { ...rest, rrn_mask, annual_used: used[e.id] || 0, last_attend_date: lastAttend[e.id] ?? null };
+      }));
+      return json(out);
     }
 
     if (action === 'attendance_list') {
@@ -521,6 +532,17 @@ Deno.serve(async (req) => {
         'transport_allowance', 'fixed_clock_in', 'birthday', 'hire_date', 'last_work_date', 'bank_name', 'bank_account', 'bank_holder', 'pay_cycle'];
       const patch: Record<string, unknown> = {};
       for (const f of FIELDS) if (f in body) patch[f] = body[f];
+      // 연락처·주민번호(2026-11-10 인사 명부) — 주민번호는 암호화해서만 저장, 감사 로그엔 '변경'만
+      if ('phone' in body) {
+        const raw = String(body.phone ?? '').trim();
+        if (!raw) patch.phone = null;
+        else { const ph = normPhone(raw); if (!ph) return json({ error: '연락처는 010-1234-5678 형식으로 적어 주세요' }, 400); patch.phone = ph; }
+      }
+      if ('rrn' in body) {
+        const raw = String(body.rrn ?? '').trim();
+        if (!raw) patch.rrn_enc = null;
+        else { const r = parseRrn(raw); if ('error' in r) return json({ error: r.error }, 400); patch.rrn_enc = await piiEnc(r.digits); }
+      }
       if ('hire_date' in patch && patch.hire_date && !/^\d{4}-\d{2}-\d{2}$/.test(String(patch.hire_date))) {
         return json({ error: '입사일은 YYYY-MM-DD 형식' }, 400);
       }
@@ -569,8 +591,22 @@ Deno.serve(async (req) => {
         [row] = await rest('wm_employees', { method: 'POST', body: JSON.stringify(patch) });
       }
       delete row.pin_hash;   // 해시라도 클라이언트로 내보내지 않는다
+      const hadRrn = 'rrn_enc' in patch;
+      if (hadRrn) patch.rrn_enc = patch.rrn_enc ? '(변경)' : '(지움)';   // 감사 로그에 암호문도 남기지 않음
+      try { row.rrn_mask = maskRrn(await piiDec(row.rrn_enc)); } catch (_) { row.rrn_mask = null; }
+      delete row.rrn_enc;
       await auditLog(me.id, body.id ? 'employee_update' : 'employee_create', row.id, patch);
       return json(row);
+    }
+
+    // 주민번호 전체 보기(2026-11-10 인사 명부) — 관리자 전용 함수 + 매번 감사 로그
+    if (action === 'employee_reveal') {
+      const id = Number(body.id);
+      if (!Number.isInteger(id) || id <= 0) return json({ error: '직원 번호 오류' }, 400);
+      const [row] = await rest(`wm_employees?id=eq.${id}&select=id,name,rrn_enc`);
+      if (!row) return json({ error: '직원 없음' }, 404);
+      await auditLog(me.id, 'employee_reveal', id, { name: row.name });
+      return json({ rrn: fmtRrn(await piiDec(row.rrn_enc)) });
     }
 
     // 소프트 삭제/복구 — 하드 삭제 없음. 기존 Express DELETE는 출퇴근·휴가 기록까지
