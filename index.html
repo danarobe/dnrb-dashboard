@@ -585,6 +585,10 @@
 
     /* 기간 프리셋 칩 (⑤) */
     .qp { display: inline-flex; gap: 5px; flex-wrap: wrap; }
+    /* HR 같은 사람 바로가기(2026-11-10) */
+    .hr-jump { display: inline-flex; align-items: center; gap: 3px; border: none; background: none; color: #4338ca; font-size: .68rem; font-weight: 700; cursor: pointer; padding: 1px 3px; margin-left: 4px; border-radius: 4px; white-space: nowrap; }
+    .hr-jump:hover { background: #eef2ff; }
+    .hr-flash > td { background: #e0e7ff !important; transition: background-color .3s; }
     .qp button {
       border: 1px solid rgba(99,102,241,.3); background: rgba(255,255,255,.55);
       color: #4f46e5; border-radius: 50px; padding: 5px 11px;
@@ -858,7 +862,7 @@
     <div class="menu-sec-body">
       <button class="menu-item" data-menu="wm" id="menu-wm" style="display:none;" onclick="showMenu('wm')"><i class="fa-solid fa-user-clock" style="width:18px;text-align:center;color:#818cf8;"></i>근무 관리</button>
       <button class="menu-item" data-menu="hire" id="menu-hire" style="display:none;" onclick="showMenu('hire')"><i class="fa-solid fa-user-plus" style="width:18px;text-align:center;color:#818cf8;"></i>알바 채용·면접비</button>
-      <button class="menu-item" data-menu="users" id="menu-users" style="display:none;" onclick="showMenu('users')"><i class="fa-solid fa-users" style="width:18px;text-align:center;color:#818cf8;"></i>직원 관리</button>
+      <button class="menu-item" data-menu="users" id="menu-users" style="display:none;" onclick="showMenu('users')"><i class="fa-solid fa-users" style="width:18px;text-align:center;color:#818cf8;"></i>계정·권한</button>
       <button class="menu-item" data-menu="purch" id="menu-purch" onclick="showMenu('purch')"><i class="fa-solid fa-cart-shopping" style="width:18px;text-align:center;color:#818cf8;"></i>직원 구매요청</button>
     </div>
   </div>
@@ -3069,14 +3073,16 @@
 
   <div class="section-card page-sec" id="sec-users">
     <div class="section-header" style="cursor:default;">
-      <h2><span><i class="fa-solid fa-users" style="color:#4f46e5;font-size:.9em;"></i></span> 직원 관리</h2>
+      <h2><span><i class="fa-solid fa-users" style="color:#4f46e5;font-size:.9em;"></i></span> 계정·권한</h2>
       <button class="toggle-btn" onclick="loadUsers()"><i class="fa-solid fa-rotate"></i> 새로고침</button>
     </div>
     <div class="section-body">
-      <div style="font-size:.82rem;color:#6b7280;margin-bottom:14px;">직원 계정을 추가·삭제합니다. 직원은 매출·취소반품 데이터에 접근할 수 없습니다.</div>
+      <div id="users-tabs" style="display:flex;gap:2px;border-bottom:2px solid #e5e7eb;margin-bottom:14px;flex-wrap:wrap;"></div>
+      <div id="users-pane-acct" class="users-pane">
+      <div style="font-size:.82rem;color:#6b7280;margin-bottom:14px;">워크스페이스 로그인 계정 · 근무 조건(시급·계좌·연차)은 <b>근무 관리 › 근무자 정보</b>에서 관리해요</div>
 
       <div style="background:#f8f9ff;border:1.5px solid #e0e7ff;border-radius:14px;padding:16px 18px;margin-bottom:16px;">
-        <div style="font-size:.88rem;font-weight:800;color:#4338ca;margin-bottom:10px;">직원 추가</div>
+        <div style="font-size:.88rem;font-weight:800;color:#4338ca;margin-bottom:10px;">계정 추가</div>
         <div style="display:flex;gap:8px;flex-wrap:wrap;">
           <input type="text" id="user-add-id" placeholder="아이디" style="border:1.5px solid #d1d5db;border-radius:8px;padding:9px 12px;font-size:.82rem;outline:none;width:140px;" />
           <input type="text" id="user-add-name" placeholder="이름" style="border:1.5px solid #d1d5db;border-radius:8px;padding:9px 12px;font-size:.82rem;outline:none;width:120px;" />
@@ -3086,12 +3092,17 @@
       </div>
 
       <div id="users-bday" style="display:none;margin-bottom:16px;"></div>
-      <div id="users-addash" style="display:none;margin-bottom:16px;"></div>
-      <div id="users-agents" style="display:none;margin-bottom:16px;"></div>
-      <div id="users-cxl" style="display:none;margin-bottom:16px;"></div>
-      <div id="users-hire" style="display:none;margin-bottom:16px;"></div>
-      <div id="users-seal" style="display:none;margin-bottom:16px;"></div>
       <div id="users-list" style="font-size:.82rem;color:#6b7280;">불러오는 중…</div>
+      </div>
+      <!-- 권한·보안 탭(2026-11-10 HR 정리 1단계) — 메뉴별 접근 허용 + 도장 사용 기록을 계정 목록 위에서 이리로 모음 -->
+      <div id="users-pane-perm" class="users-pane" style="display:none;">
+        <div style="font-size:.8rem;color:#6b7280;margin-bottom:12px;">메뉴마다 쓸 수 있는 사람 정하기 · 대표님만 보여요</div>
+        <div id="users-addash" style="display:none;margin-bottom:16px;"></div>
+        <div id="users-agents" style="display:none;margin-bottom:16px;"></div>
+        <div id="users-cxl" style="display:none;margin-bottom:16px;"></div>
+        <div id="users-hire" style="display:none;margin-bottom:16px;"></div>
+        <div id="users-seal" style="display:none;margin-bottom:16px;"></div>
+      </div>
       <!-- 직원 근무 정보 모달 (2026-08-27) — 근무 관리(wm_employees) 연동 데이터 -->
       <div id="user-detail-modal" onclick="if(event.target===this)this.style.display='none'"
            style="display:none;position:fixed;inset:0;background:rgba(15,23,42,.55);z-index:210;align-items:center;justify-content:center;padding:20px;">
@@ -3865,13 +3876,46 @@ function wmResignInfo(e) {
 function wmResignHtml(e, inline) {
   const r = wmResignInfo(e); if (!r) return '';
   const badge = '<span style="display:inline-block;background:#fee2e2;color:#b91c1c;border-radius:6px;padding:1px 7px;font-size:.66rem;font-weight:800;white-space:nowrap;vertical-align:middle;">퇴사</span>';
-  const when = r.date ? `<span style="font-size:.68rem;color:#6b7280;font-weight:600;white-space:nowrap;"${r.entered ? '' : ' title="마지막 근무일을 아직 안 넣어서, 마지막으로 출근한 날을 보여줘요 — 근무 관리 › 직원 관리 › 수정에서 넣을 수 있어요"'}>퇴사일 ${escHtml(r.date)}${r.entered ? '' : ' <span style="color:#b45309;font-weight:700;">(마지막 출근 기준)</span>'}</span>`
+  const when = r.date ? `<span style="font-size:.68rem;color:#6b7280;font-weight:600;white-space:nowrap;"${r.entered ? '' : ' title="마지막 근무일을 아직 안 넣어서, 마지막으로 출근한 날을 보여줘요 — 근무 관리 › 근무자 정보 › 수정에서 넣을 수 있어요"'}>퇴사일 ${escHtml(r.date)}${r.entered ? '' : ' <span style="color:#b45309;font-weight:700;">(마지막 출근 기준)</span>'}</span>`
     : '<span style="font-size:.68rem;color:#b45309;font-weight:700;white-space:nowrap;">퇴사일 미입력</span>';
   return inline ? ` ${badge} ${when}` : ` ${badge}<div style="margin-top:2px;">${when}</div>`;
 }
 /* ── 직원 관리 (관리자 전용) ── */
+// 계정·권한 탭(2026-11-10 HR 정리 1단계) — 계정 목록 / 권한·보안(접근 허용 칩 4종 + 도장 사용 기록)
+const usersState = { tab: 'acct' };
+// 같은 사람 바로가기(2026-11-10 HR 정리 1단계): 계정·권한 ↔ 근무 관리 › 근무자 정보 ↔ 알바 채용 — 이동한 뒤 그 줄을 가운데로 가져와 잠깐 강조
+let hrFocus = null;   // { k: 'user' | 'emp' | 'hire', id }
+function hrGo(k, id) {
+  hrFocus = { k, id: String(id) };
+  if (k === 'user') { usersState.tab = 'acct'; showMenu('users'); return; }
+  if (k === 'emp') {
+    const e = (wmState.emps || __udEmps || []).find(x => String(x.id) === String(id));
+    if (e) wmState.empView = e.hidden ? 'hidden' : e.active === false ? 'inactive' : 'active';   // 퇴사·삭제한 사람도 그 줄이 보이게
+    showMenu('wm'); wmSetTab('emp'); return;
+  }
+  if (k === 'hire') { hireState.kind = 'applicant'; hireState.filter = 'all'; const q = $('hire-q'); if (q) q.value = ''; showMenu('hire'); }
+}
+let hrFlash = null;   // 강조 중인 줄 — 그사이 표를 다시 그려도(예: 채용 기록 연결을 늦게 받아 다시 그림) 강조가 남게
+function hrFocusApply(k) {
+  if (hrFlash && hrFlash.k === k && Date.now() < hrFlash.until) document.querySelector(`[data-hr-${k}="${CSS.escape(hrFlash.id)}"]`)?.classList.add('hr-flash');
+  if (!hrFocus || hrFocus.k !== k) return;
+  const el = document.querySelector(`[data-hr-${k}="${CSS.escape(hrFocus.id)}"]`);
+  if (!el) return;
+  const mine = hrFlash = { ...hrFocus, until: Date.now() + 2600 }; hrFocus = null;
+  el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  el.classList.add('hr-flash');
+  setTimeout(() => { if (hrFlash !== mine) return; hrFlash = null; document.querySelectorAll('.hr-flash').forEach(x => x.classList.remove('hr-flash')); }, 2650);
+}
+const hrLink = (k, id, label, title) => `<button type="button" class="hr-jump" onclick="event.stopPropagation();hrGo('${k}', ${jsArg(String(id))})" title="${escHtml(title)}">${label} <i class="fa-solid fa-arrow-right" style="font-size:.85em;"></i></button>`;
+const USERS_TABS = [['acct', '계정'], ['perm', '권한·보안']];
+function usersSetTab(k) {
+  usersState.tab = k;
+  uiTabs('users-tabs', USERS_TABS, k, 'usersSetTab');
+  document.querySelectorAll('.users-pane').forEach(el => { el.style.display = el.id === 'users-pane-' + k ? '' : 'none'; });
+}
 async function loadUsers() {
   if (!isAdmin()) return;
+  usersSetTab(usersState.tab);
   __udEmps = null;   // 근무 정보 캐시 무효화 (메뉴 재진입 시 새로)
   __grantUsersP = null;   // 권한 부여 칩의 계정 목록도 새로 (방금 퇴사 처리한 계정이 바로 빠지게)
   adDashPanel();     // 광고 대시보드 접근 허용 칩 (2026-09-11)
@@ -3904,8 +3948,9 @@ async function loadUsers() {
         const roleColor = { admin: '#4f46e5', cs: '#0891b2', marketer: '#b45309', logistics: '#15803d' }[u.role];
         const nameCell = u.role === 'admin' ? escHtml(u.name)
           : `<span onclick="userDetail(${jsArg(u.id)})" title="클릭하면 근무 정보(입사일·연봉·계좌 등)를 봅니다" style="cursor:pointer;color:#4338ca;font-weight:600;border-bottom:1px dashed #a5b4fc;">${escHtml(u.name)}</span>`;
-        return `<tr${gone(u) ? ' style="background:#fafafa;"' : ''}>
-        <td style="${gone(u) ? 'color:#6b7280;' : ''}">${escHtml(u.id)}</td><td>${nameCell}${wmResignHtml(empOf.get(u.id), false)}${u.login_blocked && u.role !== 'admin' ? '<div style="margin-top:2px;"><span title="근무 관리에서 퇴사 처리해서 워크스페이스에 로그인할 수 없어요 — 근무 관리에서 [복구]하면 다시 로그인돼요" style="display:inline-block;background:#f3f4f6;color:#4b5563;border-radius:6px;padding:1px 7px;font-size:.66rem;font-weight:800;white-space:nowrap;"><i class="fa-solid fa-lock" style="font-size:.66rem;"></i> 로그인 막힘</span></div>' : ''}</td>
+        const emp = empOf.get(u.id);
+        return `<tr data-hr-user="${escHtml(u.id)}"${gone(u) ? ' style="background:#fafafa;"' : ''}>
+        <td style="${gone(u) ? 'color:#6b7280;' : ''}">${escHtml(u.id)}</td><td>${nameCell}${emp ? hrLink('emp', emp.id, '근무자 정보', '근무 관리 › 근무자 정보에서 이 사람 보기') : ''}${wmResignHtml(empOf.get(u.id), false)}${u.login_blocked && u.role !== 'admin' ? '<div style="margin-top:2px;"><span title="근무 관리에서 퇴사 처리해서 워크스페이스에 로그인할 수 없어요 — 근무 관리에서 [복구]하면 다시 로그인돼요" style="display:inline-block;background:#f3f4f6;color:#4b5563;border-radius:6px;padding:1px 7px;font-size:.66rem;font-weight:800;white-space:nowrap;"><i class="fa-solid fa-lock" style="font-size:.66rem;"></i> 로그인 막힘</span></div>' : ''}</td>
         <td>${roleColor ? `<b style="color:${roleColor};">${ROLE_LABEL[u.role]}</b>` : 'MD'}</td>
         <td class="m-hide">${(u.created_at || '').slice(0, 10)}</td>
         <td style="display:flex;gap:6px;justify-content:center;">${roleBtn}${pwBtn}${delBtn}</td>
@@ -3913,6 +3958,7 @@ async function loadUsers() {
       (nGone ? `<div style="font-size:.75rem;color:#b91c1c;margin-top:8px;"><b>퇴사</b> 표시 = 근무 관리에서 비활성(퇴사) 처리한 직원이에요(${nGone}명). <b>퇴사 처리한 계정은 지우지 않아도 워크스페이스에 로그인할 수 없어요</b>(관리자 계정은 예외). 받았던 <b>권한 부여</b>(광고 대시보드·AI 에이전트·취소·반품 접수·알바 채용·구매요청 담당)도 함께 해제되고 위 허용 목록에서 빠져요 — 복구해도 권한은 다시 부여해야 해요. 근무 관리에서 [복구]하면 다시 로그인돼요.</div>` : '') +
       '<div style="font-size:.75rem;color:#6b7280;margin-top:8px;">※ 권한 변경은 해당 팀원이 <b>다시 로그인</b>해야 적용됩니다 · MD는 광고 효율의 광고비·전환값·총매출이 가려집니다 · CS팀·물류팀은 판매 성과·반품 스캔·구매요청·마이페이지만 보입니다 · 관리자 계정을 삭제하려면 먼저 MD로 변경하세요 · 이름을 클릭하면 근무 정보(입사일·연봉·계좌·연차)가 열립니다</div>';
     usersBdayRender(d.users);
+    hrFocusApply('user');
   } catch (e) { $('users-list').textContent = '목록 조회 실패: ' + e.message; }
 }
 
@@ -3996,7 +4042,7 @@ async function userDetail(uid) {
   const e = __udEmps.find(x => x.app_user_id === uid);
   if (!e) {
     $('user-detail-body').innerHTML = `<div style="padding:12px;font-size:.78rem;color:#6b7280;background:#f8f9fb;border-radius:10px;">
-      이 계정은 아직 <b>근무 관리와 연결되지 않았어요.</b><br>근무 관리 메뉴 → 직원 관리 탭에서 '직원 연결 추가'로 연결하면 여기서 근무 정보를 볼 수 있습니다.</div>`;
+      이 계정은 아직 <b>근무 관리와 연결되지 않았어요.</b><br>근무 관리 메뉴 → 근무자 정보 탭에서 '직원 연결 추가'로 연결하면 여기서 근무 정보를 볼 수 있습니다.</div>`;
     return;
   }
   $('user-detail-title').textContent = `근무 정보 — ${e.name}`;
@@ -8547,9 +8593,9 @@ function hireRender() {
     const age = hireAge(r.birth, today);
     const unpaid = r.pays.filter(p => !p.paid_on);
     const total = r.pays.reduce((s, p) => s + p.net, 0);
-    return `<tr>
+    return `<tr data-hr-hire="${r.id}">
       <td><b>${escHtml(r.name)}</b> <span class="hr-badge" style="${r.gender === 'M' ? 'color:#1d4ed8;background:#dbeafe;' : 'color:#be185d;background:#fce7f3;'}">${r.gender === 'M' ? '남' : '여'}</span>${age != null && age < 18 ? ` <span class="hr-badge" style="color:#b91c1c;background:#fee2e2;" title="${escHtml(hireMinorNote(age))}">만 ${age}세</span>` : ''}${r.memo ? `<div style="font-size:.72rem;color:#6b7280;">${escHtml(r.memo)}</div>` : ''}</td>
-      ${daily ? '' : `<td><span class="hr-badge" style="color:${sc};background:${sb};">${sl}</span>${r.employee_id ? (r.emp_active === false ? '<div style="font-size:.7rem;color:#6b7280;">근무 관리 퇴사 · 키오스크 없음</div>' : '<div style="font-size:.7rem;color:#166534;">근무 관리 연결됨</div>') : ''}</td>`}
+      ${daily ? '' : `<td><span class="hr-badge" style="color:${sc};background:${sb};">${sl}</span>${r.employee_id ? (r.emp_active === false ? `<div style="font-size:.7rem;color:#6b7280;">근무 관리 퇴사 · 키오스크 없음${isAdmin() ? hrLink('emp', r.employee_id, '근무자 정보', '근무 관리 › 근무자 정보(퇴사)에서 이 사람 보기') : ''}</div>` : `<div style="font-size:.7rem;color:#166534;">근무 관리 연결됨${isAdmin() ? hrLink('emp', r.employee_id, '근무자 정보', '근무 관리 › 근무자 정보에서 이 사람 보기') : ''}</div>`) : ''}</td>`}
       <td>${escHtml(r.phone)}</td>
       <td>${r.rrn_mask ? escHtml(r.rrn_mask) : '<span style="color:#b45309;">미입력</span>'}</td>
       <td>${r.account_mask ? `${escHtml((r.bank_name || '') + ' ' + r.account_mask)} <button class="toggle-btn" style="font-size:.66rem;padding:1px 7px;" onclick="hireCopyAccount(${r.id})" title="은행 · 계좌번호 전체 · 예금주를 복사해요 (전체 보기 기록이 남아요)"><i class="fa-regular fa-copy"></i> 복사</button>` : '<span style="color:#b45309;">미입력</span>'}</td>
@@ -8565,6 +8611,7 @@ function hireRender() {
         ${(!r.pays.length || hireState.canDeletePaid) ? `<button class="toggle-btn" style="font-size:.72rem;padding:3px 8px;color:#dc2626;" onclick="hireDelete(${r.id})" title="개인정보 파기"><i class="fa-solid fa-trash"></i></button>` : ''}
       </div></td></tr>`;
   }).join('')}</tbody></table>`;
+  hrFocusApply('hire');
 }
 
 /** 선택한 달(근무일 기준)의 사람별 지급 합계 — 매월 보내는 리스트를 화면에서 먼저 확인 */
@@ -17237,7 +17284,7 @@ async function wmApi(body) {
   return data;
 }
 
-const WM_TABS = [['att', '출퇴근 조회'], ['sal', '급여 계산'], ['slip', '명세서 파일'], ['lv', '휴가 관리'], ['trip', '출장 여비'], ['docs', '서류 요청'], ['shoot', '77사이즈 촬영'], ['emp', '직원 관리'], ['hol', '공휴일']];
+const WM_TABS = [['att', '출퇴근 조회'], ['sal', '급여 계산'], ['slip', '명세서 파일'], ['lv', '휴가 관리'], ['trip', '출장 여비'], ['docs', '서류 요청'], ['shoot', '77사이즈 촬영'], ['emp', '근무자 정보'], ['hol', '공휴일']];
 
 function wmRenderTabs() {
   uiTabs('wm-tabs', WM_TABS, wmState.tab, 'wmSetTab');
@@ -17485,7 +17532,7 @@ function wmRenderSal() {
     const defer = (r.weeklyBreakdown || []).filter(w => w.deferredToNext).length;
     return `<tr>
       <td style="width:28px;"><input type="checkbox" class="wm-sal-chk" value="${i}" onchange="wmSalSelChanged()" title="명세서 인쇄 대상 선택" /></td>
-      <td style="font-weight:600;">${escHtml(e.name)}${e.active === false ? ` <span style="background:#f3f4f6;color:#6b7280;border:1px solid #d1d5db;border-radius:5px;padding:0 5px;font-size:.66rem;font-weight:700;white-space:nowrap;" title="직원 관리에서 비활성(퇴사) 처리된 직원 — 이 달에 근무 기록이 있어 급여에 포함돼요">퇴사(비활성)</span>${pt || r.lastWorkDate ? '' : `<div style="font-size:.64rem;color:#b45309;font-weight:600;" title="월급제는 마지막 근무일이 없으면 월급 전액으로 계산돼요. 직원 탭 › 수정에서 마지막 근무일을 넣으면 근무일만큼 계산돼요">월급 전액 기준 — 직원 탭에서 마지막 근무일을 넣어 주세요</div>`}` : ''}${r.lastWorkDate ? `<div style="font-size:.64rem;color:#4338ca;font-weight:600;" title="월급 ÷ 그 달 근무일 ${r.workingDays}일 × 마지막 근무일까지의 근무일 ${r.resignWorkedDays}일">마지막 근무일 ${escHtml(r.lastWorkDate.slice(5))} · 근무일 ${r.resignWorkedDays}/${r.workingDays}일 계산</div>` : ''}</td>
+      <td style="font-weight:600;">${escHtml(e.name)}${e.active === false ? ` <span style="background:#f3f4f6;color:#6b7280;border:1px solid #d1d5db;border-radius:5px;padding:0 5px;font-size:.66rem;font-weight:700;white-space:nowrap;" title="근무자 정보에서 비활성(퇴사) 처리된 직원 — 이 달에 근무 기록이 있어 급여에 포함돼요">퇴사(비활성)</span>${pt || r.lastWorkDate ? '' : `<div style="font-size:.64rem;color:#b45309;font-weight:600;" title="월급제는 마지막 근무일이 없으면 월급 전액으로 계산돼요. 직원 탭 › 수정에서 마지막 근무일을 넣으면 근무일만큼 계산돼요">월급 전액 기준 — 직원 탭에서 마지막 근무일을 넣어 주세요</div>`}` : ''}${r.lastWorkDate ? `<div style="font-size:.64rem;color:#4338ca;font-weight:600;" title="월급 ÷ 그 달 근무일 ${r.workingDays}일 × 마지막 근무일까지의 근무일 ${r.resignWorkedDays}일">마지막 근무일 ${escHtml(r.lastWorkDate.slice(5))} · 근무일 ${r.resignWorkedDays}/${r.workingDays}일 계산</div>` : ''}</td>
       <td><span class="badge badge-${pt ? 'staff' : 'admin'}" style="font-size:.68rem;">${pt ? '알바' : '직원'}</span></td>
       <td>${r.totalHours || 0}시간</td>
       <td>${fmt(pt ? r.basePay : r.monthlySalary)}원${!pt && r.resignDeduction ? `<div style="font-size:.66rem;color:#dc2626;">일할 −${fmt(r.resignDeduction)}원</div>` : ''}</td>
@@ -18484,8 +18531,19 @@ async function wmLeaveDelete(id) {
 }
 
 /* ── 직원 관리 ── */
+// 근무자 ↔ 채용 기록 연결(근무자 id → 채용 기록 id) — 알바 채용 목록을 한 번 조용히 읽어 둔다(못 읽어도 바로가기만 안 보임)
+const wmHireOf = {};
+let wmHireOfP = null;
+function wmHireOfLoad() {
+  if (!wmHireOfP) wmHireOfP = hireApi({ action: 'list' }).then(d => {
+    for (const h of d.hires || []) if (h.employee_id) wmHireOf[h.employee_id] = h.id;
+    if (wmState.tab === 'emp' && wmState.emps) wmEmpRender();
+  }).catch(() => {});
+  return wmHireOfP;
+}
 async function wmLoadEmps() {
   $('wm-emp-result').innerHTML = '<div class="empty-state"><p>불러오는 중...</p></div>';
+  wmHireOfLoad();
   try {
     wmState.emps = await wmApi({ action: 'employee_list' });   // 항상 새로 (수정 직후 반영)
     wmEmpRender();
@@ -18507,10 +18565,11 @@ function wmEmpRender() {
       + (view === 'hidden' ? `<div style="font-size:.75rem;color:#4b5563;background:#f3f4f6;border-radius:8px;padding:8px 12px;margin-bottom:10px;"><b>삭제한 직원 ${gone.length}명</b> — 목록에서만 숨긴 직원이에요(기록은 그대로). <b>[되살리기]</b>를 누르면 '퇴사' 목록에 다시 보여요. <button class="toggle-btn" style="font-size:.7rem;padding:2px 8px;margin-left:6px;" onclick="wmEmpSetView('active')">직원 목록으로 돌아가기</button></div>` : '');
     const body = rows.map(e => {
       const pt = e.type === 'parttime';
-      return `<tr style="${e.active === false ? 'background:#fafafa;color:#6b7280;' : ''}">
-        <td style="font-weight:600;">${escHtml(e.name)}${e.type === 'parttime' && e.pay_cycle === 'weekly' ? ' <span style="background:#ecfeff;color:#0e7490;border:1px solid #a5f3fc;border-radius:5px;padding:0 5px;font-size:.66rem;font-weight:700;white-space:nowrap;" title="매주 월요일에 전 주(월~일) 근무분 지급">주급</span>' : ''}${e.hidden ? `<div style="font-size:.64rem;color:#6b7280;font-weight:500;white-space:nowrap;">삭제 ${escHtml(String(e.hidden_at || '').slice(0, 10))}${e.hidden_by_name ? ' · ' + escHtml(e.hidden_by_name) : ''}</div>` : ''}${e.active === false ? wmResignHtml(e, false) : (e.last_work_date ? `<div style="font-size:.64rem;color:#6b7280;font-weight:500;white-space:nowrap;">마지막 근무일 ${escHtml(String(e.last_work_date).slice(0, 10))} (예정)</div>` : '')}</td>
+      const hid = wmHireOf[e.id];
+      return `<tr data-hr-emp="${e.id}" style="${e.active === false ? 'background:#fafafa;color:#6b7280;' : ''}">
+        <td style="font-weight:600;">${escHtml(e.name)}${hid ? hrLink('hire', hid, '채용 기록', '알바 채용·면접비에서 이 사람(계약서·지급 기록) 보기') : ''}${e.type === 'parttime' && e.pay_cycle === 'weekly' ? ' <span style="background:#ecfeff;color:#0e7490;border:1px solid #a5f3fc;border-radius:5px;padding:0 5px;font-size:.66rem;font-weight:700;white-space:nowrap;" title="매주 월요일에 전 주(월~일) 근무분 지급">주급</span>' : ''}${e.hidden ? `<div style="font-size:.64rem;color:#6b7280;font-weight:500;white-space:nowrap;">삭제 ${escHtml(String(e.hidden_at || '').slice(0, 10))}${e.hidden_by_name ? ' · ' + escHtml(e.hidden_by_name) : ''}</div>` : ''}${e.active === false ? wmResignHtml(e, false) : (e.last_work_date ? `<div style="font-size:.64rem;color:#6b7280;font-weight:500;white-space:nowrap;">마지막 근무일 ${escHtml(String(e.last_work_date).slice(0, 10))} (예정)</div>` : '')}</td>
         <td><span class="badge badge-${pt ? 'staff' : 'admin'}" style="font-size:.68rem;">${pt ? '알바' : '직원'}</span>${!pt ? (e.app_user_id
-          ? '<div style="font-size:.66rem;color:#16a34a;white-space:nowrap;"><i class="fa-solid fa-link"></i> 계정 연결됨</div>'
+          ? `<div style="font-size:.66rem;color:#16a34a;white-space:nowrap;"><i class="fa-solid fa-link"></i> 계정 연결됨${hrLink('user', e.app_user_id, '계정', '계정·권한에서 이 계정 보기')}</div>`
           : `<div style="font-size:.66rem;color:#d97706;white-space:nowrap;">미연결 <button class="toggle-btn" style="font-size:.66rem;padding:1px 6px;" onclick="wmEmpLinkPick(${e.id})">연결</button></div>`) : ''}</td>
         <td>${pt ? fmt(e.hourly_rate) + '원/시' : fmt(e.monthly_salary) + '원/월'}</td>
         <td>${pt && e.transport_allowance ? fmt(e.transport_allowance) + '원' : '-'}</td>
@@ -18535,10 +18594,11 @@ function wmEmpRender() {
       <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
         <button class="toggle-btn" onclick="wmEmpFormOpen(null)"><i class="fa-solid fa-plus"></i> 알바 추가</button>
         <button class="toggle-btn" onclick="wmEmpLinkNew()"><i class="fa-solid fa-link"></i> 직원 연결 추가</button>
-        <span style="font-size:.7rem;color:#6b7280;">정직원은 대시보드 '직원 관리'에서 계정을 만든 뒤 여기서 연결하세요 — 이름은 계정을 따라갑니다.</span>
+        <span style="font-size:.7rem;color:#6b7280;">정직원은 'HR › 계정·권한'에서 계정을 만든 뒤 여기서 연결하세요 — 이름은 계정을 따라갑니다.</span>
         ${gone.length && view !== 'hidden' ? `<button class="toggle-btn" style="font-size:.7rem;padding:2px 9px;margin-left:auto;color:#6b7280;" onclick="wmEmpSetView('hidden')" title="삭제(목록에서 숨김)한 직원을 보고 되살릴 수 있어요">삭제한 직원 ${gone.length}명 보기</button>` : ''}
       </div>`;
   }
+  hrFocusApply('emp');
 }
 
 const WM_EMP_FIELDS = [
@@ -18592,7 +18652,7 @@ function wmEmpFormOpen(id) {
   $('wm-empf-title').textContent = e ? `직원 수정 — ${e.name}` : '알바 추가';
   const skip = e ? (e.type === 'employee' ? ['pay_cycle'] : []) : ['type', 'monthly_salary', 'annual_salary', 'last_work_date'];   // 주급/월급은 알바만(2026-11-05)   // 알바 추가: 유형 고정(parttime)·월급·연봉·마지막 근무일 없음
   $('wm-empf-body').innerHTML =
-    (linked ? `<div style="background:#f0fdf4;color:#15803d;border-radius:8px;padding:6px 9px;font-size:.7rem;margin-bottom:10px;"><i class="fa-solid fa-link"></i> 대시보드 계정(${escHtml(e.app_user_id)})과 연결된 직원 — 이름·유형은 '직원 관리'가 원본이라 여기서 바꿀 수 없어요.</div>` : '')
+    (linked ? `<div style="background:#f0fdf4;color:#15803d;border-radius:8px;padding:6px 9px;font-size:.7rem;margin-bottom:10px;"><i class="fa-solid fa-link"></i> 대시보드 계정(${escHtml(e.app_user_id)})과 연결된 직원 — 이름·유형은 '계정·권한'이 원본이라 여기서 바꿀 수 없어요.</div>` : '')
     + WM_EMP_FIELDS.filter(([k]) => !skip.includes(k))
       .map(f => wmEmpFieldHtml(f, e ? (e[f[0]] ?? '') : '', linked && (f[0] === 'name' || f[0] === 'type'))).join('')
     + WM_EMP_PIN_HTML;
@@ -18603,13 +18663,13 @@ async function wmEmpLinkNew() {
   let users;
   try { users = await wmApi({ action: 'employee_linkable' }); }
   catch (err) { showToast('계정 목록 조회 실패 — ' + err.message); return; }
-  if (!users.length) { showToast("연결 가능한 직원 계정이 없습니다 — 대시보드 '직원 관리'에서 계정을 먼저 등록하세요"); return; }
+  if (!users.length) { showToast("연결 가능한 직원 계정이 없습니다 — 'HR › 계정·권한'에서 계정을 먼저 등록하세요"); return; }
   wmState.empEdit = null;
   wmState.empMode = 'link';
   $('wm-empf-title').textContent = '직원 연결 추가';
   const skip = ['name', 'type', 'hourly_rate', 'transport_allowance', 'fixed_clock_in', 'pay_cycle'];   // 정직원: 이름은 계정에서, 알바 전용 필드 숨김
   $('wm-empf-body').innerHTML = `
-    <div style="font-size:.72rem;color:#6b7280;margin-bottom:8px;">대시보드 '직원 관리' 계정을 골라 정직원으로 등록합니다. 이름은 계정을 따라가요.</div>
+    <div style="font-size:.72rem;color:#6b7280;margin-bottom:8px;">'계정·권한'의 계정을 골라 정직원으로 등록합니다. 이름은 계정을 따라가요.</div>
     <label style="display:block;font-size:.75rem;color:#4b5563;font-weight:600;margin-bottom:8px;">직원 계정
       <select id="wm-empf-user" style="display:block;margin-top:3px;border:1.5px solid #d1d5db;border-radius:8px;padding:6px 10px;font-size:.8rem;width:100%;">
         ${users.map(u => `<option value="${escHtml(u.id)}">${escHtml(u.name)} (${escHtml(u.id)})</option>`).join('')}
@@ -18624,7 +18684,7 @@ async function wmEmpLinkPick(empId) {
   let users;
   try { users = await wmApi({ action: 'employee_linkable' }); }
   catch (err) { showToast('계정 목록 조회 실패 — ' + err.message); return; }
-  if (!users.length) { showToast("연결 가능한 직원 계정이 없습니다 — 대시보드 '직원 관리'에서 계정을 먼저 등록하세요"); return; }
+  if (!users.length) { showToast("연결 가능한 직원 계정이 없습니다 — 'HR › 계정·권한'에서 계정을 먼저 등록하세요"); return; }
   wmState.empEdit = empId;
   wmState.empMode = 'linkpick';
   $('wm-empf-title').textContent = `계정 연결 — ${e ? e.name : ''}`;
