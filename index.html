@@ -3318,7 +3318,7 @@ function loadSession() {
 const isStaff = () => SESSION?.role === 'staff' || SESSION?.role === 'marketer';   // 마케터 = MD와 동일 권한 (표시명만 다름)
 const isAdmin = () => SESSION?.role === 'admin';
 const isCS    = () => SESSION?.role === 'cs' || SESSION?.role === 'logistics';   // 물류팀 = CS와 동일 권한 (2026-08-27, 표시명만 다름)
-const ROLE_LABEL = { admin: '관리자', staff: 'MD', marketer: '마케터', cs: 'CS팀', logistics: '물류팀' };
+const ROLE_LABEL = { admin: '관리자', staff: 'MD/컨텐츠', marketer: 'MD/컨텐츠', cs: 'CS팀', logistics: '물류팀' };   // 2026-11-10 마케터·MD → 'MD/컨텐츠' 하나로(계정 역할도 staff로 합침, marketer는 옛 값 호환)
 
 async function adoptSso(token) {
   try {
@@ -3859,7 +3859,7 @@ function applyRole() {
   // Meta 광고 성과 패널 — 관리자 + MD (MD는 광고비·전환값·총매출 블러)
   const mp = $('meta-panel'); if (mp) mp.style.display = (isAdmin() || isStaff()) && !isCS() ? 'block' : 'none';
   menuSecSync();   // 큰 메뉴 묶음: 보이는 소메뉴가 없으면 묶음도 숨김 (2026-09-29)
-  $('user-info').textContent = SESSION ? `${SESSION.name} (${ROLE_LABEL[SESSION.role] || 'MD'})` : '';
+  $('user-info').textContent = SESSION ? `${SESSION.name} (${ROLE_LABEL[SESSION.role] || 'MD/컨텐츠'})` : '';
   $('btn-logout').style.display = SESSION ? '' : 'none';
 }
 
@@ -18551,7 +18551,7 @@ function hrStatusHtml(p) {
   if (e.type === 'parttime') return r ? pill('채용 후 퇴사', '#4b5563', '#f3f4f6') + when : pill('채용됨', '#1d4ed8', '#dbeafe');
   return r ? (d ? pill(`퇴사 (${d})`, '#b91c1c', '#fee2e2') + (r.entered ? '' : sub('마지막 출근일 기준')) : pill('퇴사', '#b91c1c', '#fee2e2') + when) : pill('근무중', '#166534', '#dcfce7');
 }
-const hrRoleHtml = u => { const c = { admin: '#4f46e5', cs: '#0891b2', marketer: '#b45309', logistics: '#15803d' }[u.role]; return `<b style="color:${c || '#374151'};">${ROLE_LABEL[u.role] || 'MD'}</b>`; };
+const hrRoleHtml = u => { const c = { admin: '#4f46e5', cs: '#0891b2', logistics: '#15803d' }[u.role]; return `<b style="color:${c || '#374151'};">${ROLE_LABEL[u.role] || 'MD/컨텐츠'}</b>`; };
 function hrPeriod(hire) {   // 입사일 → 오늘 "xx개월 xx일"(사용자 지정 표기)
   if (!hire) return '';
   const t = new Date(new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Seoul' }) + 'T12:00:00Z'), h = new Date(hire + 'T12:00:00Z');
@@ -18674,7 +18674,7 @@ function hrPersonOpen(empId, uid, dailyId) {
   if (u) {
     const isMe = u.id === SESSION.id;
     const role = isMe ? `${hrRoleHtml(u)} <span style="font-size:.72rem;color:#6b7280;">(본인)</span>`
-      : `<select onchange="$('user-detail-modal').style.display='none';setUserRole(${jsArg(u.id)}, this.value)" style="border:1px solid #d1d5db;border-radius:6px;padding:3px 8px;font-size:.8rem;font-weight:600;">${['admin', 'staff', 'marketer', 'cs', 'logistics'].map(r => `<option value="${r}"${u.role === r ? ' selected' : ''}>${ROLE_LABEL[r] || 'MD'}</option>`).join('')}</select>`;
+      : `<select onchange="$('user-detail-modal').style.display='none';setUserRole(${jsArg(u.id)}, this.value)" style="border:1px solid #d1d5db;border-radius:6px;padding:3px 8px;font-size:.8rem;font-weight:600;">${['admin', 'staff', 'cs', 'logistics'].map(r => `<option value="${r}"${(u.role === 'marketer' ? 'staff' : u.role) === r ? ' selected' : ''}>${ROLE_LABEL[r] || 'MD/컨텐츠'}</option>`).join('')}</select>`;
     acct = row('아이디', `<span style="font-family:ui-monospace,monospace;">${escHtml(u.id)}</span>`) + row('역할', role)
       + (u.created_at ? row('만든 날', escHtml(String(u.created_at).slice(0, 10))) : '')
       + (u.login_blocked && u.role !== 'admin' ? row('로그인', '<span style="color:#b91c1c;">막힘 — 퇴사 처리됨</span>') : '')
