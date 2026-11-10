@@ -10162,7 +10162,8 @@ function rscanRender(r) {
     ${rscanNrSummary(h.items)}
     <table style="width:100%;margin-top:8px;font-size:.8rem;"><thead><tr><th style="text-align:left;">상품</th><th style="text-align:left;">옵션</th><th>수량</th><th class="m-hide">품목 상태</th><th class="m-hide">발송 송장</th></tr></thead>
       <tbody>${(h.items || []).map(it => `<tr style="${rscanNrRowStyle(it)}"><td style="text-align:left;font-weight:600;">${escHtml(it.name)}${rscanNrChips(it)}</td><td style="text-align:left;">${escHtml(it.option || '—')}</td><td>${it.qty}</td><td class="m-hide">${escHtml(it.status || '')}</td><td class="m-hide" style="font-family:monospace;font-size:.72rem;">${escHtml(it.tracking_no || '')}</td></tr>`).join('')}</tbody></table></div>`; }).join('');
-  box.innerHTML = `<style>@keyframes rscanBlink{0%,100%{box-shadow:0 0 0 0 rgba(${th.glow},0)}50%{box-shadow:0 0 0 10px rgba(${th.glow},.4)}}</style>` + rscanIssueNote(live) + wdNote + banner + cards;
+  const trkNote = r.hits.some(h => h.via_tracking) ? `<div style="background:#eff6ff;border:1.5px solid #93c5fd;border-radius:12px;padding:8px 14px;margin-bottom:10px;font-size:.82rem;color:#1e40af;"><i class="fa-solid fa-circle-info"></i> 고객에게 <b>원래 보낸 송장</b>으로 찾은 주문이에요.</div>` : '';
+  box.innerHTML = `<style>@keyframes rscanBlink{0%,100%{box-shadow:0 0 0 0 rgba(${th.glow},0)}50%{box-shadow:0 0 0 10px rgba(${th.glow},.4)}}</style>` + rscanIssueNote(live) + trkNote + wdNote + banner + cards;
 }
 function rscanHistoryRender() {
   const h = rscanState.history; const box = $('rscan-history'); if (!box) return;

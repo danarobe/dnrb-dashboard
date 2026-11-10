@@ -3320,6 +3320,22 @@ Deno.serve(async (req) => {
           hits = hits.map((e) => ({ ...e, invoice: naverRow!.invoice, company: naverRow!.company ?? e.company, reason: e.reason || naverRow!.reason || "", naver_reason: naverRow!.reason ?? null, naver_kind: naverRow!.kind ?? null }));
         }
       }
+      // 원래 보낸 송장(출고 송장)으로도 찾기(2026-11-10 사용자 신고 — 네이버페이 교환 20261026-0003838: 카페24엔 반품 송장이 없고
+      //   네이버페이센터 엑셀에도 없어 반품 송장·원송장 모두 안 찾아짐). 품목의 tracking_no(고객에게 보낸 송장)가 같으면 그 접수.
+      //   고른 기간 안 → 없으면 기간 밖이라도 '불량·오배송 처리' 처리전인 주문만.
+      if (!hits.length) {
+        const trkHit = (e: Record<string, any>) => ((e.items ?? []) as Record<string, any>[]).some((it) => matchInv(rscanDigits(it.tracking_no)));
+        hits = payload.filter(trkHit).map((e) => ({ ...e, via_tracking: true }));
+        if (!hits.length) {
+          const older = fullPayload.filter((e) => e.order_date && String(e.order_date) < startDate && trkHit(e));
+          if (older.length) {
+            const pend = await rscanIssuePending(older, fullPayload, st);
+            hits = older.filter((e) => pend.has(`${e.kind}:${e.order_id}`)).map((e) => ({ ...e, via_tracking: true, outside_period: true }));
+            if (hits.length) payload = [...payload, ...fullPayload.filter((e) => hits.some((h) => h.order_id === e.order_id) && !payload.includes(e))];
+          }
+        }
+        if (hits.length) naverRow = null;
+      }
       // 철회된 접수의 송장(2026-09-30 사용자 신고 — 주문 20260918-0004868: 교환 신청 → 철회 → 재신청, 고객이 첫 접수의 수거 송장을 붙여 보냄):
       //   철회된 접수는 withdrawn 표시, 같은 주문·같은 구분의 철회 안 된 접수를 linked(스캔 송장 = 철회 접수의 것)로 앞에 붙인다.
       const isWithdrawn = (e: Record<string, any>) => /철회/.test(String(e.status ?? "") + String(e.status_extra ?? ""));
