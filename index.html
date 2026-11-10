@@ -3891,7 +3891,7 @@ function hrGo(k, id) {
     hrState.q = ''; hrState.type = 'all';
     usersState.tab = 'roster'; showMenu('users'); return;
   }
-  if (k === 'hire') { hireState.kind = 'applicant'; hireState.filter = 'all'; const q = $('hire-q'); if (q) q.value = ''; showMenu('hire'); }
+  if (k === 'hire' || k === 'daily') { $('user-detail-modal').style.display = 'none'; hireState.kind = k === 'daily' ? 'daily' : 'applicant'; hireState.filter = 'all'; const q = $('hire-q'); if (q) q.value = ''; if (k === 'daily') hrFocus = { k: 'hire', id: String(id) }; showMenu('hire'); }
 }
 let hrFlash = null;   // 강조 중인 줄 — 그사이 표를 다시 그려도(예: 채용 기록 연결을 늦게 받아 다시 그림) 강조가 남게
 function hrFocusApply(k) {
@@ -18504,6 +18504,7 @@ let wmHireOfP = null;
 function wmHireOfLoad() {
   if (!wmHireOfP) wmHireOfP = hireApi({ action: 'list' }).then(d => {
     for (const h of d.hires || []) if (h.employee_id) { wmHireOf[h.employee_id] = h.id; wmHireRec[h.id] = h; }
+    hrState.daily = (d.hires || []).filter(h => h.kind === 'daily' && !h.employee_id);   // 일일알바(근무 관리 알바가 아닌 사람) — 인사 명부에 '일일알바'로
     if (wmState.emps && hrState.users) hrRosterRender();
   }).catch(() => {});
   return wmHireOfP;
@@ -18526,7 +18527,20 @@ function wmEmpRender() { hrRosterRender(); }
    한 사람 = 한 줄: 근무자(wm_employees)와 워크스페이스 계정(app_users)을 app_user_id로 묶고, 근무자와 연결 안 된 계정(대표·미연결)도 한 줄로.
    줄을 누르면 근무 조건 · 계정 · 채용 기록이 한 창(hrPersonOpen). 데이터·서버는 그대로 — 화면만 묶는다.
    수정·퇴사·삭제·연결·역할·비밀번호·계정 삭제는 원래 함수(wmEmpFormOpen·wmEmpToggle·wmEmpHide·wmEmpLinkPick·wmEmpLinkNew·setUserRole·userPwOpen·deleteUser) 그대로 → 끝나면 wmLoadEmps/loadUsers가 이 표를 다시 그린다. */
-const hrState = { users: null, q: '', type: 'all', open: null };
+const hrState = { users: null, q: '', type: 'all', open: null, daily: [] };
+/* 상태(2026-11-10 사용자 요청): 직원 = '근무중' / '퇴사(일자)', 알바 = '일일알바' / '채용됨' / '채용 후 퇴사'.
+   퇴사 일자 = 마지막 근무일(없으면 마지막 출근일, wmResignInfo). 근무자와 연결 안 된 계정은 로그인 막힘이 아니면 '근무중'. */
+function hrStatusHtml(p) {
+  const pill = (t, c, b) => `<span style="display:inline-block;background:${b};color:${c};border-radius:6px;padding:1px 8px;font-size:.7rem;font-weight:800;white-space:nowrap;">${t}</span>`;
+  const sub = t => `<div style="font-size:.66rem;color:#6b7280;font-weight:600;white-space:nowrap;margin-top:2px;">${t}</div>`;
+  if (p.h) { const last = p.h.pays && p.h.pays[0] && p.h.pays[0].work_date; return pill('일일알바', '#b45309', '#fef3c7') + (last ? sub(`최근 근무 ${escHtml(String(last).slice(0, 10))}`) : ''); }
+  const e = p.e;
+  if (!e) return p.u && p.u.login_blocked && p.u.role !== 'admin' ? pill('로그인 막힘', '#b91c1c', '#fee2e2') : pill('근무중', '#166534', '#dcfce7');
+  const r = wmResignInfo(e), d = r && r.date ? escHtml(r.date) : '';
+  const when = r ? (d ? sub(d + (r.entered ? '' : ' (마지막 출근)')) : '<div style="font-size:.66rem;color:#b45309;font-weight:700;margin-top:2px;">일자 미입력</div>') : '';
+  if (e.type === 'parttime') return r ? pill('채용 후 퇴사', '#4b5563', '#f3f4f6') + when : pill('채용됨', '#1d4ed8', '#dbeafe');
+  return r ? (d ? pill(`퇴사 (${d})`, '#b91c1c', '#fee2e2') + (r.entered ? '' : sub('마지막 출근일 기준')) : pill('퇴사', '#b91c1c', '#fee2e2') + when) : pill('근무중', '#166534', '#dcfce7');
+}
 const hrRoleHtml = u => { const c = { admin: '#4f46e5', cs: '#0891b2', marketer: '#b45309', logistics: '#15803d' }[u.role]; return `<b style="color:${c || '#374151'};">${ROLE_LABEL[u.role] || 'MD'}</b>`; };
 function hrPeriod(hire) {   // 입사일 → 오늘 "xx개월 xx일"(사용자 지정 표기)
   if (!hire) return '';
@@ -18543,34 +18557,36 @@ function hrRosterRender() {
   const linked = new Set(emps.map(e => e.app_user_id).filter(Boolean));
   const view = wmState.empView || 'active';
   const P = e => ({ e, u: e.app_user_id ? userOf.get(e.app_user_id) || null : null });
-  const people = [...emps.filter(e => !e.hidden).map(P), ...users.filter(u => !linked.has(u.id)).map(u => ({ e: null, u }))];
+  const people = [...emps.filter(e => !e.hidden).map(P), ...users.filter(u => !linked.has(u.id)).map(u => ({ e: null, u })), ...(hrState.daily || []).map(h => ({ e: null, u: null, h }))];
   const gone = emps.filter(e => e.hidden).map(P);
   const isOn = p => p.e ? p.e.active !== false : true;
-  const typeOf = p => p.e ? p.e.type : 'employee';   // 근무자와 연결 안 된 계정(대표 포함)은 '직원' 쪽
+  const typeOf = p => p.h ? 'parttime' : p.e ? p.e.type : 'employee';   // 근무자와 연결 안 된 계정(대표 포함)은 '직원' 쪽, 일일알바는 '알바' 쪽
   const nAct = people.filter(isOn).length, nOff = people.length - nAct;
   const base = view === 'hidden' ? gone : people.filter(p => view === 'all' || (view === 'active') === isOn(p));
   const q = hrState.q.trim().toLowerCase();
-  const rows = base.filter(p => wmTypeOk(hrState.type, typeOf(p)) && (!q || [p.e?.name, p.u?.name, p.u?.id].some(v => String(v || '').toLowerCase().includes(q))))
-    .sort((a, b) => (typeOf(a) === 'employee' ? 0 : 1) - (typeOf(b) === 'employee' ? 0 : 1) || String(a.e?.name || a.u?.name).localeCompare(String(b.e?.name || b.u?.name), 'ko'));
+  const nm = p => String(p.e?.name || p.u?.name || p.h?.name || '');
+  const rank = p => typeOf(p) === 'employee' ? 0 : p.h ? 2 : 1;   // 직원 → 채용 알바 → 일일알바
+  const rows = base.filter(p => wmTypeOk(hrState.type, typeOf(p)) && (!q || [nm(p), p.u?.id].some(v => String(v || '').toLowerCase().includes(q))))
+    .sort((a, b) => rank(a) - rank(b) || nm(a).localeCompare(nm(b), 'ko'));
   const cnt = k => base.filter(p => wmTypeOk(k, typeOf(p))).length;
   const chip = (on, fn, label) => `<button class="${on ? 'active' : ''}" onclick="${fn}">${label}</button>`;
   const dash = '<span style="color:#9ca3af;">—</span>';
   const body = rows.map(p => {
-    const { e, u } = p, pt = e && e.type === 'parttime', hid = e ? wmHireOf[e.id] : null;
-    const name = escHtml(e ? e.name : u.name);
-    const tags = (pt && e.pay_cycle === 'weekly' ? ' <span style="background:#ecfeff;color:#0e7490;border:1px solid #a5f3fc;border-radius:5px;padding:0 5px;font-size:.66rem;font-weight:700;">주급</span>' : '')
-      + (e ? wmResignHtml(e, false) : '')
+    const { e, u, h } = p, pt = (e && e.type === 'parttime') || !!h, hid = e ? wmHireOf[e.id] : h ? h.id : null;
+    const name = escHtml(nm(p));
+    const tags = (e && pt && e.pay_cycle === 'weekly' ? ' <span style="background:#ecfeff;color:#0e7490;border:1px solid #a5f3fc;border-radius:5px;padding:0 5px;font-size:.66rem;font-weight:700;">주급</span>' : '')
       + (e && e.hidden ? `<div style="font-size:.64rem;color:#6b7280;font-weight:500;">삭제 ${escHtml(String(e.hidden_at || '').slice(0, 10))}${e.hidden_by_name ? ' · ' + escHtml(e.hidden_by_name) : ''}</div>` : '')
-      + (u && u.login_blocked && u.role !== 'admin' ? '<div style="font-size:.64rem;color:#b91c1c;font-weight:700;">로그인 막힘</div>' : '');
-    const kind = e ? `<span class="badge badge-${pt ? 'staff' : 'admin'}" style="font-size:.68rem;">${pt ? '알바' : '직원'}</span>` : '<span class="badge" style="font-size:.68rem;background:#f3f4f6;color:#4b5563;">계정만</span>';
-    const pay = !e ? dash : pt ? `${fmt(e.hourly_rate)}원/시` : `${fmt(e.monthly_salary)}원/월`;
+      + (e && u && u.login_blocked && u.role !== 'admin' ? '<div style="font-size:.64rem;color:#b91c1c;font-weight:700;">로그인 막힘</div>' : '');
+    const kind = e || h ? `<span class="badge badge-${pt ? 'staff' : 'admin'}" style="font-size:.68rem;">${pt ? '알바' : '직원'}</span>` : '<span class="badge" style="font-size:.68rem;background:#f3f4f6;color:#4b5563;">계정만</span>';
+    const lp = h && h.pays && h.pays[0];   // 일일알바 = 최근 지급 기준(정액이면 일당)
+    const pay = h ? (!lp ? dash : lp.fixed_amount ? `일당 ${fmt(lp.fixed_amount)}원` : lp.hourly_rate ? `${fmt(lp.hourly_rate)}원/시` : dash) : !e ? dash : pt ? `${fmt(e.hourly_rate)}원/시` : `${fmt(e.monthly_salary)}원/월`;
     const leave = e && !pt ? `<b style="color:${(e.annual_leave_total - e.annual_used) <= 2 ? '#dc2626' : '#2563eb'};">${e.annual_leave_total - e.annual_used}</b><span style="font-size:.7rem;color:#6b7280;"> / ${e.annual_leave_total}</span>` : dash;
     const acct = u ? `<span style="font-family:ui-monospace,monospace;font-size:.76rem;">${escHtml(u.id)}</span> · ${hrRoleHtml(u)}`
       : e && !pt ? '<span style="color:#d97706;font-weight:600;">미연결</span>' : dash;
     const pin = !e ? dash : e.pin_set_at ? '<span style="color:#16a34a;font-size:.72rem;">설정됨</span>' : '<span style="color:#6b7280;font-size:.72rem;">미설정</span>';
-    return `<tr${e ? ` data-hr-emp="${e.id}"` : ''}${u ? ` data-hr-user="${escHtml(u.id)}"` : ''} onclick="hrPersonOpen(${e ? e.id : 'null'}, ${u ? jsArg(u.id) : 'null'})" style="cursor:pointer;${isOn(p) && !(e && e.hidden) ? '' : 'background:#fafafa;color:#6b7280;'}">
-      <td style="font-weight:700;text-align:left;">${name}${hid ? hrLink('hire', hid, '채용 기록', '알바 채용·면접비에서 이 사람(계약서·지급 기록) 보기') : ''}${tags}</td>
-      <td>${kind}</td><td>${pay}</td><td>${leave}</td><td style="text-align:left;">${acct}</td><td>${pin}</td>
+    return `<tr${e ? ` data-hr-emp="${e.id}"` : ''}${u ? ` data-hr-user="${escHtml(u.id)}"` : ''}${h ? ` data-hr-daily="${h.id}"` : ''} onclick="hrPersonOpen(${e ? e.id : 'null'}, ${u ? jsArg(u.id) : 'null'}${h ? ', ' + h.id : ''})" style="cursor:pointer;${isOn(p) && !(e && e.hidden) ? '' : 'background:#fafafa;color:#6b7280;'}">
+      <td style="font-weight:700;text-align:left;">${name}${hid ? hrLink(h ? 'daily' : 'hire', hid, h ? '지급 기록' : '채용 기록', '알바 채용·면접비에서 이 사람(계약서·지급 기록) 보기') : ''}${tags}</td>
+      <td>${kind}</td><td>${hrStatusHtml(p)}</td><td>${pay}</td><td>${leave}</td><td style="text-align:left;">${acct}</td><td>${pin}</td>
       <td><span style="color:#4338ca;font-size:.74rem;font-weight:700;white-space:nowrap;">자세히 ›</span></td></tr>`;
   }).join('');
   box.innerHTML = `<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px;">
@@ -18584,12 +18600,13 @@ function hrRosterRender() {
         <button class="toggle-btn" onclick="const d=$('hr-add-acct');d.open=true;d.scrollIntoView({block:'center',behavior:'smooth'});setTimeout(()=>$('user-add-id').focus(),300)"><i class="fa-solid fa-user-plus"></i> 계정 만들기</button>
       </span></div>
     ${rows.length ? `<div style="overflow-x:auto;"><table style="width:100%;font-size:.8rem;">
-      <thead><tr><th style="text-align:left;">이름</th><th>구분</th><th>급여</th><th>연차 잔여</th><th style="text-align:left;">워크스페이스 계정</th><th>키오스크 PIN</th><th></th></tr></thead>
+      <thead><tr><th style="text-align:left;">이름</th><th>구분</th><th>상태</th><th>급여</th><th>연차 잔여</th><th style="text-align:left;">워크스페이스 계정</th><th>키오스크 PIN</th><th></th></tr></thead>
       <tbody>${body}</tbody></table></div>` : `<div class="empty-state"><p>${q ? `'${escHtml(hrState.q)}'에 맞는 사람이 없어요` : view === 'hidden' ? '삭제한 사람이 없어요' : view === 'inactive' ? '퇴사한 사람이 없어요' : '등록된 사람이 없어요'}</p></div>`}
     <div style="font-size:.72rem;color:#6b7280;margin-top:8px;">줄을 누르면 근무 조건·계정·채용 기록 · 퇴사 처리하면 로그인·권한도 함께 해제 · 역할 변경은 다시 로그인해야 적용</div>`;
   hrFocusApply('emp'); hrFocusApply('user');
 }
-function hrPersonOpen(empId, uid) {
+function hrPersonOpen(empId, uid, dailyId) {
+  if (dailyId != null) return hrDailyOpen(dailyId);
   const emps = wmState.emps || [], users = hrState.users || [];
   const e = empId != null ? emps.find(x => x.id === empId) : null;
   const u = uid ? users.find(x => x.id === uid) : e && e.app_user_id ? users.find(x => x.id === e.app_user_id) : null;
@@ -18605,7 +18622,7 @@ function hrPersonOpen(empId, uid) {
   let work;
   if (e) {
     const period = hrPeriod(e.hire_date);
-    work = row('구분', (pt ? '알바' : '직원') + wmResignHtml(e, true))
+    work = row('구분', pt ? '알바' : '직원') + row('상태', hrStatusHtml({ e, u }))
       + row('입사일', e.hire_date ? `${escHtml(e.hire_date)}${period ? ` <span style="font-size:.72rem;color:#4338ca;">(근무 ${period})</span>` : ''}` : '<span style="color:#d97706;">미입력</span>')
       + (pt ? row('시급', `${fmt(e.hourly_rate)}원`) + row('지급', e.pay_cycle === 'weekly' ? '주급 (매주 월요일)' : '월급') + row('교통비', e.transport_allowance ? fmt(e.transport_allowance) + '원' : '—') + row('출근 고정', escHtml(e.fixed_clock_in || '—'))
         : row('연봉', `${fmt(e.annual_salary || (e.monthly_salary || 0) * 12)}원 <span style="font-size:.72rem;color:#6b7280;">(월 ${fmt(e.monthly_salary || 0)}원)</span>`)
@@ -18635,6 +18652,20 @@ function hrPersonOpen(empId, uid) {
     + `<div style="margin-top:10px;">${hrLink('hire', hid, '알바 채용·면접비에서 보기', '계약서·지급 기록 보기')}</div>` : '';
   $('user-detail-title').textContent = e ? e.name : u.name;
   $('user-detail-body').innerHTML = sec('fa-briefcase', '근무 조건', work) + sec('fa-id-badge', '워크스페이스 계정', acct) + (hire ? sec('fa-user-plus', '채용 기록', hire) : '');
+  $('user-detail-modal').style.display = 'flex';
+}
+function hrDailyOpen(id) {   // 일일알바 — 인사 명부에서는 보기만, 등록·지급은 알바 채용·면접비에서
+  const h = (hrState.daily || []).find(x => x.id === id); if (!h) return;
+  hrState.open = null;
+  const row = (label, val) => `<div style="display:flex;justify-content:space-between;gap:12px;padding:7px 2px;border-bottom:1px solid #f1f5f9;font-size:.8rem;"><span style="color:#6b7280;font-weight:600;white-space:nowrap;">${label}</span><span style="text-align:right;font-weight:600;color:#1e1b4b;">${val}</span></div>`;
+  const pays = h.pays || [], total = pays.reduce((t, x) => t + (x.net || 0), 0), unpaid = pays.filter(x => !x.paid_on).length;
+  $('user-detail-title').textContent = h.name;
+  $('user-detail-body').innerHTML = `<div style="margin-top:6px;">${hrStatusHtml({ h: { ...h, pays: [] } })}</div>`
+    + row('휴대폰', escHtml(h.phone || '—'))
+    + row('최근 근무', escHtml(pays[0] && pays[0].work_date ? String(pays[0].work_date).slice(0, 10) : '—'))
+    + row('지급 기록', pays.length ? `${pays.length}건 · 실지급 ${fmt(total)}원${unpaid ? ` <span style="color:#b45309;">(미지급 ${unpaid})</span>` : ''}` : '없음')
+    + `<div style="font-size:.74rem;color:#6b7280;margin-top:10px;">일일알바 등록·지급은 알바 채용·면접비에서 해요</div>
+       <div style="margin-top:8px;">${hrLink('daily', h.id, '알바 채용·면접비에서 보기', '일일알바 목록에서 이 사람 보기')}</div>`;
   $('user-detail-modal').style.display = 'flex';
 }
 async function hrPersonAct(a) {
