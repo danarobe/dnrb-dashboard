@@ -17287,15 +17287,14 @@ function wmSetTab(k) {
 function wmInit() {
   if (!isAdmin()) return;
   wmRenderTabs();
-  if (wmState.emps) return;                       // 이미 로드됨
-  const now = new Date();
-  const ym = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-  $('wm-att-ym').value = ym;
-  $('wm-sal-ym').value = ym;
-  wmLoadAtt();
+  // 비어 있는 연월 칸 = 이번 달(한국 날짜). 2026-11-10: 인사 명부가 근무자 목록(wmState.emps)을 먼저 읽어 두면
+  //   아래 '이미 로드됨'에서 빠져 연월이 비어 있던 문제 — 연월 채우기·출퇴근 첫 조회는 근무자 목록과 따로 판단한다.
+  const ym = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Seoul' }).slice(0, 7);
+  for (const id of ['wm-att-ym', 'wm-sal-ym', 'wm-lv-ym', 'wm-shoot-ym']) if ($(id) && !$(id).value) $(id).value = ym;
+  if (!wmState.attYm) wmLoadAtt();   // 출퇴근을 아직 한 번도 안 읽었으면
 }
 
-function wmRefresh() { wmState.emps = null; wmState.sal = []; wmInit(); if (wmState.tab === 'sal') wmLoadSal(); }
+function wmRefresh() { wmState.emps = null; wmState.sal = []; wmState.attYm = null; wmInit(); if (wmState.tab === 'sal') wmLoadSal(); }
 
 async function wmEnsureEmps() {
   if (!wmState.emps) wmState.emps = await wmApi({ action: 'employee_list' });
@@ -17314,7 +17313,7 @@ async function wmLoadAtt() {
       wmApi({ action: 'attendance_list', year: y, month: m }),
       wmApi({ action: 'edits_pending' }),
     ]);
-    wmState.att = att; wmState.pending = pending;
+    wmState.att = att; wmState.pending = pending; wmState.attYm = ym;
     wmAttEmpSelect();
     wmRenderAtt();
   } catch (err) {
