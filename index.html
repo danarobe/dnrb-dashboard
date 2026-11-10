@@ -4490,14 +4490,14 @@ function cnBuyRender() {
   if (q) prods = prods.filter(p => p.sname.toLowerCase().includes(q) || p.opts.some(o => (o.color + ' ' + o.size).toLowerCase().includes(q)));
   const num = v => `<td style="text-align:right;">${v}</td>`, dash = '<span style="color:#6b7280;">—</span>';
   if (!prods.length) { $('cn-buy-list').innerHTML = `<div class="empty-state"><p>${st.only ? '수량을 적은 상품이 없어요.' : '조건에 맞는 상품이 없어요.'}</p></div>`; cnBuyBarRender(); return; }
-  let html = `<div class="table-wrap"><table class="cn-tbl" style="width:100%;font-size:.8rem;"><thead><tr><th style="text-align:left;">품번 / 옵션<div class="cn-sub">매장${canPrice ? ' · 단가(위안)' : ''}</div></th><th>지금까지 주문<div class="cn-sub">모든 주문서 합</div></th><th>중국출고</th><th>잔여<div class="cn-sub">주문 − 중국출고</div></th><th style="background:#eef2ff;">이번 주문 수량</th></tr></thead><tbody>`;
+  let html = `<div class="table-wrap"><table class="cn-tbl" style="width:100%;font-size:.8rem;"><thead><tr><th style="text-align:left;">품번 / 옵션<div class="cn-sub">매장·위치·위챗${canPrice ? ' · 단가(위안)' : ''}</div></th><th>지금까지 주문<div class="cn-sub">모든 주문서 합</div></th><th>중국출고</th><th>잔여<div class="cn-sub">주문 − 중국출고</div></th><th style="background:#eef2ff;">이번 주문 수량</th></tr></thead><tbody>`;
   for (const p of prods) {
     const info = (d.prods || {})[p.sname] || {}, sub = p.opts.reduce((t, o) => t + (st.qty[o.key] || 0), 0);
     const price = st.price[p.sname] != null ? st.price[p.sname] : p.price;
-    html += `<tr style="background:#f8f9ff;"><td class="cn-name" colspan="4"><div style="display:flex;align-items:center;gap:8px;">${cnThumbHtml(p.sname)}<b style="font-weight:800;">${escHtml(p.sname)}</b><span class="cn-sub">옵션 ${p.opts.length}</span>
+    html += `<tr style="background:#f8f9ff;"><td class="cn-name" colspan="4"><div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">${cnThumbHtml(p.sname)}<b style="font-weight:800;">${escHtml(p.sname)}</b><span class="cn-sub">옵션 ${p.opts.length}</span>
         <span class="cn-label-badge" style="${cnAnyLabelOf(p.sname) ? '' : 'background:#f3f4f6;color:#4b5563;border-color:#e5e7eb;'}" title="주문서 I열에 들어가는 라벨 문구 — 입고 검수의 혼용률·라벨(일반·아우터·사이즈)로 정해져요">${escHtml(cnOrderLabelText(p.sname))}</span>
         ${cnOrderRemarkText(p.sname) ? `<span class="cn-rmk-txt" title="주문서 J열 '특이사항'에 들어가요 — 입고 검수에서 고칠 수 있어요${cnLabelOf(p.sname) ? '&#10;일반(혼용률) 라벨 상품이라 \'다나로브 일반 라벨\'이 자동으로 들어가요' : ''}">특이사항: ${escHtml(cnOrderRemarkText(p.sname).replace(/\n/g, ' · '))}</span>` : ''}
-        <span class="cn-sub" style="display:inline-flex;align-items:center;gap:4px;">매장 <input type="text" maxlength="80" value="${escHtml(info.vendor || '')}" data-s="${escHtml(p.sname)}" data-prev="${escHtml(info.vendor || '')}" onchange="cnBuyVendor(this)" placeholder="예: W-1F-10-30" style="width:120px;border:1px solid #e5e7eb;border-radius:6px;padding:2px 6px;font-size:.74rem;" /></span>
+        ${cnBuyVendorHtml(p.sname, info)}
         ${canPrice ? `<span class="cn-sub" style="display:inline-flex;align-items:center;gap:4px;">단가 ¥<input type="number" min="0" step="0.1" value="${price == null ? '' : price}" data-s="${escHtml(p.sname)}" onchange="cnBuyPrice(this)" style="width:70px;border:1px solid #e5e7eb;border-radius:6px;padding:2px 6px;font-size:.74rem;text-align:right;" /></span>` : ''}</div></td>
       <td style="text-align:right;font-weight:800;color:${sub ? '#4338ca' : '#6b7280'};" data-buy-sub="${escHtml(encodeURIComponent(p.sname))}">${sub ? fmt(sub) + '장' : '—'}</td></tr>`;
     for (const o of p.opts) {
@@ -4526,9 +4526,36 @@ function cnBuyQty(el) {
   cnBuyBarRender();
 }
 function cnBuyPrice(el) { const st = cnBuyState(), v = String(el.value).trim(); if (v === '') delete st.price[el.dataset.s]; else st.price[el.dataset.s] = Number(v); cnBuySave(); cnBuyBarRender(); }
-async function cnBuyVendor(el) {   // 매장(거래처 자리) — 상품 정보에 저장(다음 주문서에도 그대로)
-  const v = el.value.trim(); if (v === el.dataset.prev) return;
-  try { const r = await cnPost('cn_vendor', { sname: el.dataset.s, vendor: v }); const d = cnState.data; d.prods = d.prods || {}; d.prods[el.dataset.s] = Object.assign({}, d.prods[el.dataset.s], { vendor: r.vendor }); el.dataset.prev = r.vendor || ''; showToast('매장을 저장했어요'); }
+/* 매장 · 매장 위치 · 매장 위챗(2026-11-10 사용자 요청) — 상품(cn_products)마다 저장: vendor(档口 번호) · vendor_loc(건물) · vendor_wechat.
+   매장 번호를 적으면 같은 매장 번호를 쓰는 다른 상품의 위치·위챗을 빈 칸에 채워 같이 저장한다. */
+const CN_VENDOR_F = { vendor: ['매장', '예: W-1F-10-30', 120], loc: ['위치', '예: W동', 70], wechat: ['위챗', '위챗 아이디', 140] };
+function cnBuyVendorHtml(sname, info) {
+  const inp = f => { const [label, ph, w] = CN_VENDOR_F[f], v = info[f] || '';
+    return `<label style="display:inline-flex;align-items:center;gap:4px;">${label} <input type="text" maxlength="80" value="${escHtml(v)}" data-s="${escHtml(sname)}" data-f="${f}" data-prev="${escHtml(v)}" onchange="cnBuyVendor(this)" placeholder="${ph}" aria-label="${escHtml(sname)} ${label}" style="width:${w}px;border:1px solid #e5e7eb;border-radius:6px;padding:2px 6px;font-size:.74rem;" /></label>`; };
+  return `<span class="cn-sub cn-vendor" data-vs="${escHtml(sname)}" style="display:inline-flex;align-items:center;gap:8px;flex-wrap:wrap;">${inp('vendor')}${inp('loc')}${inp('wechat')}<button type="button" class="hr-jump" onclick="cnBuyWxCopy(this)" ${info.wechat ? '' : 'hidden'} title="위챗 아이디 복사">복사</button></span>`;
+}
+function cnBuyWxCopy(btn) {
+  const el = btn.parentElement.querySelector('input[data-f="wechat"]'), v = el ? el.value.trim() : '';
+  if (!v) return;
+  (navigator.clipboard ? navigator.clipboard.writeText(v) : Promise.reject()).then(() => showToast('위챗 아이디를 복사했어요: ' + v)).catch(() => { el.select(); showToast('복사하지 못했어요 — 선택된 글자를 복사해 주세요'); });
+}
+async function cnBuyVendor(el) {   // 매장·위치·위챗 — 상품 정보에 저장(다음 주문서에도 그대로)
+  const f = el.dataset.f || 'vendor', v = el.value.trim(); if (v === el.dataset.prev) return;
+  const d = cnState.data; d.prods = d.prods || {};
+  const sname = el.dataset.s, cur = d.prods[sname] || {}, body = { sname, [f]: v };
+  if (f === 'vendor' && v) {   // 같은 매장 번호를 쓰는 다른 상품의 위치·위챗을 빈 칸에
+    const same = Object.entries(d.prods).filter(([k, x]) => k !== sname && x && String(x.vendor || '').trim().toLowerCase() === v.toLowerCase()).map(([, x]) => x);
+    for (const k of ['loc', 'wechat']) { if (!cur[k]) { const hit = same.find(x => x[k]); if (hit) body[k] = hit[k]; } }
+  }
+  try {
+    const r = await cnPost('cn_vendor', body);
+    d.prods[sname] = Object.assign({}, cur, { vendor: r.vendor, loc: r.loc, wechat: r.wechat });
+    const box = document.querySelector(`.cn-vendor[data-vs="${CSS.escape(sname)}"]`);
+    if (box) { for (const k of Object.keys(CN_VENDOR_F)) { const i = box.querySelector(`input[data-f="${k}"]`); if (i) { i.value = d.prods[sname][k] || ''; i.dataset.prev = i.value; } }
+      const b = box.querySelector('button'); if (b) b.hidden = !d.prods[sname].wechat; }
+    const filled = ['loc', 'wechat'].filter(k => k in body && k !== f).map(k => CN_VENDOR_F[k][0]);
+    showToast(`${CN_VENDOR_F[f][0]}${f === 'loc' ? '를' : '을'} 저장했어요${filled.length ? ` (같은 매장의 ${filled.join('·')}도 채움)` : ''}`);
+  }
   catch (e) { showToast('저장 실패: ' + e.message); el.value = el.dataset.prev; }
 }
 function cnBuyClear() {

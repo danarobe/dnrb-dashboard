@@ -2373,12 +2373,12 @@ Deno.serve(async (req) => {
           sbRest("cn_lines?select=*&order=shipment_id.desc,seq.asc&limit=20000"),
           sbRest("cn_orders?select=*&order=id.desc&limit=300"),                                   // 주문서(2026-10-19 다시) — 단가가 없어 역할과 관계없이 그대로
           sbRest("cn_order_lines?select=*&order=order_id.desc,seq.asc&limit=30000"),
-          sbRest("cn_products?select=sname,vendor,updated_by_name,updated_at,line,line_by_name,line_at,fabric,fabric_by_name,fabric_at,label,label_by_name,label_at,outer_label,outer_label_by_name,outer_label_at,size_label,size_label_by_name,size_label_at,remark,remark_by_name,remark_at,c24_nos,c24_by_name,c24_at,inactive,inactive_by_name,inactive_at,cell_map&limit=5000"),
+          sbRest("cn_products?select=sname,vendor,vendor_loc,vendor_wechat,updated_by_name,updated_at,line,line_by_name,line_at,fabric,fabric_by_name,fabric_at,label,label_by_name,label_at,outer_label,outer_label_by_name,outer_label_at,size_label,size_label_by_name,size_label_at,remark,remark_by_name,remark_at,c24_nos,c24_by_name,c24_at,inactive,inactive_by_name,inactive_at,cell_map&limit=5000"),
           sbRest("cn_discards?select=id,sname,color,size,qty,note,created_by_name,created_at&order=created_at.asc&limit=20000"),   // 폐기(2026-10-23) — 잔여 = 주문 − 중국출고 − 폐기
           sbRest("cn_defects?select=id,sname,color,size,shipment_id,qty,found_on,note,created_by_name,created_at&order=found_on.desc,id.desc&limit=20000"),   // 불량 기록(2026-10-26)
         ]) as [Record<string, any>[], Record<string, any>[], Record<string, any>[], Record<string, any>[], Record<string, any>[], Record<string, any>[], Record<string, any>[]];
         const prods: Record<string, unknown> = {};
-        for (const r of prodRows) prods[String(r.sname)] = { vendor: r.vendor ?? null, by: r.updated_by_name ?? null, at: r.updated_at ?? null, line: r.line ?? null, line_by: r.line_by_name ?? null, line_at: r.line_at ?? null, fabric: r.fabric ?? null, fabric_by: r.fabric_by_name ?? null, fabric_at: r.fabric_at ?? null, label: r.label === true, label_by: r.label_by_name ?? null, label_at: r.label_at ?? null, outer: r.outer_label === true, outer_by: r.outer_label_by_name ?? null, outer_at: r.outer_label_at ?? null, size: r.size_label === true, size_by: r.size_label_by_name ?? null, size_at: r.size_label_at ?? null, c24_nos: Array.isArray(r.c24_nos) ? r.c24_nos : null, c24_by: r.c24_by_name ?? null, c24_at: r.c24_at ?? null, inactive: r.inactive === true, inactive_by: r.inactive_by_name ?? null, inactive_at: r.inactive_at ?? null, remark: r.remark ?? null, remark_by: r.remark_by_name ?? null, remark_at: r.remark_at ?? null, cell_map: r.cell_map && typeof r.cell_map === "object" ? r.cell_map : null };
+        for (const r of prodRows) prods[String(r.sname)] = { vendor: r.vendor ?? null, loc: r.vendor_loc ?? null, wechat: r.vendor_wechat ?? null, by: r.updated_by_name ?? null, at: r.updated_at ?? null, line: r.line ?? null, line_by: r.line_by_name ?? null, line_at: r.line_at ?? null, fabric: r.fabric ?? null, fabric_by: r.fabric_by_name ?? null, fabric_at: r.fabric_at ?? null, label: r.label === true, label_by: r.label_by_name ?? null, label_at: r.label_at ?? null, outer: r.outer_label === true, outer_by: r.outer_label_by_name ?? null, outer_at: r.outer_label_at ?? null, size: r.size_label === true, size_by: r.size_label_by_name ?? null, size_at: r.size_label_at ?? null, c24_nos: Array.isArray(r.c24_nos) ? r.c24_nos : null, c24_by: r.c24_by_name ?? null, c24_at: r.c24_at ?? null, inactive: r.inactive === true, inactive_by: r.inactive_by_name ?? null, inactive_at: r.inactive_at ?? null, remark: r.remark ?? null, remark_by: r.remark_by_name ?? null, remark_at: r.remark_at ?? null, cell_map: r.cell_map && typeof r.cell_map === "object" ? r.cell_map : null };
         const outLines = canPrice ? lines : lines.map((l) => { const { unit_price: _u, ...rest } = l; return rest; });
         const outShips = ships.map(hideCosts);   // 비용(2번째 시트)도 관리자만
         // 카페24 등록 여부 (2026-10-12 규칙 — 사용자 지정 반영): 카페24 상품의 '공급사 상품명'(공백·대소문자 무시)과 사입상품명(품번)을 맞춘다.
@@ -2681,9 +2681,16 @@ Deno.serve(async (req) => {
         if (!canEdit) return json({ error: "거래처명 입력은 관리자·MD만 할 수 있어요" }, 403);
         const sname = txt(b.sname, 100);
         if (!sname) return json({ error: "사입상품명이 없어요" }, 400);
-        const row = { sname, vendor: txt(b.vendor, 80), updated_by: authed.id, updated_by_name: authed.name, updated_at: now };
+        // 매장(vendor)·매장 위치(loc)·매장 위챗(wechat) — 보낸 칸만 바꾼다(2026-11-10 위치·위챗 추가)
+        const row: Record<string, unknown> = { sname, updated_by: authed.id, updated_by_name: authed.name, updated_at: now };
+        if ("vendor" in b) row.vendor = txt(b.vendor, 80);
+        if ("loc" in b) row.vendor_loc = txt(b.loc, 80);
+        if ("wechat" in b) row.vendor_wechat = txt(b.wechat, 80);
+        if (!("vendor" in b) && !("loc" in b) && !("wechat" in b)) return json({ error: "바꿀 칸이 없어요" }, 400);
         await sbRest("cn_products?on_conflict=sname", { method: "POST", headers: { Prefer: "resolution=merge-duplicates,return=minimal" }, body: JSON.stringify(row) });
-        return json({ ok: true, sname, vendor: row.vendor, by: authed.name, at: now });
+        const got = await sbRest(`cn_products?sname=eq.${encodeURIComponent(sname)}&select=vendor,vendor_loc,vendor_wechat`);
+        const g = Array.isArray(got) && got[0] ? got[0] : {};
+        return json({ ok: true, sname, vendor: g.vendor ?? null, loc: g.vendor_loc ?? null, wechat: g.vendor_wechat ?? null, by: authed.name, at: now });
       }
       // 상품(사입상품명)별 혼용률 (2026-10-12 사용자 요청) — 직접 입력(cn_fabric)과 엑셀의 혼용률 열(cn_upload의 fabrics)이 같은 칸에 저장된다.
       //   { 사입상품명: 혼용률 글 } 을 받아 빈 값이 아닌 것만 저장(엑셀의 빈칸이 이미 적어 둔 값을 지우지 않게). 다른 칸(라인·거래처명)은 건드리지 않는다.
