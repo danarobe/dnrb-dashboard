@@ -18516,6 +18516,8 @@ function wmHireOfLoad() {
     for (const h of d.hires || []) if (h.employee_id) { wmHireOf[h.employee_id] = h.id; wmHireRec[h.id] = h; }
     hrState.daily = (d.hires || []).filter(h => h.kind === 'daily' && !h.employee_id);   // 일일알바(근무 관리 알바가 아닌 사람) — 인사 명부에 '일일알바'로
     if (wmState.emps && hrState.users) hrRosterRender();
+    // 알바 채용 기록의 계좌는 가린 값만 오므로 관리자는 전체를 따로 받아 인사 명부에 그대로 보임(2026-11-10 사용자 요청)
+    if (isAdmin()) hireApi({ action: 'accounts' }).then(a => { hrState.acct = a.accounts || {}; if (wmState.emps && hrState.users) hrRosterRender(); }).catch(() => {});
   }).catch(() => {});
   return wmHireOfP;
 }
@@ -18537,7 +18539,7 @@ function wmEmpRender() { hrRosterRender(); }
    한 사람 = 한 줄: 근무자(wm_employees)와 워크스페이스 계정(app_users)을 app_user_id로 묶고, 근무자와 연결 안 된 계정(대표·미연결)도 한 줄로.
    줄을 누르면 근무 조건 · 계정 · 채용 기록이 한 창(hrPersonOpen). 데이터·서버는 그대로 — 화면만 묶는다.
    수정·퇴사·삭제·연결·역할·비밀번호·계정 삭제는 원래 함수(wmEmpFormOpen·wmEmpToggle·wmEmpHide·wmEmpLinkPick·wmEmpLinkNew·setUserRole·userPwOpen·deleteUser) 그대로 → 끝나면 wmLoadEmps/loadUsers가 이 표를 다시 그린다. */
-const hrState = { users: null, q: '', type: 'all', open: null, daily: [] };
+const hrState = { users: null, q: '', type: 'all', open: null, daily: [], acct: {} };   // acct = 알바 채용 기록의 계좌 전체(관리자, 2026-11-10)
 /* 상태(2026-11-10 사용자 요청): 직원 = '근무중' / '퇴사(일자)', 알바 = '일일알바' / '채용됨' / '채용 후 퇴사'.
    퇴사 일자 = 마지막 근무일(없으면 마지막 출근일, wmResignInfo). 근무자와 연결 안 된 계정은 로그인 막힘이 아니면 '근무중'. */
 function hrStatusHtml(p) {
@@ -18565,7 +18567,7 @@ function hrPeriod(hire) {   // 입사일 → 오늘 "xx개월 xx일"(사용자 �
 function hrPii(p) {
   const e = p.e, h = p.h || (e && wmHireRec[wmHireOf[e.id]]) || null;
   const acct = e && (e.bank_name || e.bank_account) ? { text: `${e.bank_name || ''} ${e.bank_account || ''}`.trim(), holder: e.bank_holder || '', src: 'emp' }
-    : h && h.account_mask ? { text: `${h.bank_name || ''} ${h.account_mask}`.trim(), holder: h.bank_holder || '', src: 'hire' } : null;
+    : h && (hrState.acct[h.id] || h.account_mask) ? { text: `${h.bank_name || ''} ${hrState.acct[h.id] || h.account_mask}`.trim(), holder: h.bank_holder || '', src: 'hire', full: !!hrState.acct[h.id] } : null;
   return {
     phone: (e && e.phone) || (h && h.phone) || '',
     rrn: (e && e.rrn_mask) || (h && h.rrn_mask) || '',
@@ -18695,7 +18697,7 @@ function hrPiiRows(p, row) {   // 상세 창의 연락처·주민번호·계좌 
     : '<span style="color:#b45309;">미입력</span>' + (p.e ? ' <span style="font-size:.7rem;color:#6b7280;">(근무 조건 수정에서 입력)</span>' : '');
   return row('연락처', pi.phone ? escHtml(pi.phone) : '—')
     + row('주민번호', rrn + (pi.rrnSrc === 'hire' ? '<div style="font-size:.68rem;color:#6b7280;">알바 채용 기록</div>' : ''))
-    + row('급여 계좌', pi.acct ? `${escHtml(pi.acct.text)}${pi.acct.holder ? `<div style="font-size:.72rem;color:#6b7280;">예금주 ${escHtml(pi.acct.holder)}</div>` : ''}${pi.acct.src === 'hire' ? '<div style="font-size:.68rem;color:#6b7280;">알바 채용 기록 · 전체는 알바 채용에서 [복사]</div>' : ''}` : '—');
+    + row('급여 계좌', pi.acct ? `${escHtml(pi.acct.text)}${pi.acct.holder ? `<div style="font-size:.72rem;color:#6b7280;">예금주 ${escHtml(pi.acct.holder)}</div>` : ''}${pi.acct.src === 'hire' ? `<div style="font-size:.68rem;color:#6b7280;">알바 채용 기록${pi.acct.full ? '' : ' · 전체는 알바 채용에서 [복사]'}</div>` : ''}` : '—');
 }
 function hrDailyOpen(id) {   // 일일알바 — 인사 명부에서는 보기만, 등록·지급은 알바 채용·면접비에서
   const h = (hrState.daily || []).find(x => x.id === id); if (!h) return;

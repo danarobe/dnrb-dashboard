@@ -226,6 +226,16 @@ Deno.serve(async (req) => {
       return json({ contracts: rows.map((c: any) => ({ from: c.period_from, to: c.period_to, by: c.signed_by_name, at: c.signed_at })) });
     }
 
+    // 인사 명부의 계좌 전체(2026-11-10 사용자 요청 "알바 계좌를 가리지 말고 다 보이게") — 관리자만, 계좌만(주민번호는 그대로 가린 값), 볼 때마다 감사 로그(건수만)
+    if (action === 'accounts') {
+      if (me.role !== 'admin') return json({ error: '관리자만 볼 수 있어요' }, 403);
+      const rows = await rest('wm_hires?account_enc=not.is.null&select=id,account_enc');
+      const accounts: Record<string, string> = {};
+      for (const r of rows) { const a = await dec(r.account_enc); if (a) accounts[String(r.id)] = a; }
+      await audit(me, 'accounts_view', { count: Object.keys(accounts).length });
+      return json({ accounts });
+    }
+
     if (action === 'reveal') {
       const h = await hireRow(id);
       if (!h) return json({ error: '없는 사람이에요' }, 404);
