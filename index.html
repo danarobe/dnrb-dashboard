@@ -4495,8 +4495,8 @@ function cnBuyRender() {
     const info = (d.prods || {})[p.sname] || {}, sub = p.opts.reduce((t, o) => t + (st.qty[o.key] || 0), 0);
     const price = st.price[p.sname] != null ? st.price[p.sname] : p.price;
     html += `<tr style="background:#f8f9ff;"><td class="cn-name" colspan="4"><div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">${cnThumbHtml(p.sname)}<b style="font-weight:800;">${escHtml(p.sname)}</b><span class="cn-sub">옵션 ${p.opts.length}</span>
-        <span class="cn-label-badge" style="${cnAnyLabelOf(p.sname) ? '' : 'background:#f3f4f6;color:#4b5563;border-color:#e5e7eb;'}" title="주문서 I열에 들어가는 라벨 문구 — 입고 검수의 혼용률·라벨(일반·아우터·사이즈)로 정해져요">${escHtml(cnOrderLabelText(p.sname))}</span>
-        ${cnOrderRemarkText(p.sname) ? `<span class="cn-rmk-txt" title="주문서 J열 '특이사항'에 들어가요 — 입고 검수에서 고칠 수 있어요${cnLabelOf(p.sname) ? '&#10;일반(혼용률) 라벨 상품이라 \'다나로브 일반 라벨\'이 자동으로 들어가요' : ''}">특이사항: ${escHtml(cnOrderRemarkText(p.sname).replace(/\n/g, ' · '))}</span>` : ''}
+        <span class="cn-label-badge" style="${cnAnyLabelOf(p.sname) ? '' : 'background:#f3f4f6;color:#4b5563;border-color:#e5e7eb;'}" title="주문서 J열에 들어가는 라벨 문구 — 입고 검수의 혼용률·라벨(일반·아우터·사이즈)로 정해져요">${escHtml(cnOrderLabelText(p.sname))}</span>
+        ${cnOrderRemarkText(p.sname) ? `<span class="cn-rmk-txt" title="주문서 K열 '특이사항'에 들어가요 — 입고 검수에서 고칠 수 있어요${cnLabelOf(p.sname) ? '&#10;일반(혼용률) 라벨 상품이라 \'다나로브 일반 라벨\'이 자동으로 들어가요' : ''}">특이사항: ${escHtml(cnOrderRemarkText(p.sname).replace(/\n/g, ' · '))}</span>` : ''}
         ${cnBuyVendorHtml(p.sname, info)}
         ${canPrice ? `<span class="cn-sub" style="display:inline-flex;align-items:center;gap:4px;">단가 ¥<input type="number" min="0" step="0.1" value="${price == null ? '' : price}" data-s="${escHtml(p.sname)}" onchange="cnBuyPrice(this)" style="width:70px;border:1px solid #e5e7eb;border-radius:6px;padding:2px 6px;font-size:.74rem;text-align:right;" /></span>` : ''}</div></td>
       <td style="text-align:right;font-weight:800;color:${sub ? '#4338ca' : '#6b7280'};" data-buy-sub="${escHtml(encodeURIComponent(p.sname))}">${sub ? fmt(sub) + '장' : '—'}</td></tr>`;
@@ -4564,9 +4564,9 @@ function cnBuyClear() {
   if (!confirm(`적은 수량 ${n}개 옵션을 모두 지울까요?`)) return;
   st.qty = {}; st.price = {}; cnBuySave(); cnBuyRender();
 }
-function cnBuyPicked() {   // 수량을 적은 상품만 — [{ sname, price, vendor, opts:[{color,size,qty}] }]
+function cnBuyPicked() {   // 수량을 적은 상품만 — [{ sname, price, vendor, wechat, opts:[{color,size,qty}] }]
   const d = cnState.data || {}, st = cnBuyState();
-  return cnBuyProducts().map(p => ({ sname: p.sname, price: st.price[p.sname] != null ? st.price[p.sname] : p.price, vendor: (((d.prods || {})[p.sname]) || {}).vendor || '',
+  return cnBuyProducts().map(p => ({ sname: p.sname, price: st.price[p.sname] != null ? st.price[p.sname] : p.price, vendor: (((d.prods || {})[p.sname]) || {}).vendor || '', wechat: (((d.prods || {})[p.sname]) || {}).wechat || '',
     opts: p.opts.filter(o => (st.qty[o.key] || 0) > 0).map(o => ({ color: o.color, size: o.size, qty: st.qty[o.key] })) })).filter(p => p.opts.length);
 }
 function cnBuyBarRender() {
@@ -4589,42 +4589,55 @@ function loadExcelJS() {   // 그림이 든 엑셀을 만들 때만(주문하기
   });
   return _excelJsP;
 }
+/* 주문서 B열 사진 자리(2026-11-10 사용자 신고 "엑셀 받기 사진이 가늘게 줄어 나온다"):
+   ExcelJS는 소수 열 위치(col 1.95)를 '열 폭 × 10000 EMU'로 바꾸는데 실제 열 폭(글자 15개 ≈ 110px ≈ 1,047,750 EMU)보다 7배쯤 작아서
+   사진 오른쪽 끝이 B열 15px 지점에 놓였음 → 소수 위치를 쓰지 않고, 왼쪽 위(원래 단위 EMU) + 사진 크기(px, 원래 비율 유지)로 넣는다. */
+const CN_XL_IMG_W = 15, CN_XL_ROW_PT = 18;
+function cnImgSize(url) { return new Promise(res => { const im = new Image(); im.onload = () => res({ w: im.naturalWidth || 1, h: im.naturalHeight || 1 }); im.onerror = () => res({ w: 3, h: 4 }); im.src = url; }); }
+async function cnXlImgRange(url, r0, n) {   // r0 = 상품 첫 줄(1부터), n = 상품 줄 수
+  const EMU = 9525, colPx = Math.floor(CN_XL_IMG_W * 7 + 5), rowPx = CN_XL_ROW_PT * 4 / 3, boxH = rowPx * n, pad = 4;
+  const { w, h } = await cnImgSize(url), k = Math.min((colPx - pad * 2) / w, (boxH - pad * 2) / h);
+  const iw = Math.max(1, Math.floor(w * k)), ih = Math.max(1, Math.floor(h * k));
+  const offX = (colPx - iw) / 2, offY = (boxH - ih) / 2, rowIn = Math.min(n - 1, Math.floor(offY / rowPx));
+  return { tl: { nativeCol: 1, nativeColOff: Math.round(offX * EMU), nativeRow: r0 - 1 + rowIn, nativeRowOff: Math.round((offY - rowIn * rowPx) * EMU) }, ext: { width: iw, height: ih }, editAs: 'oneCell' };
+}
 async function cnBuyWorkbook(picked, sheetName) {   // 사용자 주문서 양식(다나로브 광저우 주문서.xlsx의 날짜 시트)과 같은 모양
   const ExcelJS = await loadExcelJS();
   const names = picked.map(p => p.sname).filter(n => !(cnState.thumbs || {})[n]);
   if (names.length) { try { const r = await cnPost('cn_thumbs', { get: names.slice(0, 200) }); cnState.thumbs = Object.assign(cnState.thumbs || {}, r.thumbs || {}); } catch (e) { /* 사진 없이도 만든다 */ } }
   const wb = new ExcelJS.Workbook(), ws = wb.addWorksheet(sheetName);
-  ws.columns = [{ width: 10 }, { width: 15 }, { width: 14 }, { width: 8 }, { width: 8 }, { width: 8 }, { width: 10 }, { width: 14 }, { width: 24 }, { width: 30 }];
+  ws.columns = [{ width: 10 }, { width: CN_XL_IMG_W }, { width: 14 }, { width: 8 }, { width: 8 }, { width: 8 }, { width: 10 }, { width: 14 }, { width: 20 }, { width: 24 }, { width: 30 }];   // I = 위챗ID(2026-11-10 — 라벨 J·특이사항 K로 한 칸씩)
   const thin = { style: 'thin' }, border = { top: thin, left: thin, bottom: thin, right: thin }, center = { horizontal: 'center', vertical: 'middle' };
   const head = (r, vals) => { const row = ws.getRow(r); vals.forEach((v, i) => { const c = row.getCell(i + 1); c.value = v; c.font = { name: '궁서', size: 10, bold: true }; c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFC5D9F1' } }; c.alignment = center; c.border = border; }); };
-  head(1, ['품번', '이미지', '색상', '싸이즈', '수량', '단가', '합계', '매장']);
-  head(2, ['款号', '图片', '颜色', '码数', '数量', '单价', '合计', '档口']);
-  ws.mergeCells(1, 10, 2, 10); head(1, [, , , , , , , , , '특이사항\n备注']); ws.getCell(1, 10).alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };   // J열 = 입고 검수의 특이사항(2026-10-31)
+  head(1, ['품번', '이미지', '색상', '싸이즈', '수량', '단가', '합계', '매장', '위챗ID']);
+  head(2, ['款号', '图片', '颜色', '码数', '数量', '单价', '合计', '档口', '微信号']);
+  ws.mergeCells(1, 11, 2, 11); head(1, [, , , , , , , , , , '특이사항\n备注']); ws.getCell(1, 11).alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };   // K열 = 입고 검수의 특이사항(2026-10-31, 11-10에 J → K)
   let r = 3;
   for (const p of picked) {
     const n = Math.max(6, p.opts.length), r0 = r;
     for (let i = 0; i < n; i++) {
-      const row = ws.getRow(r + i), o = p.opts[i]; row.height = 18;
-      for (let c = 1; c <= 8; c++) { const cell = row.getCell(c); cell.border = border; cell.alignment = center; cell.font = { name: '돋움', size: 10 }; }
+      const row = ws.getRow(r + i), o = p.opts[i]; row.height = CN_XL_ROW_PT;
+      for (let c = 1; c <= 9; c++) { const cell = row.getCell(c); cell.border = border; cell.alignment = center; cell.font = { name: '돋움', size: 10 }; }
       if (o) { row.getCell(3).value = o.color || null; row.getCell(4).value = o.size || null; row.getCell(5).value = o.qty; if (p.price != null) row.getCell(6).value = p.price; }
       const g = row.getCell(7); g.value = { formula: `E${r + i}*F${r + i}` }; g.font = { name: '돋움', size: 10, bold: true, color: { argb: 'FF215967' } }; g.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFEBF1DE' } };
     }
-    ws.mergeCells(r0, 1, r0 + n - 1, 1); ws.mergeCells(r0, 2, r0 + n - 1, 2); ws.mergeCells(r0, 9, r0 + n - 1, 9); ws.mergeCells(r0, 10, r0 + n - 1, 10);
+    ws.mergeCells(r0, 1, r0 + n - 1, 1); ws.mergeCells(r0, 2, r0 + n - 1, 2); ws.mergeCells(r0, 10, r0 + n - 1, 10); ws.mergeCells(r0, 11, r0 + n - 1, 11);
     const a = ws.getCell(r0, 1); a.value = /^\d+$/.test(p.sname) ? Number(p.sname) : p.sname; a.font = { name: '궁서', size: 11, bold: true }; a.alignment = center;
     if (p.vendor) ws.getCell(r0, 8).value = p.vendor;
-    const rmk = ws.getCell(r0, 10); rmk.value = cnOrderRemarkText(p.sname) || null; rmk.alignment = { horizontal: 'left', vertical: 'middle', wrapText: true }; rmk.font = { name: '돋움', size: 10, bold: true, color: { argb: 'FFC00000' } }; rmk.border = border;
-    const lab = ws.getCell(r0, 9); lab.value = cnOrderLabelText(p.sname); lab.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true }; lab.font = { name: '돋움', size: 10, bold: true };   // 라벨 문구(2026-10-26 — 옛 '다나로브')
+    if (p.wechat) ws.getCell(r0, 9).value = p.wechat;   // I열 위챗ID(2026-11-10)
+    const rmk = ws.getCell(r0, 11); rmk.value = cnOrderRemarkText(p.sname) || null; rmk.alignment = { horizontal: 'left', vertical: 'middle', wrapText: true }; rmk.font = { name: '돋움', size: 10, bold: true, color: { argb: 'FFC00000' } }; rmk.border = border;
+    const lab = ws.getCell(r0, 10); lab.value = cnOrderLabelText(p.sname); lab.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true }; lab.font = { name: '돋움', size: 10, bold: true };   // 라벨 문구(2026-10-26 — 옛 '다나로브')
     const url = (cnState.thumbs || {})[p.sname];
     if (url && /^data:image\/(jpeg|png);base64,/.test(url)) {
       const id = wb.addImage({ base64: url, extension: url.startsWith('data:image/png') ? 'png' : 'jpeg' });
-      ws.addImage(id, { tl: { col: 1.05, row: r0 - 1 + 0.1 }, br: { col: 1.95, row: r0 - 1 + n - 0.1 }, editAs: 'oneCell' });
+      ws.addImage(id, await cnXlImgRange(url, r0, n));
     }
     r += n;
   }
   const t = r;
   ws.mergeCells(t, 1, t, 2);
   const tc = (rr, c, v, bold) => { const cell = ws.getCell(rr, c); cell.value = v; cell.alignment = center; cell.border = border; cell.font = { name: '돋움', size: 10, bold: !!bold }; return cell; };
-  tc(t, 1, '합계', true); for (let c = 3; c <= 8; c++) tc(t, c, null);
+  tc(t, 1, '합계', true); for (let c = 3; c <= 9; c++) tc(t, c, null);
   tc(t, 5, { formula: `SUM(E3:E${t - 1})` }, true); tc(t, 7, { formula: `SUM(G3:G${t - 1})` }, true);
   tc(t + 1, 6, 0.1); tc(t + 1, 7, { formula: `G${t}*F${t + 1}` });
   tc(t + 2, 6, '합계', true); tc(t + 2, 7, { formula: `G${t}+G${t + 1}` }, true);
@@ -6780,7 +6793,7 @@ function cnNameCell(tab, sname, open, nOpt, meta) {   // meta = 셋째 줄(입�
 const cnPriceTd = (yuan, tag, tip) => `<td style="text-align:right;"${tip ? ` title="${escHtml(tip)}"` : ''}>${yuan == null ? '<span style="color:#6b7280;">—</span>' : `<b>${cnYuan(yuan)}</b>${tag || ''}<div class="cn-sub" title="× 누적 평균 1위안 원가 ${Math.round(cnFxAvg() * 100) / 100}원(에이전시 10%·들여오는 비용 전)">${fmt(Math.round(Number(yuan) * cnFxAvg()))}원</div>`}</td>`;
 const cnShipName = x => String((x && (x.order_round || x.title)) || '');   // 입고 건의 짧은 이름(발주 차수)
 /* 특이사항 (2026-10-31 사용자 요청: "상품마다 어떤 옵션을 제거하거나, 라벨 특이사항이 있거나 여러 가지 문제들이 있어서 참고가 필요해") — 상품(사입상품명)마다 하나(cn_products.remark).
-   상품 줄 이름 아래(혼용률 다음 줄)에서 적고(칸을 벗어나거나 Enter면 저장 — 관리자·MD, 물류팀은 글만), 주문하기 엑셀의 I열(라벨 문구) 옆 J열 '특이사항'으로 나간다. */
+   상품 줄 이름 아래(혼용률 다음 줄)에서 적고(칸을 벗어나거나 Enter면 저장 — 관리자·MD, 물류팀은 글만), 주문하기 엑셀의 J열(라벨 문구) 옆 K열 '특이사항'으로 나간다(2026-11-10 I열 위챗ID가 들어가며 한 칸씩 밀림). */
 const cnRemarkOf = sname => ((((cnState.data || {}).prods || {})[sname]) || {}).remark || '';
 // 주문하기 엑셀 J열 '특이사항' 문구(2026-11-05 사용자 요청 — "혼용률 옆에 라벨 안 붙이기로 했으니, 대신 J열 특이사항에 '다나로브 일반 라벨'"):
 //   일반(혼용률) 라벨 체크 상품은 I열이 혼용률만 나가므로 J열 맨 앞에 '다나로브 일반 라벨', 그 아래 줄에 입고 검수의 특이사항. 이미 적혀 있으면 두 번 넣지 않음.
