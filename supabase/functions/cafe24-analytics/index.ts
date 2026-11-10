@@ -149,6 +149,51 @@ function rscanYesterday() {
   const d = new Date(new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Seoul" }).format(new Date()) + "T00:00:00Z");
   d.setUTCDate(d.getUTCDate() - 1); return d;
 }
+// 송장 스캔 → '불량·오배송 처리' 목록에 처리전으로 남은 주문인지(2026-11-10 사용자 요청 — "처리전·카페24 교환완료 주문이면 빨간 안내").
+//   rscan_issues와 같은 규칙: 최근 90일(어제까지) 주문 + 철회 아님 + 경고 판정(또는 특별관리) → 처리전 = 처리 체크 없음 + (반품) 전부 수거 완료가 아님.
+//   all = 90일 인덱스 전체(같은 주문의 다른 접수로 수거 완료 여부를 봄). 돌려주는 값: 그룹 키(kind:order_id) → { exchanged }
+async function rscanIssuePending(targets: Record<string, any>[], all: Record<string, any>[], st: typeof RSCAN_DEFAULTS): Promise<Map<string, { exchanged: boolean }>> {
+  const out = new Map<string, { exchanged: boolean }>();
+  const start90 = rscanStartDate(90);
+  const isWd = (e: Record<string, any>) => /철회/.test(String(e.status ?? "") + String(e.status_extra ?? ""));
+  const gks = [...new Set(targets.filter((e) => !isWd(e) && e.order_id).map((e) => `${e.kind}:${e.order_id}`))];
+  if (!gks.length) return out;
+  const inList = (k: string) => `in.(${k.split("|").map((x) => `"${x}"`).join(",")})`;
+  const spSet = new Set(((await sbRest(`rscan_special?select=key&key=${inList(gks.join("|"))}`)) ?? []).map((r: any) => String(r.key)));
+  // 네이버페이 주문은 네이버페이센터 표의 사유로 판정 보강(rscan_issues와 같게)
+  const nvMap = new Map<string, string>();
+  if (all.some((e) => e.naver && gks.includes(`${e.kind}:${e.order_id}`))) {
+    for (const r of ((await sbRest("rscan_naver?select=product_order_no,reason")) ?? []) as Record<string, any>[]) {
+      for (const pon of String(r.product_order_no ?? "").split(/[,\s]+/).filter(Boolean)) nvMap.set(pon, String(r.reason ?? ""));
+    }
+  }
+  const claimKeys: string[] = [];
+  const groups = new Map<string, { claims: Record<string, any>[] }>();
+  for (const gk of gks) {
+    const [kind, oid] = gk.split(":");
+    const sp = spSet.has(gk);
+    const claims = all.filter((e) => e.kind === kind && String(e.order_id) === oid && !isWd(e) && (sp || !e.order_date || String(e.order_date) >= start90)).filter((e) => {
+      let nr = "";
+      for (const id of (e.naver_ids ?? []) as unknown[]) { const hit = nvMap.get(String(id)); if (hit) { nr = hit; break; } }
+      const reason = e.naver ? `${e.reason ?? ""} ${nr}`.trim() : String(e.reason ?? "");
+      return sp || !!rscanJudge({ ...e, reason }, st);
+    });
+    if (!claims.length) continue;
+    groups.set(gk, { claims });
+    for (const c of claims) claimKeys.push(`${gk}:${c.claim_code ?? ""}`);
+  }
+  if (!groups.size) return out;
+  const doneKeys = [...groups.keys(), ...claimKeys];
+  const done = new Set(((await sbRest(`rscan_done?select=key&done=is.true&key=${inList(doneKeys.join("|"))}`)) ?? []).map((r: any) => String(r.key)));
+  for (const [gk, g] of groups) {
+    if (done.has(gk) || g.claims.some((c) => done.has(`${gk}:${c.claim_code ?? ""}`))) continue;
+    const kind = gk.split(":")[0];
+    const collected = (c: Record<string, any>) => String(c.status ?? "") === "반품완료" || /환불전/.test(String(c.status_extra ?? ""));
+    if (kind === "return" && g.claims.every(collected)) continue;   // 반품 전부 수거 완료 = 자동 처리완료
+    out.set(gk, { exchanged: kind === "exchange" && g.claims.some((c) => String(c.status ?? "") === "교환완료") });
+  }
+  return out;
+}
 function rscanStartDate(days: number) { const d = rscanYesterday(); d.setUTCDate(d.getUTCDate() - (days - 1)); return d.toISOString().slice(0, 10); }
 // 워크스페이스에서 수거 완료 처리한 접수 → { by, at, recover } (2026-09-28 사용자 요청: 누가 눌렀는지·재고 복구 여부를 나중에도 확인)
 async function rscanCollectedMap(): Promise<Record<string, { by: string; at: string; recover: string | null; defect: boolean | null }>> {
@@ -3250,10 +3295,20 @@ Deno.serve(async (req) => {
       const fresh = !!row && ageMin !== null && ageMin <= 20 && Number(row.days ?? 0) >= days;
       if (!fresh) payload = await rscanBuild(token, days) as Record<string, any>[];
       const startDate = rscanStartDate(days);
+      const fullPayload = payload;   // 고른 기간으로 자르기 전(보통 90일) — 기간 밖 '불량·오배송 처리' 처리전 주문 찾기용
       payload = payload.filter((e) => !e.order_date || String(e.order_date) >= startDate);
       const st = await rscanSettings();
       const matchInv = (inv: string) => inv && (inv === q || inv.endsWith(q) || q.endsWith(inv));
       let hits = payload.filter((e) => matchInv(String(e.invoice ?? "")));
+      // 고른 조회 기간보다 오래된 주문이라도 '불량·오배송 처리'에 처리전으로 남아 있으면 찾아 준다(2026-11-10)
+      if (!hits.length) {
+        const older = fullPayload.filter((e) => e.order_date && String(e.order_date) < startDate && matchInv(String(e.invoice ?? "")));
+        if (older.length) {
+          const pend = await rscanIssuePending(older, fullPayload, st);
+          hits = older.filter((e) => pend.has(`${e.kind}:${e.order_id}`)).map((e) => ({ ...e, outside_period: true }));
+          if (hits.length) payload = [...payload, ...fullPayload.filter((e) => hits.some((h) => h.order_id === e.order_id) && !payload.includes(e))];
+        }
+      }
       let naverRow: Record<string, any> | null = null;
       if (!hits.length) {   // 네이버페이센터 엑셀 표에서 수거 송장 → 상품주문번호 → 카페24 주문
         const nv = await sbRest(`rscan_naver?select=*&invoice=like.*${encodeURIComponent(q)}`);
@@ -3283,7 +3338,9 @@ Deno.serve(async (req) => {
       }
       const cmap = hits.length ? await rscanCollectedMap() : {};
       hits = (await rscanFeeRefresh(hits, token)).map((e) => ({ ...e, fee_hold: rscanFeeHold(e) }));
-      const result = hits.map((e) => ({ ...e, collected_by: cmap[`${e.kind}:${e.claim_code}`] ?? null, alert: rscanJudge({ ...e, reason: e.naver ? `${e.reason} ${e.naver_reason ?? ""}` : e.reason }, st) }));
+      const pendMap = hits.length ? await rscanIssuePending(hits, fullPayload, st) : new Map();
+      const result = hits.map((e) => ({ ...e, collected_by: cmap[`${e.kind}:${e.claim_code}`] ?? null, alert: rscanJudge({ ...e, reason: e.naver ? `${e.reason} ${e.naver_reason ?? ""}` : e.reason }, st),
+        in_issue: !e.withdrawn && pendMap.has(`${e.kind}:${e.order_id}`) ? pendMap.get(`${e.kind}:${e.order_id}`) : null }));
       return json({ q, hits: result, naver_row: naverRow && !hits.length ? naverRow : null, index: { built_at: fresh ? row!.built_at : new Date().toISOString(), row_count: payload.length, days, start_date: startDate } });
     }
 

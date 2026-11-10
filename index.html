@@ -10107,6 +10107,15 @@ function rscanFlashInput(theme) {   // 입력칸 테두리를 잠깐 경고색�
   inp.style.borderColor = theme.border; inp.style.boxShadow = `0 0 0 4px rgba(${theme.glow},.25)`;
   clearTimeout(rscanState.flashT); rscanState.flashT = setTimeout(() => { inp.style.borderColor = '#4f46e5'; inp.style.boxShadow = ''; }, 4000);
 }
+// '불량·오배송 처리'에 처리전으로 남은 주문(2026-11-10 사용자 요청) — 서버 rscan_lookup의 in_issue {exchanged}
+function rscanIssueNote(live) {
+  const h = live.find(x => x.in_issue); if (!h) return '';
+  const ex = live.some(x => x.in_issue && x.in_issue.exchanged);
+  return `<div style="background:#fef2f2;border:2.5px solid #dc2626;border-radius:12px;padding:12px 16px;margin-bottom:10px;color:#b91c1c;display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+    <div style="font-size:1.05rem;font-weight:900;"><i class="fa-solid fa-triangle-exclamation"></i> 불량·오배송 처리에 있는 주문건이에요</div>
+    <div style="font-size:.8rem;font-weight:700;">처리전${ex ? ' · 카페24 교환완료' : ''}${h.outside_period ? ' · 고른 조회 기간보다 오래된 주문' : ''}</div>
+    <button type="button" class="toggle-btn" onclick="rscanSetTab('issues')" style="margin-left:auto;">불량·오배송 처리 보기</button></div>`;
+}
 function rscanRender(r) {
   const box = $('rscan-result');
   if (!r.hits.length) {
@@ -10153,7 +10162,7 @@ function rscanRender(r) {
     ${rscanNrSummary(h.items)}
     <table style="width:100%;margin-top:8px;font-size:.8rem;"><thead><tr><th style="text-align:left;">상품</th><th style="text-align:left;">옵션</th><th>수량</th><th class="m-hide">품목 상태</th><th class="m-hide">발송 송장</th></tr></thead>
       <tbody>${(h.items || []).map(it => `<tr style="${rscanNrRowStyle(it)}"><td style="text-align:left;font-weight:600;">${escHtml(it.name)}${rscanNrChips(it)}</td><td style="text-align:left;">${escHtml(it.option || '—')}</td><td>${it.qty}</td><td class="m-hide">${escHtml(it.status || '')}</td><td class="m-hide" style="font-family:monospace;font-size:.72rem;">${escHtml(it.tracking_no || '')}</td></tr>`).join('')}</tbody></table></div>`; }).join('');
-  box.innerHTML = `<style>@keyframes rscanBlink{0%,100%{box-shadow:0 0 0 0 rgba(${th.glow},0)}50%{box-shadow:0 0 0 10px rgba(${th.glow},.4)}}</style>` + wdNote + banner + cards;
+  box.innerHTML = `<style>@keyframes rscanBlink{0%,100%{box-shadow:0 0 0 0 rgba(${th.glow},0)}50%{box-shadow:0 0 0 10px rgba(${th.glow},.4)}}</style>` + rscanIssueNote(live) + wdNote + banner + cards;
 }
 function rscanHistoryRender() {
   const h = rscanState.history; const box = $('rscan-history'); if (!box) return;
