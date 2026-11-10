@@ -194,6 +194,27 @@ async function rscanIssuePending(targets: Record<string, any>[], all: Record<str
   }
   return out;
 }
+// 우체국 배송조회에서 반품 소포의 '반품원등기번호'(= 원래 보낸 송장) 읽기(2026-11-10 사용자 요청 — "원송장과 매칭된 반품 송장으로도 찾게, 바코드로 찍는 건 반품 송장").
+//   네이버페이 반품은 카페24에 반품 송장이 없고 네이버페이센터 엑셀에 없으면 못 찾음 → 우체국 조회 화면의 '반품원등기번호: 6080…'.
+//   우체국에 보내는 건 송장번호뿐. 찾은 원송장은 잠깐 저장(api_cache — 1시간 뒤 자동 삭제), 못 찾으면 저장 안 함(다음 스캔에 다시 물음).
+async function rscanEpostOrig(inv: string): Promise<string | null> {
+  if (!/^\d{13}$/.test(inv)) return null;
+  const ck = `rscan:epost:${inv}`;
+  const hit = (await cacheGet(ck, 50 * 60 * 1000).catch(() => null)) as { orig: string | null } | null;   // api_cache는 1시간 뒤 자동 삭제
+  if (hit && hit.orig) return hit.orig;
+  let orig: string | null = null;
+  try {
+    const ctl = new AbortController(); const t = setTimeout(() => ctl.abort(), 8000);
+    const r = await fetch(`https://service.epost.go.kr/trace.RetrieveDomRigiTraceList.comm?sid1=${inv}&displayHeader=N`, { signal: ctl.signal, headers: { "User-Agent": "Mozilla/5.0" } });
+    clearTimeout(t);
+    if (!r.ok) return null;
+    const txt = (await r.text()).replace(/<[^>]+>/g, " ").replace(/&nbsp;/g, " ").replace(/\s+/g, " ");
+    const m = txt.match(/반품원등기번호\s*:?\s*(\d{13})/);
+    orig = m ? m[1] : null;
+  } catch (_) { return null; }   // 우체국 응답 없음 — 저장하지 않음
+  if (orig) await cacheSet(ck, { orig }).catch(() => {});
+  return orig;
+}
 function rscanStartDate(days: number) { const d = rscanYesterday(); d.setUTCDate(d.getUTCDate() - (days - 1)); return d.toISOString().slice(0, 10); }
 // 워크스페이스에서 수거 완료 처리한 접수 → { by, at, recover } (2026-09-28 사용자 요청: 누가 눌렀는지·재고 복구 여부를 나중에도 확인)
 async function rscanCollectedMap(): Promise<Record<string, { by: string; at: string; recover: string | null; defect: boolean | null }>> {
@@ -3323,16 +3344,26 @@ Deno.serve(async (req) => {
       // 원래 보낸 송장(출고 송장)으로도 찾기(2026-11-10 사용자 신고 — 네이버페이 교환 20261026-0003838: 카페24엔 반품 송장이 없고
       //   네이버페이센터 엑셀에도 없어 반품 송장·원송장 모두 안 찾아짐). 품목의 tracking_no(고객에게 보낸 송장)가 같으면 그 접수.
       //   고른 기간 안 → 없으면 기간 밖이라도 '불량·오배송 처리' 처리전인 주문만.
-      if (!hits.length) {
-        const trkHit = (e: Record<string, any>) => ((e.items ?? []) as Record<string, any>[]).some((it) => matchInv(rscanDigits(it.tracking_no)));
-        hits = payload.filter(trkHit).map((e) => ({ ...e, via_tracking: true }));
-        if (!hits.length) {
+      //   + 반품 송장을 찍었으면 우체국 조회의 '반품원등기번호'(원송장)로 같은 방법으로 찾음(via_epost).
+      const findByTracking = async (num: string, mark: Record<string, unknown>) => {
+        const eq = (v: unknown) => { const d = rscanDigits(v); return !!d && (d === num || (num.length >= 6 && (d.endsWith(num) || num.endsWith(d)))); };
+        const trkHit = (e: Record<string, any>) => ((e.items ?? []) as Record<string, any>[]).some((it) => eq(it.tracking_no));
+        let got: Record<string, any>[] = payload.filter(trkHit).map((e) => ({ ...e, ...mark }));
+        if (!got.length) {
           const older = fullPayload.filter((e) => e.order_date && String(e.order_date) < startDate && trkHit(e));
           if (older.length) {
             const pend = await rscanIssuePending(older, fullPayload, st);
-            hits = older.filter((e) => pend.has(`${e.kind}:${e.order_id}`)).map((e) => ({ ...e, via_tracking: true, outside_period: true }));
-            if (hits.length) payload = [...payload, ...fullPayload.filter((e) => hits.some((h) => h.order_id === e.order_id) && !payload.includes(e))];
+            got = older.filter((e) => pend.has(`${e.kind}:${e.order_id}`)).map((e) => ({ ...e, ...mark, outside_period: true }));
+            if (got.length) payload = [...payload, ...fullPayload.filter((e) => got.some((h) => h.order_id === e.order_id) && !payload.includes(e))];
           }
+        }
+        return got;
+      };
+      if (!hits.length) {
+        hits = await findByTracking(q, { via_tracking: true });
+        if (!hits.length) {
+          const orig = await rscanEpostOrig(q);
+          if (orig && orig !== q) hits = await findByTracking(orig, { via_epost: orig, invoice: q, company: "우체국택배" });
         }
         if (hits.length) naverRow = null;
       }
