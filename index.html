@@ -2485,6 +2485,7 @@
           <label style="font-size:.78rem;color:#4b5563;font-weight:600;">직원
             <select id="wm-att-emp" onchange="wmRenderAtt()"
               style="display:block;margin-top:3px;border:1.5px solid #d1d5db;border-radius:8px;padding:6px 10px;font-size:.8rem;outline:none;min-width:120px;"></select></label>
+          <span id="wm-att-type" class="qp" style="margin-bottom:3px;"></span>
           <button class="toggle-btn" onclick="wmAttFormOpen(null)" style="margin-bottom:1px;"><i class="fa-solid fa-plus"></i> 수동 등록</button>
           <button class="toggle-btn" onclick="wmExportAtt()" style="margin-bottom:1px;" title="이 달 출퇴근 기록을 엑셀로 (직원을 고르면 그 사람의 달력 전체, 전체면 기록 있는 날만)"><i class="fa-solid fa-file-excel"></i> 엑셀 다운로드</button>
           <span id="wm-att-summary" style="margin-left:auto;font-size:.78rem;color:#6b7280;"></span>
@@ -2499,8 +2500,9 @@
           <label style="font-size:.78rem;color:#4b5563;font-weight:600;">연월
             <input type="month" id="wm-sal-ym" onchange="wmLoadSal()"
               style="display:block;margin-top:3px;border:1.5px solid #d1d5db;border-radius:8px;padding:5px 10px;font-size:.8rem;outline:none;" /></label>
-          <button class="toggle-btn" onclick="wmExportSalary()" style="margin-bottom:1px;"><i class="fa-solid fa-file-excel"></i> 엑셀 다운로드</button>
-          <button class="toggle-btn" id="wm-sal-print-sel" onclick="wmSlipPrintSelected()" style="margin-bottom:1px;" disabled title="표에서 체크한 직원·아르바이트의 명세서를 한 문서로 열어 인쇄 / PDF 저장 (사람마다 새 쪽). 전체는 표 머리의 체크박스로 전체 선택"><i class="fa-solid fa-print"></i> 선택 명세서 인쇄 / PDF</button>
+          <span id="wm-sal-type" class="qp" style="margin-bottom:3px;"></span>
+          <button class="toggle-btn" onclick="wmExportSalary()" style="margin-bottom:1px;" title="지금 보이는 구분(전체·직원·알바) 그대로 내려받아요"><i class="fa-solid fa-file-excel"></i> 엑셀 다운로드</button>
+          <button class="toggle-btn" id="wm-sal-print-sel" onclick="wmSlipPrintSelected()" style="margin-bottom:1px;" disabled title="표에서 체크한 사람의 명세서 — 합쳐서 PDF 1개 / 사람별 PDF 따로 / 인쇄 창 중에서 골라요"><i class="fa-solid fa-print"></i> 선택 명세서 인쇄 / PDF</button>
           <span id="wm-sal-total" style="margin-left:auto;font-size:.85rem;font-weight:700;color:#4f46e5;"></span>
         </div>
         <div id="wm-sal-result"><div class="empty-state"><p>불러오는 중...</p></div></div>
@@ -17217,7 +17219,14 @@ function fillProfitFromStores(ds, de) {
    2026-08 근무관리 시스템 Supabase 이전. 2단계는 조회 전용(병행 운영).
    급여 로직은 서버(wm-admin/salary.ts) — work-manager salary.js의 축자 이식이다.
    ══════════════════════════════════════ */
-const wmState = { tab: 'att', emps: null, att: [], pending: [], sal: [], ym: null };
+const wmState = { tab: 'att', emps: null, att: [], pending: [], sal: [], ym: null, attType: 'all', salType: 'all' };
+// 직원·알바 나눠 보기(2026-11-10 사용자 요청) — 출퇴근 조회·급여 계산 공통 칩. type: 'employee'(직원) | 'parttime'(알바)
+const WM_TYPES = [['all', '전체'], ['employee', '직원'], ['parttime', '알바']];
+const wmTypeOk = (want, type) => want === 'all' || (want === 'employee' ? type === 'employee' : type !== 'employee');
+function wmTypeChips(elId, key, counts, fn) {
+  const el = $(elId); if (!el) return;
+  el.innerHTML = WM_TYPES.map(([k, label]) => `<button class="${wmState[key] === k ? 'active' : ''}" onclick="wmState.${key}='${k}';${fn}()">${label} ${fmt(counts[k] || 0)}</button>`).join('');
+}
 
 async function wmApi(body) {
   const res = await fetch(fnUrl('wm-admin', {}), {
@@ -17305,7 +17314,7 @@ function wmAttEmpShown(e, ym, hasRec) {
 function wmAttEmpSelect() {
   const sel = $('wm-att-emp'), ym = $('wm-att-ym').value; if (!sel || !ym) return;
   const keep = sel.value, rec = new Set((wmState.att || []).map(r => r.employee_id));
-  const list = (wmState.emps || []).filter(e => wmAttEmpShown(e, ym, rec.has(e.id)));
+  const list = (wmState.emps || []).filter(e => wmAttEmpShown(e, ym, rec.has(e.id)) && wmTypeOk(wmState.attType, e.type));
   sel.innerHTML = '<option value="">전체</option>'
     + list.map(e => `<option value="${escHtml(e.id)}">${escHtml(e.name)} (${e.type === 'employee' ? '직원' : '알바'})${e.active === false || e.hidden ? ' · 퇴사' : ''}</option>`).join('');
   sel.value = list.some(e => String(e.id) === keep) ? keep : '';   // 고르던 직원이 이 달에 안 보이면 '전체'로
@@ -17326,8 +17335,11 @@ const wmHM = mins => `${Math.floor(mins / 60)}:${String(mins % 60).padStart(2, '
 function wmRenderAtt() {
   const emps = wmState.emps || [];
   const nameOf = Object.fromEntries(emps.map(e => [e.id, e]));
+  const typeOf = r => (nameOf[r.employee_id] || {}).type;
+  const all = wmState.att || [];
+  wmTypeChips('wm-att-type', 'attType', { all: all.length, employee: all.filter(r => typeOf(r) === 'employee').length, parttime: all.filter(r => typeOf(r) !== 'employee').length }, 'wmAttTypeSet');
   const filt = $('wm-att-emp').value;
-  let rows = wmState.att;
+  let rows = all.filter(r => wmTypeOk(wmState.attType, typeOf(r)));
   if (filt) rows = rows.filter(r => String(r.employee_id) === filt);
 
   // 승인 대기 신청
@@ -17347,7 +17359,7 @@ function wmRenderAtt() {
   }
 
   if (!rows.length) {
-    $('wm-att-result').innerHTML = '<div class="empty-state"><p>해당 월 기록이 없습니다.</p></div>';
+    $('wm-att-result').innerHTML = `<div class="empty-state"><p>해당 월${wmState.attType === 'all' ? '' : ' ' + (wmState.attType === 'employee' ? '직원' : '알바')} 기록이 없습니다.</p></div>`;
     $('wm-att-summary').textContent = '';
     return;
   }
@@ -17385,6 +17397,8 @@ function wmRenderAtt() {
       <th>날짜</th><th>이름</th><th>구분</th><th>출근</th><th>퇴근</th><th>총 근무</th><th>식대</th><th>실 근무</th><th>비고</th><th></th>
     </tr></thead><tbody>${body}</tbody></table></div>`;
 }
+
+function wmAttTypeSet() { wmAttEmpSelect(); wmRenderAtt(); }   // 구분을 바꾸면 '직원' 고르기 목록도 그 구분만
 
 /* ── 급여 계산 ── */
 async function wmLoadSal() {
@@ -17459,11 +17473,13 @@ function wmWpToggle(i) {
   if (btn) { btn.innerHTML = open ? '주별 지급액 ▴' : '주별 지급액 ▾'; btn.setAttribute('aria-expanded', String(open)); }
 }
 function wmRenderSal() {
-  const rows = wmState.sal;
-  if (!rows.length) { $('wm-sal-result').innerHTML = '<div class="empty-state"><p>데이터가 없습니다.</p></div>'; return; }
-  const total = rows.reduce((s, r) => s + (r.totalPay || 0), 0);
-  $('wm-sal-total').textContent = `합계 ${fmt(total)}원`;
-  const body = rows.map((r, i) => {
+  const allRows = wmState.sal || [];
+  wmTypeChips('wm-sal-type', 'salType', { all: allRows.length, employee: allRows.filter(r => r.employee?.type === 'employee').length, parttime: allRows.filter(r => r.employee?.type !== 'employee').length }, 'wmRenderSal');
+  const rows = allRows.map((r, i) => [r, i]).filter(([r]) => wmTypeOk(wmState.salType, r.employee?.type));   // i = wmState.sal 안의 번호(명세서·체크가 이 번호를 씀)
+  if (!rows.length) { $('wm-sal-total').textContent = ''; $('wm-sal-result').innerHTML = '<div class="empty-state"><p>데이터가 없습니다.</p></div>'; wmSalSelChanged(); return; }
+  const total = rows.reduce((s, [r]) => s + (r.totalPay || 0), 0);
+  $('wm-sal-total').textContent = `${({ employee: '직원 ', parttime: '알바 ' })[wmState.salType] || ''}합계 ${fmt(total)}원`;
+  const body = rows.map(([r, i]) => {
     const e = r.employee, pt = e.type === 'parttime';
     // 다음 달로 이월된 주 — "왜 이 주 주휴수당이 없지?" 질문의 1순위 원인이라 목록에도 표시
     const defer = (r.weeklyBreakdown || []).filter(w => w.deferredToNext).length;
@@ -17500,7 +17516,75 @@ function wmSalSelChanged() {
 function wmSlipPrintSelected() {
   const idx = wmSalSelected();
   if (!idx.length) { showToast('표에서 명세서를 뽑을 사람을 먼저 체크해주세요'); return; }
-  wmSlipPrint(idx);
+  wmSlipChoose(idx);
+}
+/* 선택 명세서 받기 방식 고르기(2026-11-10 사용자 요청 "합쳐서 다운 / 개별 다운") — PDF 파일을 바로 만든다(html2canvas → jsPDF, 사람마다 새 쪽).
+   인쇄 창(기존 wmSlipPrint)도 그대로 고를 수 있다. 명세서 HTML·금액은 wmSlipHtml 그대로. */
+function wmSlipChoose(idx) {
+  $('wm-slip-pick')?.remove();
+  const n = idx.length, names = idx.map(i => wmState.sal[i]?.employee?.name).filter(Boolean);
+  const box = document.createElement('div');
+  box.id = 'wm-slip-pick';
+  box.style.cssText = 'position:fixed;inset:0;background:rgba(15,23,42,.55);z-index:300;display:flex;align-items:center;justify-content:center;padding:16px;';
+  box.onclick = ev => { if (ev.target === box) box.remove(); };
+  const btn = (fn, icon, label, sub, primary) => `<button onclick="${fn}" style="display:flex;gap:10px;align-items:center;width:100%;text-align:left;border:1.5px solid ${primary ? '#4f46e5' : '#e5e7eb'};background:${primary ? '#eef2ff' : '#fff'};border-radius:10px;padding:10px 12px;cursor:pointer;font:inherit;"><i class="fa-solid ${icon}" style="color:#4f46e5;width:18px;text-align:center;"></i><span><b style="font-size:.86rem;color:#1e1b4b;">${label}</b><br><span style="font-size:.72rem;color:#6b7280;">${sub}</span></span></button>`;
+  box.innerHTML = `<div role="dialog" aria-label="선택 명세서 받기" style="background:#fff;border-radius:14px;max-width:380px;width:100%;padding:18px;">
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;"><b style="flex:1;font-size:.95rem;color:#1e1b4b;">선택 명세서 ${n}명</b><button onclick="$('wm-slip-pick').remove()" aria-label="닫기" style="border:none;background:#f3f4f6;border-radius:8px;padding:4px 10px;cursor:pointer;">✕</button></div>
+    <div style="font-size:.74rem;color:#6b7280;margin-bottom:12px;overflow-wrap:anywhere;">${escHtml(names.slice(0, 8).join(', '))}${names.length > 8 ? ` 외 ${names.length - 8}명` : ''}</div>
+    <div style="display:flex;flex-direction:column;gap:8px;">
+      ${btn(`wmSlipPdf([${idx.join(',')}],false)`, 'fa-file-pdf', '합쳐서 PDF 1개로 받기', `${n}명을 한 파일에 · 사람마다 새 쪽`, true)}
+      ${btn(`wmSlipPdf([${idx.join(',')}],true)`, 'fa-copy', '사람별 PDF 따로 받기', n > 1 ? `파일 ${n}개 · 처음이면 브라우저가 '여러 파일 다운로드' 허용을 물어봐요` : '파일 1개')}
+      ${btn(`$('wm-slip-pick').remove();wmSlipPrint([${idx.join(',')}])`, 'fa-print', '인쇄 창 열기', '합쳐서 인쇄 · 인쇄창에서 PDF로 저장도 가능')}
+    </div></div>`;
+  document.body.appendChild(box);
+}
+// 명세서 PDF: 숨은 틀(A4 폭 794px)에 그려 html2canvas → jsPDF. 글자는 바깥 문서 캔버스에 그려지므로 바깥에도 같은 글꼴을 미리 받는다(계약서 PDF와 같은 이유 — hireCtMainFont 참고)
+async function wmSlipFontReady(text) {
+  if (!document.getElementById('wm-slip-font')) {
+    const l = document.createElement('link'); l.id = 'wm-slip-font'; l.rel = 'stylesheet'; l.href = 'https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;600;700&display=swap';
+    await Promise.race([new Promise(res => { l.onload = l.onerror = res; document.head.appendChild(l); }), hireCtSleep(4000)]);
+  }
+  if (document.fonts && document.fonts.load) await Promise.race([Promise.all(['400', '600', '700'].map(w => document.fonts.load(`${w} 14px 'Noto Sans KR'`, text))).catch(() => {}), hireCtSleep(6000)]);
+}
+async function wmSlipPdf(indices, separate) {
+  $('wm-slip-pick')?.remove();
+  const rows = (indices || []).map(i => wmState.sal[i]).filter(Boolean);
+  if (!rows.length) return;
+  const ym = wmState.ym, btn = $('wm-sal-print-sel');
+  if (btn) btn.disabled = true;
+  showToast(`PDF를 만드는 중… (${rows.length}명)`);
+  const fr = document.createElement('iframe');
+  fr.style.cssText = 'position:fixed;left:-10000px;top:0;width:794px;height:1123px;border:0;opacity:0;pointer-events:none;';
+  document.body.appendChild(fr);
+  try {
+    await loadPdfLibs();
+    const doc = fr.contentDocument;
+    doc.open(); doc.write(`<!doctype html><html lang="ko"><head><meta charset="utf-8"><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;600;700&display=swap"><style>body{margin:0;background:#fff}${WM_SLIP_CSS}.wm-slip{max-width:none;width:794px;padding:56px 60px}</style></head><body>${rows.map(r => wmSlipHtml(r, true, ym)).join('')}</body></html>`); doc.close();
+    await hireCtFonts(doc);
+    await wmSlipFontReady(doc.body.innerText);
+    const { jsPDF } = window.jspdf, pw = 210, ph = 297;
+    const addSlip = async (pdf, el, first) => {   // 한 사람 = 새 쪽부터, A4보다 길면 다음 쪽으로 이어서
+      const canvas = await html2canvas(el, { scale: 2, backgroundColor: '#ffffff', windowWidth: 794 });
+      const imgH = canvas.height * pw / canvas.width, data = canvas.toDataURL('image/jpeg', 0.95);
+      for (let y = 0, k = 0; y < imgH - 1; y += ph, k++) { if (!first || k) pdf.addPage(); pdf.addImage(data, 'JPEG', 0, -y, pw, imgH); }
+    };
+    const els = [...doc.querySelectorAll('.wm-slip')];
+    if (separate) {
+      for (let i = 0; i < els.length; i++) {
+        const pdf = new jsPDF({ unit: 'mm', format: 'a4' });
+        await addSlip(pdf, els[i], true);
+        pdf.save(`급여명세서_${ym}_${rows[i].employee.name}.pdf`);
+        await hireCtSleep(400);   // 연달아 받을 때 브라우저가 놓치지 않게
+      }
+      showToast(`명세서 PDF ${els.length}개를 받았어요`);
+    } else {
+      const pdf = new jsPDF({ unit: 'mm', format: 'a4' });
+      for (let i = 0; i < els.length; i++) await addSlip(pdf, els[i], i === 0);
+      pdf.save(rows.length === 1 ? `급여명세서_${ym}_${rows[0].employee.name}.pdf` : `급여명세서_${ym}_${rows.length}명.pdf`);
+      showToast(`명세서 ${els.length}명을 PDF 1개로 받았어요`);
+    }
+  } catch (e) { showToast('PDF 저장 실패: ' + e.message); }
+  finally { fr.remove(); wmSalSelChanged(); }
 }
 
 /* 급여 명세서 HTML — 기존 근무관리 시스템(work-manager Salary.jsx SlipView)의 양식을 그대로 옮김 (2026-09-09 사용자 요청 "기존 시스템처럼").
@@ -18068,7 +18152,7 @@ function wmExportSalary() {
   const head = ['이름', '구분', '근무시간', '기본급', '주휴수당', '식대', '교통비', '총지급액', '소득세', '지방소득세', '실지급액'];
   const lines = [head.join(',')];
   let t = [0, 0, 0, 0, 0, 0, 0];
-  for (const r of wmState.sal) {
+  for (const r of wmState.sal.filter(r => wmTypeOk(wmState.salType, r.employee?.type))) {   // 보이는 구분 그대로(2026-11-10)
     const e = r.employee, pt = e.type === 'parttime';
     const base = pt ? (r.basePay || 0) : (r.monthlySalary || 0);
     const hp = r.holidayPay || 0, ma = r.mealAllowance || 0, ta = r.transportAllowance || 0, tp = r.totalPay || 0;
@@ -18077,7 +18161,7 @@ function wmExportSalary() {
     t = [t[0] + base, t[1] + hp, t[2] + ma, t[3] + ta, t[4] + tp, t[5] + tax, t[6] + lt];
   }
   lines.push(['합계', '', '', t[0], t[1], t[2], t[3], t[4], t[5], t[6], t[4] - t[5] - t[6]].join(','));
-  dlCSV(lines.join('\n'), `${wmState.ym}_급여.csv`);
+  dlCSV(lines.join('\n'), `${wmState.ym}_급여${({ employee: '_직원', parttime: '_알바' })[wmState.salType] || ''}.csv`);
 }
 
 /* ── 3단계: 관리 쓰기 ── */
@@ -18101,7 +18185,7 @@ function wmAttExportRows() {
   const ym = $('wm-att-ym').value; if (!ym) return null;
   const [y, m] = ym.split('-').map(Number);
   const emps = wmState.emps || [], nameOf = Object.fromEntries(emps.map(e => [e.id, e]));
-  const rows = (wmState.att || []).filter(r => (r.date || '').startsWith(ym));
+  const rows = (wmState.att || []).filter(r => (r.date || '').startsWith(ym) && wmTypeOk(wmState.attType, (nameOf[r.employee_id] || {}).type));
   const filt = $('wm-att-emp').value;
   const hm = mins => mins ? `${Math.floor(mins / 60)}:${String(mins % 60).padStart(2, '0')}` : '';
   const line = (e, dateStr, r) => {
@@ -18124,7 +18208,7 @@ function wmAttExportRows() {
       .sort((a, b) => (a.date + (nameOf[a.employee_id]?.name || '')).localeCompare(b.date + (nameOf[b.employee_id]?.name || '')))
       .map(r => line(nameOf[r.employee_id] || {}, r.date, r));
   }
-  return { y, m, ym, data, empName: filt ? (nameOf[filt]?.name || '') : '' };
+  return { y, m, ym, data, empName: filt ? (nameOf[filt]?.name || '') : ({ employee: '직원', parttime: '알바' })[wmState.attType] || '' };
 }
 async function wmExportAtt() {
   const x = wmAttExportRows();
