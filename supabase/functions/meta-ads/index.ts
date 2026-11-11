@@ -345,6 +345,49 @@ Deno.serve(async (req) => {
       return json(body);
     }
 
+    // ── 광고별 '실제로 돈 날' 수 (2026-11-11, 에이전트 앱 '오늘 할 일' 광고 착수 카드 — 사용자 "5일 이상 ON됐던 광고가 몇 개인지 봐야 새로 만들지 기존 소재를 켤지 판단") ──
+    //   GET ?action=adhistory&ad_ids=1,2,3(최대 60)&start_date&end_date → 광고마다 지출이 있던 날 수·첫날·마지막 날·합계 지출·구매·구매액.
+    //   읽기 전용. 페이지마다 3회 재시도, 끝내 실패하면 오류(반쪽 자료를 내보내지 않음 — addaily와 같은 이유). 30분 캐시.
+    if (action === "adhistory") {
+      const ids = (url.searchParams.get("ad_ids") ?? "").split(",").map((x) => x.trim()).filter((x) => /^\d+$/.test(x)).slice(0, 60);
+      const s = url.searchParams.get("start_date") ?? "", e = url.searchParams.get("end_date") ?? "";
+      if (!ids.length || !/^\d{4}-\d{2}-\d{2}$/.test(s) || !/^\d{4}-\d{2}-\d{2}$/.test(e) || s > e) return json({ error: "ad_ids, start_date, end_date 필수" }, 400);
+      const cacheKey = `meta:adhistory:${s}~${e}:${[...ids].sort().join(",")}`;
+      const hit = await cacheGet(cacheKey, 30 * 60 * 1000);
+      if (hit) return json(hit);
+      const rows: Record<string, unknown>[] = [];
+      let cur = await graphGet(`${c.account}/insights`, {
+        time_range: JSON.stringify({ since: s, until: e }), time_increment: "1", level: "ad", limit: "500",
+        filtering: JSON.stringify([{ field: "ad.id", operator: "IN", value: ids }]),
+        fields: "date_start,ad_id,spend,actions,action_values",
+      }, c.token).catch((err) => { throw new Error(`광고 이력: ${(err as Error).message}`); });
+      for (let page = 0; page < 20; page++) {
+        rows.push(...((cur.data ?? []) as Record<string, unknown>[]));
+        const next = (cur.paging as Record<string, unknown> | undefined)?.next as string | undefined;
+        if (!next) break;
+        if (page === 19) throw new Error("광고 이력: 20쪽을 넘어 잘림 — 광고 수를 줄이세요");
+        let nb: Record<string, unknown> | null = null, lastErr = "";
+        for (let tries = 0; tries < 3 && !nb; tries++) {
+          if (tries) await new Promise((r) => setTimeout(r, tries * 2000));
+          try { const res = await fetch(next); const j = await res.json(); if (res.ok) nb = j; else lastErr = `HTTP ${res.status} ${String(j?.error?.message ?? "").replace(/access_token=[^&\s)]+/g, "access_token=***").slice(0, 120)}`; } catch (err) { lastErr = err instanceof TypeError ? "network error" : "request failed"; }
+        }
+        if (!nb) throw new Error(`광고 이력: ${page + 2}쪽에서 실패(${lastErr}) — 반쪽 자료는 내보내지 않음`);
+        cur = nb;
+      }
+      const agg = new Map<string, { ad_id: string; days: number; first: string; last: string; spend: number; purchases: number; purchase_value: number }>();
+      for (const r of rows) {
+        const id = String(r.ad_id ?? ""), d = String(r.date_start ?? "").slice(0, 10), sp = num(r.spend);
+        if (!id || !d || sp <= 0) continue;
+        const a = agg.get(id) ?? { ad_id: id, days: 0, first: d, last: d, spend: 0, purchases: 0, purchase_value: 0 };
+        a.days++; if (d < a.first) a.first = d; if (d > a.last) a.last = d;
+        a.spend += sp; a.purchases += pickPurchase(r.actions); a.purchase_value += pickPurchase(r.action_values);
+        agg.set(id, a);
+      }
+      const body = { period: { start: s, end: e }, ads: [...agg.values()].map((a) => ({ ...a, spend: Math.round(a.spend), purchase_value: Math.round(a.purchase_value) })) };
+      await cacheSet(cacheKey, body);
+      return json(body);
+    }
+
     if (action === "pausedads") {
       const cacheKey = `meta:pausedads:${seoulToday()}`;
       const hit = await cacheGet(cacheKey, 10 * 60 * 1000);
