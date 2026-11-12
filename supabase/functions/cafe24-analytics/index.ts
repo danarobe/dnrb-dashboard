@@ -3812,6 +3812,36 @@ Deno.serve(async (req) => {
       });
     }
 
+    // ── 대분류 진열 순서·추천상품 (2026-11-12 사용자 요청 — 종합 판매 데이터 표 '추천·진열' 열, 읽기 전용) ──
+    //   카페24 추천상품(display_group=2)은 상품 종류 대분류 5개(OUTER·ONE-PIECE·TOP·BOTTOM·ACC)에만 10개씩 쓰임(11-12 실측 — 소분류·기획전 카테고리는 0개).
+    //   그래서 '자신이 속한 카테고리' = 이 5개 중 상품이 들어 있는 곳(세트 상품은 TOP·BOTTOM 둘 다일 수 있음).
+    //   진열 순서 = 일반 진열(display_group=1)의 sequence_no(1부터 빈틈 없음 — 관리자 상품 진열 화면 순서), 추천 = 추천 진열 목록에 있는지와 그 순서.
+    //   대분류 5개 × 2번 = 카페24 호출 10번, 10분 캐시(MD가 진열을 바꾸면 10분 안에 반영). 로그인한 사람 모두(가격·매출 없음)
+    if (action === "display_rank") {
+      const MAIN = ["OUTER", "ONE-PIECE", "TOP", "BOTTOM", "ACC"];
+      const hit = noCache ? null : await cacheGet("disp:main", 10 * 60 * 1000);
+      if (hit) return json(hit);
+      const cb = await apiGet(`${API_BASE}/admin/categories?limit=100&fields=category_no,category_name,category_depth`, token);
+      const mains = ((cb.categories ?? []) as Record<string, any>[])
+        .filter((c) => num(c.category_depth) === 1 && MAIN.includes(String(c.category_name ?? "").trim().toUpperCase()))
+        .sort((a, b) => MAIN.indexOf(String(a.category_name).trim().toUpperCase()) - MAIN.indexOf(String(b.category_name).trim().toUpperCase()));
+      const cats: { no: number; name: string; total: number; rec_total: number }[] = [];
+      const products: Record<string, { c: number; seq: number; rec: number | null }[]> = {};
+      for (const c of mains) {
+        const cno = Number(c.category_no);
+        const [g1, g2] = await Promise.all([1, 2].map(async (g) => ((await apiGet(`${API_BASE}/admin/categories/${cno}/products?display_group=${g}&limit=1000`, token)).products ?? []) as Record<string, any>[]));
+        const recSeq = new Map(g2.map((x, i) => [Number(x.product_no), num(x.sequence_no) || i + 1]));
+        g1.forEach((x, i) => {
+          const no = String(x.product_no);
+          (products[no] ??= []).push({ c: cno, seq: num(x.sequence_no) || i + 1, rec: recSeq.get(Number(x.product_no)) ?? null });
+        });
+        cats.push({ no: cno, name: String(c.category_name ?? "").trim(), total: g1.length, rec_total: g2.length });
+      }
+      const body = { cats, products, fetched_at: new Date().toISOString() };
+      await cacheSet("disp:main", body);
+      return json(body);
+    }
+
     // ── 상품 → 카테고리 매핑 (2026-09-12, 상품 전략 에이전트): 카테고리 33개 × category_products 1회, 10분 캐시 ──
     //   GET ?action=categorymap → { categories: {no: {name, depth, parent}}, products: {product_no: [category_no...]} }
     if (action === "categorymap") {

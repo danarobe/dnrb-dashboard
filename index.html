@@ -397,10 +397,10 @@
     tbody td.name-cell { text-align:left; white-space:normal; max-width:220px; }
     /* 종합 판매 데이터 표(2026-10-26 사용자 요청 — '오늘'로 보면 등락 열이 생겨 상품명 칸이 88px까지 좁아져 줄바꿈이 심했음):
        머리글 설명 글은 줄바꿈 허용(단어 단위), 칸 여백을 줄이고, 숫자 아래 작은 글씨(공급가 메모 등)도 줄바꿈 → 남는 폭은 상품명 칸으로 */
-    .perf-tbl thead th { white-space: normal; word-break: keep-all; padding-left: 6px; padding-right: 6px; vertical-align: middle; }
-    .perf-tbl tbody td { padding-left: 6px; padding-right: 6px; }
+    .perf-tbl thead th { white-space: normal; word-break: keep-all; padding-left: 4px; padding-right: 4px; vertical-align: middle; }
+    .perf-tbl tbody td { padding-left: 4px; padding-right: 4px; }   /* 2026-11-12 코디 구매·추천 · 진열 칸이 생겨 6 → 4px(1280 창에 맞춤 — 공급가 칸 작은 글씨도 줄바꿈 허용) */
     .perf-tbl tbody td div { white-space: normal; word-break: keep-all; }
-    .perf-tbl tbody td.name-cell { min-width: clamp(160px, 13.5vw, 270px); max-width: 340px; }   /* 2026-11-04 주문율 열이 생겨 15vw → 13.5vw(1280 창에 맞춤) */
+    .perf-tbl tbody td.name-cell { min-width: clamp(150px, 12.5vw, 270px); max-width: 340px; }   /* 2026-11-04 주문율 열이 생겨 15vw → 13.5vw, 11-12 코디·추천 칸으로 12.5vw(1280 창에 맞춤) */
     /* 순반품률 7·14·30일 칸 (2026-11-04) — 세 줄로 좁게 */
     .perf-tbl .nr3 { display: inline-grid; grid-template-columns: auto auto; gap: 0 6px; align-items: baseline; font-size: .78rem; line-height: 1.4; }
     .perf-tbl .nr3 > span { color: #6b7280; font-size: .68rem; text-align: right; }
@@ -22035,6 +22035,8 @@ async function fetchPerfApi() {
       }).catch(() => { /* 등락 없이 표시 */ });
     }
     renderPerfResult();
+    perfDispLoad();          // 추천·진열 순서(2026-11-12) — 표를 먼저 그리고 뒤에서 채움
+    if (adsOk) perfCodiLoad(ds, de); else store.codi = null;   // 코디 구매 비율(관리자·MD — 서버 codi 권한과 같음)
     const noCost = store.salesData.length - mappedCost;
     showToast(`${store.salesData.length}개 상품 로드 · 공급가 매핑 ${mappedCost}개${noCost > 0 ? ` (공급가 미입력 ${noCost}개는 마진 계산 제외)` : ''}`);
   } catch (e) {
@@ -22185,9 +22187,11 @@ function renderPerfResult() {
         ${isStaff() || isCS() ? '' : '<th class="m-hide">판매합계</th>'}
         ${isCS() ? '' : '<th class="m-hide">ON 광고<br><span style="font-size:.7rem;font-weight:400;color:#6b7280;">활성 기준</span></th>'}
         <th class="m-hide">주문율<br><span style="font-size:.7rem;font-weight:400;color:#6b7280;">주문 ÷ 조회</span></th>
+        ${store.codi ? `<th class="m-hide" title="상품 전략 담당(AI 에이전트)과 같은 기준&#10;최근 14일(${escHtml(perfCodiRangeTxt())}) 판매수량 상위 40개 상품 페이지의 '코디 상품'(카페24 추가구성상품)으로 걸린 상품마다,&#10;그 14일 주문 중 코디로 걸어 둔 상품과 같은 주문에 담긴 비율&#10;40% 이상 = 주문이 코디 덕(빨강) · 20~39% 노랑 · — = 코디 상품으로 안 걸림" style="cursor:help;">코디 구매<br><span style="font-size:.7rem;font-weight:400;color:#6b7280;">14일</span></th>` : ''}
         <th title="${escHtml(NET_WINS.map(w => w + '일 = ' + netWinRangeTxt(w)).join(' / '))}">순반품률<br class="m-hide"><span class="m-hide" style="font-size:.7rem;font-weight:400;color:#6b7280;">마지막 날 전 7·14·30일</span></th>
         <th class="m-hide">취소율<br><span style="font-size:.7rem;font-weight:400;color:#6b7280;">현재까지 누적</span></th>
         ${isCS() ? '' : '<th>마진율<br class="m-hide"><span class="m-hide" style="font-size:.7rem;font-weight:400;color:#6b7280;">부가세 포함 기준</span></th>'}
+        <th class="m-hide" title="추천 = 상품이 속한 대분류(OUTER·ONE-PIECE·TOP·BOTTOM·ACC)의 '추천상품'으로 진열돼 있으면 O, 아니면 X&#10;(카페24 추천상품은 이 다섯 대분류에만 씀)&#10;아래 숫자 = 그 대분류 일반 진열에서 몇 번째인지 / 대분류 상품 수(관리자 상품 진열 화면 순서, 품절·판매 안 함 포함)&#10;10분마다 새로 읽음" style="cursor:help;">추천 · 진열<br><span style="font-size:.7rem;font-weight:400;color:#6b7280;">대분류 순서</span></th>
       </tr></thead>
       <tbody>`;
 
@@ -22199,7 +22203,7 @@ function renderPerfResult() {
         const m = ((cd.salePrice - vatCost) / cd.salePrice) * 100;
         const c = (vatCost / cd.salePrice) * 100;
         mg = marginBadge(m); cr = costBadge(c); sc = fmt(cd.supplyCost)+'원';
-        if (cd.cn) sc += `<div style="margin-top:2px;line-height:1;"><span title="중국 사입/제작 관리의 실질 단가 = 위안 × 물건값 1위안당 원가(환전 내역 선입선출 × 출고 서류 총 합계 — 에이전시 10%·경비 포함) × (1 + 들여오는 비용 비율), 부가세 제외${cd.cnWithCost === false ? ' (비용 시트가 없어 들여오는 비용은 빠진 값)' : ''}&#10;마진율 원가 = 실질 단가 + 수입 부가세 몫 ${fmt(cd.cnVat || 0)}원 = ${fmt(Math.round(mgCost(cd.supplyCost, cd.costVat)))}원 (실질 단가 × 1.1이 아님 — 부가세는 물건값에만 붙음)&#10;사입상품명: ${escHtml((cd.cnNames || []).join(', '))}" style="display:inline-block;background:#fef3c7;color:#92400e;border-radius:5px;padding:0 6px;font-size:.66rem;font-weight:800;cursor:help;white-space:nowrap;">중국 사입 실질 단가</span></div>${cd.c24 > 0 && cd.c24 !== cd.supplyCost ? `<div style="font-size:.66rem;color:#6b7280;white-space:nowrap;">카페24 공급가 ${fmt(cd.c24)}원</div>` : ''}${cd.cnVat ? `<div style="font-size:.66rem;color:#92400e;white-space:nowrap;">+ 수입 부가세 ${fmt(cd.cnVat)}원</div>` : ''}`;
+        if (cd.cn) sc += `<div style="margin-top:2px;line-height:1;"><span title="중국 사입/제작 관리의 실질 단가 = 위안 × 물건값 1위안당 원가(환전 내역 선입선출 × 출고 서류 총 합계 — 에이전시 10%·경비 포함) × (1 + 들여오는 비용 비율), 부가세 제외${cd.cnWithCost === false ? ' (비용 시트가 없어 들여오는 비용은 빠진 값)' : ''}&#10;마진율 원가 = 실질 단가 + 수입 부가세 몫 ${fmt(cd.cnVat || 0)}원 = ${fmt(Math.round(mgCost(cd.supplyCost, cd.costVat)))}원 (실질 단가 × 1.1이 아님 — 부가세는 물건값에만 붙음)&#10;사입상품명: ${escHtml((cd.cnNames || []).join(', '))}" style="display:inline-block;background:#fef3c7;color:#92400e;border-radius:5px;padding:0 6px;font-size:.66rem;font-weight:800;cursor:help;white-space:normal;line-height:1.25;padding:1px 6px;">중국 사입 실질 단가</span></div>${cd.c24 > 0 && cd.c24 !== cd.supplyCost ? `<div style="font-size:.66rem;color:#6b7280;">카페24 공급가 ${fmt(cd.c24)}원</div>` : ''}${cd.cnVat ? `<div style="font-size:.66rem;color:#92400e;">+ 수입 부가세 ${fmt(cd.cnVat)}원</div>` : ''}`;
       }
       html += `<tr>
         <td class="m-hide">${row.rank}</td>
@@ -22220,9 +22224,11 @@ function renderPerfResult() {
             : '<span style="color:#d1d5db;font-size:.75rem;">0</span>') + paSpendHtml(row.productNo);
         })()}</td>`}
         <td class="m-hide">${perfOrderRateHtml(row.productNo)}</td>
+        ${store.codi ? `<td class="m-hide">${perfCodiHtml(row.productNo)}</td>` : ''}
         <td>${netWinHtml(row)}</td>
         <td class="m-hide" title="취소 ${fmt(row.cancelOnlyQty)}개 ÷ 결제 ${fmt(row.paidQty)}개">${fmtP(row.cancelRate)}</td>
         ${isCS() ? '' : `<td>${mg}</td>`}
+        ${perfDispHtml(row.productNo)}
       </tr>`;
       // 옵션별 순반품률 접이식 상세 행 (기본 숨김 — 버튼 클릭 시 표시)
       const nrRow = netOf(row);
@@ -22232,7 +22238,7 @@ function renderPerfResult() {
             ${NET_WINS.map(w => `<span style="width:78px;text-align:right;white-space:nowrap;"><span style="color:#6b7280;font-size:.7rem;">${w}일</span> ${netRateHtml(o.w[w])}</span>`).join('')}
           </div>`).join('');
         html += `<tr id="nr-opt-${row.productNo}" style="display:none;">
-          <td colspan="${(isCS() ? 10 : isStaff() ? 12 : 13) + (store.prevRanks ? 1 : 0)}" style="background:#f8f9ff;text-align:left;padding:10px 18px;font-size:.82rem;color:#374151;">
+          <td colspan="${(isCS() ? 11 : isStaff() ? 13 : 14) + (store.prevRanks ? 1 : 0) + (store.codi ? 1 : 0)}" style="background:#f8f9ff;text-align:left;padding:10px 18px;font-size:.82rem;color:#374151;">
             <div style="font-weight:700;color:#4338ca;margin-bottom:4px;">옵션별 순반품률 <span style="font-weight:400;color:#6b7280;font-size:.75rem;">(회색 = 배송완료 10개 미만, 참고용 · 마우스를 올리면 반품 ÷ 배송완료)</span></div>
             ${optHtml}
           </td>
@@ -22290,6 +22296,84 @@ function perfOrderRateHtml(no) {
   const a = store.orderRate.get(no);
   if (!a || !a.views) return '<span style="color:#6b7280;">—</span>';
   return `<span title="주문 ${fmt(a.order_count)}건 ÷ 조회 ${fmt(a.views)} (상품 분석과 같은 값)">${fmtP(a.order_count / a.views * 100)}</span>`;
+}
+/* ── 코디 구매 비율 · 대분류 추천·진열 순서 (2026-11-12 사용자 요청) ──
+   코디: AI 에이전트 '상품 전략 담당'과 같은 방식 — 서버 codi 액션, 부모 = 14일 판매수량(애널리틱스 order_qty) 상위 40개,
+     자식 = 표의 상품(결제수량 많은 순, 주문을 세어 보는 건 최대 60개), share = 자식의 14일 주문 중 부모와 같은 주문에 담긴 비율, 40% 이상 = 코디 덕.
+     14일 = 조회 기간 마지막 날까지(에이전트는 어제까지 — '오늘'로 보면 같음). 관리자·MD만(서버 codi 권한).
+   추천·진열: 서버 display_rank(대분류 OUTER·ONE-PIECE·TOP·BOTTOM·ACC의 일반 진열 순서 + 추천 진열 여부, 10분 캐시). */
+const PERF_CODI_HI = 40, PERF_CODI_MID = 20;
+function perfCodiRangeTxt() {
+  const c = store.codi; if (!c || !c.start) return '';
+  const md = d => `${Number(d.slice(5, 7))}/${Number(d.slice(8, 10))}`;
+  return `${md(c.start)}~${md(c.end)}`;
+}
+async function perfCodiLoad(ds, de) {
+  const end = de, start = new Date(new Date(de + 'T00:00:00Z').getTime() - 13 * 864e5).toISOString().slice(0, 10);
+  const key = ds + '|' + de;   // 표의 상품(자식 후보)이 조회 기간에 따라 달라서 시작일도 키에
+  if (store.codi && store.codi.key === key && (store.codi.data || store.codi.loading)) { renderPerfResult(); return; }
+  store.codi = { key, start, end, loading: true, data: null, error: null, names: {} };
+  renderPerfResult();
+  try {
+    const sum14 = await anGet({ action: 'summary', start_date: start, end_date: end });
+    const rows14 = (sum14 && sum14.rows) || [];
+    const names = {}; rows14.forEach(r => { names[r.product_no] = r.product_name; });
+    store.salesData.forEach(r => { if (r.productNo && !names[r.productNo]) names[r.productNo] = r.productName; });
+    const parents = [...rows14].filter(r => r.product_no > 0).sort((a, b) => (b.order_qty || 0) - (a.order_qty || 0)).slice(0, 40).map(r => r.product_no);
+    const children = [...store.salesData].filter(r => r.productNo > 0 && r.paidQty > 0).sort((a, b) => b.paidQty - a.paidQty).map(r => r.productNo).slice(0, 600);
+    const d = parents.length && children.length
+      ? await anGet({ action: 'codi', parents: parents.join(','), children: children.join(','), start_date: start, end_date: end, max: 60 })
+      : { children: {} };
+    if (!store.codi || store.codi.key !== key) return;   // 그사이 다른 기간을 불러옴
+    store.codi = { key, start, end, loading: false, data: d, error: null, names };
+  } catch (e) {
+    if (!store.codi || store.codi.key !== key) return;
+    store.codi = { key, start, end, loading: false, data: null, error: e.message, names: {} };
+  }
+  if (store.salesData.length) renderPerfResult();
+}
+function perfCodiHtml(no) {
+  const c0 = store.codi;
+  if (c0.loading) return '<span style="color:#6b7280;font-size:.72rem;" title="코디 구매 비율 확인 중 — 표는 그대로 쓸 수 있어요"><i class="fa-solid fa-spinner fa-spin"></i></span>';
+  if (c0.error) return `<span style="color:#b45309;font-size:.72rem;" title="${escHtml('코디 구매 비율을 못 읽었어요 — ' + c0.error + ' (다시 불러오면 다시 시도해요)')}">확인 실패</span>`;
+  const c = c0.data && c0.data.children ? c0.data.children[String(no)] : null;
+  if (!c) return '<span style="color:#9ca3af;" title="최근 14일 판매 상위 40개 상품의 코디 상품으로 걸려 있지 않아요">—</span>';
+  const nameOf = n => String(c0.names[n] || `상품 ${n}`);
+  if (c.share == null) return `<span style="color:#6b7280;font-size:.72rem;" title="${escHtml(`코디 상품으로 걸려 있음(${(c.parents || []).map(nameOf).join(', ')})\n14일 주문이 없거나, 주문을 세어 보는 60개 밖이라 비율은 안 셈`)}">걸림</span>`;
+  const ps = Object.entries(c.by_parent || {}).sort((a, b) => b[1] - a[1]);
+  const tip = `최근 14일(${perfCodiRangeTxt()}) 주문 ${fmt(c.orders)}건 중 ${fmt(c.with_parent)}건이 코디로 걸어 둔 상품과 같이 주문됨${c.partial ? ' (주문이 많아 300건까지만 셈)' : ''}` +
+    (ps.length ? '\n' + ps.slice(0, 4).map(([n, k]) => `· ${nameOf(n)} ${fmt(k)}건`).join('\n') : '') +
+    `\n코디로 걸어 둔 상품: ${(c.parents || []).map(nameOf).join(', ')}` +
+    (c.share >= PERF_CODI_HI ? '\n→ 40% 이상: 주문이 코디 덕 — 광고·진열 상향, 단독 확대 근거로 쓰지 않기(상품 전략 담당 기준)' : '');
+  const [bg, fg, bd] = c.share >= PERF_CODI_HI ? ['#fee2e2', '#b91c1c', '#fecaca'] : c.share >= PERF_CODI_MID ? ['#fef3c7', '#92400e', '#fde68a'] : ['#f3f4f6', '#374151', '#e5e7eb'];
+  return `<span title="${escHtml(tip)}" style="display:inline-block;background:${bg};color:${fg};border:1px solid ${bd};border-radius:6px;padding:0 6px;font-size:.72rem;font-weight:800;white-space:nowrap;cursor:help;">${c.share}%</span>` +
+    (c.share >= PERF_CODI_HI ? '<div style="font-size:.66rem;color:#b91c1c;font-weight:700;margin-top:1px;">코디 덕</div>'
+      : `<div style="font-size:.66rem;color:#6b7280;margin-top:1px;">${fmt(c.with_parent)}/${fmt(c.orders)}건</div>`);
+}
+async function perfDispLoad() {
+  if (store.disp && store.disp.loading) return;
+  store.disp = { loading: true, data: store.disp && store.disp.data, error: null };
+  try {
+    const d = await anGet({ action: 'display_rank' });
+    store.disp = { loading: false, data: d, error: null };
+  } catch (e) {
+    store.disp = { loading: false, data: null, error: e.message };
+  }
+  if (store.salesData.length) renderPerfResult();
+}
+function perfDispHtml(no) {   // 추천 · 진열 한 칸 <td>
+  const st = store.disp;
+  if (!st || (st.loading && !st.data)) return '<td class="m-hide"><span style="color:#6b7280;font-size:.72rem;"><i class="fa-solid fa-spinner fa-spin"></i></span></td>';
+  if (!st.data) return `<td class="m-hide"><span style="color:#b45309;font-size:.72rem;" title="${escHtml('진열 정보를 못 읽었어요 — ' + (st.error || '') + ' (다시 불러오면 다시 시도해요)')}">확인 실패</span></td>`;
+  const list = no ? (st.data.products || {})[String(no)] : null;
+  if (!list || !list.length) return '<td class="m-hide"><span style="color:#9ca3af;" title="대분류(OUTER·ONE-PIECE·TOP·BOTTOM·ACC)에 진열돼 있지 않아요">—</span></td>';
+  const cat = c => (st.data.cats || []).find(x => x.no === c) || { name: String(c), total: 0, rec_total: 0 };
+  return '<td class="m-hide">' + list.map((e, i) => {
+    const k = cat(e.c);
+    const tip = `${k.name} — ${e.rec ? `추천상품 ${k.rec_total}개 중 ${e.rec}번째` : '추천상품 아님'}\n일반 진열 ${k.total}개 중 ${e.seq}번째`;
+    return `<div title="${escHtml(tip)}" style="cursor:help;line-height:1.25;${i ? 'margin-top:4px;' : ''}">${e.rec ? '<b style="color:#15803d;">O</b>' : '<b style="color:#9ca3af;">X</b>'}` +
+      `<div style="font-size:.66rem;color:#6b7280;"><span style="white-space:nowrap;">${escHtml(k.name)}</span> <span style="white-space:nowrap;"><b style="color:#374151;font-variant-numeric:tabular-nums;">${e.seq}</b>/${k.total}</span></div></div>`;
+  }).join('') + '</td>';
 }
 function netOf(row) {   // 판정용 = 14일 창을 예전 모양으로
   const r = row.productNo === undefined || !store.netWin ? null : store.netWin.get(row.productNo);
