@@ -1611,6 +1611,7 @@
         </div>
       </div>
       <div id="cn-pane-check" class="cn-pane">
+        <div id="cn-swap-check"></div>
         <div class="cn-help"><span class="cn-help-k">잔여 = 주문 − 중국출고</span><span class="cn-help-k">차이 = 중국출고 − 실입고</span><details><summary>사용법</summary><ul><li><b>[입고 엑셀 올리기]</b> → 중국출고 수량이 옵션별로 들어와요</li><li>상자에서 센 수량을 <b>실입고</b>에 적기 · <b>Enter</b> = 저장 후 다음 칸</li><li>수량이 같으면 상품 줄의 <b>[전달 수량과 같음]</b>으로 한 번에</li><li><b>▸</b> = 옵션 펼치기 · 사입상품명 = 카페24 <b>공급사 상품명</b>(등록되면 자동 '등록됨')</li></ul></details></div>
         <div id="cn-ship-board" style="margin-bottom:12px;"></div>
         <div id="cn-ship-bar" style="margin-bottom:10px;"></div>
@@ -1628,6 +1629,7 @@
         <div id="cn-order-body"></div>
       </div>
       <div id="cn-pane-buy" class="cn-pane" style="display:none;">
+        <div id="cn-swap-buy"></div>
         <div class="cn-help"><span class="cn-help-k">수량 적기 → [엑셀 받기] = 중국 주문서 양식</span><details><summary>사용법</summary><ul><li><b>[엑셀 받고 주문서로 등록]</b> = '주문서' 탭에도 바로 들어가요</li><li>적은 수량은 이 PC에 저장돼요 · 미진행 상품은 안 나와요</li></ul></details></div>
         <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px;">
           <input id="cn-buy-q" type="search" placeholder="품번·색상 찾기" oninput="renderSoon('cnBuyRender')" style="padding:6px 10px;border:1.5px solid #d1d5db;border-radius:8px;font-size:.82rem;min-width:180px;" />
@@ -1648,6 +1650,7 @@
       </div>
       <!-- 미송 점검 (2026-10-23 사용자 요청 — 아직 안 들어온 수량 다시 체크 + 미송 엑셀과 비교 + 주문 − 출고 − 미출고 = 0 확인) -->
       <div id="cn-pane-pend" class="cn-pane" style="display:none;">
+        <div id="cn-swap-pend"></div>
         <div class="cn-help"><span class="cn-help-k">미송 = 주문 − 중국출고 − 폐기</span><span class="cn-help-k">미출고 = 최근 출고 서류 F열</span><details><summary>사용법</summary><ul><li>더 안 나올 수량은 <b>[폐기]</b> → 미송에서 빠져요(되돌리기 가능)</li><li>출고 서류마다 주문 − 출고 누적 − 미출고 = 0 · 안 맞으면 <b>'수량 확인'</b> → 상품을 누르면 이유</li><li><b>[미송 엑셀과 비교]</b> = 에이전시 미송 엑셀(엑셀·CSV)과 옵션별 비교</li></ul></details></div>
         <div id="cn-pend-summary" style="margin-bottom:10px;"></div>
         <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px;">
@@ -5970,7 +5973,7 @@ const CN_TABS_FX = ['fx', '원>달러>위안 환전', null, 'fa-solid fa-money-b
 const CN_TABS = [['check', '입고 검수', null, 'fa-solid fa-clipboard-check'], ['prod', '상품별 현황', null, 'fa-solid fa-layer-group'], ['pend', '미송 점검', null, 'fa-solid fa-hourglass-half'], ['defect', '불량 기록', null, 'fa-solid fa-triangle-exclamation'], ['misong', '미송 확인', null, 'fa-solid fa-truck-ramp-box'], ['order', '주문서', null, 'fa-solid fa-file-signature'], ['buy', '주문하기', null, 'fa-solid fa-cart-plus'], ['cost', '입고 비용', null, 'fa-solid fa-coins']];   // 주문하기 = 2026-10-20 사용자 요청(수량을 적으면 주문서 양식 엑셀로)   // 주문서 탭 = 2026-10-19 사용자 요청('전체' 보기 아래에 늘어서던 주문서 목록을 따로)
 const cnTabs = () => cnCsOnly() ? CN_TABS.filter(t => t[0] === 'check' || t[0] === 'misong') : [...CN_TABS, CN_TABS_FX].map(t => { const n = t[0] === 'order' ? cnOrderPendingList().length : 0; return n ? [t[0], t[1], `<span style="color:#dc2626;">업로드 필요 ${n}</span>`, t[3]] : t; }).filter(t => (t[0] !== 'cost' || !cnState.data || cnState.data.can_price) && (t[0] !== 'fx' || (cnState.data && cnState.data.can_price)) && (t[0] !== 'buy' || !cnState.data || cnState.data.can_edit) && (t[0] !== 'order' || !cnState.data || cnState.data.can_edit));   // 물류팀 = 입고 검수·상품별 현황만(2026-10-22 — 주문서·주문하기·입고 비용·환전 숨김)   // 입고 비용 = 관리자만, 주문하기 = 관리자·MD
 const cnState = { data: null, loading: false, tab: 'check', shipId: 'all', costShipId: null, filter: 'all', prodFilter: 'all', pendFilter: 'pend', pendCmp: null, lineFilter: 'all', pending: null, sales: null, salesLoading: false, open: { check: new Set(), prod: new Set() }, thumbs: {}, thumbAsked: new Set(), thumbWant: [], thumbT: null, thumbScroll: false };
-function cnTabRender() { const k = cnState.tab; if (k === 'misong') cnMisongRender(); else if (k === 'pend') cnPendRender(); else if (k === 'defect') cnDefRender(); else if (k === 'check') cnCheckRender(); else if (k === 'cost') cnCostRender(); else if (k === 'fx') cnFxRender(); else if (k === 'order') cnOrderTabRender(); else if (k === 'buy') cnBuyRender(); else { cnProdRender(); cnSalesLoad(); } }
+function cnTabRender() { const k = cnState.tab; if (k === 'check' || k === 'buy' || k === 'pend') cnSwapBannerPaint(); if (k === 'misong') cnMisongRender(); else if (k === 'pend') cnPendRender(); else if (k === 'defect') cnDefRender(); else if (k === 'check') cnCheckRender(); else if (k === 'cost') cnCostRender(); else if (k === 'fx') cnFxRender(); else if (k === 'order') cnOrderTabRender(); else if (k === 'buy') cnBuyRender(); else { cnProdRender(); cnSalesLoad(); } }
 function cnInit() { cnSetTab(cnState.tab); if (!cnState.data && !cnState.loading) cnLoad(false); }   // CS팀도 입고 검수를 보므로 목록을 읽는다(2026-11-05)
 function cnSetTab(k) {
   if (((k === 'cost' || k === 'fx') && cnState.data && !cnState.data.can_price) || ((k === 'buy' || k === 'order') && cnState.data && !cnState.data.can_edit) || ![...CN_TABS, CN_TABS_FX].some(t => t[0] === k)) k = 'check';   // 없어진 탭(미출고 잔여 — 2026-10-14)이면 입고 검수로
@@ -6130,6 +6133,7 @@ function cnUploadPanelRender() {
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;margin-bottom:10px;">
       ${inp('cn-up-title', '입고 이름', p.title, '예: 1차입고 9/25 출고 23박스')}${inp('cn-up-date', '중국 출고일', p.ship_date, '', 'date')}${inp('cn-up-arrival', '입고 예정일', p.arrival_date, '', 'date')}${inp('cn-up-boxes', '박스 수량', p.box_count, '예: 23', 'number')}${inp('cn-up-note', '메모', p.note, '')}
     </div>
+    <div id="cn-up-swaps">${cnUploadSwapHtml(p)}</div>
     <div style="display:flex;gap:8px;"><button class="toggle-btn" id="cn-up-save" style="background:#4f46e5;color:#fff;border-color:#4f46e5;" onclick="cnUploadSave()"><i class="fa-solid fa-floppy-disk"></i> 이 내용으로 저장</button>
       <button class="toggle-btn" onclick="cnState.pending=null;cnUploadPanelRender()">취소</button></div>
 </div>`;
@@ -7738,6 +7742,12 @@ function cnProdRender() {
 function cnFlowCalc() {
   const d = cnState.data || {};
   if (cnState._fl && cnState._fl.d === d) return cnState._fl.m;
+  const m = cnFlowCalcFor(d);
+  cnState._fl = { d, m };
+  return m;
+}
+// 2026-11-13: 자료(d)를 받아 계산 — 출고 서류를 저장하기 전에 '올리면 어떻게 되는지' 미리 계산할 때도 씀(cnUploadSwaps)
+function cnFlowCalcFor(d) {
   const ord = x => String(x.ship_date || '9999') + String(x.id).padStart(9, '0');
   const ships = (d.ships || []).slice().sort((a, b) => ord(a) < ord(b) ? -1 : 1), shipOf = new Map(ships.map(x => [x.id, x]));
   const orderOf = new Map((d.orders || []).map(o => [o.id, o]));
@@ -7765,7 +7775,6 @@ function cnFlowCalc() {
     let st = -1; for (let i = fr.length - 1; i >= 0 && fr[i].diff !== 0; i--) st = i;
     e.since = st >= 0 ? fr[st] : null; e.prevOk = st > 0 ? fr[st - 1] : null;
   }
-  cnState._fl = { d, m };
   return m;
 }
 const cnFlowOf = k => cnFlowCalc().get(k) || null;
@@ -7836,12 +7845,72 @@ const cnDiscList = k => (cnDiscMap().get(k) || {}).list || [];
 const cnDiscTxt = v => v > 0 ? `폐기 ${fmt(v)}` : `초과 인정 ${fmt(-v)}`;   // 폐기 = 양수(더 받지 않음), 초과 인정 = 음수(주문보다 더 나온 수량을 받아들임) — 2026-10-23
 // 옵션 바뀜 찾기(2026-10-23 사용자 요청 — "2517 베이지가 1개 더, 다른 색이 1개 덜 들어와 총 수량은 맞다. 이런 경우도 확인하고 정리"):
 //   같은 품번 안에서 아직 정리 안 된 차이(raw − 폐기)가 '모자람'인 옵션과 '더 나옴'인 옵션을 짝지어 그만큼 바뀌어 나간 것으로 본다.
-function cnSwapsOf(sname) {
-  const es = [...cnFlowCalc().values()].filter(e => e.sname === sname && e.status === 'bad');
+function cnSwapsOf(sname, m) {
+  const es = [...(m || cnFlowCalc()).values()].filter(e => e.sname === sname && e.status === 'bad');
   const shorts = es.filter(e => e.raw - e.disc > 0).map(e => ({ e, u: e.raw - e.disc })), overs = es.filter(e => e.raw - e.disc < 0).map(e => ({ e, u: e.disc - e.raw }));
   const pairs = [];
   for (const s of shorts) for (const o of overs) { const n = Math.min(s.u, o.u); if (n > 0) { pairs.push({ short: s.e, over: o.e, n }); s.u -= n; o.u -= n; } }
   return pairs;
+}
+/* ── 색·사이즈 바뀜 경고(2026-11-13 사용자 요청 — "9036 오트밀 대신 검정 30개가 더 들어왔는데 미송 점검 탭에만 떠서 못 잡았다. 이런 걸 놓치면 주문 수량부터 꼬인다") ──
+   ① 출고 서류를 저장하기 전 미리보기에서 바로 경고(cnUploadSwaps — 이 서류를 넣었다고 치고 cnFlowCalcFor로 다시 계산) → 물건이 오기 며칠 전에 중국에 연락할 수 있게
+   ② 정리 전까지 입고 검수·주문하기·미송 점검 탭 맨 위에 계속 표시(cnSwapBannerPaint). 판단은 기존 '옵션 바뀜 찾기'(cnSwapsOf)와 같음:
+      같은 품번 안에서 '주문 − 출고 누적 − 미출고'가 모자란 옵션과 남는 옵션을 짝지음.
+   정리 버튼 두 가지: [바뀐 걸로 끝내기] = 덜 온 옵션 폐기 + 더 온 옵션 초과 인정(cnSwapFix — 덜 온 건 더 안 받음)
+                     [더 온 것만 받기] = 더 온 옵션만 초과 인정(cnSwapKeep — 덜 온 건 미송으로 계속 기다림, 중국에 다시 요청할 때) */
+function cnSwapAll(m) {
+  m = m || cnFlowCalc();
+  const names = [...new Set([...m.values()].filter(e => e.status === 'bad').map(e => e.sname))];
+  return names.map(sname => ({ sname, pairs: cnSwapsOf(sname, m) })).filter(x => x.pairs.length);
+}
+function cnSwapLineHtml(x, opts) {   // 상품 한 줄: '오트밀 30장 덜 오고 검정 30장 더 옴' + 언제부터 + 버튼
+  const o = opts || {}, can = !o.preview && cnCanDisc();
+  const pairs = x.pairs.map(p => `<b>${escHtml(cnOptName(p.short))}</b> ${fmt(p.n)}장 덜 오고 <b>${escHtml(cnOptName(p.over))}</b> ${fmt(p.n)}장 더 옴`).join(', ');
+  const since = (x.pairs[0].over.since || x.pairs[0].short.since);
+  const when = since ? `${escHtml(cnShipShort(since.ship))}${since.ship.ship_date ? ` (${escHtml(since.ship.ship_date.slice(5).replace('-', '/'))} 출고)` : ''}부터` : '';
+  return `<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:7px 0;border-top:1px dashed #fed7aa;">
+    ${o.preview ? '' : cnThumbHtml(x.sname)}<div style="flex:1;min-width:220px;line-height:1.5;"><b style="font-size:.86rem;">${escHtml(x.sname)}</b>${o.tag || ''}<div>${pairs}</div>${when ? `<div style="font-size:.72rem;color:#9a3412;">${when}${o.preview && since && since.ship.id === '__new' ? ' — 지금 올리는 서류' : ''}</div>` : ''}</div>
+    ${o.preview ? '' : `<span style="display:flex;gap:6px;flex-wrap:wrap;"><button type="button" class="toggle-btn" style="font-size:.72rem;padding:3px 9px;" data-s="${escHtml(x.sname)}" onclick="cnFlowOpen(this.dataset.s)"><i class="fa-solid fa-timeline"></i> 수량 흐름</button>${can ? `<button type="button" class="toggle-btn" style="font-size:.72rem;padding:3px 9px;" data-s="${escHtml(x.sname)}" onclick="cnSwapKeep(this.dataset.s)" title="더 온 수량은 받아들이고(초과 인정), 덜 온 수량은 미송으로 남겨 계속 기다려요 — 중국에 다시 보내 달라고 할 때"><i class="fa-solid fa-hourglass-half"></i> 더 온 것만 받기</button><button type="button" class="toggle-btn" style="font-size:.72rem;padding:3px 9px;" data-s="${escHtml(x.sname)}" onclick="cnSwapFix(this.dataset.s)" title="바뀌어 온 걸로 끝내요 — 덜 온 수량은 폐기, 더 온 수량은 초과 인정(미송에서 빠져요)"><i class="fa-solid fa-shuffle"></i> 바뀐 걸로 끝내기</button>` : ''}</span>`}
+  </div>`;
+}
+function cnSwapBannerPaint() {   // 입고 검수·주문하기·미송 점검 탭 맨 위
+  const els = ['check', 'buy', 'pend'].map(k => $('cn-swap-' + k)).filter(Boolean);
+  if (!els.length) return;
+  const list = cnState.data ? cnSwapAll() : [];
+  const html = !list.length ? '' : `<div style="border:2px solid #fb923c;background:#fff7ed;border-radius:12px;padding:10px 14px;margin-bottom:12px;color:#7c2d12;font-size:.8rem;">
+    <div style="font-weight:800;font-size:.88rem;"><i class="fa-solid fa-shuffle"></i> 색·사이즈가 바뀌어 들어온 것 같아요 — ${fmt(list.length)}개 상품</div>
+    <div style="font-size:.74rem;color:#9a3412;margin:2px 0 4px;">정리하기 전까지 이 상품의 <b>미송·잔여 숫자가 실제와 달라요</b> — 주문 수량을 정하기 전에 확인하고 정리해 주세요.</div>
+    ${list.map(x => cnSwapLineHtml(x)).join('')}</div>`;
+  for (const el of els) el.innerHTML = html;
+  if (html) cnThumbsApply && cnThumbsApply();
+}
+async function cnSwapKeep(sname) {
+  const pairs = cnSwapsOf(sname); if (!pairs.length) return;
+  const desc = pairs.map(p => `${cnOptName(p.over)} ${p.n}장`).join(', ');
+  if (!confirm(`${sname} — 더 온 ${desc}을(를) 받아들일까요(초과 인정)?\n덜 온 ${pairs.map(p => `${cnOptName(p.short)} ${p.n}장`).join(', ')}은(는) 미송으로 남아 계속 기다려요(되돌릴 수 있어요).`)) return;
+  try {
+    for (const p of pairs) {
+      const r = await cnPost('cn_discard', { sname, color: p.over.color || null, size: p.over.size || null, qty: -p.n, note: `옵션 바뀜: ${cnOptName(p.short)} 대신 ${cnOptName(p.over)} ${p.n}장 더 옴 — 더 온 건 받고 덜 온 건 계속 기다림` });
+      (cnState.data.discards = cnState.data.discards || []).push(r.discard);
+    }
+    cnDiscChanged(); if ($('cn-flow-modal').style.display === 'flex') cnFlowOpen(sname);
+    showToast(`${sname} 더 온 수량을 받아들였어요 — 덜 온 수량은 미송으로 남아요`);
+  } catch (e) { showToast('정리 실패: ' + e.message); cnDiscChanged(); }
+}
+function cnUploadSwaps(p) {   // 출고 서류 저장 전: 이 서류를 넣으면 생기는(또는 이미 있는) 바뀜 — 서류에 든 상품만
+  const d = cnState.data; if (!d || !p || !(p.lines || []).length) return [];
+  const sd = ($('cn-up-date') && $('cn-up-date').value) || p.ship_date || new Date().toISOString().slice(0, 10);
+  const ship = { id: '__new', title: ($('cn-up-title') && $('cn-up-title').value) || p.title || '지금 올리는 서류', ship_date: sd, left_extra: (p.leftExtra || []).map(x => ({ sname: x.sname, color: x.color, size: x.size, left: x.left })) };
+  const d2 = Object.assign({}, d, { ships: [...(d.ships || []), ship], lines: [...(d.lines || []), ...p.lines.map(l => Object.assign({}, l, { shipment_id: '__new' }))] });
+  const names = new Set(p.lines.map(l => l.sname)), before = new Set(cnSwapAll().map(x => x.sname));
+  return cnSwapAll(cnFlowCalcFor(d2)).filter(x => names.has(x.sname)).map(x => Object.assign(x, { old: before.has(x.sname) }));
+}
+function cnUploadSwapHtml(p) {
+  const list = cnUploadSwaps(p); if (!list.length) return '';
+  return `<div style="border:2px solid #dc2626;background:#fef2f2;border-radius:12px;padding:10px 14px;margin-bottom:10px;color:#7f1d1d;font-size:.8rem;">
+    <div style="font-weight:800;font-size:.88rem;"><i class="fa-solid fa-triangle-exclamation"></i> 주문과 다른 색·사이즈로 나온 것 같아요 — ${fmt(list.length)}개 상품</div>
+    <div style="font-size:.74rem;margin:2px 0 4px;">이 서류를 우리 주문서와 맞춰 보면 한 옵션은 주문보다 많이, 다른 옵션은 그만큼 적게 나왔어요. <b>물건이 오기 전에 중국에 확인</b>해 주세요. 저장해도 입고 검수·주문하기 맨 위에 정리할 때까지 계속 보여요.</div>
+    ${list.map(x => cnSwapLineHtml(x, { preview: true, tag: x.old ? ' <span style="font-size:.66rem;color:#6b7280;font-weight:600;">(이미 있던 차이)</span>' : '' })).join('')}</div>`;
 }
 const cnOptName = e => ([e.color, e.size].filter(Boolean).join(' / ') || '단일') + (e.alias && e.alias.size ? ` (주문서: ${[...e.alias].join('·')})` : '');
 async function cnSwapFix(sname) {
