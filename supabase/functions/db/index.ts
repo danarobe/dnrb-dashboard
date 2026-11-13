@@ -72,7 +72,7 @@ Deno.serve(async (req) => {
   let me = await verifyAuthToken(req);
 
   try {
-    const { path, method, body, prefer } = await req.json().catch(() => ({}));
+    let { path, method, body, prefer } = await req.json().catch(() => ({}));
     const p = String(path ?? "");
     const m = String(method ?? "GET").toUpperCase();
     const table = p.split("?")[0];
@@ -128,7 +128,15 @@ Deno.serve(async (req) => {
     if (table === "push_diag") {   // 진단 기록 — 직원은 추가만(본인 명의), 읽기·수정·삭제는 관리자만
       if (m !== "POST" && me.role !== "admin") return json({ error: "관리자만 볼 수 있습니다" }, 403);
       if (m === "PATCH") return json({ error: "진단 기록은 수정할 수 없습니다" }, 403);
-      if (m === "POST") for (const r of (Array.isArray(body) ? body : [body]) as Record<string, unknown>[]) { r.user_id = me.id; delete r.id; delete r.created_at; }
+      if (m === "POST") {   // 한 번에 한 줄, 정해진 칸만, 글자 길이 제한 (보안 점검 2026-11-13)
+        if (Array.isArray(body) || !body || typeof body !== "object") return json({ error: "진단 기록은 한 줄씩만 보낼 수 있습니다" }, 400);
+        const src = body as Record<string, unknown>;
+        const TXT: Record<string, number> = { step: 40, err_name: 60, err_msg: 300, perm_before: 20, perm_after: 20, method: 20, ua: 300 };
+        for (const k of Object.keys(src)) if (!(k in TXT) && k !== "ok" && k !== "standalone") return json({ error: `알 수 없는 칸: ${k}` }, 400);
+        const row: Record<string, unknown> = { user_id: me.id, ok: src.ok === true, standalone: src.standalone === true };
+        for (const [k, n] of Object.entries(TXT)) row[k] = src[k] == null ? null : String(src[k]).slice(0, n);
+        body = row;
+      }
     }
     if (table === "stable_apply_log" || table === "soldout_fix_log") {   // 반영·변경 기록 — 추가만 가능, 처리자 이름은 로그인 계정으로 서버가 덮어쓴다
       if (m !== "GET" && m !== "POST") return json({ error: "반영 기록은 수정·삭제할 수 없습니다" }, 403);

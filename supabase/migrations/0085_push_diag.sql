@@ -16,3 +16,8 @@ create table if not exists push_diag (
 );
 alter table push_diag enable row level security;
 revoke all on push_diag from anon, authenticated;
+-- 보안 점검(같은 날): 글자 길이 제한
+alter table push_diag add constraint push_diag_len check (
+  coalesce(length(step),0) <= 40 and coalesce(length(err_name),0) <= 60 and coalesce(length(err_msg),0) <= 300
+  and coalesce(length(perm_before),0) <= 20 and coalesce(length(perm_after),0) <= 20 and coalesce(length(method),0) <= 20
+  and coalesce(length(ua),0) <= 300 and length(user_id) <= 64);
