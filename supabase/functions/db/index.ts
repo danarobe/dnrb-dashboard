@@ -37,6 +37,7 @@ const TABLE_ROLES: Record<string, string[]> = {
   rscan_memo: ["admin", "staff", "cs"],       // 반품 스캔 '불량·오배송 처리' 주문 줄 메모 (2026-10-06, 전원 읽기·쓰기 — 팀 공유)
   rscan_actions: ["admin"],                   // 수거 완료 처리 기록 (2026-09-28) — 관리자 읽기 전용(아래 규칙), 쓰기는 cafe24-analytics만
   agent_users: ["admin", "staff", "cs"],      // AI 에이전트 접근 허용 목록 (2026-09-28) — 관리자 전체 읽기·쓰기, 그 외는 본인 행 읽기만(아래 규칙)
+  alba_leave_approvers: ["admin"],            // 알바 휴가 승인 담당 목록 (2026-11-13) — 관리자만 읽기·쓰기(직원은 서버 wm-me가 판단)
   hire_users: ["admin", "staff", "cs"],       // 알바 채용·면접비 접근 허용 목록 (2026-10-14) — 관리자 전체 읽기·쓰기, 그 외는 본인 행 읽기만(아래 규칙). 서버 wm-hire가 같은 표로 강제
   cxl_users: ["admin", "staff", "cs"],        // 취소·반품 접수 접근 허용 목록 (2026-10-08) — 관리자 전체 읽기·쓰기, 그 외는 본인 행 읽기만(아래 규칙)
   stable_apply_log: ["admin"],                // 안정재고 → 셀메이트 반영 기록 (2026-09-28) — 관리자 읽기·추가만(수정·삭제 불가, 처리자는 서버가 기입)

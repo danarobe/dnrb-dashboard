@@ -3083,6 +3083,7 @@
         <div id="users-agents" style="display:none;margin-bottom:16px;"></div>
         <div id="users-cxl" style="display:none;margin-bottom:16px;"></div>
         <div id="users-hire" style="display:none;margin-bottom:16px;"></div>
+        <div id="users-alvl" style="display:none;margin-bottom:16px;"></div>
         <div id="users-seal" style="display:none;margin-bottom:16px;"></div>
       </div>
       <!-- ── 근무 조건 편집 창(인사 명부, 2026-11-10 근무 관리에서 옮김) ── -->
@@ -3655,6 +3656,34 @@ async function sealUsersPanel() {
     <details${denied ? ' open' : ''}><summary style="cursor:pointer;font-size:.76rem;font-weight:700;color:#374151;">최근 기록 ${log.length ? `(${Math.min(log.length, 30)}건)` : ''}</summary>
       ${rows ? `<div style="overflow-x:auto;"><table style="font-size:.74rem;border-collapse:collapse;margin-top:6px;">${rows}</table></div>` : '<div style="font-size:.74rem;color:#6b7280;margin-top:6px;">아직 기록이 없어요</div>'}</details></div>`;
 }
+/* 알바 휴가 승인 담당 (2026-11-13 사용자 요청) — 관리자가 아닌 직원에게 알바 휴가 승인·반려 + 신청 알림.
+   서버: alba_leave_approvers(db 프록시 관리자만) → wm-me team_leaves(alba_pending)·alba_leave_review, 신청 알림 _shared/alba_leave.ts */
+const alvlState = { rows: null, users: null };
+async function alvlUsersPanel() {
+  const box = $('users-alvl');
+  if (!box || !isAdmin()) return;
+  box.style.display = '';
+  try {
+    const [rows, all] = await Promise.all([dbProxy('alba_leave_approvers?select=user_id'), grantUsers()]);
+    alvlState.users = all.filter(u => u.role !== 'admin' && grantVisible(u));
+    alvlState.rows = new Set((rows || []).map(r => r.user_id));
+  } catch (e) { box.innerHTML = `<div style="font-size:.76rem;color:#b91c1c;">알바 휴가 승인 담당 목록을 불러오지 못했어요 — ${escHtml(e.message)}</div>`; return; }
+  const chips = alvlState.users.map(u => {
+    const on = alvlState.rows.has(u.id);
+    return `<button data-uid="${escHtml(u.id)}" onclick="alvlUserToggle(this.dataset.uid)" aria-pressed="${on}" style="border:1.5px solid ${on ? 'transparent' : '#d1d5db'};background:${on ? '#4f46e5' : '#fff'};color:${on ? '#fff' : '#4b5563'};border-radius:99px;padding:4px 12px;font-size:.76rem;font-weight:600;cursor:pointer;">${on ? '<i class="fa-solid fa-check" style="font-size:.66rem;"></i> ' : ''}${escHtml(u.name)}</button>`;
+  }).join(' ');
+  box.innerHTML = `<div style="background:#f8f9ff;border:1.5px solid #e0e7ff;border-radius:12px;padding:12px 14px;">
+    <div style="font-size:.82rem;font-weight:800;color:#4338ca;margin-bottom:4px;"><i class="fa-solid fa-umbrella-beach"></i> 알바 휴가 승인 담당</div>
+    <div style="font-size:.74rem;color:#6b7280;margin-bottom:8px;line-height:1.6;">이름을 누르면 그 직원이 <b>알바의 휴가 신청</b>을 홈 화면에서 승인·반려할 수 있고, 알바가 휴가를 신청하면 <b>알림(종 + 휴대폰)</b>을 받아요(다시 누르면 해제). 정직원 휴가·휴가 등록·삭제는 관리자만.</div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;">${chips || '<span style="font-size:.76rem;color:#6b7280;">관리자가 아닌 계정이 없어요</span>'}</div></div>`;
+}
+async function alvlUserToggle(uid) {
+  try {
+    if (alvlState.rows.has(uid)) { await dbProxy(`alba_leave_approvers?user_id=eq.${encodeURIComponent(uid)}`, { method: 'DELETE' }); showToast('알바 휴가 승인 담당에서 뺐어요'); }
+    else { await dbProxy('alba_leave_approvers?on_conflict=user_id', { method: 'POST', headers: { Prefer: 'resolution=merge-duplicates,return=minimal' }, body: JSON.stringify({ user_id: uid, added_by: SESSION.name }) }); showToast('알바 휴가 승인 담당으로 지정했어요'); }
+    alvlUsersPanel();
+  } catch (e) { showToast('저장 실패: ' + e.message); }
+}
 async function hireUserToggle(uid) {
   try {
     if (hireAccessState.rows.has(uid)) { await dbProxy(`hire_users?user_id=eq.${encodeURIComponent(uid)}`, { method: 'DELETE' }); showToast('알바 채용·면접비 접근을 해제했어요'); }
@@ -3918,6 +3947,7 @@ async function loadUsers() {
   agentUsersPanel(); // AI 에이전트 접근 허용 칩 (2026-09-28)
   cxlUsersPanel();   // 취소·반품 접수 접근 허용 칩 (2026-10-08)
   hireUsersPanel();  // 알바 채용·면접비 접근 허용 칩 (2026-10-14)
+  alvlUsersPanel();  // 알바 휴가 승인 담당 칩 (2026-11-13)
   wmHireOfP = null; wmHireOfLoad();   // 채용 기록 연결도 새로
   try {
     const [users, emps] = await Promise.all([grantUsers(), wmApi({ action: 'employee_list' }).catch(() => null)]);   // 위 칩 패널들과 같은 계정 조회 하나를 함께 씀
@@ -11042,6 +11072,7 @@ function notifOpen(id) {
   $('notif-drop').style.display = 'none';
   if (r.link_menu === 'agents') { agentsOpen(); return; }   // 에이전트 리포트 알림 → 에이전트 앱 새 탭
   if (r.link_menu) showMenu(r.link_menu);
+  if (r.link_menu === 'home') homeLeavesLoad(true);   // 알바 휴가 신청 알림 — 승인 대기를 바로 새로 읽음(2026-11-13)
 }
 
 async function notifReadAll(ev) {
@@ -19558,10 +19589,48 @@ function homeLeavesRender() {
       <div style="display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:6px;">${cells}</div>
       ${wkend.length ? `<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-top:6px;font-size:.72rem;color:#6b7280;">주말 입고 예정 ${wkend.map(x => `<span style="display:inline-flex;align-items:center;gap:4px;border-radius:7px;padding:2px 8px;background:#ccfbf1;color:#0f766e;"><b>${x.w} ${md(x.date)}</b> 중국물류 ${arrBox(arrOf.get(x.date))}</span>`).join('')}</div>` : ''}</div>`;
   };
-  box.innerHTML = `<div style="border:1px solid #e0e7ff;border-radius:14px;padding:12px 14px;margin-bottom:14px;background:#fafaff;">
+  box.innerHTML = homeAlvlHtml(d) + `<div style="border:1px solid #e0e7ff;border-radius:14px;padding:12px 14px;margin-bottom:14px;background:#fafaff;">
     <div style="display:flex;gap:16px;flex-wrap:wrap;">${week('이번 주 휴가 · 입고 현황', d.this_monday, true)}${week('다음 주 휴가 · 입고 현황', addDays(d.this_monday, 7), false)}</div>
     ${d.can_pending ? '<div style="font-size:.68rem;color:#6b7280;margin-top:6px;">점선 = 승인 대기 중인 신청(관리자에게만 보여요) · 승인은 근무 관리 › 휴가 관리에서</div>' : ''}</div>`;
 }
+/* ── 알바 휴가 승인 (2026-11-13 사용자 요청 — 물류팀 조혜영님 등 관리자가 지정한 담당자) ──
+   서버 wm-me team_leaves가 담당자에게만 alba_pending(알바의 승인 대기 휴가 전부, 사유 포함)을 준다 → 홈 맨 위 노란 상자.
+   [승인]/[반려] = wm-me alba_leave_review. 담당자 지정은 인사 명부 › 권한·보안의 '알바 휴가 승인' 칩(alba_leave_approvers). */
+function homeAlvlHtml(d) {
+  const L = d && d.alba_pending;
+  if (!L || !L.length) return '';
+  const DW = ['일', '월', '화', '수', '목', '금', '토'];
+  const md = ymd => { const t = new Date(ymd + 'T00:00:00Z'); return `${t.getUTCMonth() + 1}/${t.getUTCDate()} (${DW[t.getUTCDay()]})`; };
+  const rows = L.map(r => {
+    const t = HOME_LV_TYPE[r.type] || HOME_LV_TYPE.leave;
+    return `<div data-alvl="${r.id}" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:8px 0;border-top:1px solid #fde68a;">
+      <b style="font-size:.82rem;color:#1f2937;min-width:52px;">${escHtml(r.name)}</b>
+      <span style="font-size:.8rem;color:#374151;white-space:nowrap;">${md(r.date)}</span>
+      <span style="font-size:.72rem;font-weight:700;color:${t[1]};background:${t[2]};border-radius:6px;padding:2px 8px;white-space:nowrap;">${t[0]}</span>
+      <span style="font-size:.76rem;color:#4b5563;flex:1;min-width:120px;overflow-wrap:anywhere;">${r.reason ? escHtml(r.reason) : ''}</span>
+      <span style="display:flex;gap:6px;margin-left:auto;">
+        <button type="button" onclick="homeAlvlReview(${Number(r.id)},'approved',this)" style="border:none;background:#047857;color:#fff;border-radius:8px;padding:6px 14px;font-size:.78rem;font-weight:700;cursor:pointer;">승인</button>
+        <button type="button" onclick="homeAlvlReview(${Number(r.id)},'rejected',this)" style="border:1px solid #fca5a5;background:#fff;color:#b91c1c;border-radius:8px;padding:6px 14px;font-size:.78rem;font-weight:700;cursor:pointer;">반려</button>
+      </span></div>`;
+  }).join('');
+  return `<div style="border:1.5px solid #fcd34d;background:#fffbeb;border-radius:14px;padding:10px 14px 4px;margin-bottom:12px;">
+    <div style="font-size:.86rem;font-weight:800;color:#92400e;"><i class="fa-solid fa-umbrella-beach"></i> 알바 휴가 승인 대기 ${L.length}건</div>
+    <div style="font-size:.72rem;color:#6b7280;margin:2px 0 4px;">승인하면 휴가로 확정되고, 반려하면 신청이 반려돼요.</div>${rows}</div>`;
+}
+async function homeAlvlReview(id, status, btn) {
+  const row = btn && btn.closest('[data-alvl]');
+  const who = row ? row.querySelector('b').textContent : '';
+  if (status === 'rejected' && !confirm(`${who}님의 휴가 신청을 반려할까요?`)) return;
+  if (row) row.querySelectorAll('button').forEach(b => { b.disabled = true; b.style.opacity = '.5'; });
+  try {
+    await myApi({ action: 'alba_leave_review' }, { id, status });
+    showToast(`${who}님 휴가를 ${status === 'approved' ? '승인' : '반려'}했어요`);
+  } catch (e) {
+    showToast('처리 실패: ' + e.message);
+  }
+  homeLeavesLoad(true);
+}
+
 async function myApi(params, body) {
   const res = await fetch(fnUrl('wm-me', params), {
     method: body ? 'POST' : 'GET',

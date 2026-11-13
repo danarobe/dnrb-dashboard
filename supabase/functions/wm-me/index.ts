@@ -25,6 +25,7 @@
 //   관리자(대표)는 wm_employees에 연결이 없으므로 linked:false로 응답 — 비밀번호 변경만 쓰면 된다.
 // ═══════════════════════════════════════════════
 import { CORS_HEADERS, handleOptions, json, verifyAuthToken } from "../_shared/util.ts";
+import { isAlbaApprover, notifyAlbaLeave } from "../_shared/alba_leave.ts";
 
 const SB_URL = Deno.env.get("SUPABASE_URL")!;
 const SB_KEY = (Deno.env.get("SB_SERVICE_KEY") || Deno.env.get("SUPABASE_SERVICE_ROLE_KEY"))!;
@@ -124,8 +125,9 @@ Deno.serve(async (req) => {
       const fri = new Date(mon); fri.setUTCDate(mon.getUTCDate() + 11);
       const sun = new Date(mon); sun.setUTCDate(mon.getUTCDate() + 13);
       const f = (d: Date) => d.toISOString().slice(0, 10);
+      const approver = !isAdmin && await isAlbaApprover(me.id).catch(() => false);   // 알바 휴가 승인 담당(2026-11-13)
       const [emps, rows, holidays, ships] = await Promise.all([
-        rest("wm_employees?select=id,name&limit=300"),
+        rest("wm_employees?select=id,name,type&limit=300"),
         rest(`wm_leaves?status=in.(${isAdmin ? "approved,pending" : "approved"})&date=gte.${f(mon)}&date=lte.${f(fri)}&select=employee_id,date,type,status&order=date&limit=500`),
         rest(`wm_holidays?date=gte.${f(mon)}&date=lte.${f(fri)}&select=date,name&order=date&limit=50`),
         rest(`cn_shipments?arrival_date=gte.${f(mon)}&arrival_date=lte.${f(sun)}&select=arrival_date,box_count,arrived&order=arrival_date&limit=100`),
@@ -139,7 +141,15 @@ Deno.serve(async (req) => {
         arr.set(s.arrival_date, a);
       }
       const nameOf = Object.fromEntries((emps as any[]).map((e) => [e.id, e.name]));
+      // 알바 휴가 승인 담당이면 알바의 '승인 대기' 휴가 전부(기간 무관, 사유 포함 — 승인하려면 봐야 함)
+      let albaPending: unknown[] | undefined;
+      if (approver) {
+        const pt = (emps as any[]).filter((e) => e.type === "parttime").map((e) => e.id);
+        const pend = pt.length ? await rest(`wm_leaves?status=eq.pending&employee_id=in.(${pt.join(",")})&select=id,employee_id,date,type,reason&order=date&limit=300`) : [];
+        albaPending = (pend as any[]).map((r) => ({ id: r.id, name: nameOf[r.employee_id] ?? "(이름 없음)", date: r.date, type: r.type, reason: r.reason ?? "" }));
+      }
       return json({
+        alba_pending: albaPending,
         today, this_monday: f(mon), can_pending: isAdmin,
         leaves: (rows as any[]).map((r) => ({ date: r.date, name: nameOf[r.employee_id] ?? "(이름 없음)", type: r.type === "sick" && !isAdmin ? "leave" : r.type, status: r.status })),
         holidays: (holidays as any[]).map((h) => ({ date: h.date, name: h.name })),
@@ -176,6 +186,30 @@ Deno.serve(async (req) => {
         leaves,
         today: seoulToday(),
       });
+    }
+
+    // ── 알바 휴가 승인·반려 (2026-11-13 사용자 요청 — 물류팀 조혜영님 등 관리자가 지정한 담당자) ──
+    //    알바(type parttime)의 '승인 대기' 건만. 정직원 휴가·이미 처리된 건·본인 휴가는 안 됨. 감사 기록은 관리자 승인과 같은 wm_kiosk_log.
+    if (action === "alba_leave_review") {
+      if (!(await isAlbaApprover(me.id))) return json({ error: "알바 휴가 승인 담당이 아니에요" }, 403);
+      const b = (await req.json().catch(() => ({}))) as Record<string, unknown>;
+      const id = Number(b.id), status = String(b.status ?? "");
+      if (!Number.isInteger(id) || id <= 0) return json({ error: "신청 번호 오류" }, 400);
+      if (!["approved", "rejected"].includes(status)) return json({ error: "승인·반려만 할 수 있어요" }, 400);
+      const [lv] = await rest(`wm_leaves?id=eq.${id}&select=id,employee_id,date,type,status`);
+      if (!lv) return json({ error: "신청을 찾을 수 없어요" }, 404);
+      if (lv.status !== "pending") return json({ error: "이미 처리된 신청이에요" }, 409);
+      const [e] = await rest(`wm_employees?id=eq.${Number(lv.employee_id)}&select=type,app_user_id`);
+      if (!e || e.type !== "parttime") return json({ error: "알바의 휴가만 승인·반려할 수 있어요" }, 403);
+      if (e.app_user_id && e.app_user_id === me.id) return json({ error: "본인 휴가는 승인할 수 없어요" }, 403);
+      const kst = new Intl.DateTimeFormat("sv-SE", { timeZone: "Asia/Seoul", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false }).format(new Date());
+      const done = await rest(`wm_leaves?id=eq.${id}&status=eq.pending`, { method: "PATCH", body: JSON.stringify({ status, reviewed_at: kst }) });
+      if (!done || !done.length) return json({ error: "이미 처리된 신청이에요" }, 409);
+      try {
+        await rest("wm_kiosk_log", { method: "POST", headers: { Prefer: "return=minimal" },
+          body: JSON.stringify({ actor: me.id, action: "leave_" + status, employee_id: lv.employee_id, detail: { leave_id: id, date: lv.date, by: me.name, via: "alba_approver" } }) });
+      } catch { /* 기록 실패가 처리 자체를 막지는 않는다 */ }
+      return json({ ok: true, id, status });
     }
 
     if (!emp) return json({ error: "근무 관리에 연결된 직원 계정이 아닙니다" }, 403);
@@ -435,6 +469,8 @@ Deno.serve(async (req) => {
           });
         }
       } catch { /* 알림 실패가 신청 자체를 막지는 않는다 */ }
+      // 알바면 알바 휴가 승인 담당에게도 (앱 알림 + 휴대폰 푸시, 2026-11-13)
+      try { await notifyAlbaLeave(emp.id, emp.name, toInsert, type, reason); } catch { /* 무시 */ }
 
       return json({ ok: true, inserted: rows.length, skipped });
     }

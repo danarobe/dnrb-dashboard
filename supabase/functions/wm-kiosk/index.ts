@@ -29,6 +29,7 @@ import "../_shared/sbkey.ts";   // 서비스 키 자동 전환(2026-11-07) — �
 // 절대 호환되지 않는다. 반대 방향도 마찬가지.
 // ═══════════════════════════════════════════════════════════════
 import bcrypt from 'npm:bcryptjs@2.4.3';
+import { notifyAlbaLeave } from '../_shared/alba_leave.ts';
 
 const SB_URL = Deno.env.get('SUPABASE_URL')!;
 const SB_KEY = (Deno.env.get("SB_SERVICE_KEY") || Deno.env.get("SUPABASE_SERVICE_ROLE_KEY"))!;
@@ -437,6 +438,7 @@ Deno.serve(async (req) => {
         });
         await log(dev.id, eid, 'request_leave', true, ip, { from: date, to: end_date, inserted: rows.length });
         try { await notifyAdminsLeave(sess.name, toInsert, type, reason); } catch { /* 알림 실패는 무시 */ }
+        try { await notifyAlbaLeave(eid, sess.name, toInsert, type, reason); } catch { /* 알바 휴가 승인 담당 알림(2026-11-13) — 실패 무시 */ }
         return json({ range: true, inserted: rows.length, skipped, rows });
       }
 
@@ -448,6 +450,7 @@ Deno.serve(async (req) => {
       });
       await log(dev.id, eid, 'request_leave', true, ip, { date, type });
       try { await notifyAdminsLeave(sess.name, [date], type, reason); } catch { /* 알림 실패는 무시 */ }
+      try { await notifyAlbaLeave(eid, sess.name, [date], type, reason); } catch { /* 알바 휴가 승인 담당 알림(2026-11-13) — 실패 무시 */ }
       return json(row);
     }
 
