@@ -10996,15 +10996,46 @@ function pushB64ToU8(base64) {
   return Uint8Array.from([...raw].map(c => c.charCodeAt(0)));
 }
 
-/* 아이폰(사파리)은 알림 권한 요청을 '켜기'를 누른 바로 그 순간에만 받아준다.
-   권한 요청 앞에 기다리는 작업(await)이 하나라도 있으면 '허용되지 않는 요청'(NotAllowedError)으로 막힌다 (2026-11-13).
-   → 권한 요청을 맨 먼저, 기다림 없이 부르고 나머지(서비스 워커·구독)는 그 뒤에 한다. */
+/* 아이폰(사파리)은 알림 권한 요청과 구독(subscribe)을 '켜기'를 누른 바로 그 순간에만 받아준다 (2026-11-13).
+   1차 수정(권한 요청만 먼저)으로도 '허용되지 않는 요청'이 계속 나옴 → 사파리는 구독도 누른 순간에 해야 한다.
+   그래서 앱을 열 때 서비스 워커를 미리 준비해 두고(pushPrepare → pushReg), '켜기'를 누르면 기다림 없이 바로
+   pushReg.pushManager.subscribe()를 부른다(사파리는 이 호출이 권한 창도 띄움). 준비가 안 됐으면 예전 순서로.
+   실패·성공은 push_diag 표에 단계·오류·권한 상태·기기 정보를 남긴다(관리자만 읽음). 이 규칙 유지: 권한 요청·구독 앞에 await 넣지 말 것. */
+let pushReg = null;
+function pushPrepare() {
+  if (!('serviceWorker' in navigator)) return;
+  navigator.serviceWorker.register('./sw.js')
+    .then(() => navigator.serviceWorker.ready)
+    .then(r => { pushReg = r; })
+    .catch(() => {});
+}
+function pushSubOpts() { return { userVisibleOnly: true, applicationServerKey: pushB64ToU8(PUSH_PUBKEY) }; }
+function pushPerm() { try { return Notification.permission; } catch { return 'none'; } }
+function pushDiagLog(d) {
+  try {
+    dbProxy('push_diag', {
+      method: 'POST', headers: { Prefer: 'return=minimal' },
+      body: JSON.stringify({ ok: !!d.ok, step: d.step || null, err_name: d.err ? String(d.err.name || '') : null,
+        err_msg: d.err ? String(d.err.message || d.err).slice(0, 300) : null, perm_before: d.before || null, perm_after: pushPerm(),
+        method: d.method || null, standalone: pushIsStandalone(), ua: navigator.userAgent.slice(0, 300) }),
+    }).catch(() => {});
+  } catch {}
+}
 function pushEnable() {
+  const before = pushPerm();
+  // ① 서비스 워커가 이미 작동 중이면 — 누른 순간 바로 구독(사파리는 여기서 권한 창을 띄움)
+  if (pushReg && pushReg.active) {
+    let subP;
+    try { subP = pushReg.pushManager.subscribe(pushSubOpts()); } catch (e) { subP = Promise.reject(e); }
+    pushEnableDirect(subP, before);
+    return;
+  }
+  // ② 아직 준비 전 — 권한부터 (기다림 없이)
   let permP;
   try {
-    permP = Notification.permission === 'granted' ? Promise.resolve('granted') : Notification.requestPermission();
+    permP = before === 'granted' ? Promise.resolve('granted') : Notification.requestPermission();
   } catch (e) { permP = Promise.reject(e); }
-  pushEnableRest(permP);
+  pushEnableRest(permP, before);
 }
 
 function pushIsIOS() {
@@ -11017,35 +11048,70 @@ function pushErrMsg(e) {
   const name = e && e.name;
   if (name === 'NotAllowedError') {
     if (pushIsIOS() && !pushIsStandalone()) return '아이폰은 홈 화면에 추가한 DNRB 앱에서만 알림을 켤 수 있어요 — 사파리 공유 → 홈 화면에 추가 후 그 앱에서 켜 주세요';
-    if (pushIsIOS()) return '알림이 막혀 있어요 — 아이폰 설정 → 알림 → DNRB → 알림 허용을 켠 뒤 다시 눌러 주세요';
+    if (pushIsIOS() && pushPerm() === 'denied') return '알림이 막혀 있어요 — 아이폰 설정 → 알림 → DNRB → 알림 허용을 켠 뒤 다시 눌러 주세요';
+    if (pushIsIOS()) return '알림 켜기가 막혔어요 — 앱을 완전히 닫았다가 다시 열고, 첫 화면이 다 뜬 뒤 한 번 더 눌러 주세요';
     return '알림이 막혀 있어요 — 브라우저 주소창 왼쪽 자물쇠 → 알림 허용 후 다시 눌러 주세요';
   }
   if (name === 'AbortError' || name === 'InvalidStateError') return '알림 준비가 덜 됐어요 — 앱을 완전히 닫았다가 다시 열고 한 번 더 눌러 주세요';
   return '알림 켜기 실패: ' + ((e && e.message) || e);
 }
 
-async function pushEnableRest(permP) {
+async function pushSave(sub) {
+  const j = sub.toJSON();
+  await dbProxy('push_subscriptions', {
+    method: 'POST', headers: { Prefer: 'return=minimal,resolution=merge-duplicates' },
+    body: JSON.stringify({ endpoint: j.endpoint, p256dh: j.keys.p256dh, auth: j.keys.auth, user_id: SESSION.id }),
+  });
+}
+
+// ① 누른 순간 바로 구독한 경우
+async function pushEnableDirect(subP, before) {
+  let step = 'subscribe';
+  try {
+    const sub = await subP;
+    step = 'save';
+    await pushSave(sub);
+    pushDiagLog({ ok: true, step: 'done', before, method: 'direct' });
+    showToast('이 기기에서 휴대폰 알림이 켜졌습니다');
+  } catch (e) {
+    pushDiagLog({ ok: false, step, err: e, before, method: 'direct' });
+    showToast(pushErrMsg(e));
+  }
+  notifPushRow();
+}
+
+// ② 서비스 워커 준비 전 — 권한 먼저, 그다음 준비·구독
+async function pushEnableRest(permP, before) {
+  let step = 'permission';
   try {
     const perm = await permP;
     if (perm !== 'granted') {
+      pushDiagLog({ ok: false, step: 'permission:' + perm, before, method: 'perm-first' });
       showToast(pushIsIOS() ? '알림을 허용하지 않았어요 — 아이폰 설정 → 알림 → DNRB에서 허용할 수 있어요' : '알림 권한이 허용되지 않았습니다');
       notifPushRow(); return;
     }
+    step = 'register';
     await navigator.serviceWorker.register('./sw.js');
     // 구독은 '작동 중'인 서비스 워커에서만 된다 — 설치가 끝날 때까지 기다림(최대 15초)
+    step = 'ready';
     const reg = await Promise.race([
       navigator.serviceWorker.ready,
       new Promise((_, rej) => setTimeout(() => rej(Object.assign(new Error('timeout'), { name: 'AbortError' })), 15000)),
     ]);
+    pushReg = reg;
+    step = 'subscribe';
     let sub = await reg.pushManager.getSubscription();
-    if (!sub) sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: pushB64ToU8(PUSH_PUBKEY) });
-    const j = sub.toJSON();
-    await dbProxy('push_subscriptions', {
-      method: 'POST', headers: { Prefer: 'return=minimal,resolution=merge-duplicates' },
-      body: JSON.stringify({ endpoint: j.endpoint, p256dh: j.keys.p256dh, auth: j.keys.auth, user_id: SESSION.id }),
-    });
-    showToast('이 기기에서 휴대폰 알림이 켜졌습니다 — @멘션을 받으면 알림이 와요');
-  } catch (e) { showToast(pushErrMsg(e)); }
+    if (!sub) sub = await reg.pushManager.subscribe(pushSubOpts());
+    step = 'save';
+    await pushSave(sub);
+    pushDiagLog({ ok: true, step: 'done', before, method: 'perm-first' });
+    showToast('이 기기에서 휴대폰 알림이 켜졌습니다');
+  } catch (e) {
+    pushDiagLog({ ok: false, step, err: e, before, method: 'perm-first' });
+    // 아이폰: 권한은 받았는데 구독이 막힌 경우 — 이제 서비스 워커가 준비됐으니 한 번 더 누르면 ①로 바로 구독된다
+    if (step === 'subscribe' && pushIsIOS() && e && e.name === 'NotAllowedError') showToast('거의 다 됐어요 — [켜기]를 한 번 더 눌러 주세요');
+    else showToast(pushErrMsg(e));
+  }
   notifPushRow();
 }
 
@@ -23221,7 +23287,7 @@ function bootApp() {
   cxlAccessLoad();      // 취소·반품 접수 허용 목록 확인 → 메뉴 표시 (관리자 외, 2026-10-08)
   hireAccessLoad();     // 알바 채용·면접비 허용 목록 확인 → 메뉴 표시 (관리자·물류팀 외, 2026-10-14)
   notifLoad(true);   // @멘션 알림 배지
-  if ('serviceWorker' in navigator) navigator.serviceWorker.register('./sw.js').catch(() => {});   // 휴대폰 알림용 — 미리 등록해 '켜기'가 바로 되게 (2026-11-13)
+  pushPrepare();   // 휴대폰 알림용 서비스 워커를 미리 등록·준비 — '켜기'를 누른 순간 바로 구독할 수 있게 (2026-11-13)
   if (isAdmin()) loadCrArchive();    // 취소·반품 기록은 관리자만
   if (!isCS()) loadPerfArchive();    // 판매 성과 기록(순매출·마진 집계 포함) — CS팀 제외
   checkCafe24Status();

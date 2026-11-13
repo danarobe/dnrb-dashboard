@@ -49,6 +49,7 @@ const TABLE_ROLES: Record<string, string[]> = {
   ad_dashboard_users: ["admin", "staff", "cs"],  // 친구 광고 대시보드 접근 허용 목록 (2026-09-11) — 읽기 전원(메뉴 분기용), 쓰기는 admin만(커스텀 규칙)
   notifications: ["admin", "staff", "cs"],  // @멘션 알림 (2026-08-20). 남을 수신자로 POST해야 하므로 AUTHOR_FIELDS 미적용 — 읽기는 클라이언트가 본인 필터(내부 신뢰 전제, 비공개 회의기록과 동일 수준)
   push_subscriptions: ["admin", "staff", "cs"],  // 웹 푸시 구독 (기기별, 2026-08-20) — AUTHOR_FIELDS로 본인 것만
+  push_diag: ["admin", "staff", "cs"],   // 휴대폰 알림 켜기 진단 (2026-11-13, migrations/0085) — 직원은 본인 명의 추가만, 읽기는 관리자만
   agent_reports: ["admin"],   // 매출 분석 에이전트 리포트 (2026-09-10) — 매출 절대액이 들어 있어 관리자만. 쓰기는 sales-agent 함수(service_role)
   agent_actions: ["admin"],   // 에이전트 할 일 완료 체크 (2026-09-11, ~/dnrb-agents) — 관리자가 읽고 씀(upsert on_conflict=agent,action_id)
   detail_reviews: ["admin"],  // 상세페이지 점검 결과 (2026-09-13, ~/dnrb-agents) — 읽기만(쓰기는 detail-agent 함수 service_role)
@@ -124,6 +125,11 @@ Deno.serve(async (req) => {
     }
 
     if (table === "rscan_actions" && m !== "GET") return json({ error: "처리 기록은 수정할 수 없습니다" }, 403);   // 감사 기록 — 읽기 전용
+    if (table === "push_diag") {   // 진단 기록 — 직원은 추가만(본인 명의), 읽기·수정·삭제는 관리자만
+      if (m !== "POST" && me.role !== "admin") return json({ error: "관리자만 볼 수 있습니다" }, 403);
+      if (m === "PATCH") return json({ error: "진단 기록은 수정할 수 없습니다" }, 403);
+      if (m === "POST") for (const r of (Array.isArray(body) ? body : [body]) as Record<string, unknown>[]) { r.user_id = me.id; delete r.id; delete r.created_at; }
+    }
     if (table === "stable_apply_log" || table === "soldout_fix_log") {   // 반영·변경 기록 — 추가만 가능, 처리자 이름은 로그인 계정으로 서버가 덮어쓴다
       if (m !== "GET" && m !== "POST") return json({ error: "반영 기록은 수정·삭제할 수 없습니다" }, 403);
       if (m === "POST") for (const r of (Array.isArray(body) ? body : [body]) as Record<string, unknown>[]) { r.by_id = me.id; r.by_name = me.name; delete r.id; delete r.created_at; }
