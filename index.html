@@ -7863,9 +7863,31 @@ function cnSwapAll(m) {
   const names = [...new Set([...m.values()].filter(e => e.status === 'bad').map(e => e.sname))];
   return names.map(sname => ({ sname, pairs: cnSwapsOf(sname, m) })).filter(x => x.pairs.length);
 }
+// 가격 비교(2026-11-13 사용자 요청 "옆에 '총 가격은 같아요'처럼 — 가격 차이가 있으면 더 면밀히 봐야 함"): 옵션 단가 = 그 옵션이 나온 출고 서류 줄 중 가장 최근 단가(위안).
+//   단가는 관리자만 받음(서버 cn_list canPrice) → 관리자 화면에만 표시. 업로드 미리보기는 올릴 서류의 단가까지 넣은 자료(x.d)로.
+function cnOptPrice(k, d) {
+  const shipOf = new Map(((d || {}).ships || []).map(x => [x.id, x]));
+  let best = null;
+  for (const l of (d || {}).lines || []) {
+    if (l.unit_price == null || !(Number(l.unit_price) > 0) || cnLKey(l) !== k) continue;
+    const sd = (shipOf.get(l.shipment_id) || {}).ship_date || '9999-12-31';
+    if (!best || sd >= best.sd) best = { sd, p: Number(l.unit_price) };
+  }
+  return best ? best.p : null;
+}
+function cnSwapPriceHtml(pair, d) {
+  if (!(cnState.data && cnState.data.can_price)) return '';
+  const a = cnOptPrice(pair.short.k, d), b = cnOptPrice(pair.over.k, d);
+  const chip = (txt, fg, bg, tip) => ` <span title="${escHtml(tip)}" style="display:inline-block;font-size:.7rem;font-weight:800;color:${fg};background:${bg};border-radius:99px;padding:0 8px;white-space:nowrap;cursor:help;vertical-align:1px;">${txt}</span>`;
+  if (a == null || b == null) return chip('가격 정보 없음', '#6b7280', '#f3f4f6', `출고 서류에 단가가 없어요 — ${cnOptName(pair.short)} ${cnYuan(a)} / ${cnOptName(pair.over)} ${cnYuan(b)}`);
+  const ta = a * pair.n, tb = b * pair.n, diff = Math.round((tb - ta) * 100) / 100;
+  const tip = `덜 온 ${cnOptName(pair.short)} ${pair.n}장 × ${cnYuan(a)} = ${cnYuan(ta)}\n더 온 ${cnOptName(pair.over)} ${pair.n}장 × ${cnYuan(b)} = ${cnYuan(tb)}\n(단가 = 각 옵션이 나온 가장 최근 출고 서류)`;
+  if (Math.abs(diff) < 0.01) return chip(`<i class="fa-solid fa-equals"></i> 총 가격 같아요 ${cnYuan(ta)}`, '#166534', '#dcfce7', tip);
+  return chip(`<i class="fa-solid fa-triangle-exclamation"></i> 가격 차이 ${diff > 0 ? '+' : '−'}${cnYuan(Math.abs(diff))} · 장당 ${cnYuan(a)} → ${cnYuan(b)}`, '#b91c1c', '#fee2e2', tip + `\n→ 더 온 쪽이 ${diff > 0 ? '비싸요' : '싸요'} — 정산 금액을 확인해 주세요`);
+}
 function cnSwapLineHtml(x, opts) {   // 상품 한 줄: '오트밀 30장 덜 오고 검정 30장 더 옴' + 언제부터 + 버튼
   const o = opts || {}, can = !o.preview && cnCanDisc();
-  const pairs = x.pairs.map(p => `<b>${escHtml(cnOptName(p.short))}</b> ${fmt(p.n)}장 덜 오고 <b>${escHtml(cnOptName(p.over))}</b> ${fmt(p.n)}장 더 옴`).join(', ');
+  const pairs = x.pairs.map(p => `<b>${escHtml(cnOptName(p.short))}</b> ${fmt(p.n)}장 덜 오고 <b>${escHtml(cnOptName(p.over))}</b> ${fmt(p.n)}장 더 옴${cnSwapPriceHtml(p, x.d || cnState.data)}`).join('<br>');
   const since = (x.pairs[0].over.since || x.pairs[0].short.since);
   const when = since ? `${escHtml(cnShipShort(since.ship))}${since.ship.ship_date ? ` (${escHtml(since.ship.ship_date.slice(5).replace('-', '/'))} 출고)` : ''}부터` : '';
   return `<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:7px 0;border-top:1px dashed #fed7aa;">
@@ -7903,7 +7925,7 @@ function cnUploadSwaps(p) {   // 출고 서류 저장 전: 이 서류를 넣으�
   const ship = { id: '__new', title: ($('cn-up-title') && $('cn-up-title').value) || p.title || '지금 올리는 서류', ship_date: sd, left_extra: (p.leftExtra || []).map(x => ({ sname: x.sname, color: x.color, size: x.size, left: x.left })) };
   const d2 = Object.assign({}, d, { ships: [...(d.ships || []), ship], lines: [...(d.lines || []), ...p.lines.map(l => Object.assign({}, l, { shipment_id: '__new' }))] });
   const names = new Set(p.lines.map(l => l.sname)), before = new Set(cnSwapAll().map(x => x.sname));
-  return cnSwapAll(cnFlowCalcFor(d2)).filter(x => names.has(x.sname)).map(x => Object.assign(x, { old: before.has(x.sname) }));
+  return cnSwapAll(cnFlowCalcFor(d2)).filter(x => names.has(x.sname)).map(x => Object.assign(x, { old: before.has(x.sname), d: d2 }));
 }
 function cnUploadSwapHtml(p) {
   const list = cnUploadSwaps(p); if (!list.length) return '';
