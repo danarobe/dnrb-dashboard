@@ -3330,9 +3330,17 @@ async function adoptSso(token) {
   } catch { return false; }
 }
 async function authApi(body) {
-  const res = await fetch(fnUrl('auth', {}), {
-    method: 'POST', headers: sbHeaders(), body: JSON.stringify(body),
-  });
+  // 'Failed to fetch' = 서버에 닿기 전에 연결이 끊긴 것(인터넷·와이파이 순간 끊김 등) — 잠깐 쉬고 두 번 더 시도 (2026-11-15)
+  let res;
+  for (let i = 0; ; i++) {
+    try {
+      res = await fetch(fnUrl('auth', {}), { method: 'POST', headers: sbHeaders(), body: JSON.stringify(body) });
+      break;
+    } catch (e) {
+      if (i >= 2) throw new Error('서버에 연결하지 못했어요 — 인터넷(와이파이) 연결을 확인하고 다시 눌러 주세요. 계속 그러면 휴대폰 데이터나 다른 와이파이로 해 보세요');
+      await new Promise(r => setTimeout(r, 900 * (i + 1)));
+    }
+  }
   const data = await res.json();
   if (data.error) throw new Error(data.error);
   return data;
