@@ -796,7 +796,7 @@ function cxlGroupsOf(o: Record<string, any>): Record<string, any>[] {
 const SELF_MAIN_OK = new Set(["card", "tcash", "prepaid"]);   // 신용카드·실시간 계좌이체 + 선불금(네이버페이 포인트·머니, 2026-10-06 사용자 지정 — 전체 취소면 자동 목록에)
 const SELF_AUX_OK = new Set(["coupon", "point", "mileage"]);   // 같이 쓸 수 있는 보조 수단: 쿠폰·적립금
 const SELF_REFUND_CODE: Record<string, "F" | "G" | "O"> = { card: "F", tcash: "G", prepaid: "O" };   // 결제 수단 → 환불 수단 코드(관리자 화면의 '신용카드 결제 취소'·'계좌이체 결제 취소')
-const SELF_PAY_LABEL: Record<string, string> = { card: "신용카드", tcash: "계좌이체", cash: "무통장입금", prepaid: "선불금", coupon: "쿠폰", point: "적립금", mileage: "적립금", deposit: "예치금", cell: "휴대폰" };
+const SELF_PAY_LABEL: Record<string, string> = { card: "신용카드", tcash: "계좌이체", cash: "무통장입금", icash: "가상계좌", prepaid: "선불금", coupon: "쿠폰", point: "적립금", mileage: "적립금", deposit: "예치금", cell: "휴대폰" };
 function selfGroupsOf(o: Record<string, any>, nrSets: NrSets): Record<string, any>[] {
   const all = (o.items ?? []) as Record<string, any>[];
   const acc = all.filter((it) => String(it.order_status ?? "") === "C10" && it.claim_code);
@@ -1891,7 +1891,7 @@ Deno.serve(async (req) => {
         kind: "refund", order_id: orderId, claim_code: code, items: row.items.map((x) => ({ code: x.code, product_name: x.product_name, option: x.option, qty: x.qty })),
         reason_type: null, reason_label: row.kind === "return" ? "반품 환불" : row.kind === "cancel" ? "취소 환불" : "환불", reason: null, ok, result: String(result).slice(0, 500),
         expected_amount: expectAmount, points: row.points, by_id: authed.id, by_name: authed.name, ...extra }) }).catch(() => null);
-      if (row.group !== "auto") return json({ error: row.group === "cash" ? "무통장(현금 환불)은 직접 입금한 뒤 카페24에서 완료해 주세요" : "직접 확인이 필요한 환불이에요 — " + row.why.join(" / "), blocked: true }, 400);
+      if (row.group !== "auto") return json({ error: row.group === "cash" ? "무통장·가상계좌(현금 환불)는 직접 입금한 뒤 카페24에서 완료해 주세요" : "직접 확인이 필요한 환불이에요 — " + row.why.join(" / "), blocked: true }, 400);
       if (row.amount !== expectAmount) return json({ error: `화면의 환불 금액(${expectAmount.toLocaleString("ko-KR")}원)과 카페24의 지금 금액(${row.amount.toLocaleString("ko-KR")}원)이 달라요 — 새로고침한 뒤 다시 확인해주세요`, stale: true }, 409);
       if (b.expect_points !== undefined && Number(b.expect_points) !== row.points) return json({ error: `화면의 적립금 반환(${Number(b.expect_points).toLocaleString("ko-KR")}원)과 카페24의 지금 값(${row.points.toLocaleString("ko-KR")}원)이 달라요 — 새로고침해 주세요`, stale: true }, 409);
       // ── 안전장치(2026-10-15 사용자 요청): 보내기 직전, 카페24에서 새로 읽은 값으로 ──
@@ -2087,13 +2087,15 @@ Deno.serve(async (req) => {
         out.sort((a, b) => String(b.created).localeCompare(String(a.created)));
         // 할인코드(2026-11-05) — 반품 계산은 상품별 할인코드 금액을 그대로 쓰므로 조건 저장은 필요 없고, 무엇이 있는지·어떻게 다루는지만 보여 준다
         const codes: Record<string, unknown>[] = [];
+        // 끝나는 때가 '11-23 00:00'이면 실제로 쓸 수 있는 마지막 날은 11-22 → 화면엔 마지막 날로(2026-11-19)
+        const codeEnd = (v: string) => { if (!v) return ""; const day = v.slice(0, 10); if (!/T00:00:00/.test(v)) return day; const t = new Date(day + "T00:00:00Z"); t.setUTCDate(t.getUTCDate() - 1); return t.toISOString().slice(0, 10); };
         try {
           const cl = ((await apiGet(`${API_BASE}/admin/discountcodes?shop_no=1&limit=100`, token)).discountcodes ?? []) as Record<string, any>[];
           for (const c of cl.slice(0, 30)) {
             let d: Record<string, any> = c;
             try { d = ((await apiGet(`${API_BASE}/admin/discountcodes/${Number(c.discount_code_no)}?shop_no=1`, token)).discountcode ?? c) as Record<string, any>; } catch { /* 목록 값만 */ }
             codes.push({ no: Number(c.discount_code_no), code: String(c.discount_code ?? ""), name: String(c.discount_code_name ?? ""), created: String(c.created_date ?? "").slice(0, 10),
-              start: String(d.available_start_date ?? "").slice(0, 10), end: String(d.available_end_date ?? "").slice(0, 10), value: Number(d.discount_value) || null,
+              start: String(d.available_start_date ?? "").slice(0, 10), end: codeEnd(String(d.available_end_date ?? "")), value: Number(d.discount_value) || null,
               products: Array.isArray(d.available_product) ? d.available_product.length : null, issued: Number(c.issued_count) || 0,
               text: "자동 — 반품 상품의 할인코드 할인은 카페24가 환불에서 알아서 빼요(예상 환불액에 넣어 계산)" });
           }
