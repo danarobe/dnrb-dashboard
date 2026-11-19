@@ -1046,6 +1046,9 @@ const RET_FREE_SHIP = 70000, RET_POINT_MIN = 30000, RET_FEE = 3000;
 // 쿠폰은 쿠폰 자체에 금액 조건이 없어도 남는 상품 금액이 3만 원 미만이면 취소한다(2026-10-07 사용자 지적 — 조건 없는 1,000원 쿠폰이 '유지'로 나옴.
 // 과거 기록도 조건 없는 쿠폰 + 남는 금액 3만 원 미만 2건이 모두 취소였다). 쿠폰 최소 금액이 3만 원보다 크면 그 금액이 기준.
 const RET_COUPON_FLOOR = 30000;
+// 금액 조건 없는 큰 정액 쿠폰(2026-11-19 사용자 지정 "직접 확인으로" — 10/31 생일쿠폰 1만·2만 원, 최소 구매 금액 없음):
+//   3만 원 기준으로 자동 처리하면 남는 금액 3만 원에 2만 원 쿠폰이 그대로 남을 수 있어 사람이 본다. 1만 원 이상 + 쿠폰 자체 최소 금액 없음 → 직접 확인
+const RET_COUPON_NOMIN_MANUAL = 10000;
 const RET_MOVED = new Set(["R30", "R31", "R34", "R36", "R40"]);
 // 무료배송 쿠폰(2026-11-05 사용자 지정 — "무료배송 쿠폰을 쓴 주문의 반품 배송비는 무료배송 주문과 같게"): 카페24 쿠폰 benefit_type E(무료배송 쿠폰)·J(카카오톡 채널 무료배송 등).
 //   주문 금액에는 배송비 3,000 + coupon_shipping_fee_amount 3,000(같은 값이 coupon_discount_price에도 들어 있음)으로 찍힌다(낸 배송비 0).
@@ -1066,6 +1069,7 @@ function retCouponHandling(p: Record<string, any>, pct: number): { auto: boolean
   if (p.benefit_type !== "A") return { auto: false, kind: "그 밖의 혜택", text: "직접 확인 — 정액 할인·무료배송 쿠폰이 아니에요" };
   if (p.scope !== "O" || !(p.price_type === "U" || (p.price_type === "O" && p.order_price_type === "U"))) return { auto: false, kind: "정액 할인", text: "직접 확인 — 사용 조건이 특수한 쿠폰이에요" };
   const own = p.price_type === "O" ? p.min : 0, th = Math.max(own, RET_COUPON_FLOOR);
+  if (!own && p.benefit_price >= RET_COUPON_NOMIN_MANUAL) return { auto: false, kind: `${won(p.benefit_price)} 할인`, text: `직접 확인 — 금액 조건 없는 ${won(RET_COUPON_NOMIN_MANUAL)} 이상 쿠폰(사용자 지정)` };
   return { auto: true, kind: `${won(p.benefit_price)} 할인`, text: `자동 — 전체 반품이거나 남는 금액 ${won(th)} 미만이면 쿠폰할인 취소, 아니면 유지${own ? "" : " (쿠폰엔 금액 조건이 없어 3만 원 기준)"}` };
 }
 async function retCouponInfo(orders: Record<string, any>[], token: string): Promise<RetCoupons> {
@@ -1175,6 +1179,7 @@ function retGroupsOf(o: Record<string, any>, nrSets: NrSets, cp: RetCoupons): Re
         else if (p.benefit_type !== "A") M("쿠폰 확인", `정액 할인 쿠폰이 아니에요 — '${c.name}'`);
         else if (p.scope !== "O" || !(p.price_type === "U" || (p.price_type === "O" && p.order_price_type === "U"))) M("쿠폰 확인", `사용 조건이 특수한 쿠폰이에요 — '${c.name}'`);
         else if (n(p.benefit_price) !== cpn || cpn <= 0) M("쿠폰 확인", `쿠폰 할인액이 쿠폰 금액과 달라요 — '${c.name}'`);
+        else if (!(p.price_type === "O" ? n(p.min) : 0) && cpn >= RET_COUPON_NOMIN_MANUAL) M("쿠폰 확인", `금액 조건 없는 ${cpn.toLocaleString("ko-KR")}원 쿠폰이에요 — '${c.name}' (쿠폰을 취소할지 직접 정해 주세요)`);
         else { coupon.mode = "keep"; coupon.amount = cpn; coupon.name = c.name; coupon.own = p.price_type === "O" ? n(p.min) : 0; coupon.min = Math.max(coupon.own, RET_COUPON_FLOOR); }
       }
     }
