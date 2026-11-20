@@ -5020,7 +5020,8 @@ function cxsSetTag(t) { cxsState.tag = t || ''; cxsRender(); }
 /* ══ 30일 초과 주문 알림 (2026-11-20 사용자 요청) ══
    우리 회사는 취소·교환·반품을 주로 셀메이트로 확인하는데, 카페24 → 셀메이트 주문 연동은 주문일부터 30일까지만 된다.
    → 주문한 지 30일이 넘었는데 취소·교환·반품이 신청·접수·처리 중(완료 전)인 주문은 "30일 초과 주문. 셀메이트 수동 확인"으로 띄운다.
-   ① 메뉴 맨 위 상자: 서버 over30_list(읽기 전용, 약 4년치) — 모든 탭에서 보임. ② 각 탭 목록의 주문 칸에도 같은 표시(주문번호 앞 8자리 = 주문일). */
+   ① 메뉴 맨 위 상자: 서버 over30_list(읽기 전용, 약 4년치) — 모든 탭에서 보임. ② 각 탭 목록의 주문 칸에도 같은 표시(주문번호 앞 8자리 = 주문일).
+   마지막 움직임이 60일 넘게 없는 접수(카페24에 상태만 남은 옛 기록 — 2026-11-20 사용자 확인)는 알림에서 빼고 회색 '멈춘 옛 기록'으로만 접어 둔다. */
 const cxoState = { data: null, loading: false, err: '', open: false };
 const CXO_LABEL = '30일 초과 주문. 셀메이트 수동 확인';
 function cxlKstToday() { return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(new Date()); }
@@ -5051,9 +5052,11 @@ function cxoRender() {
       : cxoState.err ? `<div style="font-size:.76rem;color:#b91c1c;"><i class="fa-solid fa-circle-exclamation"></i> 30일 초과 주문을 확인하지 못했어요 — ${escHtml(cxoState.err)} <button class="toggle-btn" style="font-size:.7rem;padding:1px 8px;margin-left:4px;" onclick="cxoLoad(true)">다시 확인</button></div>` : '';
     return;
   }
-  const rows = d.rows || [];
+  const rows = d.rows || [], stale = d.stale || [];
+  const staleHtml = stale.length ? `<details style="margin-top:4px;font-size:.72rem;color:#6b7280;"><summary style="cursor:pointer;">멈춘 옛 기록 ${fmt(stale.length)}건은 알림에서 뺐어요 — 마지막 움직임(신청·접수·수거·환불)이 ${fmt(d.stale_days || 60)}일 넘게 없어서, 처리는 끝났는데 카페24에 상태만 남은 것으로 봐요</summary>
+      <div style="margin-top:4px;">${stale.map(r => `<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;padding:3px 0;border-top:1px solid #f3f4f6;"><b style="font-family:monospace;color:#374151;">${escHtml(r.order_id)}</b><span>주문 ${escHtml(r.order_date)}</span><span>${escHtml(r.kind)} · ${escHtml(r.status)}</span><span>마지막 움직임 ${escHtml(r.last_act || '없음')}</span><span style="color:#9ca3af;">${escHtml((r.items || []).map(x => x.product_name).join(', '))}</span><button class="toggle-btn" style="font-size:.66rem;padding:0 7px;" data-site="cafe24" data-oid="${escHtml(r.order_id)}" onclick="cxlOpenSide(this)" title="카페24 주문 화면 열기"><i class="fa-solid fa-arrow-up-right-from-square"></i> 카페24</button></div>`).join('')}</div></details>` : '';
   if (!rows.length) {
-    box.innerHTML = `<div style="font-size:.76rem;color:#15803d;"><i class="fa-solid fa-circle-check"></i> 주문한 지 30일 넘은 주문 중 진행 중인 취소·교환·반품은 없어요 — 셀메이트 수동 확인할 것 없음${cxoState.loading ? ' <i class="fa-solid fa-spinner fa-spin" style="color:#6b7280;"></i>' : ''}</div>`;
+    box.innerHTML = `<div style="font-size:.76rem;color:#15803d;"><i class="fa-solid fa-circle-check"></i> 주문한 지 30일 넘은 주문 중 진행 중인 취소·교환·반품은 없어요 — 셀메이트 수동 확인할 것 없음${cxoState.loading ? ' <i class="fa-solid fa-spinner fa-spin" style="color:#6b7280;"></i>' : ''}</div>${staleHtml}`;
     return;
   }
   const cnt = {}; rows.forEach(r => { cnt[r.kind] = (cnt[r.kind] || 0) + 1; });
@@ -5076,7 +5079,8 @@ function cxoRender() {
       <td style="text-align:left;vertical-align:top;">${escHtml(r.status)}</td>
       <td style="text-align:left;vertical-align:top;">${(r.items || []).map(x => `<div>${escHtml(x.product_name)} <span style="color:#6b7280;">${escHtml(x.option || '')}</span> · ${fmt(x.qty)}개</div>`).join('')}</td></tr>`).join('')}
     </tbody></table></div>
-    <div style="font-size:.68rem;color:#6b7280;margin-top:6px;">주문일 ${escHtml(d.oldest)} ~ ${escHtml(d.cutoff)} 주문 중 신청·접수·처리 중인 것 · ${d.fetched_at ? escHtml(new Date(d.fetched_at).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul', month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })) : ''} 기준(위 [새로고침]을 누르면 다시 확인)</div>
+    <div style="font-size:.68rem;color:#6b7280;margin-top:6px;">주문일 ${escHtml(d.oldest)} ~ ${escHtml(d.cutoff)} 주문 중 신청·접수·처리 중이고 최근 ${fmt(d.stale_days || 60)}일 안에 움직임이 있는 것 · ${d.fetched_at ? escHtml(new Date(d.fetched_at).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul', month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })) : ''} 기준(위 [새로고침]을 누르면 다시 확인)</div>
+    ${staleHtml}
   </details>`;
 }
 function cxlInit() {

@@ -1952,7 +1952,10 @@ Deno.serve(async (req) => {
     // ── 30일 초과 주문의 진행 중 취소·교환·반품 (2026-11-20 사용자 요청, 읽기 전용) ──
     //   셀메이트는 카페24 주문을 주문일 기준 30일까지만 연동한다 → 그보다 오래된 주문에 신청·접수·처리 중인 취소·교환·반품이 있으면
     //   셀메이트 목록에 안 보이므로 "30일 초과 주문. 셀메이트 수동 확인" 알림으로 따로 보여 준다.
-    //   카페24 주문 조회는 한 번에 3개월까지라 주문일 31일 전부터 89일씩 거슬러 약 4년치를 읽는다(2026-11-20 실측: 3년 전 교환신청도 남아 있었음).
+    //   카페24 주문 조회는 한 번에 3개월까지라 주문일 31일 전부터 89일씩 거슬러 약 4년치를 읽는다.
+    //   ⚠ 멈춘 옛 기록 제외(2026-11-20 사용자 확인 "1222일, 1156일 … 처리 완료된 것처럼 보이는데?"): 카페24엔 처리가 끝났는데 상태만
+    //   '교환신청·반품신청·환불전'으로 남은 주문이 있다(첫 실측 10건 전부 — 마지막 움직임 5개월~3년 전, 환불일이 찍혔는데 '환불전'인 것도 있음).
+    //   → 그 접수의 마지막 움직임(신청·접수·수거·환불 등 날짜 중 가장 늦은 것)이 OVER30_STALE_DAYS일 넘게 없으면 알림에서 빼고 stale로 따로 돌려준다.
     if (action === "over30_list") {
       if (!(await cxlRoleOk(authed))) return json({ error: "접근 권한이 없습니다" }, 403);   // 관리자 + 허용 목록(cxl_users)
       const hit = await fromCache();
@@ -1979,6 +1982,11 @@ Deno.serve(async (req) => {
       };
       for (let i = 0; i < wins.length; i += 4) await Promise.all(wins.slice(i, i + 4).map(readWin));
       const KIND: Record<string, string> = { C: "취소", R: "반품", E: "교환" };
+      const OVER30_STALE_DAYS = 60;
+      const NOT_ACT = new Set(["ordered_date", "shipped_date", "delivered_date", "shipping_expected_date", "purchaseconfirmation_date"]);
+      const lastAct = (list: Record<string, any>[]) => list.flatMap((it) => Object.entries(it).filter(([k, v]) => /date/.test(k) && !NOT_ACT.has(k) && typeof v === "string" && /^\d{4}-\d{2}-\d{2}/.test(v)).map(([, v]) => String(v).slice(0, 10))).sort().pop() ?? "";
+      const staleCut = new Date(today); staleCut.setUTCDate(staleCut.getUTCDate() - OVER30_STALE_DAYS);
+      const stale: Record<string, any>[] = [];
       const rows: Record<string, any>[] = [];
       const seen = new Set<string>();
       for (const o of orders) {
@@ -1992,7 +2000,8 @@ Deno.serve(async (req) => {
         for (const it of its) { const k = String(it.claim_code ?? "") || String(it.order_status ?? "").slice(0, 1) + ":" + String(it.order_status ?? ""); (byClaim.get(k) ?? byClaim.set(k, []).get(k)!).push(it); }
         for (const [k, list] of byClaim) {
           const st0 = String(list[0].order_status ?? "");
-          rows.push({
+          const act = lastAct(list);
+          (act && act >= fmtD(staleCut) ? rows : stale).push({ last_act: act,
             order_id: oid, order_date: od, days, claim_code: k.includes(":") ? "" : k, kind: KIND[st0.slice(0, 1)] ?? "",
             naver: String(o.order_place_id ?? "") === "NCHECKOUT",
             status: [...new Set(list.map((it) => [String(it.status_text ?? it.order_status ?? ""), String(it.order_status_additional_info ?? "")].filter(Boolean).join(" · ")))].join(", "),
@@ -2000,8 +2009,9 @@ Deno.serve(async (req) => {
           });
         }
       }
-      rows.sort((a, b) => String(b.order_date).localeCompare(String(a.order_date)) || String(a.order_id).localeCompare(String(b.order_id)));
-      return await respond({ today: fmtD(today), cutoff: fmtD(cut), oldest: wins[wins.length - 1][0], fetched_at: new Date().toISOString(), rows });
+      const byDate = (a: Record<string, any>, b: Record<string, any>) => String(b.order_date).localeCompare(String(a.order_date)) || String(a.order_id).localeCompare(String(b.order_id));
+      rows.sort(byDate); stale.sort(byDate);
+      return await respond({ today: fmtD(today), cutoff: fmtD(cut), oldest: wins[wins.length - 1][0], stale_days: OVER30_STALE_DAYS, fetched_at: new Date().toISOString(), rows, stale });
     }
     if (action === "selfcancel_list" || action === "selfcancel_run") {
       if (!(await cxlRoleOk(authed))) return json({ error: "접근 권한이 없습니다" }, 403);   // 관리자 + 허용 목록(cxl_users) — 단 최종 환불은 아래에서 관리자만
