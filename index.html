@@ -5038,7 +5038,7 @@ function cxlOver30Chip(oid) {
 async function cxoLoad(fresh) {
   if (cxoState.loading) return;
   cxoState.loading = true; cxoState.err = ''; cxoRender();
-  try { cxoState.data = await anGet(Object.assign({ action: 'over30_list' }, fresh ? { nocache: 1 } : {})); }
+  try { cxoState.data = await anGet(Object.assign({ action: 'over30_list', v: 2 }, fresh ? { nocache: 1 } : {})); }
   catch (e) { cxoState.err = e.message || String(e); }
   finally { cxoState.loading = false; cxoRender(); }
 }
