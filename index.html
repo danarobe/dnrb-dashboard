@@ -1798,6 +1798,8 @@
       </div>
     </div>
     <div class="section-body">
+      <!-- 30일 초과 주문 알림(2026-11-20 사용자 요청): 셀메이트는 카페24 주문을 30일까지만 연동 → 그보다 오래된 주문의 진행 중 취소·교환·반품을 모든 탭 위에 띄움 -->
+      <div id="cxo-box" style="margin-bottom:12px;"></div>
       <div id="cxl-tabs" style="display:flex;gap:2px;border-bottom:2px solid #e5e7eb;margin-bottom:14px;flex-wrap:wrap;"></div>
       <div id="cxl-pane-npay" class="cxl-pane">
         <!-- 탭 설명(2026-10-07 사용자 요청 — 긴 글 대신 한눈에): 흐름 한 줄 + 네 칸. 자세한 기준은 '취소·반품 규칙' 탭 -->
@@ -5015,8 +5017,71 @@ function cxlTagFilterHtml(groups, flagsOf, cur, fn) {
 }
 function cxlSetTag(t) { cxlState.tag = t || ''; cxlRender(); }
 function cxsSetTag(t) { cxsState.tag = t || ''; cxsRender(); }
+/* ══ 30일 초과 주문 알림 (2026-11-20 사용자 요청) ══
+   우리 회사는 취소·교환·반품을 주로 셀메이트로 확인하는데, 카페24 → 셀메이트 주문 연동은 주문일부터 30일까지만 된다.
+   → 주문한 지 30일이 넘었는데 취소·교환·반품이 신청·접수·처리 중(완료 전)인 주문은 "30일 초과 주문. 셀메이트 수동 확인"으로 띄운다.
+   ① 메뉴 맨 위 상자: 서버 over30_list(읽기 전용, 약 4년치) — 모든 탭에서 보임. ② 각 탭 목록의 주문 칸에도 같은 표시(주문번호 앞 8자리 = 주문일). */
+const cxoState = { data: null, loading: false, err: '', open: false };
+const CXO_LABEL = '30일 초과 주문. 셀메이트 수동 확인';
+function cxlKstToday() { return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(new Date()); }
+function cxlOrderDays(oid) {
+  const m = /^(\d{4})(\d{2})(\d{2})-/.exec(String(oid || ''));
+  if (!m) return null;
+  return Math.round((Date.parse(cxlKstToday() + 'T00:00:00Z') - Date.UTC(+m[1], +m[2] - 1, +m[3])) / 86400e3);
+}
+function cxlOver30Chip(oid) {
+  const d = cxlOrderDays(oid);
+  if (d == null || d <= 30) return '';
+  return `<div style="margin-top:3px;"><span style="display:inline-flex;align-items:center;gap:4px;background:#fef3c7;color:#92400e;border:1px solid #fcd34d;border-radius:6px;padding:1px 7px;font-size:.68rem;font-weight:800;white-space:nowrap;" title="셀메이트는 카페24 주문을 주문일부터 30일까지만 가져와요 — 이 주문은 셀메이트 목록에 없을 수 있어요"><i class="fa-solid fa-triangle-exclamation"></i> ${CXO_LABEL} · 주문 ${d}일째</span></div>`;
+}
+async function cxoLoad(fresh) {
+  if (cxoState.loading) return;
+  cxoState.loading = true; cxoState.err = ''; cxoRender();
+  try { cxoState.data = await anGet(Object.assign({ action: 'over30_list' }, fresh ? { nocache: 1 } : {})); }
+  catch (e) { cxoState.err = e.message || String(e); }
+  finally { cxoState.loading = false; cxoRender(); }
+}
+function cxoToggle(el) { cxoState.open = el.open; }
+function cxoRender() {
+  const box = $('cxo-box');
+  if (!box) return;
+  const d = cxoState.data;
+  if (!d) {
+    box.innerHTML = cxoState.loading ? '<div style="font-size:.76rem;color:#6b7280;"><i class="fa-solid fa-spinner fa-spin"></i> 주문한 지 30일 넘은 취소·교환·반품을 확인하는 중…</div>'
+      : cxoState.err ? `<div style="font-size:.76rem;color:#b91c1c;"><i class="fa-solid fa-circle-exclamation"></i> 30일 초과 주문을 확인하지 못했어요 — ${escHtml(cxoState.err)} <button class="toggle-btn" style="font-size:.7rem;padding:1px 8px;margin-left:4px;" onclick="cxoLoad(true)">다시 확인</button></div>` : '';
+    return;
+  }
+  const rows = d.rows || [];
+  if (!rows.length) {
+    box.innerHTML = `<div style="font-size:.76rem;color:#15803d;"><i class="fa-solid fa-circle-check"></i> 주문한 지 30일 넘은 주문 중 진행 중인 취소·교환·반품은 없어요 — 셀메이트 수동 확인할 것 없음${cxoState.loading ? ' <i class="fa-solid fa-spinner fa-spin" style="color:#6b7280;"></i>' : ''}</div>`;
+    return;
+  }
+  const cnt = {}; rows.forEach(r => { cnt[r.kind] = (cnt[r.kind] || 0) + 1; });
+  const kinds = ['취소', '반품', '교환'].filter(k => cnt[k]).map(k => `${k} ${cnt[k]}`).join(' · ');
+  const kindChip = k => { const c = k === '취소' ? ['#fee2e2', '#b91c1c'] : k === '반품' ? ['#ede9fe', '#5b21b6'] : ['#e0f2fe', '#075985']; return `<span style="background:${c[0]};color:${c[1]};border-radius:6px;padding:1px 8px;font-size:.72rem;font-weight:800;white-space:nowrap;">${escHtml(k)}</span>`; };
+  box.innerHTML = `<details ${cxoState.open ? 'open' : ''} ontoggle="cxoToggle(this)" style="border:1px solid #fcd34d;border-radius:12px;background:#fffbeb;padding:10px 14px;">
+    <summary style="cursor:pointer;display:flex;gap:8px;align-items:center;flex-wrap:wrap;list-style:revert;">
+      <i class="fa-solid fa-triangle-exclamation" style="color:#b45309;"></i>
+      <b style="color:#92400e;font-size:.9rem;">${CXO_LABEL}</b>
+      <span style="background:#b45309;color:#fff;border-radius:99px;padding:1px 9px;font-size:.74rem;font-weight:800;">${fmt(rows.length)}건</span>
+      <span style="font-size:.76rem;color:#92400e;">${escHtml(kinds)}</span>
+      <span style="font-size:.72rem;color:#6b7280;margin-left:auto;">${cxoState.open ? '접기' : '목록 보기'}${cxoState.loading ? ' <i class="fa-solid fa-spinner fa-spin"></i>' : ''}</span>
+    </summary>
+    <div style="font-size:.76rem;color:#78350f;margin:8px 0 6px;line-height:1.55;">셀메이트는 카페24 주문을 <b>주문일부터 30일까지만</b> 가져와요. 아래 주문은 취소·교환·반품이 아직 끝나지 않았지만 <b>셀메이트 목록에 안 보일 수 있어요</b> — 셀메이트(또는 카페24)에서 직접 확인해 주세요.</div>
+    <div style="overflow-x:auto;"><table class="data-table" style="font-size:.78rem;background:#fff;"><thead><tr><th style="text-align:left;">주문</th><th>주문일</th><th>구분</th><th style="text-align:left;">지금 상태</th><th style="text-align:left;">상품</th></tr></thead><tbody>
+    ${rows.map(r => `<tr>
+      <td class="nw" style="text-align:left;vertical-align:top;"><b style="font-family:monospace;">${escHtml(r.order_id)}</b>${r.naver ? ' <b style="color:#03c75a;font-size:.7rem;">N Pay</b>' : ''}<div style="margin-top:3px;"><button class="toggle-btn" style="font-size:.68rem;padding:1px 8px;" title="카페24 주문 화면을 오른쪽 창에 열기" data-site="cafe24" data-oid="${escHtml(r.order_id)}" onclick="cxlOpenSide(this)"><i class="fa-solid fa-arrow-up-right-from-square"></i> 카페24</button></div></td>
+      <td class="nw" style="vertical-align:top;">${escHtml(r.order_date)}<div style="font-size:.7rem;color:#b45309;font-weight:800;">${fmt(r.days)}일째</div></td>
+      <td style="vertical-align:top;">${kindChip(r.kind)}</td>
+      <td style="text-align:left;vertical-align:top;">${escHtml(r.status)}</td>
+      <td style="text-align:left;vertical-align:top;">${(r.items || []).map(x => `<div>${escHtml(x.product_name)} <span style="color:#6b7280;">${escHtml(x.option || '')}</span> · ${fmt(x.qty)}개</div>`).join('')}</td></tr>`).join('')}
+    </tbody></table></div>
+    <div style="font-size:.68rem;color:#6b7280;margin-top:6px;">주문일 ${escHtml(d.oldest)} ~ ${escHtml(d.cutoff)} 주문 중 신청·접수·처리 중인 것 · ${d.fetched_at ? escHtml(new Date(d.fetched_at).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul', month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })) : ''} 기준(위 [새로고침]을 누르면 다시 확인)</div>
+  </details>`;
+}
 function cxlInit() {
   cxlTabsRender();
+  if (!cxoState.data && !cxoState.loading) cxoLoad(false); else cxoRender();
   if (!cxlState.data && !cxlState.loading) cxlLoad(); else cxlRender();
 }
 function cxlTabsRender() {
@@ -5080,7 +5145,7 @@ function cxlCouponShow(d) {
     <div class="table-wrap"><table style="width:100%;font-size:.78rem;"><thead><tr><th>등록일</th><th style="text-align:left;">할인코드</th><th>할인</th><th>쓸 수 있는 기간</th><th>상품</th></tr></thead><tbody>${d.codes.map(c => `<tr><td style="white-space:nowrap;">${escHtml(c.created)}</td><td style="text-align:left;white-space:normal;"><b>${escHtml(c.code)}</b> <span style="color:#4b5563;">${escHtml(c.name)}</span></td><td>${c.value ? escHtml(String(c.value)) + '%' : '—'}</td><td style="white-space:nowrap;">${escHtml(c.start)} ~ ${escHtml(c.end)}${cxlCodeState(c)}</td><td>${c.products != null ? c.products + '개' : '전체'}</td></tr>`).join('')}</tbody></table></div>` : ''}</div>`;
   box.style.display = 'flex';
 }
-function cxlReload() { if (cxlState.running || cxsState.running || cxrState.running || cxfState.running) { showToast('처리 중이에요 — 끝난 뒤 눌러주세요'); return; } if (cxlState.tab === 'rules') { showToast('규칙 화면은 새로 불러올 내용이 없어요'); return; } if (cxlState.tab === 'log') cxlLogLoad(); else if (cxlState.tab === 'refund') { cxfState.lastRun = null; cxfState.status = new Map(); cxfLoad(); } else if (cxlState.tab === 'ret') { cxrState.lastRun = null; cxrState.status = new Map(); cxrLoad(); } else if (cxlState.tab === 'self') { cxsState.lastRun = null; cxsState.status = new Map(); cxsLoad(); } else { cxlState.lastRun = null; cxlState.status = new Map(); cxlLoad(); } }
+function cxlReload() { if (cxlState.running || cxsState.running || cxrState.running || cxfState.running) { showToast('처리 중이에요 — 끝난 뒤 눌러주세요'); return; } cxoLoad(true); if (cxlState.tab === 'rules') { showToast('규칙 화면은 새로 불러올 내용이 없어요'); return; } if (cxlState.tab === 'log') cxlLogLoad(); else if (cxlState.tab === 'refund') { cxfState.lastRun = null; cxfState.status = new Map(); cxfLoad(); } else if (cxlState.tab === 'ret') { cxrState.lastRun = null; cxrState.status = new Map(); cxrLoad(); } else if (cxlState.tab === 'self') { cxsState.lastRun = null; cxsState.status = new Map(); cxsLoad(); } else { cxlState.lastRun = null; cxlState.status = new Map(); cxlLoad(); } }
 async function cxlLoad() {
   if (cxlState.loading) return;
   cxlState.loading = true;
@@ -5110,7 +5175,7 @@ function cxlItemsHtml(g) {
     + (g.other_items ? `<div style="font-size:.68rem;color:#6b7280;">같은 주문의 다른 상품 ${g.other_items}개는 취소 신청하지 않음</div>` : '');
 }
 function cxlOrderCell(g) {
-  return `<div style="white-space:nowrap;"><b style="font-family:monospace;">${escHtml(g.order_id)}</b></div><div style="font-size:.7rem;color:#6b7280;">${escHtml(g.buyer || '')} · 결제 ${escHtml(cxlShort(g.paid_at))}</div>`;
+  return `<div style="white-space:nowrap;"><b style="font-family:monospace;">${escHtml(g.order_id)}</b></div><div style="font-size:.7rem;color:#6b7280;">${escHtml(g.buyer || '')} · 결제 ${escHtml(cxlShort(g.paid_at))}</div>${cxlOver30Chip(g.order_id)}`;
 }
 function cxlStatusCell(g) {
   const s = cxlState.status.get(cxlKey(g));
@@ -5334,7 +5399,7 @@ function cxsItemsHtml(g) {
   return g.items.map(x => `<div style="padding:1px 0;"><b>${escHtml(x.product_name)}</b> <span style="color:#6b7280;">${escHtml(x.option || '')}</span> <span style="color:#374151;white-space:nowrap;">${x.qty}개</span></div>`).join('');
 }
 function cxsOrderCell(g) {
-  return `<div style="white-space:nowrap;"><b style="font-family:monospace;">${escHtml(g.order_id)}</b></div><div style="font-size:.7rem;color:#6b7280;">${escHtml(g.buyer || '')} · 결제 ${escHtml(cxlShort(g.paid_at))}</div>`;
+  return `<div style="white-space:nowrap;"><b style="font-family:monospace;">${escHtml(g.order_id)}</b></div><div style="font-size:.7rem;color:#6b7280;">${escHtml(g.buyer || '')} · 결제 ${escHtml(cxlShort(g.paid_at))}</div>${cxlOver30Chip(g.order_id)}`;
 }
 function cxsReasonCell(g) {
   return `<span style="background:#eef2ff;color:#3730a3;border-radius:99px;padding:1px 8px;font-weight:800;white-space:nowrap;">${escHtml(CXS_REASON[g.reason_type] || g.reason_type || '구분 없음')}</span>${g.recover === 'F' ? ' <span style="font-size:.66rem;color:#b45309;font-weight:700;">재고 복구 안 함</span>' : ''}<div style="margin-top:3px;white-space:pre-wrap;color:#374151;">${g.reason ? escHtml(g.reason) : '<span style="color:#6b7280;">(적지 않음)</span>'}</div>`;
@@ -5502,7 +5567,7 @@ function cxfItemsCell(r) {
 }
 const cxfKindBadge = r => `<span style="display:inline-block;border-radius:6px;padding:1px 7px;font-size:.68rem;font-weight:800;white-space:nowrap;background:${r.kind === 'return' ? '#ede9fe' : '#e0e7ff'};color:${r.kind === 'return' ? '#6d28d9' : '#4338ca'};">${r.kind === 'return' ? '반품' : r.kind === 'cancel' ? '취소' : '?'}</span>`;
 const cxfCafeBtn = r => `<button class="toggle-btn" style="font-size:.68rem;padding:1px 8px;" data-site="cafe24" data-oid="${escHtml(r.order_id)}" onclick="cxlOpenSide(this)" title="카페24 주문 화면을 오른쪽 창에 열기"><i class="fa-solid fa-arrow-up-right-from-square"></i> 카페24</button>`;
-const cxfOrderCell = r => `<div style="white-space:nowrap;"><b style="font-family:monospace;">${escHtml(r.order_id)}</b> ${cxfKindBadge(r)}</div><div style="font-size:.7rem;color:#6b7280;">${escHtml(r.buyer || '')} · 환불 접수 ${escHtml(cxlShort(String(r.accepted_at).replace('T', ' ').slice(0, 16)))}</div><div style="margin-top:3px;">${cxfCafeBtn(r)}</div>`;
+const cxfOrderCell = r => `<div style="white-space:nowrap;"><b style="font-family:monospace;">${escHtml(r.order_id)}</b> ${cxfKindBadge(r)}</div><div style="font-size:.7rem;color:#6b7280;">${escHtml(r.buyer || '')} · 환불 접수 ${escHtml(cxlShort(String(r.accepted_at).replace('T', ' ').slice(0, 16)))}</div>${cxlOver30Chip(r.order_id)}<div style="margin-top:3px;">${cxfCafeBtn(r)}</div>`;
 // 규칙 점검 칸(2026-10-15 사용자 요청 — "우리 취소·반품 접수 규칙에 어긋나게 접수된 게 있으면 주의 표시"). 서버 rfRuleOf: ok / warn(규칙과 다름) / note(참고) / skip
 function cxfRuleCell(r) {
   const ru = r.rule;
@@ -5650,7 +5715,7 @@ function cxrItemsHtml(g) {
     + `<div style="font-size:.68rem;color:${g.full ? '#4338ca' : '#6b7280'};margin-top:2px;">${g.full ? '주문 전체 반품' : `부분 반품 · 남는 상품 ${g.other_items}개(${fmt(g.remain)}원)`}</div>`;
 }
 function cxrOrderCell(g) {
-  return `<div style="white-space:nowrap;"><b style="font-family:monospace;">${escHtml(g.order_id)}</b></div><div style="font-size:.7rem;color:#6b7280;">${escHtml(g.buyer || '')} · 결제 ${escHtml(cxlShort(g.paid_at))}</div><div style="font-size:.7rem;color:#6b7280;">접수 ${escHtml(cxlShort(g.requested_at))}</div>`;
+  return `<div style="white-space:nowrap;"><b style="font-family:monospace;">${escHtml(g.order_id)}</b></div><div style="font-size:.7rem;color:#6b7280;">${escHtml(g.buyer || '')} · 결제 ${escHtml(cxlShort(g.paid_at))}</div><div style="font-size:.7rem;color:#6b7280;">접수 ${escHtml(cxlShort(g.requested_at))}</div>${cxlOver30Chip(g.order_id)}`;
 }
 function cxrReasonCell(g) {
   return `<span style="background:#eef2ff;color:#3730a3;border-radius:99px;padding:1px 8px;font-weight:800;white-space:nowrap;">${escHtml(g.reason_label || g.reason_type || '구분 없음')}</span><div style="margin-top:3px;white-space:pre-wrap;color:#374151;">${g.reason ? escHtml(g.reason) : '<span style="color:#6b7280;">(적지 않음)</span>'}</div>`;

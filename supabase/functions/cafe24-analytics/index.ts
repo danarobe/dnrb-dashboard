@@ -1949,6 +1949,60 @@ Deno.serve(async (req) => {
       return json({ ok: true, refund_amount: finalAmt, points: row.points, pg });
     }
 
+    // ── 30일 초과 주문의 진행 중 취소·교환·반품 (2026-11-20 사용자 요청, 읽기 전용) ──
+    //   셀메이트는 카페24 주문을 주문일 기준 30일까지만 연동한다 → 그보다 오래된 주문에 신청·접수·처리 중인 취소·교환·반품이 있으면
+    //   셀메이트 목록에 안 보이므로 "30일 초과 주문. 셀메이트 수동 확인" 알림으로 따로 보여 준다.
+    //   카페24 주문 조회는 한 번에 3개월까지라 주문일 31일 전부터 89일씩 거슬러 약 4년치를 읽는다(2026-11-20 실측: 3년 전 교환신청도 남아 있었음).
+    if (action === "over30_list") {
+      if (!(await cxlRoleOk(authed))) return json({ error: "접근 권한이 없습니다" }, 403);   // 관리자 + 허용 목록(cxl_users)
+      const hit = await fromCache();
+      if (hit) return json(hit);
+      const OPEN = ["C00", "C10", "C34", "C36", "R00", "R10", "R12", "R13", "R20", "R30", "R31", "R34", "R36", "E00", "E10", "E12", "E13", "E20", "E30", "E31", "E32", "E33", "E34", "E36"];
+      const openSet = new Set(OPEN);
+      const today = rscanYesterday(); today.setUTCDate(today.getUTCDate() + 1);   // 한국 날짜 오늘
+      const fmtD = (d: Date) => d.toISOString().slice(0, 10);
+      const cut = new Date(today); cut.setUTCDate(cut.getUTCDate() - 31);   // 이 날짜까지(포함) 주문 = 30일 초과
+      const wins: [string, string][] = [];
+      for (let i = 0; i < 17; i++) {
+        const e = new Date(cut); e.setUTCDate(e.getUTCDate() - i * 89);
+        const st = new Date(e); st.setUTCDate(st.getUTCDate() - 88);
+        wins.push([fmtD(st), fmtD(e)]);
+      }
+      const orders: Record<string, any>[] = [];
+      const readWin = async ([a, b]: [string, string]) => {
+        for (let offset = 0; offset < 2000; offset += 200) {
+          const body = await apiGet(`${API_BASE}/admin/orders?start_date=${a}&end_date=${b}&date_type=order_date&order_status=${OPEN.join(",")}&embed=items&limit=200&offset=${offset}`, token);
+          const page = (body.orders ?? []) as Record<string, any>[];
+          orders.push(...page);
+          if (page.length < 200) break;
+        }
+      };
+      for (let i = 0; i < wins.length; i += 4) await Promise.all(wins.slice(i, i + 4).map(readWin));
+      const KIND: Record<string, string> = { C: "취소", R: "반품", E: "교환" };
+      const rows: Record<string, any>[] = [];
+      const seen = new Set<string>();
+      for (const o of orders) {
+        const oid = String(o.order_id ?? "");
+        if (seen.has(oid)) continue;
+        seen.add(oid);
+        const od = String(o.order_date ?? "").slice(0, 10);
+        const days = Math.round((today.getTime() - Date.UTC(Number(od.slice(0, 4)), Number(od.slice(5, 7)) - 1, Number(od.slice(8, 10)))) / 86400e3);
+        const its = ((o.items ?? []) as Record<string, any>[]).filter((it) => openSet.has(String(it.order_status ?? "")));
+        const byClaim = new Map<string, Record<string, any>[]>();
+        for (const it of its) { const k = String(it.claim_code ?? "") || String(it.order_status ?? "").slice(0, 1) + ":" + String(it.order_status ?? ""); (byClaim.get(k) ?? byClaim.set(k, []).get(k)!).push(it); }
+        for (const [k, list] of byClaim) {
+          const st0 = String(list[0].order_status ?? "");
+          rows.push({
+            order_id: oid, order_date: od, days, claim_code: k.includes(":") ? "" : k, kind: KIND[st0.slice(0, 1)] ?? "",
+            naver: String(o.order_place_id ?? "") === "NCHECKOUT",
+            status: [...new Set(list.map((it) => [String(it.status_text ?? it.order_status ?? ""), String(it.order_status_additional_info ?? "")].filter(Boolean).join(" · ")))].join(", "),
+            items: list.map((it) => ({ product_name: String(it.product_name ?? ""), option: String(it.option_value ?? ""), qty: Number(it.quantity ?? 0) })),
+          });
+        }
+      }
+      rows.sort((a, b) => String(b.order_date).localeCompare(String(a.order_date)) || String(a.order_id).localeCompare(String(b.order_id)));
+      return await respond({ today: fmtD(today), cutoff: fmtD(cut), oldest: wins[wins.length - 1][0], fetched_at: new Date().toISOString(), rows });
+    }
     if (action === "selfcancel_list" || action === "selfcancel_run") {
       if (!(await cxlRoleOk(authed))) return json({ error: "접근 권한이 없습니다" }, 403);   // 관리자 + 허용 목록(cxl_users) — 단 최종 환불은 아래에서 관리자만
       const nrSets = await rscanNrSets(token).catch(() => null);
