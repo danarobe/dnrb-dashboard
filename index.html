@@ -704,6 +704,20 @@
     .mf-sum.eol { background: #fee2e2; color: #b91c1c; }
     .mf-bulkchk { display: inline-flex; align-items: center; gap: 5px; cursor: pointer; font-weight: 700; color: #4338ca; white-space: nowrap; min-height: 24px; }
     .mf-bulkchk input { width: 15px; height: 15px; margin: 0; cursor: pointer; accent-color: #4f46e5; }
+    td.mf-td { text-align:left; vertical-align:middle !important; width:1%; min-width:164px; white-space:normal; border-left:1px solid #eef2f7; }
+    td.mf-td .mf-ctl { margin-top:0; gap:3px 10px; }
+    td.mf-td .mf-opt { flex-direction:column; align-items:flex-start; gap:2px; margin-top:0; }
+    td.mf-td .mf-item { gap:2px 6px; }
+    td.mf-td .mf-moq input { width:54px; }
+    td.mf-td .mf-mode label { padding:1px 5px; }
+    td.mf-td .mf-bulk { padding:5px 7px; gap:4px 10px; }
+    .mo-tbl thead th { word-break:keep-all; }
+    .mo-tbl tbody td { vertical-align:middle; }
+    .mo-tbl tbody tr.mo-o > td { border-top:1px solid #f1f5f9; }
+    @media (hover: hover) { .mo-tbl tbody tr.mo-o:hover > td { background-color:#eef2ff !important; } }
+    .made-cn-tbl.mo-tbl thead th { padding:9px 6px; }
+    .made-cn-tbl.mo-tbl tbody td { padding:8px 6px; }
+    .mo-tbl td.bc { font-family:monospace; font-size:.66rem; color:#4b5563; white-space:nowrap; text-align:center; }
     .mf-bulk { display: flex; flex-wrap: wrap; gap: 4px 14px; align-items: center; margin-top: 4px; padding: 5px 8px; background: #eef2ff; border: 1px solid #c7d2fe; border-radius: 8px; font-size: .72rem; color: #4b5563; white-space: normal; }
     /* 중국 사입 관리 — '미진행' 체크(예전 라벨 체크와 같은 모양) */
     .cn-label { display: inline-flex; align-items: center; gap: 4px; font-size: .7rem; font-weight: 700; color: #6b7280; border: 1.5px solid #d1d5db; border-radius: 99px; padding: 2px 9px 2px 6px; cursor: pointer; background: #fff; user-select: none; }
@@ -14156,7 +14170,7 @@ function madeFlagDay(t) {
   const s = d.toLocaleDateString('sv-SE', { timeZone: 'Asia/Seoul' }), y = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Seoul' }).slice(0, 4);
   return s.slice(0, 4) === y ? `${Number(s.slice(5, 7))}/${Number(s.slice(8, 10))}` : s;
 }
-function madeFlagMeta(at, by, word) { return at ? `<span class="mf-meta">${madeFlagDay(at)} ${word}${by ? ' · ' + escHtml(by) : ''}</span>` : ''; }
+function madeFlagMeta(at, by, word) { return at ? `<span class="mf-meta" title="${madeFlagDay(at)} ${word}${by ? ' · ' + escHtml(by) : ''}">${madeFlagDay(at)} ${word}</span>` : ''; }
 // 묶음(상품)의 옵션 목록 [{key, name}] — 제작 상품·셀메이트 연결 중국 상품 = 셀메이트 옵션, 미등록 중국 상품 = 입고 예정 있는 중국 옵션(표에 보이는 줄)
 function madeFlagOpts(g) {
   if (g.rows && g.rows.length) return g.rows.map(r => ({ key: madeFlagKey(g.key, r.opt), name: `${g.name} / ${r.opt || '단일'}` }));
@@ -14171,14 +14185,16 @@ function madeFlagModeHtml(mode, attrs, fn) {   // mode = 'each' | 'total' | null
 function madeFlagOptCtl(key, name) {
   const f = madeFlag(key) || {}, ed = madeFlagEdit(), k = escHtml(key), n = escHtml(name || '');
   const em = f.eol ? madeFlagMeta(f.eol_at, f.eol_by, '체크') : '', mm = f.moq ? madeFlagMeta(f.moq_at, f.moq_by, '기입') : '';
-  const eol = ed ? `<label class="mf-eol${f.eol ? ' on' : ''}" title="체크하면 이 옵션은 다시 주문하지 않아요(주문하기 담기에서 빠짐)"><input type="checkbox" data-k="${k}" data-n="${n}"${f.eol ? ' checked' : ''} onchange="madeFlagEol(this)"> 남은 수량 소진 후 품절</label>`
-    : (f.eol ? '<span class="mf-eol on">남은 수량 소진 후 품절</span>' : '');
+  const eol = ed ? `<label class="mf-eol${f.eol ? ' on' : ''}" title="남은 수량 소진 후 품절 — 체크하면 이 옵션은 다시 주문하지 않아요(주문하기 담기에서 빠짐)"><input type="checkbox" data-k="${k}" data-n="${n}"${f.eol ? ' checked' : ''} onchange="madeFlagEol(this)" aria-label="${n} 남은 수량 소진 후 품절"> 소진 후 품절</label>`
+    : (f.eol ? '<span class="mf-eol on">소진 후 품절</span>' : '');
   const mode = f.moq_mode === 'total' ? 'total' : 'each';
-  const moq = ed ? `<span class="mf-moqrow"><label class="mf-moq">최소 주문 수량 <input type="number" min="1" max="1000000" step="1" inputmode="numeric" value="${f.moq ?? ''}" placeholder="—" data-k="${k}" data-n="${n}" onchange="madeFlagMoq(this)">장</label>${madeFlagModeHtml(mode, `data-k="${k}" data-n="${n}"`, 'madeFlagMode(this)')}</span>`
-    : (f.moq ? `<span class="mf-moq">최소 주문 수량 <b>${fmt(f.moq)}장</b> ${MADE_MOQ_MODE[mode]}</span>` : '');
+  const moq = ed ? `<span class="mf-moqrow"><label class="mf-moq" title="최소 주문 수량">최소 <input type="number" min="1" max="1000000" step="1" inputmode="numeric" value="${f.moq ?? ''}" placeholder="—" data-k="${k}" data-n="${n}" onchange="madeFlagMoq(this)" aria-label="${n} 최소 주문 수량">장</label>${madeFlagModeHtml(mode, `data-k="${k}" data-n="${n}"`, 'madeFlagMode(this)')}</span>`
+    : (f.moq ? `<span class="mf-moq">최소 <b>${fmt(f.moq)}장</b> ${MADE_MOQ_MODE[mode]}</span>` : '');
   if (!eol && !moq) return '';
   return `<div class="mf-ctl mf-opt">${eol ? `<span class="mf-item">${eol}${em}</span>` : ''}${moq ? `<span class="mf-item">${moq}${mm}</span>` : ''}</div>`;
 }
+const madeFlagTd = (key, name) => `<td class="mf-td">${madeFlagOptCtl(key, name)}</td>`;   // 옵션 줄 맨 오른쪽 칸(2026-11-22 — 이름 아래에 두면 줄이 길어져 오른쪽 숫자가 어느 옵션 것인지 헷갈림)
+const MADE_FLAG_TH = '<th class="mf-th" style="text-align:left;">소진 후 품절 ·<br>최소 주문 수량<span class="sub" style="display:block;font-size:.66rem;font-weight:500;color:#6b7280;">옵션별 · 날짜 = 기입일</span></th>';
 // 상품 줄: 옵션 상태 요약 + [□ 일괄 기입] — 켜면 모든 옵션에 한 번에 적는 칸
 function madeFlagGroupCtl(g) {
   const opts = madeFlagOpts(g); if (!opts.length) return '';
@@ -14198,17 +14214,43 @@ function madeFlagGroupCtl(g) {
   }
   return `<div class="mf-ctl">${sum}<label class="mf-bulkchk"><input type="checkbox" data-g="${gk}"${on ? ' checked' : ''} onchange="madeFlagBulkToggle(this)"> 일괄 기입</label></div>${bulk}`;
 }
+function madeViewSel(x) {   // 표 안 입력 칸을 다시 그린 뒤에도 찾을 수 있는 선택자
+  const box = $('made-stk-result'); if (!x || !box || !box.contains(x) || !x.getAttribute) return null;
+  const a = ['data-k', 'data-g', 'data-m'].filter(n => x.hasAttribute(n)).map(n => `[${n}="${CSS.escape(x.getAttribute(n))}"]`).join(''); if (!a) return null;
+  const ev = x.hasAttribute('onchange') ? 'onchange' : x.hasAttribute('onclick') ? 'onclick' : '', fn = ev ? (x.getAttribute(ev) || '').split('(')[0] : '';
+  return `${x.tagName.toLowerCase()}${a}${fn ? `[${ev}^="${CSS.escape(fn)}("]` : ''}`;
+}
+function madeViewAnchor(el) {
+  const act = document.activeElement, s = madeViewSel(el) || madeViewSel(act), box = $('made-stk-result');
+  const t = s && box ? box.querySelector(s) : null;
+  return { s, top: t ? t.getBoundingClientRect().top : null, focus: madeViewSel(act), y: window.scrollY };
+}
+function madeViewRestore(a) {
+  if (!a) return;
+  const scroller = el => { for (let p = el.parentElement; p && p !== document.body; p = p.parentElement) { const o = getComputedStyle(p).overflowY; if ((o === 'auto' || o === 'scroll') && p.scrollHeight > p.clientHeight) return p; } return null; };
+  const fix = () => {
+    const box = $('made-stk-result'), t = a.s && box ? box.querySelector(a.s) : null;
+    if (t && a.top != null) { const d = t.getBoundingClientRect().top - a.top; if (Math.abs(d) > 1) { const sp = scroller(t); if (sp) sp.scrollTop += d; else window.scrollBy(0, d); } }
+    else if (Math.abs(window.scrollY - a.y) > 1) window.scrollTo(0, a.y);
+  };
+  fix();
+  const box = $('made-stk-result'), f = a.focus && box ? box.querySelector(a.focus) : null;
+  if (f && !f.disabled) { try { f.focus({ preventScroll: true }); if (f.select && f.type === 'number') f.select(); } catch (e) { /* 그대로 */ } }
+  setTimeout(fix, 90);   // 표 머리 고정(tblStick)이 칸을 다시 감싼 뒤 한 번 더
+}
+function madeStkRerender(el) { const a = madeViewAnchor(el); madeStkRender(); madeViewRestore(a); }
 function madeFlagGroupOf(gk) {
   const res = madeStkCompute();
   return (madeState.stkKind === 'cn' && res.cn ? res.cn.groups : res.groups).find(g => g.key === gk) || null;
 }
-function madeFlagBulkToggle(el) { const k = el.dataset.g; el.checked ? madeState.flagBulk.add(k) : madeState.flagBulk.delete(k); madeStkRender(); }
+function madeFlagBulkToggle(el) { const k = el.dataset.g; el.checked ? madeState.flagBulk.add(k) : madeState.flagBulk.delete(k); madeStkRerender(el); }
 function madeFlagRow(key, name, patch) {
   const cur = madeFlag(key) || {};
   return { item_key: key, item_name: name || cur.item_name || null, eol: !!cur.eol, eol_at: cur.eol_at ?? null, eol_by: cur.eol_by ?? null,
     moq: cur.moq ?? null, moq_at: cur.moq_at ?? null, moq_by: cur.moq_by ?? null, moq_mode: cur.moq_mode === 'total' ? 'total' : 'each', ...patch, updated_at: new Date().toISOString() };
 }
 async function madeFlagSaveRows(rows, el) {   // 여러 줄을 한 번에 저장(일괄 기입) — 실패하면 아무것도 안 바뀜
+  const view = madeViewAnchor(el);   // 저장 뒤 다시 그려도 보던 자리 그대로
   if (el) el.disabled = true;
   let ok = false;
   try {
@@ -14217,6 +14259,7 @@ async function madeFlagSaveRows(rows, el) {   // 여러 줄을 한 번에 저장
     ok = true;
   } catch (e) { showToast('저장 실패: ' + e.message); }
   madeStkRender(); if (madeState.rows) madeRender();
+  madeViewRestore(view);
   return ok;
 }
 const madeFlagEolPatch = on => on ? { eol: true, eol_at: new Date().toISOString(), eol_by: (SESSION && SESSION.name) || '' } : { eol: false, eol_at: null, eol_by: null };
@@ -14238,13 +14281,13 @@ async function madeFlagMoq(el) {
 }
 async function madeFlagMode(el) {   // 옵션 하나의 각각/통합 — 누른 쪽으로(둘 다 비우기는 안 됨)
   const m = el.dataset.m, cur = madeFlag(el.dataset.k) || {};
-  if ((cur.moq_mode === 'total' ? 'total' : 'each') === m) { madeStkRender(); return; }
+  if ((cur.moq_mode === 'total' ? 'total' : 'each') === m) { madeStkRerender(el); return; }
   if (await madeFlagSaveRows([madeFlagRow(el.dataset.k, el.dataset.n, { moq_mode: m })], el)) showToast(`최소 주문 수량을 '${MADE_MOQ_MODE[m]}'으로 바꿨어요`);
 }
 async function madeFlagBulkMode(el) {   // 모든 옵션의 각각/통합
   const g = madeFlagGroupOf(el.dataset.g); if (!g) return;
   const m = el.dataset.m, opts = madeFlagOpts(g).filter(o => (((madeFlag(o.key) || {}).moq_mode === 'total') ? 'total' : 'each') !== m);
-  if (!opts.length) { madeStkRender(); return; }
+  if (!opts.length) { madeStkRerender(el); return; }
   if (await madeFlagSaveRows(opts.map(o => madeFlagRow(o.key, o.name, { moq_mode: m })), el))
     showToast(m === 'total' ? `${opts.length}옵션을 '통합'으로 — 통합 옵션들을 합쳐서 최소 주문 수량 이상` : `${opts.length}옵션을 '각각'으로 — 옵션마다 최소 주문 수량 이상`);
 }
@@ -14252,16 +14295,16 @@ async function madeFlagBulkEol(el) {
   const g = madeFlagGroupOf(el.dataset.g); if (!g) return;
   const on = el.dataset.mixed ? true : el.checked;   // 일부만 체크된 상태에서 누르면 전부 체크
   const opts = madeFlagOpts(g).filter(o => !!(madeFlag(o.key) || {}).eol !== on);   // 바뀌는 옵션만(이미 같은 옵션의 날짜는 그대로)
-  if (!opts.length) { madeStkRender(); return; }
+  if (!opts.length) { madeStkRerender(el); return; }
   if (await madeFlagSaveRows(opts.map(o => madeFlagRow(o.key, o.name, madeFlagEolPatch(on))), el))
     showToast(on ? `${opts.length}옵션을 남은 수량 소진 후 품절로 일괄 표시했어요` : `${opts.length}옵션의 소진 후 품절 표시를 풀었어요`);
 }
 async function madeFlagBulkMoq(el) {
   const g = madeFlagGroupOf(el.dataset.g); if (!g) return;
   const n = madeFlagMoqRead(el, ''); if (n === undefined) return;
-  if (n == null && !confirm('모든 옵션의 최소 주문 수량을 지울까요?')) { madeStkRender(); return; }
+  if (n == null && !confirm('모든 옵션의 최소 주문 수량을 지울까요?')) { madeStkRerender(el); return; }
   const opts = madeFlagOpts(g).filter(o => ((madeFlag(o.key) || {}).moq ?? null) !== n);
-  if (!opts.length) { showToast('이미 모든 옵션이 같은 값이에요'); madeStkRender(); return; }
+  if (!opts.length) { showToast('이미 모든 옵션이 같은 값이에요'); madeStkRerender(el); return; }
   if (await madeFlagSaveRows(opts.map(o => madeFlagRow(o.key, o.name, madeFlagMoqPatch(n))), el))
     showToast(n == null ? `${opts.length}옵션의 최소 주문 수량을 지웠어요` : `${opts.length}옵션에 최소 주문 수량 ${fmt(n)}장 일괄 기입 — 기입 날짜 ${madeFlagDay(new Date().toISOString())}`);
 }
@@ -14342,26 +14385,26 @@ function madeStkRender() {
       : madeState.sales ? `<div style="font-size:.72rem;color:#6b7280;margin-bottom:6px;">하루 평균 주문 = 최근 7일(${escHtml(madeState.sales.end)}까지) 카페24 주문 − 취소 ÷ 7 · 7일 안에 처음 팔린 신상품은 판매한 날수로 나눔 · 주문 점검 탭과 같은 기준</div>`
         + (salesOrphans.length ? `<div style="font-size:.74rem;color:#92400e;background:#fffbeb;border:1px solid #fcd34d;border-radius:8px;padding:6px 10px;margin-bottom:6px;"><i class="fa-solid fa-triangle-exclamation"></i> 카페24에서 팔리는데 셀메이트 파일의 상품과 이름이 맞지 않아 평균을 못 붙인 자체제작 상품 ${salesOrphans.length}개: ${salesOrphans.slice(0, 6).map(r => `<b>${escHtml(r.product_name)}</b>(하루 ${madeAvgFmt(r.avg7)})`).join(', ')}${salesOrphans.length > 6 ? ' …' : ''} — 주문 점검 탭에서 '셀메이트 상품 찾기'로 매칭하면 여기에도 붙어요.</div>` : '')
       : '';
-    let html = salesNote + (madeRecentLegend() ? `<div style="font-size:.72rem;color:#6b7280;margin-bottom:6px;">${madeRecentLegend()}</div>` : '') + `<div class="table-wrap"><table>
-      <thead><tr><th style="text-align:left;">상품 / 옵션</th><th class="m-hide">코드</th><th>하루 평균 주문<div style="font-size:.66rem;font-weight:500;color:#6b7280;">최근 7일·어제까지</div></th><th>현재재고</th><th>미발송</th><th>가용<div style="font-size:.66rem;font-weight:500;color:#6b7280;">재고−미발송</div></th>
-        <th>이지픽 미입고<div style="font-size:.66rem;font-weight:500;color:#6b7280;">주문−입고</div></th><th>입고 후<div style="font-size:.66rem;font-weight:500;color:#6b7280;">가용+미입고<br>(아래 = 며칠분)</div></th><th class="m-hide">안정재고<div style="font-size:.66rem;font-weight:500;color:#6b7280;">셀메이트</div></th><th>부족<div style="font-size:.66rem;font-weight:500;color:#6b7280;">미발송−재고−미입고</div></th></tr></thead><tbody>`;
+    let html = salesNote + (madeRecentLegend() ? `<div style="font-size:.72rem;color:#6b7280;margin-bottom:6px;">${madeRecentLegend()}</div>` : '') + `<div class="table-wrap made-cn-wrap"><table class="made-cn-tbl mo-tbl">
+      <thead><tr><th style="text-align:left;">상품 / 옵션</th><th>바코드번호<div style="font-size:.66rem;font-weight:500;color:#6b7280;">셀메이트</div></th><th>하루 평균 주문<div style="font-size:.66rem;font-weight:500;color:#6b7280;">최근 7일·어제까지</div></th><th>현재재고</th><th>미발송</th><th>가용<div style="font-size:.66rem;font-weight:500;color:#6b7280;">재고−미발송</div></th>
+        <th>이지픽 미입고<div style="font-size:.66rem;font-weight:500;color:#6b7280;">주문−입고</div></th><th>입고 후<div style="font-size:.66rem;font-weight:500;color:#6b7280;">가용+미입고<br>(아래 = 며칠분)</div></th><th class="m-hide">안정재고<div style="font-size:.66rem;font-weight:500;color:#6b7280;">셀메이트</div></th><th>부족<div style="font-size:.66rem;font-weight:500;color:#6b7280;">미발송−재고−미입고</div></th>${MADE_FLAG_TH}</tr></thead><tbody>`;
     for (const g of list) {
       html += `<tr style="background:#f8f9ff;">
-        <td style="text-align:left;font-weight:700;">${escHtml(g.name)}${g.watched ? ' <span style="background:#e0e7ff;color:#4338ca;border-radius:5px;padding:1px 6px;font-size:.66rem;font-weight:700;">지정</span>' : ''}${g.warn ? `<span style="display:inline-block;background:#fef3c7;color:#92400e;border:1px solid #fcd34d;border-radius:5px;padding:1px 6px;font-size:.64rem;font-weight:800;margin-left:4px;white-space:nowrap;"><i class="fa-solid fa-triangle-exclamation" style="font-size:.66rem;"></i> 주의 ${g.warn}옵션</span>` : ''}${madeRecentProductBadge(g.recent)}${g.sname ? `<div style="font-size:.64rem;color:#6b7280;font-weight:500;">사입명 ${escHtml(g.sname)}</div>` : ''}${madeFlagGroupCtl(g)}</td>
-        <td class="m-hide" style="color:#6b7280;font-size:.7rem;">옵션 ${g.rows.length}</td>
+        <td style="text-align:left;font-weight:700;">${escHtml(g.name)}${g.watched ? ' <span style="background:#e0e7ff;color:#4338ca;border-radius:5px;padding:1px 6px;font-size:.66rem;font-weight:700;">지정</span>' : ''}${g.warn ? `<span style="display:inline-block;background:#fef3c7;color:#92400e;border:1px solid #fcd34d;border-radius:5px;padding:1px 6px;font-size:.64rem;font-weight:800;margin-left:4px;white-space:nowrap;"><i class="fa-solid fa-triangle-exclamation" style="font-size:.66rem;"></i> 주의 ${g.warn}옵션</span>` : ''}${madeRecentProductBadge(g.recent)}${g.sname ? `<div style="font-size:.64rem;color:#6b7280;font-weight:500;">사입명 ${escHtml(g.sname)}</div>` : ''}</td>
+        <td style="color:#6b7280;font-size:.7rem;text-align:center;">옵션 ${g.rows.length}</td>
         ${numCell(avgCell(g.avg7, true) + (g.avg7 != null && g.days7 != null && g.days7 < 7 ? `<div style="font-size:.66rem;color:#6b7280;" title="첫 판매 ${escHtml(g.firstSale || '')} — 판매한 날수로 나눔">판매 ${g.days7}일</div>` : ''))}
         ${numCell(`<b>${fmt(g.stock)}</b>`)}${numCell(fmt(g.unshipped))}${numCell(fmt(g.stock - g.unshipped))}${numCell(g.incoming ? `<b style="color:#0369a1;">+${fmt(g.incoming)}</b>` : '<span style="color:#6b7280;">0</span>')}${numCell(fmt(g.stock - g.unshipped + g.incoming) + madeDaysHtml(g.stock - g.unshipped + g.incoming, g.avg7))}
-        <td class="m-hide"></td>${numCell(g.shortage ? `<b style="color:#b91c1c;">부족 ${fmt(g.shortage)}</b>` : (g.warn ? '<span style="color:#b45309;font-weight:700;">주의</span>' : '<span style="color:#15803d;font-weight:700;">충분</span>'))}</tr>`;
+        <td class="m-hide"></td>${numCell(g.shortage ? `<b style="color:#b91c1c;">부족 ${fmt(g.shortage)}</b>` : (g.warn ? '<span style="color:#b45309;font-weight:700;">주의</span>' : '<span style="color:#15803d;font-weight:700;">충분</span>'))}<td class="mf-td">${madeFlagGroupCtl(g)}</td></tr>`;
       for (const r of (low ? g.rows.filter(x => madeLowDays(x.after, x.avg7)) : g.rows)) {   // '7일분 이하'면 그 옵션만
         const ezNote = r.ez ? `주문 ${fmt(r.ez.ordered)} · 입고 ${fmt(r.ez.received)}` : (madeState.files.ez ? '이지픽 주문 없음' : '');
-        html += `<tr>
-          <td style="text-align:left;padding-left:22px;${r.warn ? 'background:#fffbeb;' : r.recent ? 'background:#eff6ff;' : ''}${r.recent ? 'box-shadow:inset 3px 0 0 #2563eb;' : ''}">${escHtml(r.opt || '단일')}${r.soldout ? ' <span style="color:#b91c1c;font-size:.64rem;font-weight:700;">품절</span>' : ''}${r.warn ? warnBadge(r.warnLow, r.warnSafe, r.safe) : ''}${madeRecentBadge(r.recent)}${madeFlagOptCtl(madeFlagKey(g.key, r.opt), `${g.name} / ${r.opt || '단일'}`)}</td>
-          <td class="m-hide" style="font-family:monospace;font-size:.7rem;color:#6b7280;">${escHtml(r.code || '—')}</td>
+        html += `<tr class="mo-o">
+          <td style="text-align:left;padding-left:22px;${r.warn ? 'background:#fffbeb;' : r.recent ? 'background:#eff6ff;' : ''}${r.recent ? 'box-shadow:inset 3px 0 0 #2563eb;' : ''}">${escHtml(r.opt || '단일')}${r.soldout ? ' <span style="color:#b91c1c;font-size:.64rem;font-weight:700;">품절</span>' : ''}${r.warn ? warnBadge(r.warnLow, r.warnSafe, r.safe) : ''}${madeRecentBadge(r.recent)}</td>
+          <td class="bc">${escHtml(r.code || '—')}</td>
           ${numCell(avgCell(r.avg7, false))}
           ${numCell(fmt(r.stock))}${numCell(r.unshipped ? `<b style="color:#c2410c;">${fmt(r.unshipped)}</b>` : '0')}${numCell(r.avail < 0 ? `<b style="color:#b91c1c;">${fmt(r.avail)}</b>` : fmt(r.avail))}
           ${numCell(r.incoming ? `<b style="color:#0369a1;">+${fmt(r.incoming)}</b>` : '<span style="color:#6b7280;">0</span>', '')}${numCell(`${fmt(r.after)}${madeDaysHtml(r.after, r.avg7)}${ezNote ? `<div style="font-size:.66rem;color:#6b7280;">${ezNote}</div>` : ''}`)}
           <td class="m-hide" style="text-align:right;color:#6b7280;">${r.safe != null ? fmt(r.safe) : '—'}</td>
-          ${numCell(r.shortage ? `<b style="color:#b91c1c;">${fmt(r.shortage)}</b>` : `<span style="color:${r.warn ? '#b45309' : '#15803d'};">${r.warn ? (r.warnLow ? `${fmt(Math.max(0, r.after))}개 남음` : '안정재고 미달') : '충분'}</span>`)}</tr>`;
+          ${numCell(r.shortage ? `<b style="color:#b91c1c;">${fmt(r.shortage)}</b>` : `<span style="color:${r.warn ? '#b45309' : '#15803d'};">${r.warn ? (r.warnLow ? `${fmt(Math.max(0, r.after))}개 남음` : '안정재고 미달') : '충분'}</span>`)}${madeFlagTd(madeFlagKey(g.key, r.opt), `${g.name} / ${r.opt || '단일'}`)}</tr>`;
       }
     }
     box.innerHTML = html + '</tbody></table></div>';
@@ -14554,27 +14597,27 @@ function madeCnRender() {
   const incCell = (inc, pend, transit, late, tip) => inc ? `<b${tip || ''} class="${tip ? 'inc-has-tip' : ''}" style="color:#0369a1;">+${fmt(inc)}</b>${pend || transit || late ? `<div class="inc-lines">${[pend ? `<div>미송 ${fmt(pend)}</div>` : '', transit ? `<div>운송 중 ${fmt(transit)}</div>` : '', late ? `<div title="셀메이트 파일보다 나중에 [입고 완료] — 파일 재고에 아직 없어서 입고 예정으로 셈">입고 완료 ${fmt(late)}<br><span style="color:#6b7280;">(셀메이트 반영 전)</span></div>` : ''].join('')}</div>` : ''}` : '<span style="color:#6b7280;">0</span>';
   const warnBadge = r => `<span title="${r.warnLow ? '입고 후 5개 미만' : ''}${r.warnLow && r.warnSafe ? ' · ' : ''}${r.warnSafe ? `안정재고 ${fmt(r.safe)} 미달` : ''}" style="display:inline-block;background:#fef3c7;color:#92400e;border:1px solid #fcd34d;border-radius:5px;padding:1px 6px;font-size:.64rem;font-weight:800;margin-left:4px;white-space:nowrap;"><i class="fa-solid fa-triangle-exclamation" style="font-size:.66rem;"></i> 주의</span>`;
   const cnTag = o => `<span class="cn-tag" title="중국 사입 옵션 (${o.how === 'manual' ? '직접 고른 짝' : '자동 짝'}) · 주문 ${fmt(o.inc.ordered)} · 출고 ${fmt(o.inc.shipped)}${o.inc.disc ? ` · ${o.inc.disc > 0 ? '폐기' : '초과 인정'} ${fmt(Math.abs(o.inc.disc))}` : ''}" style="display:inline-block;background:${o.how === 'manual' ? '#ede9fe' : '#f1f5f9'};color:${o.how === 'manual' ? '#5b21b6' : '#475569'};border-radius:5px;padding:0 5px;font-size:.66rem;font-weight:700;margin-left:4px;white-space:nowrap;">← ${escHtml(o.sname)} ${escHtml(madeCnOptName(o))}</span>`;
-  let html = `<div class="table-wrap made-cn-wrap"><table class="made-cn-tbl">
-    <thead><tr><th style="text-align:left;">상품 / 옵션</th><th>하루 평균<br>주문<span class="sub">최근 7일</span></th><th>현재<br>재고</th><th>미발송</th><th>가용<span class="sub">재고−미발송</span></th>
-      <th>중국<br>입고 예정<span class="sub">미송·운송 중·<br>반영 전 입고</span></th><th>입고 후<span class="sub">가용+입고 예정<br>(아래 = 며칠분)</span></th><th class="m-hide">안정<br>재고<span class="sub">셀메이트</span></th><th>부족<span class="sub">미발송−재고<br>−입고 예정</span></th></tr></thead><tbody>`;
+  let html = `<div class="table-wrap made-cn-wrap"><table class="made-cn-tbl mo-tbl">
+    <thead><tr><th style="text-align:left;">상품 / 옵션</th><th>바코드<br>번호<span class="sub">셀메이트</span></th><th>하루 평균<br>주문<span class="sub">최근 7일</span></th><th>현재<br>재고</th><th>미발송</th><th>가용<span class="sub">재고−미발송</span></th>
+      <th>중국<br>입고 예정<span class="sub">미송·운송 중·<br>반영 전 입고</span></th><th>입고 후<span class="sub">가용+입고 예정<br>(아래 = 며칠분)</span></th><th class="m-hide">안정<br>재고<span class="sub">셀메이트</span></th><th>부족<span class="sub">미발송−재고<br>−입고 예정</span></th>${MADE_FLAG_TH}</tr></thead><tbody>`;
   for (const g of list) {
     const gk = escHtml(g.key), open = madeState.cnMapOpen.has(g.key), buyable = canEdit && g.rows.some(r => !r.eol && r.shortage > 0 && r.cnOpts.length);
     html += `<tr style="background:#f8f9ff;"><td class="nm" style="font-weight:700;">${escHtml(g.name)}${g.made ? ' <span style="background:#ede9fe;color:#5b21b6;border-radius:5px;padding:1px 6px;font-size:.66rem;font-weight:700;" title="카페24 상품명에 made·자체제작이 있지만 중국 사입/제작 관리에 등록된 상품이라 중국 상품으로 봐요">made</span>' : ''}${!g.linked ? ' <span style="background:#f3f4f6;color:#6b7280;border-radius:5px;padding:1px 6px;font-size:.66rem;font-weight:700;">셀메이트·카페24 미등록</span>' : ''}${g.warn ? `<span style="display:inline-block;background:#fef3c7;color:#92400e;border:1px solid #fcd34d;border-radius:5px;padding:1px 6px;font-size:.64rem;font-weight:800;margin-left:4px;">주의 ${g.warn}옵션</span>` : ''}${g.unmapped.length ? `<span style="display:inline-block;background:#fee2e2;color:#b91c1c;border-radius:5px;padding:1px 6px;font-size:.64rem;font-weight:800;margin-left:4px;" title="셀메이트 옵션과 짝을 못 지은 중국 옵션 — 입고 예정이 옵션에 안 붙어요">옵션 미연결 ${g.unmapped.length}</span>` : ''}
         <div style="font-size:.64rem;color:#6b7280;font-weight:500;margin-top:2px;">품번 ${g.snames.map(escHtml).join(', ')}${g.sname ? ` · 사입명 ${escHtml(g.sname)}` : ''}</div>
-        ${madeFlagGroupCtl(g)}<div style="display:flex;gap:5px;margin-top:4px;flex-wrap:wrap;">${g.linked ? `<button class="toggle-btn" style="font-size:.68rem;padding:2px 8px;" data-k="${gk}" onclick="madeCnMapToggle(this.dataset.k)"><i class="fa-solid fa-link"></i> 옵션 짝${open ? ' 닫기' : ''}</button>` : ''}${buyable ? `<button class="toggle-btn" style="font-size:.68rem;padding:2px 8px;color:#4338ca;" data-k="${gk}" onclick="madeCnToBuy(this.dataset.k)"><i class="fa-solid fa-cart-plus"></i> 주문하기에 담기 (부족 ${fmt(g.rows.reduce((t, r) => t + (!r.eol && r.cnOpts.length ? r.shortage : 0), 0))})</button>` : ''}</div></td>
-      ${numCell(avgCell(g.avg7, true) + (g.avg7 != null && g.days7 != null && g.days7 < 7 ? `<div style="font-size:.66rem;color:#6b7280;">판매 ${g.days7}일</div>` : ''))}
+        <div style="display:flex;gap:5px;margin-top:4px;flex-wrap:wrap;">${g.linked ? `<button class="toggle-btn" style="font-size:.68rem;padding:2px 8px;" data-k="${gk}" onclick="madeCnMapToggle(this.dataset.k, this)"><i class="fa-solid fa-link"></i> 옵션 짝${open ? ' 닫기' : ''}</button>` : ''}${buyable ? `<button class="toggle-btn" style="font-size:.68rem;padding:2px 8px;color:#4338ca;" data-k="${gk}" onclick="madeCnToBuy(this.dataset.k)"><i class="fa-solid fa-cart-plus"></i> 주문하기에 담기 (부족 ${fmt(g.rows.reduce((t, r) => t + (!r.eol && r.cnOpts.length ? r.shortage : 0), 0))})</button>` : ''}</div></td>
+      <td class="bc" style="font-family:inherit;color:#6b7280;">${g.linked ? `옵션 ${g.rows.length}` : ''}</td>${numCell(avgCell(g.avg7, true) + (g.avg7 != null && g.days7 != null && g.days7 < 7 ? `<div style="font-size:.66rem;color:#6b7280;">판매 ${g.days7}일</div>` : ''))}
       ${numCell(g.linked ? `<b>${fmt(g.stock)}</b>` : '—')}${numCell(g.linked ? fmt(g.unshipped) : '—')}${numCell(g.linked ? fmt(g.stock - g.unshipped) : '—')}${numCell(incCell(g.incoming, 0, 0, 0, tipId(g.linked ? g.rows.flatMap(r => r.cnOpts).concat(g.unmapped || []) : g.cnOpts, g.name)))}${numCell(g.linked ? fmt(g.stock - g.unshipped + g.incoming) + madeDaysHtml(g.stock - g.unshipped + g.incoming, g.avg7) : '—')}
-      <td class="m-hide"></td>${numCell(!g.linked ? '<span style="color:#6b7280;">—</span>' : g.shortage ? `<b style="color:#b91c1c;">부족 ${fmt(g.shortage)}</b>` : (g.warn ? '<span style="color:#b45309;font-weight:700;">주의</span>' : '<span style="color:#15803d;font-weight:700;">충분</span>'))}</tr>`;
-    if (open) html += `<tr><td colspan="9" style="text-align:left;background:#faf5ff;padding:8px 12px;">${madeCnMapPanel(g, canEdit)}</td></tr>`;
+      <td class="m-hide"></td>${numCell(!g.linked ? '<span style="color:#6b7280;">—</span>' : g.shortage ? `<b style="color:#b91c1c;">부족 ${fmt(g.shortage)}</b>` : (g.warn ? '<span style="color:#b45309;font-weight:700;">주의</span>' : '<span style="color:#15803d;font-weight:700;">충분</span>'))}<td class="mf-td">${madeFlagGroupCtl(g)}</td></tr>`;
+    if (open) html += `<tr><td colspan="11" style="text-align:left;background:#faf5ff;padding:8px 12px;">${madeCnMapPanel(g, canEdit)}</td></tr>`;
     for (const r of (low ? g.rows.filter(x => madeLowDays(x.after, x.avg7, lowN)) : g.rows)) {   // 'N일분 이하'면 그 옵션만
-      html += `<tr><td class="nm" style="padding-left:22px;${r.warn ? 'background:#fffbeb;' : ''}">${escHtml(r.opt || '단일')}${r.soldout ? ' <span style="color:#b91c1c;font-size:.64rem;font-weight:700;">품절</span>' : ''}${r.warn ? warnBadge(r) : ''}${r.cnOpts.map(cnTag).join('')}${madeFlagOptCtl(madeFlagKey(g.key, r.opt), `${g.name} / ${r.opt || '단일'}`)}</td>
-        ${numCell(avgCell(r.avg7, false))}${numCell(fmt(r.stock))}${numCell(r.unshipped ? `<b style="color:#c2410c;">${fmt(r.unshipped)}</b>` : '0')}${numCell(r.avail < 0 ? `<b style="color:#b91c1c;">${fmt(r.avail)}</b>` : fmt(r.avail))}
+      html += `<tr class="mo-o"><td class="nm" style="padding-left:22px;${r.warn ? 'background:#fffbeb;' : ''}">${escHtml(r.opt || '단일')}${r.soldout ? ' <span style="color:#b91c1c;font-size:.64rem;font-weight:700;">품절</span>' : ''}${r.warn ? warnBadge(r) : ''}${r.cnOpts.map(cnTag).join('')}</td>
+        <td class="bc">${escHtml(r.code || '—')}</td>${numCell(avgCell(r.avg7, false))}${numCell(fmt(r.stock))}${numCell(r.unshipped ? `<b style="color:#c2410c;">${fmt(r.unshipped)}</b>` : '0')}${numCell(r.avail < 0 ? `<b style="color:#b91c1c;">${fmt(r.avail)}</b>` : fmt(r.avail))}
         ${numCell(incCell(r.incoming, r.pend, r.transit, r.late, tipId(r.cnOpts, `${g.name} ${r.opt || ''}`)))}${numCell(fmt(r.after) + madeDaysHtml(r.after, r.avg7))}<td class="m-hide" style="text-align:right;color:#6b7280;">${r.safe != null ? fmt(r.safe) : '—'}</td>
-        ${numCell(r.shortage ? `<b style="color:#b91c1c;">${fmt(r.shortage)}</b>${!r.cnOpts.length ? '<div style="font-size:.66rem;color:#b91c1c;">중국 옵션<br>짝 없음</div>' : ''}` : `<span style="color:${r.warn ? '#b45309' : '#15803d'};">${r.warn ? (r.warnLow ? `${fmt(Math.max(0, r.after))}개 남음` : '안정재고 미달') : '충분'}</span>`)}</tr>`;
+        ${numCell(r.shortage ? `<b style="color:#b91c1c;">${fmt(r.shortage)}</b>${!r.cnOpts.length ? '<div style="font-size:.66rem;color:#b91c1c;">중국 옵션<br>짝 없음</div>' : ''}` : `<span style="color:${r.warn ? '#b45309' : '#15803d'};">${r.warn ? (r.warnLow ? `${fmt(Math.max(0, r.after))}개 남음` : '안정재고 미달') : '충분'}</span>`)}${madeFlagTd(madeFlagKey(g.key, r.opt), `${g.name} / ${r.opt || '단일'}`)}</tr>`;
     }
     for (const o of (low ? [] : g.linked ? g.unmapped : g.cnOpts.filter(o => o.inc.inc > 0))) {
-      html += `<tr><td class="nm" style="padding-left:22px;background:${g.linked ? '#fef2f2' : '#f9fafb'};">${escHtml(o.sname)} ${escHtml(madeCnOptName(o))}<div style="font-size:.64rem;color:${g.linked ? '#b91c1c' : '#6b7280'};font-weight:700;">${g.linked ? '셀메이트 옵션 짝 없음 — [옵션 짝]에서 골라 주세요' : '중국 옵션'}</div>${g.linked ? '' : madeFlagOptCtl(madeFlagKey(g.key, `${o.sname} ${madeCnOptName(o)}`), `${g.name} / ${o.sname} ${madeCnOptName(o)}`)}</td>
-        <td></td><td></td><td></td><td></td>${numCell(incCell(o.inc.inc, o.inc.pend, o.inc.transit, o.inc.late, tipId([o], `${o.sname} ${madeCnOptName(o)}`)))}<td></td><td class="m-hide"></td><td></td></tr>`;
+      html += `<tr class="mo-o"><td class="nm" style="padding-left:22px;background:${g.linked ? '#fef2f2' : '#f9fafb'};">${escHtml(o.sname)} ${escHtml(madeCnOptName(o))}<div style="font-size:.64rem;color:${g.linked ? '#b91c1c' : '#6b7280'};font-weight:700;">${g.linked ? '셀메이트 옵션 짝 없음 — [옵션 짝]에서 골라 주세요' : '중국 옵션'}</div></td>
+        <td class="bc">—</td><td></td><td></td><td></td><td></td>${numCell(incCell(o.inc.inc, o.inc.pend, o.inc.transit, o.inc.late, tipId([o], `${o.sname} ${madeCnOptName(o)}`)))}<td></td><td class="m-hide"></td><td></td>${g.linked ? '<td class="mf-td"></td>' : madeFlagTd(madeFlagKey(g.key, `${o.sname} ${madeCnOptName(o)}`), `${g.name} / ${o.sname} ${madeCnOptName(o)}`)}</tr>`;
     }
   }
   box.innerHTML = html + '</tbody></table></div>';
@@ -14589,7 +14632,7 @@ function madeCnMapPanel(g, canEdit) {   // 중국 옵션 ↔ 셀메이트 옵션
   }).join('');
   return `<div style="font-size:.74rem;color:#5b21b6;font-weight:700;margin-bottom:4px;"><i class="fa-solid fa-link"></i> 중국 옵션 → 셀메이트 옵션 (자동은 색 약칭으로 짝지은 것 — 틀리면 골라 주세요, 팀 전체에 적용)</div><table style="font-size:.76rem;"><tbody>${rows}</tbody></table>`;
 }
-function madeCnMapToggle(k) { madeState.cnMapOpen.has(k) ? madeState.cnMapOpen.delete(k) : madeState.cnMapOpen.add(k); madeCnRender(); }
+function madeCnMapToggle(k, el) { madeState.cnMapOpen.has(k) ? madeState.cnMapOpen.delete(k) : madeState.cnMapOpen.add(k); madeStkRerender(el); }
 async function madeCnMapSet(sel) {
   const sname = sel.dataset.s, key = sel.dataset.m, opt = sel.value || null;
   sel.disabled = true;
@@ -14598,7 +14641,7 @@ async function madeCnMapSet(sel) {
     const prods = madeState.cn.prods = madeState.cn.prods || {}; prods[sname] = Object.assign({}, prods[sname] || {}, { cell_map: r.cell_map });
     if (cnState.data && cnState.data !== madeState.cn) { const p2 = cnState.data.prods = cnState.data.prods || {}; p2[sname] = Object.assign({}, p2[sname] || {}, { cell_map: r.cell_map }); }
     showToast(opt ? (opt === '__none' ? '셀메이트에 없는 옵션으로 표시했어요' : '옵션 짝을 저장했어요') : '자동 짝으로 되돌렸어요');
-    madeCnRender();
+    madeStkRerender(sel);
   } catch (e) { showToast('저장 실패: ' + e.message); sel.disabled = false; }
 }
 // 부족 수량을 중국 사입/제작 관리 › 주문하기에 담는다(그 브라우저의 임시 저장 — 주문하기 탭과 같은 저장소). 옵션 하나에 중국 옵션이 여럿 붙었으면 첫 옵션에.
@@ -14620,8 +14663,8 @@ async function madeCnExport() {
   const groups = madeStkCompute().cn.groups;
   const lines = [];
   for (const g of groups) {
-    for (const r of g.rows) lines.push([g.name, g.snames.join(', '), r.opt || '단일', r.cnOpts.map(o => `${o.sname} ${madeCnOptName(o)}`).join(', '), r.avg7 == null ? '' : Math.round(r.avg7 * 10) / 10, r.stock, r.unshipped, r.avail, r.pend, r.transit + r.late, r.incoming, r.after, r.safe != null ? r.safe : '', r.shortage, r.warn ? ['주의', r.warnLow ? '5개 미만' : '', r.warnSafe ? '안정재고 미달' : ''].filter(Boolean).join(' ') : '']);
-    for (const o of (g.linked ? g.unmapped : g.cnOpts.filter(o => o.inc.inc > 0))) lines.push([g.name, g.snames.join(', '), g.linked ? '(셀메이트 옵션 짝 없음)' : '(셀메이트 미등록)', `${o.sname} ${madeCnOptName(o)}`, '', '', '', '', o.inc.pend, o.inc.transit + o.inc.late, o.inc.inc, '', '', '', '']);
+    for (const r of g.rows) lines.push([g.name, g.snames.join(', '), r.opt || '단일', r.code || '', r.cnOpts.map(o => `${o.sname} ${madeCnOptName(o)}`).join(', '), r.avg7 == null ? '' : Math.round(r.avg7 * 10) / 10, r.stock, r.unshipped, r.avail, r.pend, r.transit + r.late, r.incoming, r.after, r.safe != null ? r.safe : '', r.shortage, r.warn ? ['주의', r.warnLow ? '5개 미만' : '', r.warnSafe ? '안정재고 미달' : ''].filter(Boolean).join(' ') : '']);
+    for (const o of (g.linked ? g.unmapped : g.cnOpts.filter(o => o.inc.inc > 0))) lines.push([g.name, g.snames.join(', '), g.linked ? '(셀메이트 옵션 짝 없음)' : '(셀메이트 미등록)', '', `${o.sname} ${madeCnOptName(o)}`, '', '', '', '', o.inc.pend, o.inc.transit + o.inc.late, o.inc.inc, '', '', '', '']);
   }
   if (!lines.length) { showToast('내보낼 행이 없어요'); return; }
   try {
@@ -14630,9 +14673,9 @@ async function madeCnExport() {
     const today = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Seoul' });
     ws.cell(1, 1).value(`중국 상품 재고·입고 점검 (${today})`).style({ bold: true, fontSize: 14 });
     ws.cell(2, 1).value(`셀메이트 ${(madeState.files.cell || {}).file_name || ''} · 가용=재고−미발송 · 중국 입고 예정=미송(주문−중국출고−폐기)+운송 중(입고 완료 전)+셀메이트 반영 전(파일보다 나중에 입고 완료) · 입고 후=가용+입고 예정 · 부족=미발송−재고−입고 예정`).style({ fontColor: '6B7280', fontSize: 9 });
-    ['상품명', '품번', '셀메이트 옵션', '중국 옵션', '하루 평균 주문(최근 7일)', '현재재고', '미발송', '가용', '미송', '운송 중·셀메이트 반영 전', '중국 입고 예정', '입고 후', '안정재고', '부족', '주의'].forEach((h, i) => ws.cell(4, i + 1).value(h).style({ bold: true, fill: 'EEF2FF', horizontalAlignment: 'center' }));
+    ['상품명', '품번', '셀메이트 옵션', '바코드번호', '중국 옵션', '하루 평균 주문(최근 7일)', '현재재고', '미발송', '가용', '미송', '운송 중·셀메이트 반영 전', '중국 입고 예정', '입고 후', '안정재고', '부족', '주의'].forEach((h, i) => ws.cell(4, i + 1).value(h).style({ bold: true, fill: 'EEF2FF', horizontalAlignment: 'center' }));
     lines.forEach((row, ri) => row.forEach((v, ci) => { if (v !== '' && v != null) ws.cell(5 + ri, ci + 1).value(v); }));
-    [34, 14, 18, 22, 12, 9, 8, 8, 8, 8, 12, 9, 9, 8, 14].forEach((w, i) => ws.column(i + 1).width(w));
+    [34, 14, 18, 14, 22, 12, 9, 8, 8, 8, 8, 12, 9, 9, 8, 14].forEach((w, i) => ws.column(i + 1).width(w));
     const blob = await wb.outputAsync(), url = URL.createObjectURL(blob);
     const a = document.createElement('a'); a.href = url; a.download = `중국상품_재고입고점검_${today}.xlsx`; document.body.appendChild(a); a.click(); a.remove();
     setTimeout(() => URL.revokeObjectURL(url), 60000);
@@ -14687,7 +14730,7 @@ async function madeStkExport() {
     const today = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Seoul' });
     ws.cell(1, 1).value(`제작 상품 재고·입고 점검 (${today})`).style({ bold: true, fontSize: 14 });
     ws.cell(2, 1).value(`셀메이트 ${(madeState.files.cell || {}).file_name || ''} · 이지픽 ${(madeState.files.ez || {}).file_name || '없음'} · 가용=재고−미발송 · 입고 후=가용+이지픽 미입고 · 부족=미발송−재고−미입고(현재 재고 기준) · 주의=입고 후 5개 미만 또는 안정재고 미달`).style({ fontColor: '6B7280', fontSize: 9 });
-    ['상품명', '옵션', '코드', '하루 평균 주문(최근 7일)', '현재재고', '미발송', '가용', '이지픽 미입고', '입고 후', '안정재고', '부족', '주의', '구분', '이지픽 주문', '이지픽 입고', `최근 ${MADE_RECENT_DAYS}일 주문`].forEach((h, i) => ws.cell(4, i + 1).value(h).style({ bold: true, fill: 'EEF2FF', horizontalAlignment: 'center' }));
+    ['상품명', '옵션', '바코드번호', '하루 평균 주문(최근 7일)', '현재재고', '미발송', '가용', '이지픽 미입고', '입고 후', '안정재고', '부족', '주의', '구분', '이지픽 주문', '이지픽 입고', `최근 ${MADE_RECENT_DAYS}일 주문`].forEach((h, i) => ws.cell(4, i + 1).value(h).style({ bold: true, fill: 'EEF2FF', horizontalAlignment: 'center' }));
     lines.forEach((row, ri) => row.forEach((v, ci) => ws.cell(5 + ri, ci + 1).value(v)));
     [34, 24, 13, 12, 9, 8, 8, 12, 9, 9, 8, 12, 12, 10, 10, 18].forEach((w, i) => ws.column(i + 1).width(w));
     const blob = await wb.outputAsync(); const url = URL.createObjectURL(blob);
