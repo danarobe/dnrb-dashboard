@@ -6418,11 +6418,44 @@ const cnOptKey = (sname, color, size) => String(sname == null ? '' : sname).trim
    같은 품번·사이즈 안에서 출고 서류 색상과 글자가 똑같지 않은 주문서·폐기 색상만, 한글 부분(한자 등을 뺀 글자)이 같거나 한쪽이 다른 쪽으로 시작하면
    (소 ↔ 소라) 그 출고 서류 색상으로 본다. 후보가 딱 하나이고, 그 출고 색상도 다른 주문서 색상과 겹치지 않을 때만(헷갈리면 짓지 않음). */
 const cnHangul = v => String(v || '').replace(/[^가-힣]/g, '');
+/* 사이즈 공란 짝(2026-11-23 사용자 요청 — 주문서는 사이즈를 비워 보냈는데 출고 서류 비고(D열)에는 'FREE'로 적혀 '색·사이즈가 바뀌어 들어온 것 같아요'가 뜸):
+   한 품번의 출고 서류 사이즈가 딱 한 가지(예: FREE)이고, 주문서·폐기(또는 다른 출고 서류)에 그 품번 사이즈가 공란인 줄이 있고, 주문서·폐기에 다른 사이즈가 없을 때만
+   공란 = 그 사이즈로 본다. 출고 사이즈가 둘 이상이면(S·M 등) 어느 것인지 모르니 짓지 않음. */
+let __cnAliasD = null;   // cnFlowCalcFor(d)처럼 다른 자료로 계산할 때 그 자료로 짝을 짓게
+const cnAliasData = () => { if (__cnAliasD) return __cnAliasD; let d = cnState.data; if (!d) { try { d = madeState.cn; } catch (e) { d = null; } } return d; };
+const __cnSizeW = new WeakMap();
+const cnAliasSig = d => [d.lines, d.order_lines, d.discards, d.defects, d.ships].map(x => (x || []).length).join(',');   // 화면에서 폐기·불량 등을 그 자리에 더하면 다시 계산
+function cnSizeAlias(d) {   // 품번 → 출고 서류 사이즈
+  if (!d || typeof d !== 'object') return null;
+  const sig = cnAliasSig(d), hit = __cnSizeW.get(d); if (hit && hit.sig === sig) return hit.a;
+  let a;
+  const sn = l => String(l.sname == null ? '' : l.sname).trim(), sz = l => String(l.size || '').trim();
+  const add = (m, l) => { const k = sn(l); let x = m.get(k); if (!x) m.set(k, x = new Set()); x.add(sz(l)); };
+  const ship = new Map(), other = new Map();
+  for (const l of d.lines || []) add(ship, l);
+  for (const x of d.ships || []) for (const l of (Array.isArray(x.left_extra) ? x.left_extra : [])) add(ship, l);
+  for (const l of d.order_lines || []) add(other, l);
+  for (const l of d.discards || []) add(other, l);
+  for (const l of d.defects || []) add(other, l);
+  a = new Map();
+  for (const [k, ss] of ship) {
+    const named = [...ss].filter(Boolean); if (named.length !== 1) continue;
+    const os = other.get(k) || new Set();
+    if (!ss.has('') && !os.has('')) continue;
+    if ([...os].some(x => x && x !== named[0])) continue;
+    a.set(k, named[0]);
+  }
+  __cnSizeW.set(d, { sig, a });
+  return a;
+}
+const cnSizeCanonD = (d, sname, size) => { const z = String(size || '').trim(); if (z) return z; const a = cnSizeAlias(d); return (a && a.get(String(sname == null ? '' : sname).trim())) || ''; };
+const cnSizeCanon = (sname, size) => cnSizeCanonD(cnAliasData(), sname, size);
 const __cnAliasW = new WeakMap();
 function cnColorAlias(d) {
   if (!d || typeof d !== 'object') return null;
-  let a = __cnAliasW.get(d); if (a) return a;
-  const grp = l => String(l.sname == null ? '' : l.sname).trim() + '\u0001' + String(l.size || '').trim();
+  const sig = cnAliasSig(d), hit = __cnAliasW.get(d); if (hit && hit.sig === sig) return hit.a;
+  let a;
+  const grp = l => String(l.sname == null ? '' : l.sname).trim() + '\u0001' + cnSizeCanonD(d, l.sname, l.size);
   const add = (m, l) => { const g = grp(l); let x = m.get(g); if (!x) m.set(g, x = new Set()); x.add(String(l.color || '').trim()); };
   const ship = new Map(), other = new Map();
   for (const l of d.lines || []) add(ship, l);
@@ -6443,16 +6476,15 @@ function cnColorAlias(d) {
     const cnt = new Map(); for (const [, x] of pairs) cnt.set(x, (cnt.get(x) || 0) + 1);
     for (const [c, x] of pairs) if (cnt.get(x) === 1) a.set(g + '\u0001' + c, x);
   }
-  __cnAliasW.set(d, a);
+  __cnAliasW.set(d, { sig, a });
   return a;
 }
 function cnColorCanon(sname, color, size) {
-  const c = String(color || '').trim();
-  let d = cnState.data; if (!d) { try { d = madeState.cn; } catch (e) { d = null; } }
+  const c = String(color || '').trim(), d = cnAliasData();
   const a = cnColorAlias(d); if (!a || !a.size) return c;
-  return a.get(String(sname == null ? '' : sname).trim() + '\u0001' + String(size || '').trim() + '\u0001' + c) || c;
+  return a.get(String(sname == null ? '' : sname).trim() + '\u0001' + cnSizeCanonD(d, sname, size) + '\u0001' + c) || c;
 }
-const cnLKey = l => cnOptKey(l.sname, cnColorCanon(l.sname, l.color, l.size), l.size);
+const cnLKey = l => cnOptKey(l.sname, cnColorCanon(l.sname, l.color, l.size), cnSizeCanon(l.sname, l.size));
 function cnOrdCalc() {
   const d = cnState.data || {};
   if (cnState._oc && cnState._oc.d === d) return cnState._oc.c;
@@ -7902,16 +7934,20 @@ function cnFlowCalc() {
 }
 // 2026-11-13: 자료(d)를 받아 계산 — 출고 서류를 저장하기 전에 '올리면 어떻게 되는지' 미리 계산할 때도 씀(cnUploadSwaps)
 function cnFlowCalcFor(d) {
+  const prevD = __cnAliasD; __cnAliasD = d;   // 업로드 미리보기처럼 다른 자료로 계산할 때도 그 자료로 색·사이즈 짝
+  try { return cnFlowCalcFor0(d); } finally { __cnAliasD = prevD; }
+}
+function cnFlowCalcFor0(d) {
   const ord = x => String(x.ship_date || '9999') + String(x.id).padStart(9, '0');
   const ships = (d.ships || []).slice().sort((a, b) => ord(a) < ord(b) ? -1 : 1), shipOf = new Map(ships.map(x => [x.id, x]));
   const orderOf = new Map((d.orders || []).map(o => [o.id, o]));
   const m = new Map(), get = (k, sname, color, size) => { let e = m.get(k); if (!e) { e = { k, sname, color: color || '', size: size || '', orders: [], evs: new Map() }; m.set(k, e); } return e; };
   for (const ol of d.order_lines || []) {
-    const o = orderOf.get(ol.order_id) || {}, cc = cnColorCanon(ol.sname, ol.color, ol.size), e = get(cnLKey(ol), ol.sname, cc, ol.size);
+    const o = orderOf.get(ol.order_id) || {}, cc = cnColorCanon(ol.sname, ol.color, ol.size), e = get(cnLKey(ol), ol.sname, cc, cnSizeCanon(ol.sname, ol.size));
     if (cc !== String(ol.color || '').trim()) (e.alias = e.alias || new Set()).add(String(ol.color).trim());   // 주문서에는 다른 이름(예: 소라)으로 적힘
     e.orders.push({ date: o.order_date || '', title: o.title || '', qty: ol.qty });
   }
-  const addEv = (k, l, ship, e, f) => { const x = get(k, l.sname, l.color, l.size), v = x.evs.get(ship.id) || { ship, E: 0, F: null }; v.E += e; if (f != null) v.F = (v.F || 0) + f; x.evs.set(ship.id, v); };
+  const addEv = (k, l, ship, e, f) => { const x = get(k, l.sname, l.color, cnSizeCanon(l.sname, l.size)), v = x.evs.get(ship.id) || { ship, E: 0, F: null }; v.E += e; if (f != null) v.F = (v.F || 0) + f; x.evs.set(ship.id, v); };
   for (const l of d.lines || []) { const ship = shipOf.get(l.shipment_id); if (ship) addEv(cnLKey(l), l, ship, l.qty_sent, l.qty_left); }
   for (const ship of ships) for (const x of (Array.isArray(ship.left_extra) ? ship.left_extra : [])) addEv(cnLKey(x), x, ship, 0, x.left);
   for (const e of m.values()) {
@@ -8487,7 +8523,7 @@ async function cnPendCmpPick(input) {
       if (!cur || (!color && !size && !tx)) continue;
       const qty = typeof raw === 'number' ? raw : CN_DONE_RE.test(tx) ? 0 : /^\d+$/.test(tx) ? Number(tx) : null;
       if (qty == null) { if (tx) unread++; continue; }
-      const k = cnOptKey(cur, color, size), e = theirs.get(k) || { sname: cur, color, size, qty: 0 }; e.qty += qty; theirs.set(k, e);
+      const k = cnOptKey(cur, cnColorCanon(cur, color, size), cnSizeCanon(cur, size)), e = theirs.get(k) || { sname: cur, color, size, qty: 0 }; e.qty += qty; theirs.set(k, e);
     }
     if (!theirs.size) throw new Error('품번·수량 열을 찾지 못했어요 — 첫 시트에 품번(款号)·색상·사이즈·미송(수량) 열이 있는지 확인해 주세요');
     cnState.pendCmp = { file: file.name, theirs, unread, header: hr >= 0 };
@@ -8546,7 +8582,7 @@ function cnDefRecList() {
     for (const x of L) {
       const sh = x.shipment_id ? shipOf.get(x.shipment_id) : null;
       html += `<tr>${byDate ? '' : `<td style="white-space:nowrap;">${md(x.found_on)}</td>`}
-        <td style="text-align:left;"><div style="display:flex;align-items:center;gap:8px;">${cnThumbHtml(x.sname)}<div><b>${escHtml(x.sname)}</b><div class="cn-sub">${escHtml([cnColorCanon(x.sname, x.color, x.size), String(x.size || '').trim()].filter(Boolean).join(' / ') || '단일')}</div></div></div></td>
+        <td style="text-align:left;"><div style="display:flex;align-items:center;gap:8px;">${cnThumbHtml(x.sname)}<div><b>${escHtml(x.sname)}</b><div class="cn-sub">${escHtml([cnColorCanon(x.sname, x.color, x.size), cnSizeCanon(x.sname, x.size)].filter(Boolean).join(' / ') || '단일')}</div></div></div></td>
         <td style="text-align:right;"><b style="color:#b91c1c;">${fmt(x.qty)}장</b></td>
         <td style="text-align:left;">${sh ? escHtml(sh.title || '') : '<span style="color:#6b7280;">—</span>'}</td>
         <td style="text-align:left;white-space:normal;min-width:180px;">${x.note ? escHtml(x.note) : '<span style="color:#6b7280;">—</span>'}</td>
@@ -8570,7 +8606,7 @@ function cnDefectRows() {   // 옵션마다 { k, sname, color, size, done(입고
   // 불량률 분모 = 그 상품·옵션이 입고된 전체 수량(2026-10-26 사용자 지정 — 옛: 검수 완료 차수의 실입고만):
   //   실입고를 적은 줄은 실입고, 도착([입고 완료])했지만 아직 안 센 줄은 중국출고 수량, 아직 도착 전인 차수는 넣지 않음
   const d = cnState.data || {}, arrivedShip = new Set((d.ships || []).filter(x => x.arrived || cnShipDone(x)).map(x => x.id)), m = new Map();
-  const get = (k, l) => { let e = m.get(k); if (!e) m.set(k, e = { k, sname: l.sname, color: cnColorCanon(l.sname, l.color, l.size), size: String(l.size || '').trim(), done: 0, defect: 0, list: [] }); return e; };
+  const get = (k, l) => { let e = m.get(k); if (!e) m.set(k, e = { k, sname: l.sname, color: cnColorCanon(l.sname, l.color, l.size), size: cnSizeCanon(l.sname, l.size), done: 0, defect: 0, list: [] }); return e; };
   for (const l of d.lines || []) { const e = get(cnLKey(l), l); if (l.qty_actual != null) e.done += l.qty_actual; else if (arrivedShip.has(l.shipment_id)) e.done += l.qty_sent || 0; }
   for (const [k, v] of cnDefectMap()) { const e = get(k, v.list[0]); e.defect = v.qty; e.list = v.list; }
   return [...m.values()];
@@ -8602,8 +8638,8 @@ function cnDefFormRender() {
   const names = [...new Set([...(d.lines || []), ...(d.order_lines || [])].map(l => l.sname))].filter(n => !cnInactive(n)).sort((a, b) => String(a).localeCompare(String(b), 'ko', { numeric: true }));
   if (cnDefState.sname && !names.includes(cnDefState.sname)) cnDefState.sname = '';
   const sn = cnDefState.sname, opts = new Map();
-  for (const l of (d.lines || []).filter(l => l.sname === sn)) { const k = cnLKey(l); if (!opts.has(k)) opts.set(k, { color: cnColorCanon(l.sname, l.color, l.size), size: String(l.size || '').trim() }); }
-  for (const l of (d.order_lines || []).filter(l => l.sname === sn)) { const k = cnLKey(l); if (!opts.has(k)) opts.set(k, { color: cnColorCanon(l.sname, l.color, l.size), size: String(l.size || '').trim() }); }
+  for (const l of (d.lines || []).filter(l => l.sname === sn)) { const k = cnLKey(l); if (!opts.has(k)) opts.set(k, { color: cnColorCanon(l.sname, l.color, l.size), size: cnSizeCanon(l.sname, l.size) }); }
+  for (const l of (d.order_lines || []).filter(l => l.sname === sn)) { const k = cnLKey(l); if (!opts.has(k)) opts.set(k, { color: cnColorCanon(l.sname, l.color, l.size), size: cnSizeCanon(l.sname, l.size) }); }
   cnDefState.opts = [...opts.values()];
   const shipIds = new Set((d.lines || []).filter(l => l.sname === sn).map(l => l.shipment_id));
   const ships = (d.ships || []).filter(x => shipIds.has(x.id)).sort((a, b) => String(b.ship_date || '').localeCompare(String(a.ship_date || '')));
