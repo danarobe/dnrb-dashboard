@@ -22846,8 +22846,8 @@ function renderPerfResult() {
     <div class="cs-blur" style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:18px;">
       <div style="border-radius:13px;padding:16px;color:#fff;background:#4f46e5;">
         <div style="font-size:.75rem;font-weight:600;opacity:.85;margin-bottom:4px;">전체 순반품률 <span style="font-size:.7rem;opacity:.8;font-weight:400;">(${NET_GRADE_WIN}일 · ${netWinRangeTxt(NET_GRADE_WIN)})</span></div>
-        <div style="font-size:1.9rem;font-weight:800;">${netTotRate(NET_GRADE_WIN) != null ? Math.round(netTotRate(NET_GRADE_WIN)) + '%' : '—'}</div>
-        <div style="font-size:.75rem;opacity:.8;margin-top:3px;">${store.netWinTotals ? NET_WINS.map(w => `${w}일 ${netTotRate(w) != null ? Math.round(netTotRate(w)) + '%' : '—'}`).join(' · ') + ' · 배송완료일 기준' : '카페24 불러오기 필요'}</div>
+        <div style="font-size:1.9rem;font-weight:800;">${netTotRate(NET_GRADE_WIN) != null ? netTotRate(NET_GRADE_WIN).toFixed(1) + '%' : '—'}</div>
+        <div style="font-size:.75rem;opacity:.8;margin-top:3px;">${store.netWinTotals ? NET_WINS.map(w => `${w}일 ${netTotRate(w) != null ? netTotRate(w).toFixed(1) + '%' : '—'}`).join(' · ') + ' · 배송완료일 기준' : '카페24 불러오기 필요'}</div>
       </div>
       ${!isNaN(avgMargin) ? `
       <div style="border-radius:13px;padding:16px;color:#fff;background:#0e7490;">
