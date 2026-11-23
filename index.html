@@ -3845,7 +3845,7 @@ const cnCsOnly = () => !!SESSION && SESSION.role === 'cs';   // CS팀 = '미송 
 // CS팀 보기 전용(2026-11-05 사용자 요청 "입고 검수를 CS팀도 보게, 대신 아무것도 편집 못 하게"): 서버가 저장을 막고(진짜 보호), 화면은 저장하는 칸·버튼을 잠그거나 숨긴다.
 //   저장 함수를 부르는 입력칸·체크칸은 잠그고(값은 보임), 버튼·파일 고르기는 숨긴다. 보기용(펼치기·흐름 보기·사진 크게·엑셀 내려받기)은 그대로.
 //   새 저장 기능을 만들면 이 목록(CN_WRITE_FN)에도 함수 이름을 넣을 것.
-const CN_WRITE_FN = /\bcn(ShipArrivedSet|ShipDoneSet|DefAdd|DefDel|C24Save|C24Open|C24Find|C24Toggle|DocEdit|DiscardAsk|DiscardUndo|UploadSave|ThumbFilePick|SwapFix|ShipOrderSet|ShipEdit|ShipDelete|RemarkSave|MemoSave|ManualShip|LineSet|LabelSet|InactiveSet|GapUndo|GapClose|FillSame|FilePick|FabricSave|CostFilePick|CostClear|ActSave|ActKey|MisongSet|MisongPick|OrderPick|OrderSave|OrderEditOpen|OrderEditSave|OrderDelete|CellMap[A-Za-z]*)\(/;
+const CN_WRITE_FN = /\bcn(ShipArrivedSet|ShipDoneSet|DefAdd|DefDel|C24Save|C24Open|C24Find|C24Toggle|DocEdit|DiscardAsk|DiscardUndo|UploadSave|ThumbFilePick|SwapFix|ShipOrderSet|ShipEdit|ShipDelete|RemarkSave|MemoSave|ManualShip|LineSet|LabelSet|InactiveSet|GapUndo|GapClose|FillSame|FilePick|FabricSave|CostFilePick|CostClear|ActSave|ActKey|MisongSet|MisongPick|OrderPick|OrderSave|OrderReplacePick|OrderReplaceSave|OrderEditOpen|OrderEditSave|OrderDelete|CellMap[A-Za-z]*)\(/;
 function cnViewLock() {
   if (!cnCsOnly()) return;
   document.querySelectorAll('[onclick],[onchange],[oninput],[onkeydown]').forEach(el => {
@@ -6622,9 +6622,9 @@ function cnOrderTabRender() {   // '주문서' 탭 — 주문일 최근 순, 주
       return `<details style="border:1.5px solid #e0e7ff;background:#f8f9ff;border-radius:10px;padding:8px 12px;font-size:.8rem;">
         <summary style="cursor:pointer;display:flex;gap:10px;align-items:center;flex-wrap:wrap;list-style:none;">
           <i class="fa-solid fa-file-signature" style="color:#4f46e5;"></i><b style="color:#3730a3;">${escHtml(o.title)}</b>
-          <span class="cn-sub" style="display:inline;">${o.order_date ? `주문일 <b>${escHtml(o.order_date)}</b>` : '주문일 미입력'} · 품번 ${fmt(new Set(ols.map(x => x.sname)).size)}개 · 옵션 ${fmt(ols.length)}줄 · 주문 <b>${fmt(q)}장</b>${o.note ? ` · ${escHtml(o.note)}` : ''}</span>
+          <span class="cn-sub" style="display:inline;">${o.order_date ? `주문일 <b>${escHtml(o.order_date)}</b>` : '주문일 미입력'} · 품번 ${fmt(new Set(ols.map(x => x.sname)).size)}개 · 옵션 ${fmt(ols.length)}줄 · 주문 <b>${fmt(q)}장</b>${o.note ? ` · ${escHtml(o.note)}` : ''}${o.replaced_at ? ` · <span style="color:#7c3aed;" title="파일: ${escHtml(o.file_name || '')}">파일 바꿈 ${escHtml(kstDT(o.replaced_at))}${o.replaced_by_name ? ' · ' + escHtml(o.replaced_by_name) : ''}</span>` : ''}</span>
           <span style="font-size:.72rem;color:#4f46e5;">▸ 옵션 보기</span>
-          ${canEdit ? `<span style="margin-left:auto;display:flex;gap:6px;"><button class="toggle-btn" style="font-size:.7rem;padding:2px 9px;" onclick="event.preventDefault();cnOrderEditOpen(${o.id})"><i class="fa-solid fa-pen"></i> 정보 수정</button><button class="toggle-btn" style="font-size:.7rem;padding:2px 9px;color:#dc2626;" onclick="event.preventDefault();cnOrderDelete(${o.id})">삭제</button></span>` : ''}
+          ${canEdit ? `<span style="margin-left:auto;display:flex;gap:6px;"><button class="toggle-btn" style="font-size:.7rem;padding:2px 9px;" title="엑셀을 다시 골라 이 주문서의 수량을 새 파일 내용으로 바꿔요(이름·주문일·메모는 그대로)" onclick="event.preventDefault();cnOrderReplacePick(${o.id})"><i class="fa-solid fa-file-arrow-up"></i> 파일 바꾸기</button><button class="toggle-btn" style="font-size:.7rem;padding:2px 9px;" onclick="event.preventDefault();cnOrderEditOpen(${o.id})"><i class="fa-solid fa-pen"></i> 정보 수정</button><button class="toggle-btn" style="font-size:.7rem;padding:2px 9px;color:#dc2626;" onclick="event.preventDefault();cnOrderDelete(${o.id})">삭제</button></span>` : ''}
         </summary>
         <div class="table-wrap" style="margin-top:8px;max-height:360px;overflow:auto;"><table style="width:100%;font-size:.76rem;"><thead><tr><th style="text-align:left;">품번</th><th style="text-align:left;">색상</th><th style="text-align:left;">사이즈</th><th>주문 수량</th></tr></thead>
         <tbody>${ols.map(x => `<tr><td style="text-align:left;">${escHtml(x.sname)}</td><td style="text-align:left;">${escHtml(x.color || '')}</td><td style="text-align:left;">${escHtml(x.size || '')}</td><td style="text-align:right;${x.qty < 0 ? 'color:#b91c1c;font-weight:700;' : ''}">${fmt(x.qty)}${x.qty < 0 ? ' <span style="font-size:.66rem;">취소</span>' : ''}</td></tr>`).join('')}</tbody></table></div>
@@ -6657,7 +6657,12 @@ function cnParseOrderGrid(grid) {
   }
   return { lines, skipped, headerFound: hr >= 0, rowNames };
 }
-async function cnOrderPick(input, targetId) {   // targetId = 일자만 등록한 주문서 줄의 [주문서 올리기](2026-11-08)
+function cnOrderReplacePick(oid) {   // [파일 바꾸기](2026-11-23) — 엑셀을 골라 그 주문서의 옵션 줄을 새 내용으로
+  const inp = document.createElement('input'); inp.type = 'file'; inp.accept = '.xlsx,.xls';
+  inp.onchange = () => cnOrderPick(inp, null, oid);
+  inp.click();
+}
+async function cnOrderPick(input, targetId, replaceId) {   // targetId = 일자만 등록한 주문서 줄의 [주문서 올리기](2026-11-08)
   const file = input.files[0]; input.value = '';
   if (!file) return;
   const panel = $('cn-upload-panel');
@@ -6673,7 +6678,7 @@ async function cnOrderPick(input, targetId) {   // targetId = 일자만 등록�
     const lines = parts.flatMap(p => p.lines.map(l => ({ ...l, sheet: p.sheet })));
     const thumbs = {};
     for (const p of parts) { try { const t = await cnExtractThumbs(buf, XLSX, p.rowNames, p.index); for (const [k, v] of Object.entries(t)) if (!thumbs[k]) thumbs[k] = v; } catch (e2) { /* 사진은 못 꺼내도 주문서는 올린다 */ } }
-    cnState.pendingOrder = { target: targetId || null, file_name: file.name.normalize('NFC'), title: file.name.replace(/\.(xlsx|xls)$/i, '').normalize('NFC'), parts, lines, skipped: parts.flatMap(p => p.skipped.map(t => `[${p.sheet}] ${t}`)), headerFound: withHead.length > 0, thumbs };
+    cnState.pendingOrder = { target: targetId || null, replace: replaceId || null, file_name: file.name.normalize('NFC'), title: file.name.replace(/\.(xlsx|xls)$/i, '').normalize('NFC'), parts, lines, skipped: parts.flatMap(p => p.skipped.map(t => `[${p.sheet}] ${t}`)), headerFound: withHead.length > 0, thumbs };
     cnOrderPanelRender();
     panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
   } catch (e) { panel.innerHTML = `<div style="border:1.5px solid #fca5a5;background:#fef2f2;border-radius:12px;padding:10px 14px;font-size:.82rem;color:#b91c1c;margin-bottom:12px;">주문서를 읽지 못했어요 — ${escHtml(e.message)}</div>`; }
@@ -6681,6 +6686,7 @@ async function cnOrderPick(input, targetId) {   // targetId = 일자만 등록�
 function cnOrderPanelRender() {
   const p = cnState.pendingOrder, panel = $('cn-upload-panel');
   if (!p) { panel.innerHTML = ''; return; }
+  if (p.replace) { panel.innerHTML = cnOrderReplaceHtml(p); return; }
   const d = cnState.data || {}, orders = new Map((d.orders || []).map(o => [o.id, o]));
   const names = new Set(p.lines.map(l => l.sname)), qty = p.lines.reduce((t, l) => t + l.qty, 0);
   const dupKeys = (() => { const m = new Map(); for (const l of p.lines) { const k = cnOptKey(l.sname, l.color, l.size); m.set(k, (m.get(k) || 0) + 1); } return [...m.values()].filter(n => n > 1).length; })();
@@ -6702,6 +6708,44 @@ function cnOrderPanelRender() {
     <div style="display:flex;gap:8px;"><button class="toggle-btn" id="cn-ord-save" style="background:#4f46e5;color:#fff;border-color:#4f46e5;" onclick="cnOrderSave()"><i class="fa-solid fa-floppy-disk"></i> 이 내용으로 저장</button>
       <button class="toggle-btn" onclick="cnState.pendingOrder=null;cnOrderPanelRender()">취소</button></div>
   </div>`;
+}
+// 파일 바꾸기 확인 — 지금 주문서와 새 파일을 옵션(품번·색상·사이즈 글자 그대로)마다 비교해 달라지는 줄만 보여 준다
+function cnOrderReplaceHtml(p) {
+  const d = cnState.data || {}, o = (d.orders || []).find(x => x.id === p.replace);
+  if (!o) return `<div style="border:1.5px solid #fca5a5;background:#fef2f2;border-radius:12px;padding:10px 14px;font-size:.82rem;color:#b91c1c;margin-bottom:12px;">바꿀 주문서를 찾지 못했어요 — 새로고침해 주세요 <button class="toggle-btn" onclick="cnState.pendingOrder=null;cnOrderPanelRender()">닫기</button></div>`;
+  const sum = ls => { const m = new Map(); for (const l of ls) { const k = cnOptKey(l.sname, l.color, l.size); const e = m.get(k) || { sname: l.sname, color: l.color || '', size: l.size || '', qty: 0 }; e.qty += l.qty; m.set(k, e); } return m; };
+  const oldL = (d.order_lines || []).filter(x => x.order_id === o.id), a = sum(oldL), b = sum(p.lines);
+  const tot = ls => ls.reduce((t, l) => t + l.qty, 0), oq = tot(oldL), nq = tot(p.lines);
+  const diff = [];
+  for (const k of new Set([...a.keys(), ...b.keys()])) { const x = a.get(k), y = b.get(k), was = x ? x.qty : 0, now = y ? y.qty : 0; if (was !== now) diff.push({ ...(y || x), was, now }); }
+  diff.sort((u, v) => String(u.sname).localeCompare(String(v.sname), 'ko', { numeric: true }) || String(u.color).localeCompare(String(v.color), 'ko') || String(u.size).localeCompare(String(v.size), 'ko'));
+  const ch = v => v.was === 0 ? '<span style="color:#047857;font-weight:700;">새로 생김</span>' : v.now === 0 ? '<span style="color:#b91c1c;font-weight:700;">빠짐</span>' : `<b style="color:${v.now > v.was ? '#047857' : '#b91c1c'};">${v.now > v.was ? '+' : '−'}${fmt(Math.abs(v.now - v.was))}</b>`;
+  return `<div style="border:1.5px solid #c4b5fd;background:#faf5ff;border-radius:14px;padding:14px 16px;margin-bottom:14px;">
+    <div style="font-size:.9rem;font-weight:800;color:#5b21b6;"><i class="fa-solid fa-file-arrow-up"></i> 주문서 파일 바꾸기 — ${escHtml(o.title)}</div>
+    <div style="font-size:.78rem;color:#6b7280;margin:4px 0 8px;">${o.order_date ? `주문일 ${escHtml(o.order_date)}` : '주문일 미입력'} · 지금 파일 ${escHtml(o.file_name || '—')} → 새 파일 <b>${escHtml(p.file_name)}</b> · 이름·주문일·메모는 그대로예요</div>
+    <div style="font-size:.84rem;color:#374151;margin-bottom:8px;">옵션 <b>${fmt(oldL.length)}줄 · ${fmt(oq)}장</b> → <b>${fmt(p.lines.length)}줄 · ${fmt(nq)}장</b> <span style="color:${nq === oq ? '#6b7280' : nq > oq ? '#047857' : '#b91c1c'};font-weight:700;">(${nq === oq ? '합계 같음' : (nq > oq ? '+' : '−') + fmt(Math.abs(nq - oq)) + '장'})</span> · 달라지는 옵션 <b>${fmt(diff.length)}개</b></div>
+    ${!p.headerFound ? '<div style="font-size:.76rem;color:#b45309;margin-bottom:6px;"><i class="fa-solid fa-triangle-exclamation"></i> 머리글(색상·수량)을 못 찾아 첫 시트를 A 품번 · C 색상 · D 사이즈 · E 수량 순서로 읽었어요 — 아래 내용이 맞는지 확인해 주세요.</div>' : ''}
+    ${p.skipped.length ? `<details style="font-size:.76rem;color:#b45309;margin-bottom:6px;"><summary style="cursor:pointer;font-weight:700;"><i class="fa-solid fa-triangle-exclamation"></i> 읽지 못한 줄 ${p.skipped.length}개</summary>${p.skipped.slice(0, 30).map(t => `<div>${escHtml(t)}</div>`).join('')}</details>` : ''}
+    ${diff.length ? `<details ${diff.length <= 40 ? 'open' : ''} style="font-size:.76rem;margin-bottom:10px;"><summary style="cursor:pointer;color:#5b21b6;font-weight:700;">달라지는 옵션 ${fmt(diff.length)}개</summary>
+      <div class="table-wrap" style="max-height:300px;overflow:auto;margin-top:6px;"><table style="width:100%;font-size:.76rem;"><thead><tr><th style="text-align:left;">품번</th><th style="text-align:left;">색상</th><th style="text-align:left;">사이즈</th><th>지금</th><th>새 파일</th><th>변화</th></tr></thead>
+      <tbody>${diff.map(v => `<tr><td style="text-align:left;">${escHtml(v.sname)}</td><td style="text-align:left;">${escHtml(v.color)}</td><td style="text-align:left;">${escHtml(v.size)}</td><td style="text-align:right;">${fmt(v.was)}</td><td style="text-align:right;">${fmt(v.now)}</td><td style="text-align:right;">${ch(v)}</td></tr>`).join('')}</tbody></table></div></details>`
+      : '<div style="font-size:.78rem;color:#047857;margin-bottom:10px;"><i class="fa-solid fa-circle-check"></i> 수량이 달라지는 옵션이 없어요 — 바꿔도 숫자는 그대로예요(파일 이름만 바뀜).</div>'}
+    <div style="font-size:.74rem;color:#6b7280;margin-bottom:8px;">바꾸면 입고 검수의 주문·잔여, 미송 점검, 수량 흐름이 새 수량으로 다시 계산돼요. 예전 내용은 기록으로 남겨 둬요.</div>
+    <div style="display:flex;gap:8px;"><button class="toggle-btn" id="cn-ord-replace" style="background:#7c3aed;color:#fff;border-color:#7c3aed;" onclick="cnOrderReplaceSave()"><i class="fa-solid fa-file-arrow-up"></i> 이 파일로 바꾸기</button>
+      <button class="toggle-btn" onclick="cnState.pendingOrder=null;cnOrderPanelRender()">취소</button></div>
+  </div>`;
+}
+async function cnOrderReplaceSave() {
+  const p = cnState.pendingOrder; if (!p || !p.replace) return;
+  const o = ((cnState.data || {}).orders || []).find(x => x.id === p.replace); if (!o) { showToast('주문서를 찾지 못했어요 — 새로고침해 주세요'); return; }
+  if (!confirm(`'${o.title}' 주문서의 수량을 새 파일(${p.file_name}) 내용으로 바꿀까요?\n이름·주문일·메모는 그대로이고, 예전 내용은 기록으로 남겨 둬요.`)) return;
+  const btn = $('cn-ord-replace'); if (btn) btn.disabled = true;
+  try {
+    const r = await cnPost('cn_order_replace', { id: o.id, file_name: p.file_name, lines: p.lines, thumbs: p.thumbs || {} });
+    cnState.pendingOrder = null; cnOrderPanelRender();
+    showToast(`주문서를 바꿨어요 — 옵션 ${fmt(r.old_count)}줄·${fmt(r.old_qty)}장 → ${fmt(r.new_count)}줄·${fmt(r.new_qty)}장`);
+    cnState.loading = false; await cnLoad(true); cnSetTab('order');
+  } catch (e) { if (btn) btn.disabled = false; showToast('바꾸지 못했어요(예전 내용 그대로): ' + e.message); }
 }
 function cnOrderTargetDate(id) { const o = id ? cnOrderPendingList().find(x => x.id === id) : null; return o ? (o.order_date || '') : ''; }
 function cnOrderTargetHtml(p) {   // 일자만 등록한 주문이 있으면 '어느 주문의 주문서인지' 고르기(헤더 버튼으로 올려도 그 주문에 채울 수 있게)
