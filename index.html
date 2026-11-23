@@ -6163,6 +6163,7 @@ const cnYuan = v => v == null ? '—' : '¥' + (Math.round(Number(v) * 100) / 10
 
 /* ── 엑셀 읽기: 첫 시트. 머리글 줄(색상·출고가 있는 줄)을 찾아 열 위치를 정하고, 못 찾으면 A~H 고정 위치.
       품번(A)은 묶음 첫 줄에만 있어(병합 칸) 아래 줄은 위 값을 이어받는다. 색상·사이즈가 있고 출고 수량이 숫자인 줄만 옵션 줄(합계·메모 줄은 자동으로 빠짐). ── */
+const CN_DONE_RE = /출완|출고\s*완료/;   // 미출고(F열) '출완' = 더 나올 수량 없음 — '출고완료'·'출고 완료'도 같은 뜻
 function cnParseGrid(grid) {
   const txt = v => String(v == null ? '' : v).replace(/\s+/g, ' ').trim();
   let hr = -1, col = { name: 0, color: 2, size: 3, sent: 4, left: 5, price: 6, note: 8, fabric: -1 };   // fabric = 머리글에 '혼용'이 든 열(없으면 -1 — 읽지 않음, 2026-10-12)
@@ -6179,7 +6180,8 @@ function cnParseGrid(grid) {
   const lines = [], skipped = [], rowNames = [], leftExtra = [];   // rowNames[엑셀 줄(0부터)] = 그 줄의 품번(이어받은 값) — 그림 위치 → 품번 연결용 · leftExtra = 출고(E)는 비고 미출고(F)만 적힌 줄(2026-10-23)
   let blankRows = 0;
   // 미출고(F열) — 2026-10-23 다시 읽는다(사용자: "F열 미출고가 잔여 수량, '출완' = 더 나올 수량 없음"). 숫자 → 그 값, '출완' → 0, 빈칸 → null, 그 밖 → undefined(읽지 못함)
-  const leftOf = v => { if (typeof v === 'number') return Number.isInteger(v) && v >= 0 ? v : undefined; const t = txt(v); if (!t) return null; if (/출완/.test(t)) return 0; return /^\d+$/.test(t) ? Number(t) : undefined; };
+  // '출완' 외에 '출고완료'·'출고 완료'도 출완(2026-11-23 사용자 요청)
+  const leftOf = v => { if (typeof v === 'number') return Number.isInteger(v) && v >= 0 ? v : undefined; const t = txt(v); if (!t) return null; if (CN_DONE_RE.test(t)) return 0; return /^\d+$/.test(t) ? Number(t) : undefined; };
   const fab = new Map();   // 품번 → 혼용률(그 품번 묶음의 줄들에 적힌 값, 서로 다르면 ' / '로 이음)
   let cur = '';
   for (let r = hr + 1; r < grid.length; r++) {
@@ -8483,7 +8485,7 @@ async function cnPendCmpPick(input) {
       const row = grid[r] || [], nm = t(row[col.name]); if (nm) cur = nm;
       const color = t(row[col.color]), size = col.size >= 0 ? t(row[col.size]) : '', raw = row[col.qty], tx = t(raw);
       if (!cur || (!color && !size && !tx)) continue;
-      const qty = typeof raw === 'number' ? raw : /출완/.test(tx) ? 0 : /^\d+$/.test(tx) ? Number(tx) : null;
+      const qty = typeof raw === 'number' ? raw : CN_DONE_RE.test(tx) ? 0 : /^\d+$/.test(tx) ? Number(tx) : null;
       if (qty == null) { if (tx) unread++; continue; }
       const k = cnOptKey(cur, color, size), e = theirs.get(k) || { sname: cur, color, size, qty: 0 }; e.qty += qty; theirs.set(k, e);
     }
