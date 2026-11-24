@@ -6248,7 +6248,10 @@ function cnParseGrid(grid) {
     if (ci >= 0 && si >= 0) {
       hr = r;
       const find = (names, def) => { const i = cells.findIndex(c => names.includes(c)); return i >= 0 ? i : def; };
-      col = { name: find(['품번', '상품명', '공급사 상품명', '사입상품명'], 0), color: ci, size: find(['비고', '사이즈'], ci + 1), sent: si, left: find(['미출고', '잔여'], si + 1), price: find(['단가'], si + 2), note: find(['주문 날짜', '메모'], si + 4), fabric: cells.findIndex(c => /혼용/.test(c)) };
+      // 메모 = '주문 날짜'·'메모'·'특이 사항' 열, 없으면 출고 +4칸 — 단 그 칸 머리글이 매장·위챗이면 메모 없음(2026-11-24 새 물류사 양식: I = 매장, K = 특이 사항)
+      const noteI = cells.findIndex(c => ['주문 날짜', '메모'].includes(c) || /^특이\s*사항$/.test(c));
+      const note = noteI >= 0 ? noteI : (/^(매장|위챗\s*ID|위챗)$/i.test(cells[si + 4] || '') ? -1 : si + 4);
+      col = { name: find(['품번', '상품명', '공급사 상품명', '사입상품명'], 0), color: ci, size: find(['비고', '사이즈'], ci + 1), sent: si, left: find(['미출고', '잔여'], si + 1), price: find(['단가'], si + 2), note, fabric: cells.findIndex(c => /혼용/.test(c)) };
       break;
     }
   }
@@ -6277,7 +6280,7 @@ function cnParseGrid(grid) {
     if (left === undefined) skipped.push(`${r + 1}행 (${cur} ${color} ${size}): 미출고를 읽지 못함 "${txt(row[col.left])}" — 줄은 올리고 미출고는 비워 둬요`);
     if (!cur) { skipped.push(`${r + 1}행: 품번이 없음`); continue; }
     const pr = row[col.price], price = typeof pr === 'number' ? pr : (/^\d+(\.\d+)?$/.test(txt(pr)) ? Number(txt(pr)) : null);
-    lines.push({ sname: cur, color: color || null, size: size || null, qty_sent: sent, qty_left: typeof left === 'number' ? left : null, unit_price: price, line_note: txt(row[col.note]) || null });
+    lines.push({ sname: cur, color: color || null, size: size || null, qty_sent: sent, qty_left: typeof left === 'number' ? left : null, unit_price: price, line_note: (col.note >= 0 && txt(row[col.note])) || null });
   }
   const inLines = new Set(lines.map(l => l.sname)), fabrics = {};
   for (const [k, set] of fab) if (inLines.has(k)) fabrics[k] = [...set].join(' / ').slice(0, 200);
@@ -6287,13 +6290,25 @@ function cnParseGrid(grid) {
 function cnParseArrival(grid) {
   const out = { ship: null, arrival: null, boxes: null }, y = Number(cnToday().slice(0, 4)), pad = v => String(v).padStart(2, '0');
   for (const row of grid) for (const c of (row || [])) {
-    const t = String(c == null ? '' : c).replace(/\s+/g, ' ');
+    const t = String(c == null ? '' : c).replace(/\s+/g, ' ').replace(/(^|[^\d])(\d{2})(\d{2})(?=\s*\()/g, '$1$2.$3');   // '1124(화)' → '11.24(화)'
     const m = t.match(/(\d{1,2})[.\/](\d{1,2})\s*(?:\([^)]*\))?\s*출고\s*(\d{1,4})\s*박스(?:.*?(\d{1,2})[.\/](\d{1,2})\s*(?:\([^)]*\))?\s*(?:한국)?\s*도착)?/);
     if (!m) continue;
     out.ship = `${y}-${pad(m[1])}-${pad(m[2])}`; out.boxes = Number(m[3]);
     if (m[4]) out.arrival = `${Number(m[4]) < Number(m[1]) ? y + 1 : y}-${pad(m[4])}-${pad(m[5])}`;
     return out;
   }
+  // 문장이 없으면 머리글 칸 아래 값(새 물류사 양식 N·O·P열 — 2026-11-24): 중국출고일 '11.24(화)' · 박스수 '24박스' · 한국도착예정 '11.27(금)'
+  const md = v => { const x = String(v == null ? '' : v).match(/(\d{1,2})[.\/](\d{1,2})/); return x ? [Number(x[1]), Number(x[2])] : null; };
+  for (let r = 0; r < Math.min(grid.length, 10); r++) {
+    const row = grid[r] || [], below = grid[r + 1] || [];
+    row.forEach((c, i) => {
+      const h = String(c == null ? '' : c).replace(/\s+/g, '');
+      if (/^중국출고일?$/.test(h) && !out.ship) { const d = md(below[i]); if (d) out.ship = `${y}-${pad(d[0])}-${pad(d[1])}`; }
+      else if (/^박스수(량)?$/.test(h) && out.boxes == null) { const b = String(below[i] == null ? '' : below[i]).match(/\d{1,4}/); if (b) out.boxes = Number(b[0]); }
+      else if (/^(한국)?도착(예정)?일?$/.test(h) && !out.arrival) { const d = md(below[i]); if (d) out.arrival = { d }; }
+    });
+  }
+  if (out.arrival && out.arrival.d) { const d = out.arrival.d, sm = out.ship ? Number(out.ship.slice(5, 7)) : d[0]; out.arrival = `${d[0] < sm ? y + 1 : y}-${pad(d[0])}-${pad(d[1])}`; }
   return out;
 }
 // 출고 서류 합계 블록(2026-10-22): '물건값 합계(위안)' ~ '총 합계(위안)' 사이의 줄들 — 라벨 바로 왼쪽(3칸 안)의 숫자. 사이에 든 '에이전시…'는 agency, 그 밖(경비·특송+택배 등)은 items.
@@ -6315,6 +6330,18 @@ function cnParseDoc(grid) {
   }
   return doc;
 }
+// 입고 엑셀에서 읽을 시트(2026-11-24 사용자 요청 — "'출고 정산서' 시트는 앞으로 무시"): 이름이 '출고 정산서'인 시트는 건너뛰고,
+// 머리글 줄(색상·출고)이 있는 첫 시트를 읽는다. 그런 시트가 없으면 정산서가 아닌 첫 시트.
+const CN_SKIP_SHEET_RE = /출고\s*정산서/;
+function cnPickShipSheet(wb, XLSX) {
+  const names = wb.SheetNames, ok = names.filter(n => !CN_SKIP_SHEET_RE.test(n));
+  const gridOf = n => XLSX.utils.sheet_to_json(wb.Sheets[n], { header: 1, defval: '' });
+  const hasHead = g => g.slice(0, 10).some(r => { const c = (r || []).map(v => String(v == null ? '' : v).replace(/\s+/g, ' ').trim()); return c.includes('색상') && c.includes('출고'); });
+  let name = null, grid = null; const shipLike = [];
+  for (const n of ok) { const g = gridOf(n); if (hasHead(g)) { shipLike.push(n); if (!name) { name = n; grid = g; } } }
+  if (!name) { name = ok[0] || names[0]; grid = gridOf(name); }
+  return { name, index: names.indexOf(name), grid, skipped: names.filter(n => CN_SKIP_SHEET_RE.test(n)), others: shipLike.filter(n => n !== name), total: names.length };
+}
 async function cnFilePick(input) {
   const file = input.files[0]; input.value = '';
   if (!file) return;
@@ -6323,17 +6350,16 @@ async function cnFilePick(input) {
   try {
     const XLSX = await loadSheetJS();
     const wb = XLSX.read(await file.arrayBuffer(), { type: 'array' });
-    const sheetName = wb.SheetNames[0];
-    const grid = XLSX.utils.sheet_to_json(wb.Sheets[sheetName], { header: 1, defval: '' });
+    const pick = cnPickShipSheet(wb, XLSX), sheetName = pick.name, grid = pick.grid;
     const parsed = cnParseGrid(grid);
-    if (!parsed.lines.length) throw new Error('옵션 줄을 찾지 못했어요 — 첫 시트에 품번·색상·출고 열이 있는지 확인해 주세요');
+    if (!parsed.lines.length) throw new Error(`옵션 줄을 찾지 못했어요 — 시트 "${sheetName}"에 품번·색상·출고 열이 있는지 확인해 주세요`);
     const title = file.name.replace(/\.(xlsx|xls)$/i, '').normalize('NFC');
     const dm = title.match(/(\d{1,2})[:.\/-](\d{1,2})/);   // 파일 이름의 '9:25'·'9.25' → 출고일 추정(올해)
     const guessDate = dm ? `${new Date().getFullYear()}-${String(dm[1]).padStart(2, '0')}-${String(dm[2]).padStart(2, '0')}` : '';
     const arr = cnParseArrival(grid), fb = title.match(/(\d{1,4})\s*박스/);
-    let costs = null; try { costs = cnCostSheet(wb, XLSX); } catch (e2) { costs = null; }
-    let thumbs = {}; try { thumbs = await cnExtractThumbs(await file.arrayBuffer(), XLSX, parsed.rowNames); } catch (e3) { thumbs = {}; }
-    cnState.pending = { file_name: file.name.normalize('NFC'), sheet: sheetName, title, ship_date: arr.ship || guessDate, arrival_date: arr.arrival || '', box_count: arr.boxes != null ? arr.boxes : fb ? Number(fb[1]) : '', costs, thumbs, ...parsed };
+    let costs = null; try { costs = cnCostSheet(wb, XLSX, sheetName); } catch (e2) { costs = null; }
+    let thumbs = {}; try { thumbs = await cnExtractThumbs(await file.arrayBuffer(), XLSX, parsed.rowNames, pick.index); } catch (e3) { thumbs = {}; }
+    cnState.pending = { file_name: file.name.normalize('NFC'), sheet: sheetName, sheetPick: pick.total > 1 ? { skipped: pick.skipped, others: pick.others, total: pick.total } : null, title, ship_date: arr.ship || guessDate, arrival_date: arr.arrival || '', box_count: arr.boxes != null ? arr.boxes : fb ? Number(fb[1]) : '', costs, thumbs, ...parsed };
     cnUploadPanelRender();
   } catch (e) { panel.innerHTML = `<div style="border:1.5px solid #fca5a5;background:#fef2f2;border-radius:12px;padding:10px 14px;font-size:.82rem;color:#b91c1c;margin-bottom:12px;">엑셀을 읽지 못했어요 — ${escHtml(e.message)}</div>`; }
 }
@@ -6347,6 +6373,7 @@ function cnUploadPanelRender() {
   const inp = (id, label, val, ph, type) => `<label style="font-size:.74rem;color:#4b5563;font-weight:600;">${label}<input id="${id}" type="${type || 'text'}" value="${escHtml(val || '')}" placeholder="${ph || ''}" style="display:block;margin-top:3px;border:1.5px solid #d1d5db;border-radius:8px;padding:6px 10px;font-size:.82rem;width:100%;box-sizing:border-box;" /></label>`;
   panel.innerHTML = `<div style="border:1.5px solid #c7d2fe;background:#f8f9ff;border-radius:14px;padding:14px 16px;margin-bottom:14px;">
     <div style="font-size:.9rem;font-weight:800;color:#3730a3;"><i class="fa-solid fa-file-excel"></i> 올릴 내용 확인 — ${escHtml(p.file_name)} <span style="font-weight:500;color:#6b7280;font-size:.74rem;">(시트 "${escHtml(p.sheet)}")</span></div>
+    ${p.sheetPick ? `<div style="font-size:.76rem;color:#374151;margin:4px 0 6px;"><i class="fa-solid fa-layer-group" style="color:#4f46e5;"></i> 시트 ${p.sheetPick.total}개 중 <b>"${escHtml(p.sheet)}"</b>만 읽었어요${p.sheetPick.skipped.length ? ` · ${p.sheetPick.skipped.map(n => `"${escHtml(n.trim())}"`).join('·')} 건너뜀` : ''}${p.sheetPick.others.length ? ` · <span style="color:#b45309;">다른 출고 시트 ${p.sheetPick.others.map(n => `"${escHtml(n)}"`).join('·')}는 안 읽었어요 — 그 출고분은 그 시트만 남긴 파일로 따로 올려 주세요</span>` : ''}</div>` : ''}
     <div style="font-size:.82rem;color:#374151;margin:8px 0;">사입상품 <b>${fmt(names.length)}개</b> · 옵션 <b>${fmt(p.lines.length)}줄</b> · 전달 수량 <b>${fmt(qty)}장</b>${showPrice ? ` · 금액 <b>${cnYuan(amt)}</b>` : ''}</div>
     ${(() => { const ls = p.lines.filter(l => l.qty_left != null), ex = p.leftExtra || [], rest = ls.reduce((t, l) => t + l.qty_left, 0) + ex.reduce((t, x) => t + x.left, 0), done = ls.filter(l => l.qty_left === 0).length;
       return `<div style="font-size:.8rem;color:#374151;margin-bottom:8px;"><i class="fa-solid fa-hourglass-half" style="color:#c2410c;"></i> 미출고(F열): 옵션 <b>${fmt(ls.length)}줄</b>에 적힘 · 출완 <b>${fmt(done)}줄</b> · 아직 남은 수량 <b>${fmt(rest)}장</b>${ex.length ? ` · 출고 없이 미출고만 적힌 줄 <b>${fmt(ex.length)}개</b>(${ex.map(x => `${escHtml(x.sname)} ${escHtml([x.color, x.size].filter(Boolean).join(' / '))} ${x.left}`).join(', ')})` : ''}${p.blankRows ? ` · 출고·미출고 모두 빈 줄 ${fmt(p.blankRows)}개는 건너뜀` : ''} <span style="color:#6b7280;">— '미송 점검' 탭에서 주문 − 출고 − 미출고를 맞춰 봐요</span></div>`; })()}
@@ -7682,8 +7709,9 @@ function cnParseCosts(grid, sheetName) {
   }
   return out.items.length || out.payments.length ? out : null;
 }
-function cnCostSheet(wb, XLSX) {   // 비용 시트 = 이름에 물류비·관부가세·비용이 든 시트, 없으면 두 번째 시트
-  const name = wb.SheetNames.find((n, i) => i > 0 && /물류비|관부가세|비용/.test(n)) || wb.SheetNames[1];
+function cnCostSheet(wb, XLSX, shipSheet) {   // 비용 시트 = 이름에 물류비·관부가세·비용이 든 시트, 없으면 두 번째 시트('출고 정산서'·읽은 출고 시트는 빼고 — 2026-11-24)
+  const ns = wb.SheetNames.filter(n => !CN_SKIP_SHEET_RE.test(n) && n !== (shipSheet || wb.SheetNames[0]));
+  const name = ns.find(n => /물류비|관부가세|비용/.test(n)) || ns[0];
   if (!name) return null;
   return cnParseCosts(XLSX.utils.sheet_to_json(wb.Sheets[name], { header: 1, defval: '' }), name);
 }
