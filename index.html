@@ -4590,7 +4590,8 @@ function cnBuyRender() {
     const price = st.price[p.sname] != null ? st.price[p.sname] : p.price;
     html += `<tr style="background:#f8f9ff;"><td class="cn-name" colspan="4"><div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">${cnThumbHtml(p.sname)}<b style="font-weight:800;">${escHtml(p.sname)}</b><span class="cn-sub">옵션 ${p.opts.length}</span>
         ${cnOrderLabelText(p.sname) ? `<span class="cn-label-badge" title="주문서 J열 '라벨'에 들어가요 — 입고 관리의 상품 줄 '라벨' 칸에서 고칠 수 있어요">라벨: ${escHtml(cnOrderLabelText(p.sname))}</span>` : ''}
-        ${cnOrderRemarkText(p.sname) ? `<span class="cn-rmk-txt" title="주문서 K열 '특이사항'에 들어가요 — 입고 관리의 상품 줄 '특이사항' 칸에서 고칠 수 있어요">특이사항: ${escHtml(cnOrderRemarkText(p.sname))}</span>` : ''}
+        ${cnLabelImgMeta(p.sname).length ? `<button type="button" class="cn-lbimg-chip" data-cn-lbimg="${escHtml(encodeURIComponent(p.sname))}" onclick="cnLabelImgOpen(this.dataset.cnLbimg)" title="주문서 K열 '라벨 사진'에 들어가요 — 입고 검수의 상품 줄 '라벨' 아래에서 붙이거나 지울 수 있어요" aria-label="${escHtml(p.sname)} 라벨 사진 ${cnLabelImgMeta(p.sname).length}장 크게 보기"><i class="fa-regular fa-image" aria-hidden="true"></i>라벨 사진 ${cnLabelImgMeta(p.sname).length}</button>` : ''}
+        ${cnOrderRemarkText(p.sname) ? `<span class="cn-rmk-txt" title="주문서 L열 '특이사항'에 들어가요 — 입고 관리의 상품 줄 '특이사항' 칸에서 고칠 수 있어요">특이사항: ${escHtml(cnOrderRemarkText(p.sname))}</span>` : ''}
         ${cnBuyVendorHtml(p.sname, info)}
         ${canPrice ? `<span class="cn-sub" style="display:inline-flex;align-items:center;gap:4px;">단가 ¥<input type="number" min="0" step="0.1" value="${price == null ? '' : price}" data-s="${escHtml(p.sname)}" onchange="cnBuyPrice(this)" style="width:70px;border:1px solid #e5e7eb;border-radius:6px;padding:2px 6px;font-size:.74rem;text-align:right;" /></span>` : ''}</div></td>
       <td style="text-align:right;font-weight:800;color:${sub ? '#4338ca' : '#6b7280'};" data-buy-sub="${escHtml(encodeURIComponent(p.sname))}">${sub ? fmt(sub) + '장' : '—'}</td></tr>`;
@@ -4688,44 +4689,77 @@ function loadExcelJS() {   // 그림이 든 엑셀을 만들 때만(주문하기
    사진 오른쪽 끝이 B열 15px 지점에 놓였음 → 소수 위치를 쓰지 않고, 왼쪽 위(원래 단위 EMU) + 사진 크기(px, 원래 비율 유지)로 넣는다. */
 const CN_XL_IMG_W = 15, CN_XL_ROW_PT = 18;
 function cnImgSize(url) { return new Promise(res => { const im = new Image(); im.onload = () => res({ w: im.naturalWidth || 1, h: im.naturalHeight || 1 }); im.onerror = () => res({ w: 3, h: 4 }); im.src = url; }); }
-async function cnXlImgRange(url, r0, n) {   // r0 = 상품 첫 줄(1부터), n = 상품 줄 수
-  const EMU = 9525, colPx = Math.floor(CN_XL_IMG_W * 7 + 5), rowPx = CN_XL_ROW_PT * 4 / 3, boxH = rowPx * n, pad = 4;
+async function cnXlImgRange(url, r0, n, rowPt = CN_XL_ROW_PT) {   // r0 = 상품 첫 줄(1부터), n = 상품 줄 수, rowPt = 그 상품 줄 높이(라벨 사진이 많으면 높아짐)
+  const EMU = 9525, colPx = Math.floor(CN_XL_IMG_W * 7 + 5), rowPx = rowPt * 4 / 3, boxH = rowPx * n, pad = 4;
   const { w, h } = await cnImgSize(url), k = Math.min((colPx - pad * 2) / w, (boxH - pad * 2) / h);
   const iw = Math.max(1, Math.floor(w * k)), ih = Math.max(1, Math.floor(h * k));
   const offX = (colPx - iw) / 2, offY = (boxH - ih) / 2, rowIn = Math.min(n - 1, Math.floor(offY / rowPx));
   return { tl: { nativeCol: 1, nativeColOff: Math.round(offX * EMU), nativeRow: r0 - 1 + rowIn, nativeRowOff: Math.round((offY - rowIn * rowPx) * EMU) }, ext: { width: iw, height: ih }, editAs: 'oneCell' };
 }
+/* 주문서 K열 '라벨 사진'(2026-11-24 사용자 요청 — "J열 라벨과 K열 사이에 열을 추가해서 라벨 사진이 첨부되게", 특이사항은 L열로).
+   입고 검수에서 붙인 라벨 사진(cn_label_imgs, 상품마다 6장까지)을 상품 칸(합친 줄) 안에 바둑판으로 — 1장 = 칸 전체, 2장 이상 = 2열, 원래 비율 유지.
+   글씨가 읽히게 사진 한 줄에 150px 높이를 주고, 모자라면 그 상품의 줄 높이를 늘린다(cnXlLabelRowPt). 위치는 B열 사진과 같은 방식(왼쪽 위 EMU + 크기 px — 소수 열 위치를 쓰지 않음). */
+const CN_XL_LBIMG_W = 32, CN_XL_LBIMG_H = 150;
+const cnXlLabelGrid = k => { const cols = k <= 1 ? 1 : 2; return { cols, rows: Math.ceil(k / cols) }; };
+const cnXlLabelRowPt = (k, n) => k ? Math.max(CN_XL_ROW_PT, Math.ceil(cnXlLabelGrid(k).rows * CN_XL_LBIMG_H / n * 0.75)) : CN_XL_ROW_PT;
+async function cnXlLabelImgs(wb, ws, list, r0, n, rowPt) {
+  const EMU = 9525, col = 10, colPx = Math.floor(CN_XL_LBIMG_W * 7 + 5), rowPx = rowPt * 4 / 3, boxH = rowPx * n, pad = 3;
+  const k = list.length, { cols, rows } = cnXlLabelGrid(k), cw = colPx / cols, ch = boxH / rows;
+  for (let i = 0; i < k; i++) {
+    const x = list[i], url = x.img;
+    const sz = x.w && x.h ? { w: x.w, h: x.h } : await cnImgSize(url);
+    const f = Math.min((cw - pad * 2) / sz.w, (ch - pad * 2) / sz.h), iw = Math.max(1, Math.floor(sz.w * f)), ih = Math.max(1, Math.floor(sz.h * f));
+    const offX = (i % cols) * cw + (cw - iw) / 2, offY = Math.floor(i / cols) * ch + (ch - ih) / 2, rowIn = Math.min(n - 1, Math.floor(offY / rowPx));
+    const id = wb.addImage({ base64: url, extension: 'jpeg' });
+    ws.addImage(id, { tl: { nativeCol: col, nativeColOff: Math.round(offX * EMU), nativeRow: r0 - 1 + rowIn, nativeRowOff: Math.round((offY - rowIn * rowPx) * EMU) }, ext: { width: iw, height: ih }, editAs: 'oneCell' });
+  }
+}
+async function cnLabelImgsFor(names) {   // 여러 상품의 라벨 사진을 한꺼번에(50개씩) 받아 cnState.lbImgs에 — 못 받으면 사진 없이
+  cnState.lbImgs = cnState.lbImgs || {};
+  const need = names.filter(n => { const m = cnLabelImgMeta(n), h = cnState.lbImgs[n]; return m.length && !(h && h.map(x => x.id).join(',') === m.map(x => x.id).join(',')); });
+  let fail = false;
+  for (let i = 0; i < need.length; i += 50) {
+    try { const r = await cnPost('cn_label_imgs', { get: need.slice(i, i + 50) }); for (const n of need.slice(i, i + 50)) cnState.lbImgs[n] = ((r.imgs || {})[n] || []).filter(x => /^data:image\/jpeg;base64,[A-Za-z0-9+/=]+$/.test(x.img)); }
+    catch (e) { fail = true; }
+  }
+  return !fail;
+}
 async function cnBuyWorkbook(picked, sheetName) {   // 사용자 주문서 양식(다나로브 광저우 주문서.xlsx의 날짜 시트)과 같은 모양
   const ExcelJS = await loadExcelJS();
   const names = picked.map(p => p.sname).filter(n => !(cnState.thumbs || {})[n]);
   if (names.length) { try { const r = await cnPost('cn_thumbs', { get: names.slice(0, 200) }); cnState.thumbs = Object.assign(cnState.thumbs || {}, r.thumbs || {}); } catch (e) { /* 사진 없이도 만든다 */ } }
+  const lbOk = await cnLabelImgsFor(picked.map(p => p.sname));
+  if (!lbOk) showToast('라벨 사진 일부를 받지 못해 그 사진 없이 만들어요');
   const wb = new ExcelJS.Workbook(), ws = wb.addWorksheet(sheetName);
-  ws.columns = [{ width: 10 }, { width: CN_XL_IMG_W }, { width: 14 }, { width: 8 }, { width: 8 }, { width: 8 }, { width: 10 }, { width: 14 }, { width: 20 }, { width: 24 }, { width: 30 }];   // I = 위챗ID(2026-11-10 — 라벨 J·특이사항 K로 한 칸씩)
+  ws.columns = [{ width: 10 }, { width: CN_XL_IMG_W }, { width: 14 }, { width: 8 }, { width: 8 }, { width: 8 }, { width: 10 }, { width: 14 }, { width: 20 }, { width: 24 }, { width: CN_XL_LBIMG_W }, { width: 30 }];   // K = 라벨 사진(2026-11-24 — 특이사항은 L로)   // I = 위챗ID(2026-11-10 — 라벨 J·특이사항 K로 한 칸씩)
   const thin = { style: 'thin' }, border = { top: thin, left: thin, bottom: thin, right: thin }, center = { horizontal: 'center', vertical: 'middle' };
   const head = (r, vals) => { const row = ws.getRow(r); vals.forEach((v, i) => { const c = row.getCell(i + 1); c.value = v; c.font = { name: '궁서', size: 10, bold: true }; c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFC5D9F1' } }; c.alignment = center; c.border = border; }); };
   head(1, ['품번', '이미지', '색상', '싸이즈', '수량', '단가', '합계', '매장', '위챗ID']);
   head(2, ['款号', '图片', '颜色', '码数', '数量', '单价', '合计', '档口', '微信号']);
-  ws.mergeCells(1, 10, 2, 10); ws.mergeCells(1, 11, 2, 11); head(1, [, , , , , , , , , '라벨\n标签', '특이사항\n备注']);   // J열 = 라벨, K열 = 특이사항(2026-11-12 — 둘 다 입고 관리 상품 줄에 적은 글 그대로)
-  [10, 11].forEach(c => { ws.getCell(1, c).alignment = { horizontal: 'center', vertical: 'middle', wrapText: true }; });
+  ws.mergeCells(1, 10, 2, 10); ws.mergeCells(1, 11, 2, 11); ws.mergeCells(1, 12, 2, 12); head(1, [, , , , , , , , , '라벨\n标签', '라벨 사진\n标签图片', '특이사항\n备注']);   // K열 라벨 사진·L열 특이사항(2026-11-24)   // J열 = 라벨, K열 = 특이사항(2026-11-12 — 둘 다 입고 관리 상품 줄에 적은 글 그대로)
+  [10, 11, 12].forEach(c => { ws.getCell(1, c).alignment = { horizontal: 'center', vertical: 'middle', wrapText: true }; });
   let r = 3;
   for (const p of picked) {
     const n = Math.max(6, p.opts.length), r0 = r;
+    const lbList = (cnState.lbImgs || {})[p.sname] || [], rowPt = cnXlLabelRowPt(lbList.length, n);   // 라벨 사진이 많으면 이 상품 줄만 높게(2026-11-24)
     for (let i = 0; i < n; i++) {
-      const row = ws.getRow(r + i), o = p.opts[i]; row.height = CN_XL_ROW_PT;
+      const row = ws.getRow(r + i), o = p.opts[i]; row.height = rowPt;
       for (let c = 1; c <= 9; c++) { const cell = row.getCell(c); cell.border = border; cell.alignment = center; cell.font = { name: '돋움', size: 10 }; }
       if (o) { row.getCell(3).value = o.color || null; row.getCell(4).value = o.size || null; row.getCell(5).value = o.qty; if (p.price != null) row.getCell(6).value = p.price; }
       const g = row.getCell(7); g.value = { formula: `E${r + i}*F${r + i}` }; g.font = { name: '돋움', size: 10, bold: true, color: { argb: 'FF215967' } }; g.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFEBF1DE' } };
     }
-    ws.mergeCells(r0, 1, r0 + n - 1, 1); ws.mergeCells(r0, 2, r0 + n - 1, 2); ws.mergeCells(r0, 10, r0 + n - 1, 10); ws.mergeCells(r0, 11, r0 + n - 1, 11);
+    ws.mergeCells(r0, 1, r0 + n - 1, 1); ws.mergeCells(r0, 2, r0 + n - 1, 2); ws.mergeCells(r0, 10, r0 + n - 1, 10); ws.mergeCells(r0, 11, r0 + n - 1, 11); ws.mergeCells(r0, 12, r0 + n - 1, 12);
     const a = ws.getCell(r0, 1); a.value = /^\d+$/.test(p.sname) ? Number(p.sname) : p.sname; a.font = { name: '궁서', size: 11, bold: true }; a.alignment = center;
     if (p.vendor) ws.getCell(r0, 8).value = p.vendor;
     if (p.wechat) ws.getCell(r0, 9).value = p.wechat;   // I열 위챗ID(2026-11-10)
-    const rmk = ws.getCell(r0, 11); rmk.value = cnOrderRemarkText(p.sname) || null; rmk.alignment = { horizontal: 'left', vertical: 'middle', wrapText: true }; rmk.font = { name: '돋움', size: 10, bold: true, color: { argb: 'FFC00000' } }; rmk.border = border;
+    ws.getCell(r0, 11).border = border;
+    if (lbList.length) await cnXlLabelImgs(wb, ws, lbList, r0, n, rowPt);   // K열 라벨 사진(2026-11-24)
+    const rmk = ws.getCell(r0, 12); rmk.value = cnOrderRemarkText(p.sname) || null; rmk.alignment = { horizontal: 'left', vertical: 'middle', wrapText: true }; rmk.font = { name: '돋움', size: 10, bold: true, color: { argb: 'FFC00000' } }; rmk.border = border;
     const lab = ws.getCell(r0, 10); lab.value = cnOrderLabelText(p.sname) || null; lab.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true }; lab.font = { name: '돋움', size: 10, bold: true }; lab.border = border;   // J열 라벨(2026-11-12 — 적은 글 그대로)
     const url = (cnState.thumbs || {})[p.sname];
     if (url && /^data:image\/(jpeg|png);base64,/.test(url)) {
       const id = wb.addImage({ base64: url, extension: url.startsWith('data:image/png') ? 'png' : 'jpeg' });
-      ws.addImage(id, await cnXlImgRange(url, r0, n));
+      ws.addImage(id, await cnXlImgRange(url, r0, n, rowPt));
     }
     r += n;
   }
@@ -7040,12 +7074,12 @@ function cnNameCell(tab, sname, open, nOpt, meta) {   // meta = 셋째 줄(입�
 const cnPriceTd = (yuan, tag, tip) => `<td style="text-align:right;"${tip ? ` title="${escHtml(tip)}"` : ''}>${yuan == null ? '<span style="color:#6b7280;">—</span>' : `<b>${cnYuan(yuan)}</b>${tag || ''}<div class="cn-sub" title="× 누적 평균 1위안 원가 ${Math.round(cnFxAvg() * 100) / 100}원(에이전시 10%·들여오는 비용 전)">${fmt(Math.round(Number(yuan) * cnFxAvg()))}원</div>`}</td>`;
 const cnShipName = x => String((x && (x.order_round || x.title)) || '');   // 입고 건의 짧은 이름(발주 차수)
 /* 특이사항 (2026-10-31 사용자 요청: "상품마다 어떤 옵션을 제거하거나, 라벨 특이사항이 있거나 여러 가지 문제들이 있어서 참고가 필요해") — 상품(사입상품명)마다 하나(cn_products.remark).
-   상품 줄 이름 아래(혼용률 다음 줄)에서 적고(칸을 벗어나거나 Enter면 저장 — 관리자·MD, 물류팀은 글만), 주문하기 엑셀 K열 '특이사항'으로 나간다.
+   상품 줄 이름 아래(혼용률 다음 줄)에서 적고(칸을 벗어나거나 Enter면 저장 — 관리자·MD, 물류팀은 글만), 주문하기 엑셀 L열 '특이사항'으로 나간다(2026-11-24부터 — K열은 라벨 사진).
    그 아래 줄 '라벨'(2026-11-12)은 J열 '라벨'로 나간다 — made/일반 라인 구분과는 별개. */
 const cnRemarkOf = sname => ((((cnState.data || {}).prods || {})[sname]) || {}).remark || '';
-// 주문하기 엑셀 K열 '특이사항' = 적은 특이사항 그대로(2026-11-12 — 예전엔 라벨 체크에 따라 '다나로브 일반 라벨'을 자동으로 붙였지만 라벨이 글 칸으로 바뀌며 뺌)
+// 주문하기 엑셀 L열 '특이사항'(2026-11-24 K → L) = 적은 특이사항 그대로(2026-11-12 — 예전엔 라벨 체크에 따라 '다나로브 일반 라벨'을 자동으로 붙였지만 라벨이 글 칸으로 바뀌며 뺌)
 const cnOrderRemarkText = sname => cnRemarkOf(sname).trim();
-function cnRemarkHtml(sname) {   // ③ 특이사항(K열) ④ 라벨(J열) — 두 줄 다 상품마다 하나, 칸을 벗어나거나 Enter면 저장
+function cnRemarkHtml(sname) {   // ③ 특이사항(L열) ④ 라벨(J열) + 라벨 사진(K열) — 두 줄 다 상품마다 하나, 칸을 벗어나거나 Enter면 저장
   const d = cnState.data || {}, info = (d.prods || {})[sname] || {};
   const row = (k, label, v, by, at, max, ph, save, xl) => {
     const tip = v && by ? `${by} · ${unshipKst(at)}` : '';
@@ -7055,7 +7089,7 @@ function cnRemarkHtml(sname) {   // ③ 특이사항(K열) ④ 라벨(J열) — 
   const lab = row('label_text', '라벨', info.label_text || '', info.label_text_by, info.label_text_at, 200, '예: 다나로브 일반 메차 라벨 + 사이즈 라벨', 'cnLabelTextSave', 'J');
   const img = cnLabelImgHtml(sname);   // 라벨 사진(2026-11-24) — 라벨 줄 오른쪽에 붙인다(글이 없고 보기만 하는 사람이면 '라벨' 줄을 사진만으로)
   const labRow = lab ? lab.replace(/<\/span><\/div>$/, `${img}</span></div>`) : img ? `<div class="cn-nm-row"><span class="cn-nm-rmk"><span class="cn-sub">라벨</span>${img}</span></div>` : '';
-  return row('remark', '특이사항', info.remark || '', info.remark_by, info.remark_at, 300, '예: 블랙 옵션 제거', 'cnRemarkSave', 'K') + labRow;
+  return row('remark', '특이사항', info.remark || '', info.remark_by, info.remark_at, 300, '예: 블랙 옵션 제거', 'cnRemarkSave', 'L') + labRow;
 }
 /* 라벨 사진 (2026-11-24 사용자 요청 — "입고 검수에 상품들에 라벨 이미지를 첨부할 수 있게, 마우스를 올리면 이미지를 볼 수 있게").
    상품(사입상품명)마다 6장까지(cn_label_imgs). 목록(cn_list.label_imgs)에는 번호·올린 사람·시각만 오고, 사진은 칩에 마우스를 올리거나 누를 때 cn_label_imgs {get}으로 받아 기억한다.
