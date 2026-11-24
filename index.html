@@ -1773,7 +1773,14 @@
     <div class="section-body">
       <div style="font-size:.8rem;color:#6b7280;margin-bottom:10px;line-height:1.7;">
         · <b>상품관리 시스템의 업로드 캘린더</b>를 그대로 보여 줘요(<b>보기 전용</b>). 상품의 <b>업로드 예정일</b>과 <b>끌올(재진행)</b> 상품이 날짜별로 나와요.<br>
-        · 예정일 지정·끌올 등록은 상품관리 시스템에서 해요. 날짜를 누르면 아래 목록에서 그날 상품을 찾아 줘요.
+        · 예정일 지정·끌올 등록은 상품관리 시스템에서 해요. 날짜를 누르면 아래 목록에서 그날 상품을 찾아 줘요. 상품에 마우스를 올리면 <b>공급사 상품명</b>·옵션이 보여요.
+      </div>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px;">
+        <div style="position:relative;flex:0 1 320px;min-width:200px;">
+          <i class="fa-solid fa-magnifying-glass" style="position:absolute;left:10px;top:50%;transform:translateY(-50%);color:#6b7280;font-size:.78rem;pointer-events:none;"></i>
+          <input id="upcal-q" type="search" placeholder="공급사 상품명으로 찾기" aria-label="공급사 상품명으로 찾기" oninput="upcalSearch(this.value)" style="width:100%;box-sizing:border-box;padding:7px 10px 7px 30px;border:1.5px solid #e5e7eb;border-radius:8px;font-size:.83rem;">
+        </div>
+        <span id="upcal-qinfo" role="status" style="font-size:.76rem;color:#6b7280;"></span>
       </div>
       <div id="upcal-body"></div>
     </div>
@@ -3437,7 +3444,11 @@ async function npmOpen() {
    상품관리 시스템(newproduct-manager) /calendar와 같은 자료(업로드 예정일 upload_date + 끌올 calendar_reups)를
    서버 함수 npm-calendar가 상품관리 /api/dnrb-calendar(연동 비밀키)에서 읽기 전용으로 가져온다.
    보기 = 관리자·MD(마케터)·물류팀 — CS팀 제외(서버 npm-calendar도 같은 기준). 등록·삭제는 상품관리에서만. 달마다 한 번 읽고 [새로고침]으로 다시. */
-const upcalState = { ym: null, data: {}, loading: false, sel: null, tips: [] };
+const upcalState = { ym: null, data: {}, loading: false, sel: null, tips: [], q: '' };
+// 공급사 상품명으로 찾기 (2026-11-24 사용자 요청) — 고른 달의 캘린더·목록을 공급사 상품명(또는 판매 상품명)에 그 글자가 든 상품만으로 거름. 끌올은 제목으로.
+//   찾는 글자는 달을 넘겨도 그대로(◀ ▶로 다른 달도 찾아봄). 공백·대소문자 무시.
+const upcalNorm = v => String(v || '').normalize('NFC').toLowerCase().replace(/\s+/g, '');
+function upcalSearch(v) { upcalState.q = String(v || ''); upcalRender(); }
 // 업로드 예정 목록 상품에 마우스 → 옵션(색상·사이즈) 말풍선 (2026-11-04 사용자 요청). 자료 = 상품관리 /api/dnrb-calendar의 colors·sizes, 말풍선 틀은 중국 상품 입고 예정과 같은 .inc-tip.
 function upcalOptTipHtml(p) {
   const cs = Array.isArray(p.colors) ? p.colors : [], zs = Array.isArray(p.sizes) ? p.sizes : [];
@@ -3446,7 +3457,9 @@ function upcalOptTipHtml(p) {
   const body = cs.length || zs.length ? (cs.length ? sec('색상', cs) : '') + (zs.length ? sec('사이즈', zs) : '')
     : '<div style="margin-top:5px;color:#6b7280;">상품관리 시스템에 옵션(색상·사이즈)이 아직 안 적혀 있어요</div>';
   const n = (cs.length || 1) * (zs.length || 1);
-  return `<div style="font-weight:800;color:#1e1b4b;">${escHtml(p.name || '')}</div>${body}${cs.length && zs.length ? `<div style="margin-top:6px;color:#6b7280;">옵션 ${n}개 (색상 ${cs.length} × 사이즈 ${zs.length})</div>` : ''}`;
+  const sup = p.supplier_name == null ? ''   // 상품관리 쪽이 아직 공급사 상품명을 안 보내면(예전 배포) 줄 자체를 안 그림
+    : `<div style="margin-top:4px;"><span style="color:#6b7280;font-weight:700;">공급사 상품명</span> <span style="color:#111827;font-weight:700;">${p.supplier_name ? escHtml(p.supplier_name) : '<span style="color:#6b7280;font-weight:500;">안 적혀 있어요</span>'}</span></div>`;
+  return `<div style="font-weight:800;color:#1e1b4b;">${escHtml(p.name || '')}</div>${sup}${body}${cs.length && zs.length ? `<div style="margin-top:6px;color:#6b7280;">옵션 ${n}개 (색상 ${cs.length} × 사이즈 ${zs.length})</div>` : ''}`;
 }
 function upcalAllowed() { return isAdmin() || isStaff() || isCS(); }   // 관리자·MD·물류팀 + CS팀(2026-10-23 사용자 요청) = 로그인한 직원 전원
 function upcalToday() { return new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Seoul' }); }
@@ -3486,30 +3499,38 @@ function upcalRender() {
   if (upcalState.loading && !(d && !d.error)) { box.innerHTML = '<div style="padding:30px;text-align:center;color:#6b7280;font-size:.85rem;"><i class="fa-solid fa-spinner fa-spin"></i> 상품관리 시스템에서 캘린더를 읽는 중…</div>'; return; }
   if (!d) { box.innerHTML = ''; return; }
   if (d.error) { box.innerHTML = `<div style="padding:18px;border:1.5px solid #fecaca;background:#fef2f2;border-radius:10px;color:#991b1b;font-size:.83rem;">캘린더를 불러오지 못했어요 — ${escHtml(d.error)} <button class="toggle-btn" style="margin-left:8px;" onclick="upcalLoad(true)">다시 시도</button></div>`; return; }
-  const today = upcalToday(), byDate = {}, reupBy = {};
-  d.products.forEach(p => { if (p.upload_date) (byDate[p.upload_date] ||= []).push(p); });
-  d.reups.forEach(r => { if (r.reup_date) (reupBy[r.reup_date] ||= []).push(r); });
+  const today = upcalToday(), byDate = {}, reupBy = {}, nq = upcalNorm(upcalState.q);
+  const prods = nq ? d.products.filter(p => upcalNorm(p.supplier_name).includes(nq) || upcalNorm(p.name).includes(nq)) : d.products;
+  const reups = nq ? d.reups.filter(r => upcalNorm(r.title).includes(nq)) : d.reups;
+  prods.forEach(p => { if (p.upload_date) (byDate[p.upload_date] ||= []).push(p); });
+  reups.forEach(r => { if (r.reup_date) (reupBy[r.reup_date] ||= []).push(r); });
+  upcalState.tips = [];
+  const tipOf = p => upcalState.tips.push(upcalOptTipHtml(p)) - 1;
+  const qi = $('upcal-qinfo');
+  if (qi) qi.innerHTML = !nq ? '' : prods.length || reups.length
+    ? `<b style="color:#4f46e5;">${m}월에 ${prods.length}개</b>${reups.length ? ` · 끌올 ${reups.length}개` : ''} 찾았어요 <span style="color:#6b7280;">(전체 ${d.products.length}개 중)</span>`
+    : `<b style="color:#b91c1c;">${m}월에는 없어요</b> — ◀ ▶로 다른 달도 찾아볼 수 있어요`;
   const first = new Date(y, m - 1, 1).getDay(), days = new Date(y, m, 0).getDate();
   const cells = []; for (let i = 0; i < first; i++) cells.push(null); for (let k = 1; k <= days; k++) cells.push(k); while (cells.length % 7) cells.push(null);
   const WD = ['일', '월', '화', '수', '목', '금', '토'], pad = n => String(n).padStart(2, '0');
-  const chip = (bg, fg, html) => `<div style="background:${bg};color:${fg};border-radius:5px;padding:2px 5px;font-size:.7rem;line-height:1.3;margin-top:3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${html}</div>`;
+  const chip = (bg, fg, html, tip) => `<div${tip != null ? ` data-uptip="${tip}"` : ''} style="background:${bg};color:${fg};border-radius:5px;padding:2px 5px;font-size:.7rem;line-height:1.3;margin-top:3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${html}</div>`;
   let grid = `<div style="display:grid;grid-template-columns:repeat(7,1fr);background:#f8f9ff;border-bottom:1.5px solid #e5e7eb;">${WD.map((w, i) => `<div style="padding:7px 0;text-align:center;font-size:.75rem;font-weight:700;color:${i === 0 ? '#dc2626' : i === 6 ? '#2563eb' : '#6b7280'};">${w}</div>`).join('')}</div><div style="display:grid;grid-template-columns:repeat(7,1fr);">`;
   cells.forEach((day, idx) => {
     const edge = `border-right:1px solid #f1f2f6;border-bottom:1px solid #f1f2f6;`;
     if (day === null) { grid += `<div style="min-height:92px;background:#fafafa;${edge}"></div>`; return; }
     const ds = `${ym}-${pad(day)}`, items = byDate[ds] || [], rs = reupBy[ds] || [], dow = idx % 7, isToday = ds === today, isSel = ds === upcalState.sel;
     const num = `<span style="display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:50%;font-size:.75rem;font-weight:700;${isToday ? 'background:#4f46e5;color:#fff;' : `color:${dow === 0 ? '#dc2626' : dow === 6 ? '#2563eb' : '#374151'};`}">${day}</span>`;
-    let inner = items.slice(0, 3).map(p => chip('#ccfbf1', '#115e59', escHtml(p.name || ''))).join('');
+    let inner = items.slice(0, 3).map(p => chip('#ccfbf1', '#115e59', escHtml(p.name || ''), tipOf(p))).join('');
     if (items.length > 3) inner += `<div style="font-size:.68rem;color:#0f766e;font-weight:700;margin-top:3px;">+ ${items.length - 3}개 더</div>`;
     if (rs.length) inner += chip('#fef3c7', '#92400e', `<b>[끌올]</b> ${escHtml(rs.length === 1 ? rs[0].title : rs.length + '개')}`);
     const click = items.length || rs.length ? `onclick="upcalPick('${ds}')" style="cursor:pointer;` : `style="`;
     grid += `<div ${click}min-height:92px;padding:5px;${edge}${isSel ? 'background:#eef2ff;box-shadow:inset 0 0 0 2px #818cf8;' : isToday ? 'background:#f5f3ff;' : ''}" title="${items.length ? `업로드 예정 ${items.length}개` : ''}${rs.length ? ` 끌올 ${rs.length}개` : ''}">${num}${inner}</div>`;
   });
   grid += '</div>';
-  const nP = d.products.length, nR = d.reups.length;
+  const nP = prods.length, nR = reups.length;
   let html = `<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:10px;font-size:.8rem;color:#374151;">
-      <span style="background:#ccfbf1;color:#115e59;border-radius:8px;padding:4px 10px;font-weight:700;">업로드 예정 ${nP}개</span>
-      <span style="background:#fef3c7;color:#92400e;border-radius:8px;padding:4px 10px;font-weight:700;">끌올 ${nR}개</span>
+      <span style="background:#ccfbf1;color:#115e59;border-radius:8px;padding:4px 10px;font-weight:700;">${nq ? '찾은 ' : ''}업로드 예정 ${nP}개</span>
+      <span style="background:#fef3c7;color:#92400e;border-radius:8px;padding:4px 10px;font-weight:700;">${nq ? '찾은 ' : ''}끌올 ${nR}개</span>
       <span style="color:#6b7280;font-size:.72rem;">상품관리 시스템 기준 · ${new Date(d.at).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })}에 읽음</span></div>
     <div style="overflow-x:auto;"><div style="min-width:640px;border:1.5px solid #e5e7eb;border-radius:12px;overflow:hidden;background:#fff;">${grid}</div></div>`;
   const listTable = (title, map, rowHtml, empty) => {
@@ -3520,9 +3541,10 @@ function upcalRender() {
       return `<tr id="upcal-row-${k}" style="${hl}"><td style="text-align:left;white-space:nowrap;font-weight:${k === today ? 800 : 600};">${m}월 ${dd}일 (${dw})${k === today ? ' <span style="color:#4f46e5;font-size:.7rem;">오늘</span>' : ''}</td><td>${map[k].length}개</td><td style="text-align:left;white-space:normal;"><div style="display:flex;flex-wrap:wrap;gap:5px;">${map[k].map(rowHtml).join('')}</div></td></tr>`;
     }).join('')}</tbody></table></div>`;
   };
-  upcalState.tips = [];
-  html += listTable(`${m}월 업로드 예정 목록 <span style="font-weight:500;color:#6b7280;font-size:.72rem;">· 상품에 마우스를 올리면 옵션</span>`, byDate, p => `<span data-uptip="${upcalState.tips.push(upcalOptTipHtml(p)) - 1}" style="display:inline-flex;align-items:center;gap:5px;border:1px solid #e5e7eb;background:#f9fafb;border-radius:6px;padding:3px 7px;font-size:.76rem;cursor:help;">${escHtml(p.name || '')} ${upcalBadge(p)}</span>`, '이번 달에 업로드 예정인 상품이 없어요');
-  html += listTable(`${m}월 끌올 목록`, reupBy, r => `<span style="display:inline-block;border:1px solid #fde68a;background:#fffbeb;border-radius:6px;padding:3px 7px;font-size:.76rem;color:#92400e;">${escHtml(r.title || '')}</span>`, '이번 달 끌올 상품이 없어요');
+  // 찾는 중이면 칩에 공급사 상품명도 작게(무엇이 걸렸는지 보이게)
+  const supTail = p => nq && p.supplier_name && p.supplier_name !== p.name ? `<span style="color:#6b7280;font-size:.7rem;">· ${escHtml(p.supplier_name)}</span>` : '';
+  html += listTable(`${m}월 업로드 예정 목록 <span style="font-weight:500;color:#6b7280;font-size:.72rem;">· 상품에 마우스를 올리면 공급사 상품명·옵션</span>`, byDate, p => `<span data-uptip="${tipOf(p)}" style="display:inline-flex;align-items:center;gap:5px;border:1px solid #e5e7eb;background:#f9fafb;border-radius:6px;padding:3px 7px;font-size:.76rem;cursor:help;">${escHtml(p.name || '')} ${supTail(p)} ${upcalBadge(p)}</span>`, nq ? '찾는 글자가 든 상품이 이번 달에 없어요' : '이번 달에 업로드 예정인 상품이 없어요');
+  html += listTable(`${m}월 끌올 목록`, reupBy, r => `<span style="display:inline-block;border:1px solid #fde68a;background:#fffbeb;border-radius:6px;padding:3px 7px;font-size:.76rem;color:#92400e;">${escHtml(r.title || '')}</span>`, nq ? '찾는 글자가 든 끌올이 이번 달에 없어요' : '이번 달 끌올 상품이 없어요');
   box.innerHTML = html;
 }
 
