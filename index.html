@@ -656,6 +656,25 @@
     .cn-nm-rmk > .cn-sub:first-child { min-width: 3.4em; }   /* 특이사항·라벨 두 줄의 입력칸 왼쪽 끝을 맞춤 */
     .cn-tbl input.cn-remark { flex: 1 1 260px; min-width: 120px; max-width: 460px; border: 1px dashed #d1d5db; border-radius: 6px; padding: 3px 6px; font-size: .74rem; background: #fff; }
     .cn-tbl input.cn-remark.on { border: 1px solid #fcd34d; background: #fffbeb; color: #92400e; font-weight: 700; }
+    /* 라벨 사진(2026-11-24) — 라벨 줄 오른쪽: 사진 칩(마우스 = 미리보기, 누르면 크게) + [사진 첨부] */
+    .cn-nm-rmk:has(.cn-lbimg) { flex-wrap: wrap; row-gap: 4px; }   /* 라벨 줄만 — 사진 칸이 아래 줄로 */
+    .cn-lbimg { display: inline-flex; align-items: center; gap: 4px; flex: 1 1 100%; padding-left: calc(3.4em + 5px); }   /* 라벨 입력칸 바로 아래 줄, 입력칸 왼쪽 끝에 맞춤(같은 줄에 두면 표가 넓어짐) */
+    .cn-lbimg-chip { display: inline-flex; align-items: center; gap: 4px; border: 1px solid #c7d2fe; background: #eef2ff; color: #3730a3; border-radius: 999px; padding: 2px 8px; font-size: .7rem; font-weight: 700; cursor: zoom-in; white-space: nowrap; }
+    .cn-lbimg-chip:hover { background: #e0e7ff; }
+    .cn-lbimg-add { display: inline-flex; align-items: center; gap: 3px; border: 1px dashed #a5b4fc; background: #fff; color: #4338ca; border-radius: 999px; padding: 2px 8px; font-size: .7rem; font-weight: 700; cursor: pointer; white-space: nowrap; }
+    .cn-lbimg-add:hover { background: #eef2ff; }
+    .cn-lbimg-add:focus-within { outline: 2px solid #4f46e5; outline-offset: 1px; }
+    .cn-lbimg-add input { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+    .cn-lbtip { position: fixed; z-index: 500; display: none; background: #fff; border: 1.5px solid #c7d2fe; border-radius: 12px; box-shadow: 0 12px 32px rgba(15,23,42,.22); padding: 8px; pointer-events: none; max-width: min(760px, 94vw); }
+    .cn-lbtip-imgs { display: flex; flex-wrap: wrap; gap: 6px; }
+    .cn-lbtip img { display: block; max-width: 340px; max-height: 44vh; width: auto; height: auto; border-radius: 8px; outline: 1px solid rgba(0,0,0,.1); outline-offset: -1px; background: #f9fafb; }
+    .cn-lbtip-cap { font-size: .7rem; color: #4b5563; margin-top: 5px; }
+    .cn-lbbox-btn { border: 1px solid #d1d5db; background: #fff; color: #374151; border-radius: 8px; padding: 5px 12px; font-size: .78rem; font-weight: 700; cursor: pointer; min-height: 28px; transition-property: background-color; transition-duration: .15s; }
+    .cn-lbbox-btn:hover { background: #f3f4f6; }
+    .cn-lbbox-btn.del { background: #fef2f2; color: #b91c1c; border-color: #fecaca; padding: 3px 10px; }
+    .cn-lbbox-btn.del:hover { background: #fee2e2; }
+    .cn-lbbox-item { position: relative; background: #fff; border-radius: 10px; padding: 8px; }
+    .cn-lbbox-item img { display: block; max-width: min(86vw, 900px); max-height: 74vh; width: auto; height: auto; border-radius: 6px; outline: 1px solid rgba(0,0,0,.1); outline-offset: -1px; }
     .cn-rmk-txt { font-size: .76rem; font-weight: 700; color: #92400e; background: #fffbeb; border: 1px solid #fcd34d; border-radius: 6px; padding: 2px 7px; white-space: normal; }
     .cn-nm-meta { font-size: .7rem; color: #6b7280; }
     .cn-nm-meta .cn-c24 { max-width: 190px !important; }
@@ -3845,7 +3864,7 @@ const cnCsOnly = () => !!SESSION && SESSION.role === 'cs';   // CS팀 = '미송 
 // CS팀 보기 전용(2026-11-05 사용자 요청 "입고 검수를 CS팀도 보게, 대신 아무것도 편집 못 하게"): 서버가 저장을 막고(진짜 보호), 화면은 저장하는 칸·버튼을 잠그거나 숨긴다.
 //   저장 함수를 부르는 입력칸·체크칸은 잠그고(값은 보임), 버튼·파일 고르기는 숨긴다. 보기용(펼치기·흐름 보기·사진 크게·엑셀 내려받기)은 그대로.
 //   새 저장 기능을 만들면 이 목록(CN_WRITE_FN)에도 함수 이름을 넣을 것.
-const CN_WRITE_FN = /\bcn(ShipArrivedSet|ShipDoneSet|DefAdd|DefDel|C24Save|C24Open|C24Find|C24Toggle|DocEdit|DiscardAsk|DiscardUndo|UploadSave|ThumbFilePick|SwapFix|ShipOrderSet|ShipEdit|ShipDelete|RemarkSave|MemoSave|ManualShip|LineSet|LabelSet|InactiveSet|GapUndo|GapClose|FillSame|FilePick|FabricSave|CostFilePick|CostClear|ActSave|ActKey|MisongSet|MisongPick|OrderPick|OrderSave|OrderReplacePick|OrderReplaceSave|OrderEditOpen|OrderEditSave|OrderDelete|CellMap[A-Za-z]*)\(/;
+const CN_WRITE_FN = /\bcn(ShipArrivedSet|ShipDoneSet|DefAdd|DefDel|C24Save|C24Open|C24Find|C24Toggle|DocEdit|DiscardAsk|DiscardUndo|UploadSave|ThumbFilePick|SwapFix|ShipOrderSet|ShipEdit|ShipDelete|RemarkSave|MemoSave|ManualShip|LineSet|LabelSet|InactiveSet|GapUndo|GapClose|FillSame|FilePick|FabricSave|CostFilePick|CostClear|ActSave|ActKey|MisongSet|MisongPick|OrderPick|OrderSave|OrderReplacePick|OrderReplaceSave|OrderEditOpen|OrderEditSave|OrderDelete|LabelImgPick|LabelImgDel|CellMap[A-Za-z]*)\(/;
 function cnViewLock() {
   if (!cnCsOnly()) return;
   document.querySelectorAll('[onclick],[onchange],[oninput],[onkeydown]').forEach(el => {
@@ -7033,9 +7052,139 @@ function cnRemarkHtml(sname) {   // ③ 특이사항(K열) ④ 라벨(J열) — 
     if (!d.can_edit) return v ? `<div class="cn-nm-row"><span class="cn-nm-rmk"><span class="cn-sub">${label}</span><span class="cn-rmk-txt" title="${escHtml(tip)}">${escHtml(v)}</span></span></div>` : '';
     return `<div class="cn-nm-row"><span class="cn-nm-rmk"><span class="cn-sub">${label}</span><input type="text" class="cn-remark${v ? ' on' : ''}" maxlength="${max}" value="${escHtml(v)}" data-s="${escHtml(sname)}" data-k="${k}" data-prev="${escHtml(v)}" onchange="${save}(this)" onkeydown="if(event.key==='Enter')this.blur()" placeholder="${ph}" aria-label="${escHtml(sname)} ${label}" title="${escHtml(tip || `주문하기 엑셀의 ${xl}열 '${label}'에 들어가요`)}" /></span></div>`;
   };
-  return row('remark', '특이사항', info.remark || '', info.remark_by, info.remark_at, 300, '예: 블랙 옵션 제거', 'cnRemarkSave', 'K')
-    + row('label_text', '라벨', info.label_text || '', info.label_text_by, info.label_text_at, 200, '예: 다나로브 일반 메차 라벨 + 사이즈 라벨', 'cnLabelTextSave', 'J');
+  const lab = row('label_text', '라벨', info.label_text || '', info.label_text_by, info.label_text_at, 200, '예: 다나로브 일반 메차 라벨 + 사이즈 라벨', 'cnLabelTextSave', 'J');
+  const img = cnLabelImgHtml(sname);   // 라벨 사진(2026-11-24) — 라벨 줄 오른쪽에 붙인다(글이 없고 보기만 하는 사람이면 '라벨' 줄을 사진만으로)
+  const labRow = lab ? lab.replace(/<\/span><\/div>$/, `${img}</span></div>`) : img ? `<div class="cn-nm-row"><span class="cn-nm-rmk"><span class="cn-sub">라벨</span>${img}</span></div>` : '';
+  return row('remark', '특이사항', info.remark || '', info.remark_by, info.remark_at, 300, '예: 블랙 옵션 제거', 'cnRemarkSave', 'K') + labRow;
 }
+/* 라벨 사진 (2026-11-24 사용자 요청 — "입고 검수에 상품들에 라벨 이미지를 첨부할 수 있게, 마우스를 올리면 이미지를 볼 수 있게").
+   상품(사입상품명)마다 6장까지(cn_label_imgs). 목록(cn_list.label_imgs)에는 번호·올린 사람·시각만 오고, 사진은 칩에 마우스를 올리거나 누를 때 cn_label_imgs {get}으로 받아 기억한다.
+   올리기 = 관리자·MD(서버도 확인) — 브라우저에서 긴 변 1280px JPEG로 줄여 보냄(원본은 안 올림). 칩을 누르면 크게 보기(+ 지우기·더 올리기). */
+const CN_LBIMG_MAX = 6;
+const cnLabelImgMeta = sname => ((((cnState.data || {}).label_imgs) || {})[sname]) || [];
+function cnLabelImgHtml(sname) {
+  const d = cnState.data || {}, list = cnLabelImgMeta(sname), enc = escHtml(encodeURIComponent(sname));
+  const chip = list.length ? `<button type="button" class="cn-lbimg-chip" data-cn-lbimg="${enc}" onclick="cnLabelImgOpen(this.dataset.cnLbimg)" aria-label="${escHtml(sname)} 라벨 사진 ${list.length}장 크게 보기"><i class="fa-regular fa-image" aria-hidden="true"></i>라벨 사진 ${list.length}</button>` : '';
+  const add = d.can_edit && list.length < CN_LBIMG_MAX ? `<label class="cn-lbimg-add" title="라벨 사진 첨부 — 상품마다 ${CN_LBIMG_MAX}장까지"><i class="fa-solid fa-paperclip" aria-hidden="true"></i>${list.length ? '추가' : '라벨 사진 첨부'}<input type="file" accept="image/*" multiple data-s="${escHtml(sname)}" onchange="cnLabelImgPick(this)" aria-label="${escHtml(sname)} 라벨 사진 첨부" /></label>` : '';
+  return chip || add ? `<span class="cn-lbimg" data-cn-lbwrap="${enc}">${chip}${add}</span>` : '';
+}
+function cnLabelImgRepaint(sname) {   // 표를 다시 그리지 않고 그 상품의 라벨 사진 칸만 바꾼다(입력 중인 칸·스크롤 그대로)
+  const enc = encodeURIComponent(sname), html = cnLabelImgHtml(sname);
+  document.querySelectorAll('[data-cn-lbwrap]').forEach(el => { if (el.dataset.cnLbwrap === enc) { if (html) el.outerHTML = html; else el.remove(); } });
+  if (html && ![...document.querySelectorAll('[data-cn-lbwrap]')].some(el => el.dataset.cnLbwrap === enc)) cnTabRender();   // 칸이 아예 없던 줄(보기 전용 등)은 다시 그림
+}
+async function cnLabelImgsGet(sname) {   // 사진 받기(기억해 둠 — 목록의 번호와 다르면 다시 받음)
+  cnState.lbImgs = cnState.lbImgs || {};
+  const want = cnLabelImgMeta(sname).map(x => x.id).join(','), have = cnState.lbImgs[sname];
+  if (have && have.map(x => x.id).join(',') === want) return have;
+  const r = await cnPost('cn_label_imgs', { get: [sname] });
+  return (cnState.lbImgs[sname] = ((r.imgs || {})[sname] || []).filter(x => /^data:image\/jpeg;base64,[A-Za-z0-9+/=]+$/.test(x.img)));
+}
+function cnLabelImgShrink(file) {   // 긴 변 1280px JPEG(넘치면 더 줄임) → {img, w, h}
+  return new Promise((res, rej) => {
+    const url = URL.createObjectURL(file), im = new Image();
+    im.onload = () => {
+      URL.revokeObjectURL(url);
+      for (const [side, q] of [[1280, .86], [1100, .8], [900, .74], [720, .7]]) {
+        const k = Math.min(1, side / Math.max(im.naturalWidth, im.naturalHeight)), w = Math.max(1, Math.round(im.naturalWidth * k)), h = Math.max(1, Math.round(im.naturalHeight * k));
+        const cv = document.createElement('canvas'); cv.width = w; cv.height = h;
+        const g = cv.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, w, h); g.drawImage(im, 0, 0, w, h);
+        const img = cv.toDataURL('image/jpeg', q);
+        if (img.length <= 1300000) return res({ img, w, h });
+      }
+      rej(new Error('사진이 너무 커요'));
+    };
+    im.onerror = () => { URL.revokeObjectURL(url); rej(new Error('사진을 읽지 못했어요(JPG·PNG로 올려 주세요)')); };
+    im.src = url;
+  });
+}
+async function cnLabelImgPick(input) {
+  const sname = input.dataset.s, files = [...(input.files || [])].filter(f => /^image\//.test(f.type) || /\.(jpe?g|png|webp|gif|bmp|heic)$/i.test(f.name)); input.value = '';
+  if (!sname || !files.length) return;
+  const room = CN_LBIMG_MAX - cnLabelImgMeta(sname).length;
+  if (room <= 0) { showToast(`라벨 사진은 상품마다 ${CN_LBIMG_MAX}장까지예요`); return; }
+  const take = files.slice(0, room);
+  if (files.length > room) showToast(`${CN_LBIMG_MAX}장까지라 ${room}장만 올려요`);
+  let ok = 0, fail = '';
+  for (const f of take) {
+    try {
+      showToast(`라벨 사진 올리는 중… ${ok + 1}/${take.length}`);
+      const p = await cnLabelImgShrink(f);
+      const r = await cnPost('cn_label_img_add', { sname, img: p.img, w: p.w, h: p.h });
+      const d = cnState.data; d.label_imgs = d.label_imgs || {};
+      (d.label_imgs[sname] = d.label_imgs[sname] || []).push({ id: r.id, by: r.by, at: r.at });
+      cnState.lbImgs = cnState.lbImgs || {}; if (cnState.lbImgs[sname]) cnState.lbImgs[sname].push({ id: r.id, img: p.img, w: p.w, h: p.h, by: r.by, at: r.at });
+      ok++;
+    } catch (e) { fail = e.message; break; }
+  }
+  cnLabelImgRepaint(sname);
+  if (document.getElementById('cn-lbbox')) cnLabelImgOpen(encodeURIComponent(sname));
+  showToast(fail ? `${ok ? `${ok}장 올리고 ` : ''}멈췄어요: ${fail}` : `라벨 사진 ${ok}장 올렸어요`);
+}
+async function cnLabelImgDel(id, sname) {
+  if (!confirm('이 라벨 사진을 지울까요?\n\n지우면 되돌릴 수 없어요.')) return;
+  try {
+    await cnPost('cn_label_img_del', { id });
+    const d = cnState.data; if (d && d.label_imgs && d.label_imgs[sname]) { d.label_imgs[sname] = d.label_imgs[sname].filter(x => x.id !== id); if (!d.label_imgs[sname].length) delete d.label_imgs[sname]; }
+    if (cnState.lbImgs && cnState.lbImgs[sname]) cnState.lbImgs[sname] = cnState.lbImgs[sname].filter(x => x.id !== id);
+    cnLabelImgRepaint(sname);
+    if (cnLabelImgMeta(sname).length) cnLabelImgOpen(encodeURIComponent(sname)); else cnLabelImgClose();
+    showToast('라벨 사진을 지웠어요');
+  } catch (e) { showToast('지우지 못했어요: ' + e.message); }
+}
+function cnLabelImgClose() { const ov = document.getElementById('cn-lbbox'); if (ov) { ov.remove(); document.removeEventListener('keydown', cnLabelImgEsc); } }
+function cnLabelImgEsc(e) { if (e.key === 'Escape') cnLabelImgClose(); }
+async function cnLabelImgOpen(enc) {   // 크게 보기(누르면) — 사진마다 올린 사람·시각 + (관리자·MD) 지우기, 아래 [사진 추가]
+  const sname = decodeURIComponent(enc || ''); if (!sname) return;
+  let list;
+  try { list = await cnLabelImgsGet(sname); } catch (e) { showToast('사진을 받지 못했어요: ' + e.message); return; }
+  const d = cnState.data || {}, can = !!d.can_edit;
+  cnLabelImgClose();
+  const ov = document.createElement('div'); ov.id = 'cn-lbbox';
+  ov.setAttribute('role', 'dialog'); ov.setAttribute('aria-modal', 'true'); ov.setAttribute('aria-label', `${sname} 라벨 사진`);
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(15,23,42,.6);z-index:450;overflow:auto;overscroll-behavior:contain;padding:24px 16px;';
+  ov.onclick = e => { if (e.target === ov) cnLabelImgClose(); };
+  ov.innerHTML = `<div style="max-width:1200px;margin:0 auto;">
+    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;color:#fff;margin-bottom:12px;"><b style="font-size:1rem;">${escHtml(sname)} — 라벨 사진 ${list.length}장</b>${cnLabelTextOf(sname) ? `<span style="font-size:.8rem;opacity:.9;">${escHtml(cnLabelTextOf(sname))}</span>` : ''}
+      <span style="flex:1"></span>${can && list.length < CN_LBIMG_MAX ? `<label class="cn-lbimg-add" style="font-size:.8rem;padding:5px 12px;"><i class="fa-solid fa-paperclip" aria-hidden="true"></i>사진 추가<input type="file" accept="image/*" multiple data-s="${escHtml(sname)}" onchange="cnLabelImgPick(this)" aria-label="라벨 사진 추가" /></label>` : ''}
+      <button type="button" class="cn-lbbox-btn" onclick="cnLabelImgClose()">닫기</button></div>
+    <div style="display:flex;flex-wrap:wrap;gap:12px;justify-content:center;">${list.map(x => `<figure class="cn-lbbox-item" style="margin:0;"><img src="${x.img}" alt="${escHtml(sname)} 라벨 사진" />
+      <figcaption style="display:flex;align-items:center;gap:8px;font-size:.74rem;color:#4b5563;margin-top:6px;">${escHtml(x.by || '')} · ${escHtml(kstDT(x.at))}<span style="flex:1"></span>${can ? `<button type="button" class="cn-lbbox-btn del" onclick="cnLabelImgDel(${Number(x.id)}, decodeURIComponent('${encodeURIComponent(sname)}'))">지우기</button>` : ''}</figcaption></figure>`).join('') || '<div style="color:#fff;">사진이 없어요</div>'}</div></div>`;
+  document.body.appendChild(ov);
+  document.addEventListener('keydown', cnLabelImgEsc);
+  const b = ov.querySelector('button'); if (b) b.focus();
+}
+// 마우스를 올리면 미리보기(화면에 고정 — 표 칸에 잘리지 않게). 처음 올릴 때 사진을 받고, 받는 사이 마우스가 떠났으면 안 보인다
+(function cnLabelImgTipInit() {
+  let box = null, cur = null;
+  const hide = () => { cur = null; if (box) box.style.display = 'none'; };
+  const place = el => {   // 칩 아래·위 중 넓은 쪽에 — 사진 높이를 그 자리에 맞춰 줄여 칩을 가리지 않게
+    const r = el.getBoundingClientRect(), below = window.innerHeight - r.bottom - 14, above = r.top - 14, down = below >= above || below >= 320;
+    const room = Math.max(120, (down ? below : above) - 34);
+    box.querySelectorAll('img').forEach(im => { im.style.maxHeight = Math.min(room, window.innerHeight * .44) + 'px'; });
+    const w = box.offsetWidth, h = box.offsetHeight;
+    const left = Math.min(window.innerWidth - w - 8, Math.max(8, r.left));
+    const top = down ? r.bottom + 6 : Math.max(8, r.top - h - 6);
+    box.style.left = left + 'px'; box.style.top = top + 'px';
+  };
+  document.addEventListener('mouseover', async ev => {
+    const el = ev.target.closest && ev.target.closest('[data-cn-lbimg]');
+    if (!el) { if (cur) hide(); return; }
+    if (cur === el) return;
+    cur = el;
+    const sname = decodeURIComponent(el.dataset.cnLbimg || '');
+    if (!box) { box = document.createElement('div'); box.className = 'cn-lbtip'; box.setAttribute('aria-hidden', 'true'); document.body.appendChild(box); }
+    const cached = (cnState.lbImgs || {})[sname];
+    if (!cached) { box.innerHTML = '<div class="cn-lbtip-cap" style="margin:0;padding:4px 6px;">라벨 사진 불러오는 중…</div>'; box.style.display = 'block'; place(el); }
+    let list; try { list = await cnLabelImgsGet(sname); } catch (e) { if (cur === el) { box.innerHTML = '<div class="cn-lbtip-cap" style="margin:0;">사진을 받지 못했어요</div>'; place(el); } return; }
+    if (cur !== el) return;
+    box.innerHTML = `<div class="cn-lbtip-imgs">${list.map(x => `<img src="${x.img}" alt="" />`).join('')}</div><div class="cn-lbtip-cap">${escHtml(sname)} · 라벨 사진 ${list.length}장 — 누르면 크게</div>`;
+    box.style.display = 'block';
+    const imgs = [...box.querySelectorAll('img')]; place(el);
+    imgs.forEach(im => { if (!im.complete) im.onload = () => { if (cur === el) place(el); }; });
+  });
+  window.addEventListener('scroll', hide, true);
+})();
 async function cnLabelTextSave(el) {
   const sname = el.dataset.s, v = el.value.replace(/\s+/g, ' ').trim();
   if (v === el.dataset.prev) { el.value = v; return; }

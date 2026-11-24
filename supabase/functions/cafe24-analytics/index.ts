@@ -2376,7 +2376,7 @@ Deno.serve(async (req) => {
     //   cn_vendor POST — 사입상품명별 거래처명 수동 입력 (관리자·MD, 2026-10-01 — 입고 건 단위가 아니라 상품마다)
     //   cn_thumbs POST {get:[사입상품명…]} — 그 상품들의 작은 사진(전원, 한 번에 200개 — 화면에 보이는 것만 받게)
     //             POST {thumbs:{사입상품명:dataURL}} — 사진 저장(관리자·MD, 상품당 1장 — 같은 이름은 덮어씀). 목록과 따로 불러 표를 늦추지 않는다 (2026-10-02)
-    if (action === "cn_list" || action === "cn_upload" || action === "cn_check" || action === "cn_ship" || action === "cn_vendor" || action === "cn_line" || action === "cn_fabric" || action === "cn_remark" || action === "cn_label" || action === "cn_label_text" || action === "cn_c24find" || action === "cn_c24set" || action === "cn_export" || action === "cn_thumbs" || action === "cn_order_upload" || action === "cn_order_reserve" || action === "cn_order_replace" || action === "cn_order" || action === "cn_inactive" || action === "cn_manual_ship" || action === "cn_fx_buy_add" || action === "cn_fx_buy_del" || action === "cn_remit_save" || action === "cn_remit_del" || action === "cn_doc_save" || action === "cn_discard" || action === "cn_discard_del" || action === "cn_defect" || action === "cn_defect_del" || action === "cn_gap" || action === "cn_cellmap" || action === "cn_misong_list" || action === "cn_misong_upload" || action === "cn_misong_set" || action === "cn_misong_basis") {
+    if (action === "cn_list" || action === "cn_upload" || action === "cn_check" || action === "cn_ship" || action === "cn_vendor" || action === "cn_line" || action === "cn_fabric" || action === "cn_remark" || action === "cn_label" || action === "cn_label_text" || action === "cn_label_imgs" || action === "cn_label_img_add" || action === "cn_label_img_del" || action === "cn_c24find" || action === "cn_c24set" || action === "cn_export" || action === "cn_thumbs" || action === "cn_order_upload" || action === "cn_order_reserve" || action === "cn_order_replace" || action === "cn_order" || action === "cn_inactive" || action === "cn_manual_ship" || action === "cn_fx_buy_add" || action === "cn_fx_buy_del" || action === "cn_remit_save" || action === "cn_remit_del" || action === "cn_doc_save" || action === "cn_discard" || action === "cn_discard_del" || action === "cn_defect" || action === "cn_defect_del" || action === "cn_gap" || action === "cn_cellmap" || action === "cn_misong_list" || action === "cn_misong_upload" || action === "cn_misong_set" || action === "cn_misong_basis") {
       // 관리자 + MD + 물류팀. **CS팀은 볼 필요 없음(2026-10-02 사용자 지정)** — 서버 역할은 logistics→cs로 합쳐져 있어 원래 역할을 다시 본다(soldoutRoleOk와 같은 방식)
       // 미송 확인 목록만 CS팀에도 열림(2026-10-26 사용자 요청 — "미송 확인은 물류팀과 CS팀도") — 그 밖의 중국 사입 자료는 그대로 CS 제외
       // 물류팀도 서버 역할은 cs라 원래 역할을 다시 읽는다(soldoutRoleOk) — 진짜 CS팀만 '보기 전용'
@@ -2384,7 +2384,7 @@ Deno.serve(async (req) => {
       //   그 밖의 액션(실제 수량·메모·불량·검수 완료·입고 완료·폐기·차이 정리 등 모든 저장)은 여기서 403. 사진 저장은 아래 cn_thumbs의 canEdit 검사가 막는다.
       const csView = authed.role === "cs" && !(await soldoutRoleOk(authed));
       const misongOnly = csView;
-      if (csView && !(action === "cn_list" || action === "cn_misong_list" || action === "cn_thumbs")) return json({ error: "CS팀은 보기만 할 수 있어요" }, 403);
+      if (csView && !(action === "cn_list" || action === "cn_misong_list" || action === "cn_thumbs" || action === "cn_label_imgs")) return json({ error: "CS팀은 보기만 할 수 있어요" }, 403);
       if (!csView && !(authed.role === "staff" || await soldoutRoleOk(authed))) return json({ error: "접근 권한이 없습니다" }, 403);
       const canPrice = authed.role === "admin";   // 단가·비용 = **관리자만** (2026-10-02 사용자 지정 — MD도 안 보이게. 물류팀은 원래 수량만)
       const canEdit = authed.role !== "cs";       // 엑셀 올리기·입고 건 수정·삭제·사진 넣기 = 관리자 + MD (MD는 올릴 수는 있지만 단가·비용은 응답에서 빠진다)
@@ -2440,6 +2440,8 @@ Deno.serve(async (req) => {
         return json({ products, generated_at: new Date().toISOString() });
       }
       if (action === "cn_list") {
+        // 라벨 사진(2026-11-24)은 번호·올린 사람·시각만 — 사진 자체는 마우스를 올릴 때 cn_label_imgs {get}으로
+        const labelImgP = sbRest("cn_label_imgs?select=id,sname,by_name,at&order=id.asc&limit=5000").catch(() => []);
         const [ships, lines, orders, orderLines, prodRows, discards, defects] = await Promise.all([
           sbRest("cn_shipments?select=*&order=id.desc&limit=500"),
           sbRest("cn_lines?select=*&order=shipment_id.desc,seq.asc&limit=20000"),
@@ -2472,7 +2474,9 @@ Deno.serve(async (req) => {
           const [buys, remits] = await Promise.all([sbRest("cn_fx_buys?select=*&limit=5000"), sbRest("cn_remits?select=*&limit=5000")]) as [Record<string, any>[], Record<string, any>[]];
           fx = cnFxModel(ships, lines, buys, remits);
         }
-        return json({ ships: outShips, lines: outLines, orders: orders ?? [], order_lines: orderLines ?? [], discards: discards ?? [], defects: defects ?? [], prods, c24, c24_warn, c24_error, can_price: canPrice, can_edit: canEdit, view_only: csView, fx });
+        const label_imgs: Record<string, { id: number; by: string | null; at: string }[]> = {};
+        for (const r of ((await labelImgP) ?? []) as Record<string, any>[]) (label_imgs[String(r.sname)] ||= []).push({ id: Number(r.id), by: r.by_name ?? null, at: r.at });
+        return json({ ships: outShips, lines: outLines, label_imgs, orders: orders ?? [], order_lines: orderLines ?? [], discards: discards ?? [], defects: defects ?? [], prods, c24, c24_warn, c24_error, can_price: canPrice, can_edit: canEdit, view_only: csView, fx });
       }
       // ── 미송 확인(2026-10-26 사용자 요청) — 중국에서 받은 미송 엑셀(화면이 읽어 단가·합계를 뺀 묶음만 보냄). 최근 2개(지금 + 직전)만 보관
       if (action === "cn_misong_list") {
@@ -2681,6 +2685,17 @@ Deno.serve(async (req) => {
           linked = ids.length ? (((await sbRest(`cn_shipments?id=in.(${ids.join(",")})`, { method: "PATCH", body: JSON.stringify({ order_id: oid }) })) ?? []) as unknown[]).length : 0;
         } else if (!Object.keys(patch).length) return json({ error: "바꿀 내용이 없어요" }, 400);
         return json({ ok: true, order, linked });
+      }
+      // 라벨 사진 받기(2026-11-24) — {get:[사입상품명…]} 50개까지, 상품마다 올린 순서대로. CS 보기 전용도 받을 수 있다(위 문지기)
+      if (action === "cn_label_imgs") {
+        const names = [...new Set((Array.isArray(b.get) ? b.get as unknown[] : []).map((x) => String(x ?? "").trim()).filter((x) => x && x.length <= 100))].slice(0, 50);
+        const imgs: Record<string, unknown[]> = {};
+        if (names.length) {
+          const list = names.map((n) => '"' + n.replace(/\\/g, "\\\\").replace(/"/g, '\\"') + '"').join(",");
+          const rows = ((await sbRest(`cn_label_imgs?select=id,sname,img,w,h,by_name,at&sname=in.(${encodeURIComponent(list)})&order=id.asc&limit=300`)) ?? []) as Record<string, any>[];
+          for (const r of rows) (imgs[String(r.sname)] ||= []).push({ id: Number(r.id), img: String(r.img), w: r.w ?? null, h: r.h ?? null, by: r.by_name ?? null, at: r.at });
+        }
+        return json({ imgs });
       }
       if (action === "cn_thumbs" && Array.isArray(b.get)) {
         // 읽기: 요청한 이름만(화면에 보이는 상품) — 상품이 늘어도 한 번에 받는 양이 커지지 않는다
@@ -2981,6 +2996,40 @@ Deno.serve(async (req) => {
         const label_text = txt(b.label_text, 200);
         await sbRest("cn_products?on_conflict=sname", { method: "POST", headers: { Prefer: "resolution=merge-duplicates,return=minimal" }, body: JSON.stringify({ sname, label_text, label_text_by_name: label_text ? authed.name : null, label_text_at: label_text ? now : null }) });
         return json({ ok: true, sname, label_text, label_text_by: label_text ? authed.name : null, label_text_at: label_text ? now : null });
+      }
+      // 상품별 라벨 사진(2026-11-24 사용자 요청 — 입고 검수에서 상품마다 라벨 사진 첨부, 마우스를 올리면 보기). 관리자·MD만 올리기·지우기.
+      //   사진 = 브라우저가 줄인 JPEG data URL(1MB 이하, 진짜 JPEG인지 앞 바이트 확인), 상품당 6장까지(넣은 뒤 다시 세어 넘으면 되돌림 — 동시에 올려도 6장)
+      if (action === "cn_label_img_add") {
+        if (!canEdit) return json({ error: "라벨 사진은 관리자·MD만 올릴 수 있어요" }, 403);
+        const sname = txt(b.sname, 100);
+        if (!sname) return json({ error: "사입상품명이 없어요" }, 400);
+        const img = typeof b.img === "string" ? b.img : "";
+        const PRE = "data:image/jpeg;base64,";
+        if (!img.startsWith(PRE) || img.length > 1_400_000 || !/^[A-Za-z0-9+/=]+$/.test(img.slice(PRE.length))) return json({ error: "사진 파일이 올바르지 않아요(1MB 이하 JPEG)" }, 400);
+        let head: string;
+        try { head = atob(img.slice(PRE.length, PRE.length + 8)); } catch { return json({ error: "사진 파일이 올바르지 않아요" }, 400); }
+        if (head.charCodeAt(0) !== 0xff || head.charCodeAt(1) !== 0xd8 || head.charCodeAt(2) !== 0xff) return json({ error: "사진 파일이 올바르지 않아요(JPEG 아님)" }, 400);
+        const dim = (v: unknown) => { const n = Number(v); return Number.isInteger(n) && n > 0 && n <= 6000 ? n : null; };
+        const known = await snameKnown(sname);
+        if (!known.length) return json({ error: "입고 내역에 없는 사입상품명이에요 — 새로고침한 뒤 다시 시도해주세요" }, 404);
+        const MAX = 6;
+        const cnt = async () => (((await sbRest(`cn_label_imgs?select=id&sname=eq.${encodeURIComponent(sname)}&order=id.asc&limit=50`)) ?? []) as Record<string, any>[]).map((r) => Number(r.id));
+        if ((await cnt()).length >= MAX) return json({ error: `라벨 사진은 상품마다 ${MAX}장까지예요 — 지운 뒤 올려 주세요` }, 409);
+        const ins = (((await sbRest("cn_label_imgs", { method: "POST", headers: { Prefer: "return=representation" }, body: JSON.stringify({ sname, img, w: dim(b.w), h: dim(b.h), by_name: authed.name }) })) ?? []) as Record<string, any>[])[0];
+        const ids = await cnt();
+        if (ins && ids.indexOf(Number(ins.id)) >= MAX) {   // 동시에 올려 6장을 넘었으면 늦게 들어간 이 사진을 되돌린다
+          await sbRest(`cn_label_imgs?id=eq.${Number(ins.id)}`, { method: "DELETE", headers: { Prefer: "return=minimal" } });
+          return json({ error: `라벨 사진은 상품마다 ${MAX}장까지예요 — 지운 뒤 올려 주세요` }, 409);
+        }
+        return json({ ok: true, sname, id: Number(ins?.id), by: authed.name, at: ins?.at ?? now, count: ids.length });
+      }
+      if (action === "cn_label_img_del") {
+        if (!canEdit) return json({ error: "라벨 사진은 관리자·MD만 지울 수 있어요" }, 403);
+        const id = Number(b.id);
+        if (!Number.isInteger(id) || id < 1) return json({ error: "사진 번호가 올바르지 않아요" }, 400);
+        const gone = ((await sbRest(`cn_label_imgs?id=eq.${id}`, { method: "DELETE", headers: { Prefer: "return=representation" } })) ?? []) as Record<string, any>[];
+        if (!gone.length) return json({ error: "이미 지워진 사진이에요 — 새로고침해 주세요" }, 404);
+        return json({ ok: true, id, sname: gone[0].sname });
       }
       if (action === "cn_label") {
         if (!canEdit) return json({ error: "라벨 표시는 관리자·MD만 바꿀 수 있어요" }, 403);
