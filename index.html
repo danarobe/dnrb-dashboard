@@ -7149,7 +7149,7 @@ async function cnLabelImgOpen(enc) {   // 크게 보기(누르면) — 사진마
       <span style="flex:1"></span>${can && list.length < CN_LBIMG_MAX ? `<label class="cn-lbimg-add" style="font-size:.8rem;padding:5px 12px;"><i class="fa-solid fa-paperclip" aria-hidden="true"></i>사진 추가<input type="file" accept="image/*" multiple data-s="${escHtml(sname)}" onchange="cnLabelImgPick(this)" aria-label="라벨 사진 추가" /></label>` : ''}
       <button type="button" class="cn-lbbox-btn" onclick="cnLabelImgClose()">닫기</button></div>
     <div style="display:flex;flex-wrap:wrap;gap:12px;justify-content:center;">${list.map(x => `<figure class="cn-lbbox-item" style="margin:0;"><img src="${x.img}" alt="${escHtml(sname)} 라벨 사진" />
-      <figcaption style="display:flex;align-items:center;gap:8px;font-size:.74rem;color:#4b5563;margin-top:6px;">${escHtml(x.by || '')} · ${escHtml(kstDT(x.at))}<span style="flex:1"></span>${can ? `<button type="button" class="cn-lbbox-btn del" onclick="cnLabelImgDel(${Number(x.id)}, decodeURIComponent('${encodeURIComponent(sname)}'))">지우기</button>` : ''}</figcaption></figure>`).join('') || '<div style="color:#fff;">사진이 없어요</div>'}</div></div>`;
+      <figcaption style="display:flex;align-items:center;gap:8px;font-size:.74rem;color:#4b5563;margin-top:6px;">${escHtml(x.by || '')} · ${escHtml(kstDT(x.at))}<span style="flex:1"></span>${can ? `<button type="button" class="cn-lbbox-btn del" data-id="${Number(x.id)}" data-s="${escHtml(sname)}" onclick="cnLabelImgDel(Number(this.dataset.id), this.dataset.s)">지우기</button>` : ''}</figcaption></figure>`).join('') || '<div style="color:#fff;">사진이 없어요</div>'}</div></div>`;
   document.body.appendChild(ov);
   document.addEventListener('keydown', cnLabelImgEsc);
   const b = ov.querySelector('button'); if (b) b.focus();
