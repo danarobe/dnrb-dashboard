@@ -949,6 +949,14 @@
 
       <!-- 카페24 연동 상태 + 최초/재연동 -->
       <div id="home-c24" style="display:none;align-items:center;gap:12px;flex-wrap:wrap;border-radius:12px;padding:12px 16px;margin-bottom:14px;"></div>
+      <!-- 상품 등록 전용 카페24 앱(2026-11-25, 같은 날 사용자 요청으로 취소 & 반품률 분석 → 홈) — 관리자만 보임 -->
+      <div id="c24p-bar" style="display:none;align-items:center;gap:12px;flex-wrap:wrap;border-radius:12px;padding:10px 16px;margin:-6px 0 14px;background:#f9fafb;border:1.5px solid #e5e7eb;">
+        <span class="status-badge badge-gray" id="api-status-c24p">상품 등록용: 확인 중...</span>
+        <span id="c24p-note" style="flex:1;min-width:200px;font-size:.75rem;color:#6b7280;">상품 관리 시스템의 카페24 상품 등록에 쓰는 별도 앱이에요 · 기존 카페24 연동과 따로 움직여요</span>
+        <button class="btn-analyze" style="background:#fff;color:#4f46e5;border:1.5px solid #c7d2fe;" onclick="connectCafe24Product()">
+          <i class="fa-solid fa-link"></i> 상품 등록용 연동
+        </button>
+      </div>
 
       <!-- 데이터 수집 상태 -->
       <div id="home-status" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:18px;"></div>
@@ -1100,14 +1108,6 @@
           <i class="fa-solid fa-link"></i> 카페24 최초 연동
         </button>
         <span style="font-size:.75rem;color:#6b7280;">위 '분석 기간'의 날짜 범위로 조회합니다 · CSV 업로드와 병행 가능</span>
-      </div>
-      <!-- 상품 등록 전용 카페24 앱(2026-11-25) — 관리자만 보임 -->
-      <div class="control-bar" id="c24p-bar" style="margin:-14px 0 24px;display:none;">
-        <span class="status-badge badge-gray" id="api-status-c24p">상품 등록용: 확인 중...</span>
-        <button class="btn-analyze" style="background:#fff;color:#4f46e5;border:1.5px solid #c7d2fe;" onclick="connectCafe24Product()">
-          <i class="fa-solid fa-link"></i> 상품 등록용 연동
-        </button>
-        <span id="c24p-note" style="font-size:.75rem;color:#6b7280;">상품 관리 시스템의 카페24 상품 등록에 쓰는 별도 앱이에요 · 기존 카페24 연동과 따로 움직여요</span>
       </div>
 
       <!-- 카페24 불러오기 집계 기준 공지 -->
@@ -4349,7 +4349,7 @@ async function connectCafe24Product() {
 async function checkCafe24ProductStatus(live) {
   const bar = $('c24p-bar'), badge = $('api-status-c24p'), note = $('c24p-note');
   if (!bar || !isAdmin() || !sbReady()) { if (bar) bar.style.display = 'none'; return; }
-  bar.style.display = '';
+  bar.style.display = 'flex';
   try {
     const res = await fetch(fnUrl('cafe24-product', live ? { action: 'status', live: '1' } : { action: 'status' }), { headers: sbHeaders() });
     const d = await res.json();
@@ -24021,7 +24021,7 @@ function bootApp() {
     history.replaceState(null, '', location.pathname);
   }
   if (new URLSearchParams(location.search).get('cafe24p') === 'connected') {
-    showToast('상품 등록용 카페24 연동이 완료됐어요 — 취소 & 반품률 분석 › 실시간 API 연동에서 확인할 수 있어요');
+    showToast('상품 등록용 카페24 연동이 완료됐어요 — 홈에서 상태를 확인할 수 있어요');
     history.replaceState(null, '', location.pathname + location.hash);
   }
   showMenu((location.hash || '#home').slice(1));
