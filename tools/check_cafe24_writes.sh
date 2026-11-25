@@ -14,6 +14,7 @@ while IFS= read -r hit; do
   grep -q "cafe24api\|API_BASE" "$file" || continue
   case "$file" in
     supabase/functions/cafe24-oauth/index.ts) continue ;;   # OAuth 토큰 교환(주문 데이터 아님)
+    supabase/functions/cafe24-product/index.ts) continue ;; # 상품 등록 전용 앱(2026-11-25) — 아래 check_cafe24_product_writes.sh 가 따로 검사
     supabase/functions/cafe24-analytics/index.ts)
       ok=0
       for fn in cafe24MarkCollected cafe24Write cafe24CancelToRefunding cafe24CompleteRefund; do
@@ -44,4 +45,5 @@ grep -q 'cancellation|orders\\/\\d{8}-\\d{7}\\/refunds' $F || { echo "위반: ca
 # ④ 쓰기 함수는 허용한 것뿐 + 상품 쓰기 권한(scope) 요청 금지
 n=$(grep -c "^async function cafe24[A-Z][A-Za-z]*(" supabase/functions/cafe24-analytics/index.ts); [ "$n" -le 4 ] || { echo "위반: cafe24 쓰기 함수가 $n개입니다(허용 4개: 수거 완료·공용 전송·취소처리중·환불완료)"; bad=1; }
 grep -q "mall.write_product" supabase/functions/cafe24-oauth/index.ts && { grep -n "mall.write_product" supabase/functions/cafe24-oauth/index.ts | grep -v "^[0-9]*:\s*//" | grep -q . && { echo "위반: 상품 쓰기(mall.write_product) 권한을 요청합니다"; bad=1; }; }
-[ "$bad" = 0 ] && echo "OK — 카페24 쓰기는 수거 완료 + 자사몰 취소 환불(취소처리중·환불완료) · 상품 쓰기 권한 없음" || exit 1
+bash tools/check_cafe24_product_writes.sh || bad=1
+[ "$bad" = 0 ] && echo "OK — 카페24 쓰기는 수거 완료 + 자사몰 취소 환불(취소처리중·환불완료) · 워크스페이스 앱엔 상품 쓰기 권한 없음" || exit 1

@@ -1101,6 +1101,14 @@
         </button>
         <span style="font-size:.75rem;color:#6b7280;">위 '분석 기간'의 날짜 범위로 조회합니다 · CSV 업로드와 병행 가능</span>
       </div>
+      <!-- 상품 등록 전용 카페24 앱(2026-11-25) — 관리자만 보임 -->
+      <div class="control-bar" id="c24p-bar" style="margin:-14px 0 24px;display:none;">
+        <span class="status-badge badge-gray" id="api-status-c24p">상품 등록용: 확인 중...</span>
+        <button class="btn-analyze" style="background:#fff;color:#4f46e5;border:1.5px solid #c7d2fe;" onclick="connectCafe24Product()">
+          <i class="fa-solid fa-link"></i> 상품 등록용 연동
+        </button>
+        <span id="c24p-note" style="font-size:.75rem;color:#6b7280;">상품 관리 시스템의 카페24 상품 등록에 쓰는 별도 앱이에요 · 기존 카페24 연동과 따로 움직여요</span>
+      </div>
 
       <!-- 카페24 불러오기 집계 기준 공지 -->
       <div style="background:#fffbeb;border:1.5px solid #fde68a;border-radius:12px;padding:14px 18px;margin-bottom:24px;font-size:.82rem;color:#78350f;line-height:1.7;">
@@ -4320,6 +4328,51 @@ function connectCafe24() {
   if (!sbReady()) { showToast('config.js에 Supabase 설정을 먼저 입력하세요'); return; }
   window.open(fnUrl('cafe24-oauth', { action: 'start' }), '_blank');
   showToast('새 창에서 카페24 로그인 후 돌아와주세요 — 완료되면 이 페이지를 새로고침하세요');
+}
+
+/* 상품 등록 전용 카페24 앱 연동 (2026-11-25) — 관리자만. 토큰은 서버 cafe24-product 함수 안에만 있다.
+   동의 화면 주소는 서버가 로그인을 확인하고 서명한 state를 붙여 준다(아무나 연동을 시작할 수 없게). */
+async function connectCafe24Product() {
+  if (!isAdmin()) { showToast('상품 등록용 연동은 관리자만 할 수 있어요'); return; }
+  const tab = window.open('about:blank', '_blank');   // 누른 순간 창부터 열어야 팝업 차단에 안 걸림
+  try {
+    const res = await fetch(fnUrl('cafe24-product', { action: 'start_url' }), { method: 'POST', headers: sbHeaders() });
+    const d = await res.json();
+    if (!res.ok || !d.url) throw new Error(d.error || ('오류 ' + res.status));
+    if (tab) { tab.opener = null; tab.location.href = d.url; } else location.href = d.url;
+    showToast('새 창에서 카페24 로그인·동의를 마치면 이 화면으로 돌아와요');
+  } catch (e) {
+    if (tab) tab.close();
+    showToast('상품 등록용 연동을 시작하지 못했어요 — ' + e.message);
+  }
+}
+async function checkCafe24ProductStatus(live) {
+  const bar = $('c24p-bar'), badge = $('api-status-c24p'), note = $('c24p-note');
+  if (!bar || !isAdmin() || !sbReady()) { if (bar) bar.style.display = 'none'; return; }
+  bar.style.display = '';
+  try {
+    const res = await fetch(fnUrl('cafe24-product', live ? { action: 'status', live: '1' } : { action: 'status' }), { headers: sbHeaders() });
+    const d = await res.json();
+    if (!res.ok) throw new Error(d.error || res.status);
+    if (!d.connected) { badge.textContent = '상품 등록용: 미연동'; badge.className = 'status-badge badge-yellow'; return; }
+    const exp = d.refresh_expires_at ? new Date(d.refresh_expires_at) : null;
+    const lr = d.last_refresh;
+    const bad = lr && lr.ok === false;
+    badge.textContent = bad ? '상품 등록용: 자동 갱신 실패' : '상품 등록용: 연동됨';
+    badge.className = 'status-badge ' + (bad ? 'badge-yellow' : 'badge-green');
+    const parts = [];
+    if (exp) parts.push(`${exp.getMonth() + 1}월 ${exp.getDate()}일까지 유효 · 매일 새벽 자동 갱신`);
+    if (bad) parts.push('다시 연동해 주세요');
+    if (d.live) {
+      const L = d.live, ok = (x) => x && x.ok;
+      parts.push(ok(L.products) && ok(L.categories) && ok(L.icons)
+        ? `확인: 상품 ${Number(L.products.value).toLocaleString()}개 · 분류 ${L.categories.value}개 · 아이콘 ${L.icons.value}개 읽기 정상`
+        : '확인 실패: ' + ['products', 'categories', 'icons'].filter((k) => !ok(L[k])).map((k) => ({ products: '상품', categories: '분류', icons: '아이콘' })[k]).join('·') + ' 읽기 안 됨 — 앱 권한을 확인해 주세요');
+    }
+    if (note) note.textContent = parts.join(' · ');
+  } catch (e) {
+    badge.textContent = '상품 등록용: 확인 실패'; badge.className = 'status-badge badge-gray';
+  }
 }
 
 /* 카페24 연동 상태 확인 — 취소&반품 배지 + 홈 안내 카드를 함께 갱신 */
@@ -23961,10 +24014,15 @@ function bootApp() {
   if (isAdmin()) loadCrArchive();    // 취소·반품 기록은 관리자만
   if (!isCS()) loadPerfArchive();    // 판매 성과 기록(순매출·마진 집계 포함) — CS팀 제외
   checkCafe24Status();
+  if (isAdmin()) checkCafe24ProductStatus(new URLSearchParams(location.search).get('cafe24p') === 'connected');
   if (!isCS()) loadAnCategories().then(() => fetchAnalytics(true)).then(() => { updateHomeTrafficTile(); loadTrending(); });
   if (new URLSearchParams(location.search).get('cafe24') === 'connected') {
     showToast('카페24 연동이 완료됐습니다!');
     history.replaceState(null, '', location.pathname);
+  }
+  if (new URLSearchParams(location.search).get('cafe24p') === 'connected') {
+    showToast('상품 등록용 카페24 연동이 완료됐어요 — 취소 & 반품률 분석 › 실시간 API 연동에서 확인할 수 있어요');
+    history.replaceState(null, '', location.pathname + location.hash);
   }
   showMenu((location.hash || '#home').slice(1));
 }
