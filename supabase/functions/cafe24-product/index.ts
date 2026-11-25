@@ -99,7 +99,7 @@ function selfUrl(): string {
 
 function textResponse(msg: string, status = 200): Response {
   // 게이트웨이가 text/html을 text/plain으로 바꾸므로 BOM 붙인 일반 텍스트
-  return new Response(`﻿${msg}`, { status, headers: { "Content-Type": "text/plain; charset=utf-8" } });
+  return new Response(`﻿${msg}`, { status, headers: { "Content-Type": "text/plain; charset=utf-8", "X-Content-Type-Options": "nosniff" } });
 }
 
 // ── 토큰 ──
@@ -246,9 +246,10 @@ Deno.serve(async (req) => {
     }
     const oauthErr = url.searchParams.get("error");
     if (oauthErr) {
-      const desc = url.searchParams.get("error_description") ?? "";
-      const hint = /scope/i.test(oauthErr + desc) ? " → 개발자센터의 상품 등록용 앱 권한(상품 읽기·쓰기, 상품분류 읽기, 디자인 읽기)이 저장됐는지 확인한 뒤 다시 연동하세요." : "";
-      return textResponse(`상품 등록용 카페24 연동 실패: ${oauthErr} ${desc}${hint}`, 400);
+      // 주소에 실려 온 값은 그대로 되돌려 보여 주지 않는다(보안 검토 2026-11-25) — 짧은 오류 코드만
+      const codeTxt = /^[a-z_]{1,40}$/.test(oauthErr) ? oauthErr : "unknown";
+      const hint = /scope/.test(codeTxt) ? " → 개발자센터의 상품 등록용 앱 권한(상품 읽기·쓰기, 상품분류 읽기, 디자인 읽기)이 저장됐는지 확인한 뒤 다시 연동하세요." : " → 워크스페이스에서 '상품 등록용 연동'을 다시 눌러 주세요.";
+      return textResponse(`상품 등록용 카페24 연동 실패 (${codeTxt})${hint}`, 400);
     }
 
     // ② 매일 자동 갱신 (pg_cron c24p-refresh-daily)
