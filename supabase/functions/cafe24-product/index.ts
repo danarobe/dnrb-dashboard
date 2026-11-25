@@ -283,7 +283,7 @@ async function checkRegInput(b: Record<string, unknown>): Promise<RegIn> {
   if (new Set(colors.map((c) => c.name)).size !== colors.length || new Set(sizes).size !== sizes.length) bad("같은 색상·사이즈가 두 번 있어요");
   const nums = (v: unknown) => (Array.isArray(v) ? v : []).map((x) => Number(x)).filter((x) => Number.isInteger(x) && x > 0);
   const categories = [...new Set(nums(b.categories))], mains = [...new Set(nums(b.mains))];
-  if (!categories.length) bad("상품 분류를 하나 이상 골라 주세요");
+  // 분류·메인 진열·아이콘은 비워도 된다 — 간편 등록 모드(2026-11-25 사용자 요청): 그 칸은 카페24에서 사람이 고른다
   if (categories.length > 10 || mains.length > 5) bad("분류는 10개, 메인 진열은 5개까지예요");
   const icons = [...new Set((Array.isArray(b.icons) ? b.icons : []).map(nfc))];
   if (icons.length > 5 || icons.some((x) => !/^icon_global_\d{2}$/.test(x))) bad("아이콘 형식 오류(최대 5개)");
@@ -291,13 +291,15 @@ async function checkRegInput(b: Record<string, unknown>): Promise<RegIn> {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(icon_start)) bad("아이콘 표시 시작일 형식 오류");
   const icon_days = Number(b.icon_days ?? 4);
   if (!Number.isInteger(icon_days) || icon_days < 1 || icon_days > 30) bad("아이콘 표시 기간은 1~30일이에요");
-  // 분류·메인 진열은 쇼핑몰에 실제로 있는 번호만
-  const [cb, mb] = await Promise.all([c24Get(`/admin/categories?limit=100&fields=category_no`), c24Get(`/admin/mains`)]);
-  const catSet = new Set(((cb.categories ?? []) as Record<string, unknown>[]).map((c) => Number(c.category_no)));
-  const mainSet = new Set(((mb.mains ?? []) as Record<string, unknown>[]).map((m) => Number(m.display_group)));
-  const noCat = categories.filter((c) => !catSet.has(c)), noMain = mains.filter((m) => !mainSet.has(m));
-  if (noCat.length) bad(`쇼핑몰에 없는 분류 번호: ${noCat.join(", ")}`);
-  if (noMain.length) bad(`쇼핑몰에 없는 메인 진열 번호: ${noMain.join(", ")}`);
+  // 분류·메인 진열은 쇼핑몰에 실제로 있는 번호만 (고른 게 있을 때만 확인)
+  if (categories.length || mains.length) {
+    const [cb, mb] = await Promise.all([c24Get(`/admin/categories?limit=100&fields=category_no`), c24Get(`/admin/mains`)]);
+    const catSet = new Set(((cb.categories ?? []) as Record<string, unknown>[]).map((c) => Number(c.category_no)));
+    const mainSet = new Set(((mb.mains ?? []) as Record<string, unknown>[]).map((m) => Number(m.display_group)));
+    const noCat = categories.filter((c) => !catSet.has(c)), noMain = mains.filter((m) => !mainSet.has(m));
+    if (noCat.length) bad(`쇼핑몰에 없는 분류 번호: ${noCat.join(", ")}`);
+    if (noMain.length) bad(`쇼핑몰에 없는 메인 진열 번호: ${noMain.join(", ")}`);
+  }
   return { npm_id, product_name, supply_product_name, internal_product_name, price, supply_price, colors, sizes, categories, mains, icons, icon_start, icon_days };
 }
 
@@ -376,9 +378,10 @@ async function registerSteps(inp: RegIn, by: string, row: Record<string, unknown
         ...FIXED,
         product_name: inp.product_name, supply_product_name: inp.supply_product_name, internal_product_name: inp.internal_product_name,
         price: inp.price, supply_price: inp.supply_price, has_option: "F",
-        add_category_no: inp.categories.map((c) => ({ category_no: c, recommend: "F", new: "F" })),
-        main: inp.mains.map(String),
-        icon: inp.icons,
+        // 간편 등록(비운 칸)은 아예 보내지 않는다
+        ...(inp.categories.length ? { add_category_no: inp.categories.map((c) => ({ category_no: c, recommend: "F", new: "F" })) } : {}),
+        ...(inp.mains.length ? { main: inp.mains.map(String) } : {}),
+        ...(inp.icons.length ? { icon: inp.icons } : {}),
       },
     }, who);
     no = Number((out.product as Record<string, unknown> | undefined)?.product_no);
