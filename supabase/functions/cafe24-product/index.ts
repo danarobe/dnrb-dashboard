@@ -17,6 +17,8 @@
 //   POST ?action=register      (관리자·상품관리) 상품 관리 시스템 상품 하나를 숨김·판매 안 함으로 등록 — 2단계(2026-11-25)
 //   POST ?action=reg_list      (관리자·상품관리) {npm_ids} → 등록 기록
 //   GET  ?action=compare&product_no=&ref=  (관리자·상품관리) 우리가 만든 상품과 엑셀로 만든 상품의 설정 칸 비교
+//   POST ?action=upload_image  (상품관리) {npm_id, data(base64), mime} → 상세 본문용 사진을 카페24에 올리고 주소 — 이 시스템이 만든 상품만
+//   POST ?action=set_photos    (상품관리) {npm_id, urls[], thumb(data URI gif)} → 상세설명(사진 순서대로) + 대표이미지(gif, 대표이미지등록) — 3단계(2026-11-25)
 //   상품관리 서버는 x-sync-secret = **전용 비밀키 CAFE24P_SYNC_SECRET**으로 부른다(다른 연동의 NPM_SYNC_SECRET과 따로 — 보안 검토 2026-11-25) — 이 세 액션과 lookups만
 //
 // 안전장치 (카페24로 값을 보내는 곳은 c24pWrite 하나뿐)
@@ -224,6 +226,32 @@ async function c24pWrite(method: "POST" | "PUT", path: string, body: Record<stri
   await writeLog({ by_name: who.name, npm_id: who.npm_id ?? null, method, path, status: res.status, ok: res.ok, note: res.ok ? null : JSON.stringify(out.error ?? out).slice(0, 500) });
   if (!res.ok) throw new Error(`카페24 ${res.status}: ${JSON.stringify(out.error ?? out).slice(0, 300)}`);
   return out;
+}
+
+// ═══ 3단계: 구글 드라이브 사진 → 상세설명·대표이미지 (2026-11-25) ═══
+// 드라이브 읽기는 상품관리 서버가 한다(구글 서비스 계정 키가 그쪽 Vercel에 있음) — 여기는 받은 사진을 카페24에 넣기만.
+const IMG_MIME: Record<string, (b: Uint8Array) => boolean> = {
+  "image/jpeg": (b) => b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff,
+  "image/png": (b) => b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47,
+  "image/gif": (b) => b[0] === 0x47 && b[1] === 0x49 && b[2] === 0x46,
+  "image/webp": (b) => b[0] === 0x52 && b[1] === 0x49 && b[2] === 0x46 && b[3] === 0x46 && b[8] === 0x57 && b[9] === 0x45,
+};
+const MAX_IMG = 10 * 1024 * 1024;   // 카페24 관리자 화면 안내 '10M 이하'
+function checkImage(data: string, mime: string): void {
+  if (!IMG_MIME[mime]) throw new Error(`사진 형식이 아니에요(${mime}) — jpg·png·gif·webp만`);
+  if (!/^[A-Za-z0-9+/]+={0,2}$/.test(data)) throw new Error("사진 데이터 형식 오류");
+  if (data.length * 0.75 > MAX_IMG) throw new Error("사진 한 장이 10MB를 넘어요");
+  const head = Uint8Array.from(atob(data.slice(0, 24)), (c) => c.charCodeAt(0));
+  if (!IMG_MIME[mime](head)) throw new Error("파일 내용이 사진 형식과 달라요");
+}
+// 상세 본문 사진 주소는 카페24가 돌려준 에디터 업로드 주소만 (따옴표·스크립트가 끼어들 수 없게)
+const DETAIL_URL_RE = /^https:\/\/(danarobe\.com|www\.danarobe\.com|wnqka5000\.cafe24\.com)\/web\/upload\/NNEditor\/[A-Za-z0-9_\-./]+\.(jpe?g|png|gif|webp)$/i;
+async function ourProductNo(npm_id: string): Promise<number> {
+  if (!/^[0-9a-f-]{36}$/.test(npm_id)) throw new Error("상품 번호 형식 오류");
+  const row = await regGet(npm_id);
+  const no = Number(row?.product_no ?? 0);
+  if (!no) throw new Error("이 시스템으로 카페24에 등록한 상품이 아니에요 — 먼저 '카페24에 숨김 등록'을 해 주세요");
+  return no;
 }
 
 // ═══ 2단계: 숨김 등록 (2026-11-25) ═══
@@ -492,7 +520,7 @@ Deno.serve(async (req) => {
     const viaSync = !!syncSecret && safeEqual(req.headers.get("x-sync-secret") ?? "", syncSecret);
     let user: { id: string; name: string; role: string } | null = null;
     if (viaSync) {
-      if (!["lookups", "register", "reg_list", "compare"].includes(action ?? "")) return json({ error: "권한 없음" }, 403);
+      if (!["lookups", "register", "reg_list", "compare", "upload_image", "set_photos"].includes(action ?? "")) return json({ error: "권한 없음" }, 403);
       user = { id: "npm", name: "상품관리", role: "admin" };
     } else {
       const u = await verifyAuthToken(req);
@@ -546,6 +574,55 @@ Deno.serve(async (req) => {
         const err = e as Error & { status?: number; product_nos?: number[] };
         return json({ ok: false, error: err.message, product_nos: err.product_nos ?? null }, err.status ?? 500);
       }
+    }
+
+    if (action === "upload_image") {
+      if (req.method !== "POST") return json({ error: "POST만" }, 405);
+      const body = await req.json().catch(() => ({})) as Record<string, unknown>;
+      try {
+        const npm_id = nfc(body.npm_id), data = String(body.data ?? ""), mime = String(body.mime ?? "");
+        const no = await ourProductNo(npm_id);
+        checkImage(data, mime);
+        const out = await c24pWrite("POST", "/admin/products/images", { requests: [{ image: data }] }, { name: viaSync ? (nfc(body.by_name).slice(0, 30) || "상품관리") : user.name, npm_id });
+        const errs = (out.errors ?? []) as Record<string, unknown>[];
+        const path = String(((out.images ?? []) as Record<string, unknown>[])[0]?.path ?? "");
+        if (!path || errs.length) return json({ ok: false, error: `카페24가 사진을 받지 않았어요: ${JSON.stringify(errs[0] ?? out).slice(0, 200)}` }, 502);
+        if (!DETAIL_URL_RE.test(path)) return json({ ok: false, error: `카페24가 예상과 다른 주소를 돌려줬어요: ${path.slice(0, 120)}` }, 502);
+        return json({ ok: true, url: path, product_no: no });
+      } catch (e) { return json({ ok: false, error: (e as Error).message }, 400); }
+    }
+
+    if (action === "set_photos") {
+      if (req.method !== "POST") return json({ error: "POST만" }, 405);
+      const body = await req.json().catch(() => ({})) as Record<string, unknown>;
+      const npm_id = nfc(body.npm_id);
+      const who = { name: viaSync ? (nfc(body.by_name).slice(0, 30) || "상품관리") : user.name, npm_id };
+      try {
+        const no = await ourProductNo(npm_id);
+        const urls = (Array.isArray(body.urls) ? body.urls : []).map((u) => String(u));
+        if (!urls.length || urls.length > 60) throw new Error("상세 사진은 1~60장이에요");
+        const badUrl = urls.find((u) => !DETAIL_URL_RE.test(u));
+        if (badUrl) throw new Error(`카페24에 올린 사진 주소가 아니에요: ${badUrl.slice(0, 100)}`);
+        const thumb = String(body.thumb ?? "");
+        const m = thumb.match(/^data:(image\/gif);base64,(.+)$/);
+        if (!m) throw new Error("대표 이미지는 gif여야 해요");
+        checkImage(m[2], m[1]);
+        // 기존 상품과 같은 모양: 사진마다 가운데 정렬 블록 + 끝에 줄바꿈, 모바일은 같은 내용(분리 안 함)
+        const html = urls.map((u) => `<img src="${u}" style="display: block; vertical-align: top; margin: 0px auto; text-align: center;">`).join("") + "<br>";
+        const steps: Record<string, unknown> = { ...(((await regGet(npm_id))?.steps ?? {}) as Record<string, unknown>) };
+        await c24pWrite("PUT", `/admin/products/${no}`, { shop_no: 1, request: { description: html, separated_mobile_description: "F" } }, who);
+        await c24pWrite("POST", `/admin/products/${no}/images`, { shop_no: 1, request: { detail_image: thumb, image_upload_type: "A" } }, who);
+        // 다시 읽어 확인
+        const p = ((await c24Get(`/admin/products/${no}`)).product ?? {}) as Record<string, unknown>;
+        const got = (String(p.description ?? "").match(/<img\b/gi) ?? []).length;
+        const checks = [
+          { key: "detail", label: `상세설명 사진 ${urls.length}장`, ok: got === urls.length && urls.every((u) => String(p.description ?? "").includes(u)) },
+          { key: "thumb", label: "대표 이미지(목록·작은목록·축소 포함)", ok: !!p.detail_image && !!p.list_image && !!p.tiny_image && !!p.small_image },
+        ];
+        steps.photos = { ok: checks.every((c) => c.ok), at: new Date().toISOString(), count: urls.length, checks };
+        await regPatch(npm_id, { steps });
+        return json({ ok: checks.every((c) => c.ok), product_no: no, checks, detail_image: p.detail_image ?? null });
+      } catch (e) { return json({ ok: false, error: (e as Error).message }, 400); }
     }
 
     if (action === "reg_list") {
