@@ -230,22 +230,28 @@ async function c24pWrite(method: "POST" | "PUT", path: string, body: Record<stri
 
 // ═══ 3단계: 구글 드라이브 사진 → 상세설명·대표이미지 (2026-11-25) ═══
 // 드라이브 읽기는 상품관리 서버가 한다(구글 서비스 계정 키가 그쪽 Vercel에 있음) — 여기는 받은 사진을 카페24에 넣기만.
-const IMG_MIME: Record<string, (b: Uint8Array) => boolean> = {
-  "image/jpeg": (b) => b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff,
-  "image/png": (b) => b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47,
-  "image/gif": (b) => b[0] === 0x47 && b[1] === 0x49 && b[2] === 0x46,
-  "image/webp": (b) => b[0] === 0x52 && b[1] === 0x49 && b[2] === 0x46 && b[3] === 0x46 && b[8] === 0x57 && b[9] === 0x45,
-};
+// 허용 형식(Map — 객체 프로토타입 키로 우회되지 않게, 보안 검토 2026-11-25) + 앞 바이트 + 카페24가 돌려준 확장자
+const IMG_MIME = new Map<string, { sig: (b: Uint8Array) => boolean; ext: RegExp }>([
+  ["image/jpeg", { sig: (b) => b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff, ext: /\.jpe?g$/i }],
+  ["image/png", { sig: (b) => b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47, ext: /\.png$/i }],
+  ["image/gif", { sig: (b) => b[0] === 0x47 && b[1] === 0x49 && b[2] === 0x46 && b[3] === 0x38, ext: /\.gif$/i }],
+  ["image/webp", { sig: (b) => b[0] === 0x52 && b[1] === 0x49 && b[2] === 0x46 && b[3] === 0x46 && b[8] === 0x57 && b[9] === 0x45 && b[10] === 0x42 && b[11] === 0x50, ext: /\.webp$/i }],
+]);
 const MAX_IMG = 10 * 1024 * 1024;   // 카페24 관리자 화면 안내 '10M 이하'
 function checkImage(data: string, mime: string): void {
-  if (!IMG_MIME[mime]) throw new Error(`사진 형식이 아니에요(${mime}) — jpg·png·gif·webp만`);
-  if (!/^[A-Za-z0-9+/]+={0,2}$/.test(data)) throw new Error("사진 데이터 형식 오류");
-  if (data.length * 0.75 > MAX_IMG) throw new Error("사진 한 장이 10MB를 넘어요");
+  const t = IMG_MIME.get(mime);
+  if (!t) throw new Error("사진 형식이 아니에요 — jpg·png·gif·webp만");
+  if (data.length % 4 !== 0 || !/^[A-Za-z0-9+/]+={0,2}$/.test(data)) throw new Error("사진 데이터 형식 오류");
+  const bytes = data.length / 4 * 3 - (data.endsWith("==") ? 2 : data.endsWith("=") ? 1 : 0);   // 정확한 디코딩 크기
+  if (bytes > MAX_IMG) throw new Error("사진 한 장이 10MB를 넘어요");
+  if (bytes < 64) throw new Error("사진이 너무 작아요(깨진 파일)");
   const head = Uint8Array.from(atob(data.slice(0, 24)), (c) => c.charCodeAt(0));
-  if (!IMG_MIME[mime](head)) throw new Error("파일 내용이 사진 형식과 달라요");
+  if (!t.sig(head)) throw new Error("파일 내용이 사진 형식과 달라요");
+  // 사진 내용 자체(다른 파일이 섞인 것 등)는 카페24가 받아서 다시 검사·저장한다 — 여기서는 형식·크기·앞 바이트까지
 }
 // 상세 본문 사진 주소는 카페24가 돌려준 에디터 업로드 주소만 (따옴표·스크립트가 끼어들 수 없게)
-const DETAIL_URL_RE = /^https:\/\/(danarobe\.com|www\.danarobe\.com|wnqka5000\.cafe24\.com)\/web\/upload\/NNEditor\/[A-Za-z0-9_\-./]+\.(jpe?g|png|gif|webp)$/i;
+//   점(.)은 확장자에만 — '..' 경로가 끼어들 수 없게(보안 검토 2026-11-25)
+const DETAIL_URL_RE = /^https:\/\/(danarobe\.com|www\.danarobe\.com|wnqka5000\.cafe24\.com)\/web\/upload\/NNEditor\/[A-Za-z0-9_-]+(?:\/[A-Za-z0-9_-]+)*\.(jpe?g|png|gif|webp)$/i;
 async function ourProductNo(npm_id: string): Promise<number> {
   if (!/^[0-9a-f-]{36}$/.test(npm_id)) throw new Error("상품 번호 형식 오류");
   const row = await regGet(npm_id);
@@ -587,7 +593,13 @@ Deno.serve(async (req) => {
         const errs = (out.errors ?? []) as Record<string, unknown>[];
         const path = String(((out.images ?? []) as Record<string, unknown>[])[0]?.path ?? "");
         if (!path || errs.length) return json({ ok: false, error: `카페24가 사진을 받지 않았어요: ${JSON.stringify(errs[0] ?? out).slice(0, 200)}` }, 502);
-        if (!DETAIL_URL_RE.test(path)) return json({ ok: false, error: `카페24가 예상과 다른 주소를 돌려줬어요: ${path.slice(0, 120)}` }, 502);
+        if (!DETAIL_URL_RE.test(path) || !IMG_MIME.get(mime)!.ext.test(path)) return json({ ok: false, error: `카페24가 예상과 다른 주소를 돌려줬어요: ${path.slice(0, 120)}` }, 502);
+        // 이 상품에 올린 주소를 기록 — set_photos 는 여기 있는 주소만 받는다(화면이 보낸 주소를 그대로 믿지 않게)
+        const row = await regGet(npm_id);
+        const steps = { ...((row?.steps ?? {}) as Record<string, unknown>) };
+        const ups = ((steps.uploads ?? []) as string[]).filter((u) => u !== path);
+        steps.uploads = [...ups, path].slice(-300);
+        await regPatch(npm_id, { steps });
         return json({ ok: true, url: path, product_no: no });
       } catch (e) { return json({ ok: false, error: (e as Error).message }, 400); }
     }
@@ -601,8 +613,9 @@ Deno.serve(async (req) => {
         const no = await ourProductNo(npm_id);
         const urls = (Array.isArray(body.urls) ? body.urls : []).map((u) => String(u));
         if (!urls.length || urls.length > 60) throw new Error("상세 사진은 1~60장이에요");
-        const badUrl = urls.find((u) => !DETAIL_URL_RE.test(u));
-        if (badUrl) throw new Error(`카페24에 올린 사진 주소가 아니에요: ${badUrl.slice(0, 100)}`);
+        const uploaded = new Set((((await regGet(npm_id))?.steps as Record<string, unknown> | undefined)?.uploads ?? []) as string[]);
+        const badUrl = urls.find((u) => !DETAIL_URL_RE.test(u) || !uploaded.has(u));
+        if (badUrl) throw new Error(`이 상품에 올린 사진 주소가 아니에요: ${badUrl.slice(0, 100)}`);
         const thumb = String(body.thumb ?? "");
         const m = thumb.match(/^data:(image\/gif);base64,(.+)$/);
         if (!m) throw new Error("대표 이미지는 gif여야 해요");
