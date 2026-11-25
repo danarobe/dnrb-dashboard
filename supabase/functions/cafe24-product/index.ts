@@ -317,38 +317,53 @@ async function sameNameProducts(name: string): Promise<number[]> {
   return ((b.products ?? []) as Record<string, unknown>[]).filter((p) => nfc(p.product_name) === name).map((p) => Number(p.product_no));
 }
 
-// 같은 상품을 동시에 두 번 처리하지 않게 잠금 — UPDATE 한 문장(WHERE에 잠금 조건)이라 두 요청 중 하나만 잡는다
-async function regLock(npm_id: string): Promise<Record<string, unknown> | null> {
-  const now = new Date().toISOString(), until = new Date(Date.now() + 3 * 60e3).toISOString();
+// 같은 상품을 동시에 두 번 처리하지 않게 잠금 — UPDATE 한 문장(WHERE에 잠금 조건)이라 두 요청 중 하나만 잡는다.
+//   잠금 시간 10분 = 엣지 함수 한 번의 최대 실행 시간보다 길다(함수가 먼저 끝나므로 실행 중에 잠금이 풀리지 않음).
+//   잠근 요청만 풀고(lock_by 토큰), 상품 만들기 직전에 토큰·상품번호를 다시 확인한다(보안 검토 2026-11-25).
+const LOCK_MS = 10 * 60e3;
+async function regLock(npm_id: string, token: string): Promise<Record<string, unknown> | null> {
+  const now = new Date().toISOString(), until = new Date(Date.now() + LOCK_MS).toISOString();
   const q = `npm_id=eq.${encodeURIComponent(npm_id)}&or=(lock_until.is.null,lock_until.lt.${encodeURIComponent(now)})`;
-  const r = await sb(`c24p_registry?${q}`, { method: "PATCH", headers: { Prefer: "return=representation" }, body: JSON.stringify({ lock_until: until }) });
+  const r = await sb(`c24p_registry?${q}`, { method: "PATCH", headers: { Prefer: "return=representation" }, body: JSON.stringify({ lock_until: until, lock_by: token }) });
   if (!r.ok) throw new Error("등록 기록을 잠그지 못했어요");
   return (await r.json())[0] ?? null;
 }
-async function regUnlock(npm_id: string): Promise<void> {
-  await sb(`c24p_registry?npm_id=eq.${encodeURIComponent(npm_id)}`, { method: "PATCH", headers: { Prefer: "return=minimal" }, body: JSON.stringify({ lock_until: null }) });
+async function regUnlock(npm_id: string, token: string): Promise<void> {
+  await sb(`c24p_registry?npm_id=eq.${encodeURIComponent(npm_id)}&lock_by=eq.${token}`, { method: "PATCH", headers: { Prefer: "return=minimal" }, body: JSON.stringify({ lock_until: null, lock_by: null }) });
+}
+// 아직 내가 잠금을 갖고 있는지 + 그 사이 상품번호가 생겼는지 (상품 만들기 직전)
+async function regStillMine(npm_id: string, token: string): Promise<Record<string, unknown> | null> {
+  const r = await sb(`c24p_registry?npm_id=eq.${encodeURIComponent(npm_id)}&lock_by=eq.${token}&lock_until=gt.${encodeURIComponent(new Date().toISOString())}&select=product_no`);
+  if (!r.ok) return null;
+  return (await r.json())[0] ?? null;
 }
 
 async function registerProduct(inp: RegIn, by: string): Promise<Record<string, unknown>> {
   // ① 기록 줄을 만들고(이미 있으면 그대로) → 잠금. 잠금을 못 잡으면 다른 요청이 진행 중
   const ins = await sb(`c24p_registry?on_conflict=npm_id`, { method: "POST", headers: { Prefer: "resolution=ignore-duplicates,return=minimal" }, body: JSON.stringify({ npm_id: inp.npm_id, state: "pending", by_name: by }) });
   if (!ins.ok) throw new Error("등록 기록을 만들지 못했어요");
-  const row = await regLock(inp.npm_id);
+  const token = crypto.randomUUID();
+  const row = await regLock(inp.npm_id, token);
   if (!row) throw Object.assign(new Error("이 상품 등록이 이미 진행 중이에요 — 잠시 뒤 다시 눌러 주세요"), { status: 409 });
   try {
-    return await registerSteps(inp, by, row);
+    return await registerSteps(inp, by, row, token);
   } finally {
-    await regUnlock(inp.npm_id);
+    await regUnlock(inp.npm_id, token);
   }
 }
 
-async function registerSteps(inp: RegIn, by: string, row: Record<string, unknown>): Promise<Record<string, unknown>> {
+async function registerSteps(inp: RegIn, by: string, row: Record<string, unknown>, token: string): Promise<Record<string, unknown>> {
   const steps: Record<string, unknown> = { ...((row?.steps ?? {}) as Record<string, unknown>) };
   await regPatch(inp.npm_id, { state: row?.product_no ? "created" : "pending", by_name: by });
   let no = row?.product_no ? Number(row.product_no) : 0;
   const who = { name: by, npm_id: inp.npm_id };
 
-  // ② 상품 만들기 (한 번만)
+  // ② 상품 만들기 (한 번만) — 직전에 잠금·상품번호를 다시 확인
+  if (!no) {
+    const mine = await regStillMine(inp.npm_id, token);
+    if (!mine) throw Object.assign(new Error("등록 잠금을 잃었어요 — 잠시 뒤 다시 눌러 주세요"), { status: 409 });
+    if (mine.product_no) no = Number(mine.product_no);
+  }
   if (!no) {
     const same = await sameNameProducts(inp.product_name);
     if (same.length) {
