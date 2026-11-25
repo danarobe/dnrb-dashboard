@@ -17,7 +17,7 @@
 //   POST ?action=register      (관리자·상품관리) 상품 관리 시스템 상품 하나를 숨김·판매 안 함으로 등록 — 2단계(2026-11-25)
 //   POST ?action=reg_list      (관리자·상품관리) {npm_ids} → 등록 기록
 //   GET  ?action=compare&product_no=&ref=  (관리자·상품관리) 우리가 만든 상품과 엑셀로 만든 상품의 설정 칸 비교
-//   상품관리 서버는 x-sync-secret(NPM_SYNC_SECRET)으로 부른다 — 이 세 액션과 lookups만
+//   상품관리 서버는 x-sync-secret = **전용 비밀키 CAFE24P_SYNC_SECRET**으로 부른다(다른 연동의 NPM_SYNC_SECRET과 따로 — 보안 검토 2026-11-25) — 이 세 액션과 lookups만
 //
 // 안전장치 (카페24로 값을 보내는 곳은 c24pWrite 하나뿐)
 //   ① DELETE는 보내지 않는다 — 허용 목록 WRITE_RULES 에 없음
@@ -26,7 +26,7 @@
 //   ④ 상품번호가 들어가는 쓰기는 **이 시스템이 만든 상품(c24p_registry)** 일 때만 — 기존 상품은 못 건드린다
 //   ⑤ 쓰기마다 c24p_log 에 기록 (사진 원본 등 본문은 저장하지 않음)
 //
-// 필요 secrets: CAFE24_MALL_ID(공용), CAFE24P_CLIENT_ID, CAFE24P_CLIENT_SECRET, AUTH_SECRET, CRON_SECRET, DASHBOARD_URL
+// 필요 secrets: CAFE24_MALL_ID(공용), CAFE24P_CLIENT_ID, CAFE24P_CLIENT_SECRET, CAFE24P_SYNC_SECRET, AUTH_SECRET, CRON_SECRET, DASHBOARD_URL
 // ═══════════════════════════════════════════════
 import { handleOptions, json, getToken, saveToken, verifyAuthToken, safeEqual } from "../_shared/util.ts";
 
@@ -317,17 +317,32 @@ async function sameNameProducts(name: string): Promise<number[]> {
   return ((b.products ?? []) as Record<string, unknown>[]).filter((p) => nfc(p.product_name) === name).map((p) => Number(p.product_no));
 }
 
+// 같은 상품을 동시에 두 번 처리하지 않게 잠금 — UPDATE 한 문장(WHERE에 잠금 조건)이라 두 요청 중 하나만 잡는다
+async function regLock(npm_id: string): Promise<Record<string, unknown> | null> {
+  const now = new Date().toISOString(), until = new Date(Date.now() + 3 * 60e3).toISOString();
+  const q = `npm_id=eq.${encodeURIComponent(npm_id)}&or=(lock_until.is.null,lock_until.lt.${encodeURIComponent(now)})`;
+  const r = await sb(`c24p_registry?${q}`, { method: "PATCH", headers: { Prefer: "return=representation" }, body: JSON.stringify({ lock_until: until }) });
+  if (!r.ok) throw new Error("등록 기록을 잠그지 못했어요");
+  return (await r.json())[0] ?? null;
+}
+async function regUnlock(npm_id: string): Promise<void> {
+  await sb(`c24p_registry?npm_id=eq.${encodeURIComponent(npm_id)}`, { method: "PATCH", headers: { Prefer: "return=minimal" }, body: JSON.stringify({ lock_until: null }) });
+}
+
 async function registerProduct(inp: RegIn, by: string): Promise<Record<string, unknown>> {
-  // ① 기록 잡기 — 이미 만든 상품이면 남은 단계만 이어서, 다른 요청이 진행 중이면 거절
-  let row = await regGet(inp.npm_id);
-  if (!row) {
-    const r = await sb(`c24p_registry?on_conflict=npm_id`, { method: "POST", headers: { Prefer: "resolution=ignore-duplicates,return=minimal" }, body: JSON.stringify({ npm_id: inp.npm_id, state: "pending", by_name: by }) });
-    if (!r.ok) throw new Error("등록 기록을 만들지 못했어요");
-    row = await regGet(inp.npm_id);
-  } else {
-    const fresh = Date.now() - new Date(String(row.updated_at)).getTime() < 2 * 60e3;
-    if (row.state === "pending" && fresh) throw Object.assign(new Error("이 상품 등록이 이미 진행 중이에요 — 잠시 뒤 다시 확인해 주세요"), { status: 409 });
+  // ① 기록 줄을 만들고(이미 있으면 그대로) → 잠금. 잠금을 못 잡으면 다른 요청이 진행 중
+  const ins = await sb(`c24p_registry?on_conflict=npm_id`, { method: "POST", headers: { Prefer: "resolution=ignore-duplicates,return=minimal" }, body: JSON.stringify({ npm_id: inp.npm_id, state: "pending", by_name: by }) });
+  if (!ins.ok) throw new Error("등록 기록을 만들지 못했어요");
+  const row = await regLock(inp.npm_id);
+  if (!row) throw Object.assign(new Error("이 상품 등록이 이미 진행 중이에요 — 잠시 뒤 다시 눌러 주세요"), { status: 409 });
+  try {
+    return await registerSteps(inp, by, row);
+  } finally {
+    await regUnlock(inp.npm_id);
   }
+}
+
+async function registerSteps(inp: RegIn, by: string, row: Record<string, unknown>): Promise<Record<string, unknown>> {
   const steps: Record<string, unknown> = { ...((row?.steps ?? {}) as Record<string, unknown>) };
   await regPatch(inp.npm_id, { state: row?.product_no ? "created" : "pending", by_name: by });
   let no = row?.product_no ? Number(row.product_no) : 0;
@@ -455,7 +470,7 @@ Deno.serve(async (req) => {
     }
 
     // ③ 상품관리 서버(x-sync-secret) 또는 관리자 로그인
-    const syncSecret = Deno.env.get("NPM_SYNC_SECRET") ?? "";
+    const syncSecret = Deno.env.get("CAFE24P_SYNC_SECRET") ?? "";
     const viaSync = !!syncSecret && safeEqual(req.headers.get("x-sync-secret") ?? "", syncSecret);
     let user: { id: string; name: string; role: string } | null = null;
     if (viaSync) {

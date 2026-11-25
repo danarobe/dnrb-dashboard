@@ -31,6 +31,9 @@ grep -q 'isOurProduct(\[no\])' "$F" || { echo "위반: 주소 상품번호의 '�
 grep -q 'isOurProduct(nos)' "$F" || { echo "위반: 본문 상품번호의 '이 시스템이 만든 상품' 검사가 없습니다"; bad=1; }
 # ⑤ 권한 범위 = 상품 읽기·쓰기, 분류 읽기, 디자인 읽기 (바꾸려면 사용자 결정 + 이 줄 수정)
 grep -q '^const SCOPE = "mall.read_product,mall.write_product,mall.read_category,mall.read_design";' "$F" || { echo "위반: cafe24-product SCOPE 가 정해진 값과 다릅니다"; bad=1; }
+# ⑤-2 상품관리 서버는 전용 비밀키(CAFE24P_SYNC_SECRET)로만 — 다른 연동의 NPM_SYNC_SECRET 을 받지 않는다(보안 검토 2026-11-25)
+grep -q 'NPM_SYNC_SECRET' "$F" && echo "$code" | grep -q 'NPM_SYNC_SECRET' && { echo "위반: cafe24-product 가 NPM_SYNC_SECRET 을 받습니다"; bad=1; }
+grep -q 'Deno.env.get("CAFE24P_SYNC_SECRET")' "$F" || { echo "위반: 전용 비밀키 CAFE24P_SYNC_SECRET 검사가 없습니다"; bad=1; }
 # ⑥ 이 앱의 비밀값·토큰은 다른 함수가 쓰지 않는다
 grep -rln -E 'CAFE24P_|"cafe24p"|c24p_registry' supabase/functions | grep -v "^$F$" | grep -q . && { echo "위반: 다른 함수가 상품 등록용 앱 비밀값·토큰을 씁니다:"; grep -rln -E 'CAFE24P_|"cafe24p"|c24p_registry' supabase/functions | grep -v "^$F$"; bad=1; }
 [ "$bad" = 0 ] && echo "OK — 상품 등록용 앱: 쓰기 통로 1개·DELETE 없음·숨김 등록 고정·내 상품만 수정" || exit 1
