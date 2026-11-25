@@ -10,7 +10,9 @@ bad=0
 [ -f "$F" ] || { echo "위반: $F 없음"; exit 1; }
 code=$(grep -v '^\s*//' "$F")
 # ① DELETE·PATCH 를 보내지 않는다
-echo "$code" | grep -n -E '"(DELETE|PATCH)"|method: *"(DELETE|PATCH)"' | grep -q . && { echo "위반: cafe24-product 에 DELETE/PATCH 가 있습니다"; bad=1; }
+#    (우리 DB로 가는 sb(…) 줄의 PATCH 는 기록 갱신이라 제외 — 카페24로 가는 쓰기는 c24pWrite 의 POST/PUT 뿐)
+echo "$code" | grep -n -E '"(DELETE|PATCH)"|method: *"(DELETE|PATCH)"' | grep -v 'await sb(`c24p_' | grep -q . && { echo "위반: cafe24-product 에 카페24용 DELETE/PATCH 가 있습니다"; bad=1; }
+grep -n 'await sb(`c24p_' "$F" | grep -q 'API_BASE' && { echo "위반: sb() 가 카페24 주소를 씁니다"; bad=1; }
 # ② 카페24 주소로 fetch 하는 곳 = tokenRequest(토큰)·c24Get(읽기)·c24pWrite(쓰기) 세 군데뿐
 n=$(grep -c 'fetch(`${API_BASE}' "$F"); [ "$n" = 3 ] || { echo "위반: 카페24 주소 fetch 가 $n 곳입니다(허용 3: 토큰·읽기·쓰기)"; bad=1; }
 for fn in tokenRequest c24Get c24pWrite; do
