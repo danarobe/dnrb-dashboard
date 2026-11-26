@@ -4843,7 +4843,7 @@ async function cnBuyWorkbook(picked, sheetName) {   // 사용자 주문서 양�
   const tc = (rr, c, v, bold) => { const cell = ws.getCell(rr, c); cell.value = v; cell.alignment = center; cell.border = border; cell.font = { name: '돋움', size: 10, bold: !!bold }; return cell; };
   tc(t, 1, '합계', true); for (let c = 3; c <= 9; c++) tc(t, c, null);
   tc(t, 5, { formula: `SUM(E3:E${t - 1})` }, true); tc(t, 7, { formula: `SUM(G3:G${t - 1})` }, true);
-  tc(t + 1, 6, 0.1); tc(t + 1, 7, { formula: `G${t}*F${t + 1}` });
+  tc(t + 1, 6, 0.04); tc(t + 1, 7, { formula: `G${t}*F${t + 1}` });   // F열 수수료율 0.1 → 0.04(2026-11-26 사용자 요청)
   tc(t + 2, 6, '합계', true); tc(t + 2, 7, { formula: `G${t}+G${t + 1}` }, true);
   return wb;
 }
