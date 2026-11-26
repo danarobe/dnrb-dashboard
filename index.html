@@ -94,6 +94,12 @@
     #disp-cfg label { display: flex; flex-direction: column; gap: 4px; font-weight: 600; }
     #disp-cfg input { border: 1.5px solid #d1d5db; border-radius: 7px; padding: 6px 9px; font-size:.82rem; outline: none; }
     .page-sec { display: none; }
+    /* GIF 메이커(2026-11-26): 편집 화면이라 여백을 줄이고 창 폭·높이를 끝까지 쓴다 (showMenu가 body.gif-on을 켬) */
+    body.gif-on .layout { max-width: none; }
+    body.gif-on .container { max-width: none; padding: 10px 12px 12px; }
+    body.gif-on #sec-gif { margin-bottom: 0; }
+    #gif-frame { display: block; width: 100%; border: 0; height: calc(100vh - var(--hdr-h, 0px) - 22px); min-height: 540px; }
+    @media (max-width: 900px) { body.gif-on .container { padding: 6px 6px 8px; } #gif-frame { height: calc(100vh - 150px); } }
     #proj-result .pj-title { min-width: 190px; }
     .rw-hs { display: none; }   /* 상태 미니 배지 — 모바일에서만 (미디어 블록에서 표시) */
 
@@ -917,6 +923,7 @@
       <button class="menu-item" data-menu="purch" id="menu-purch" onclick="showMenu('purch')"><i class="fa-solid fa-cart-shopping" style="width:18px;text-align:center;color:#818cf8;"></i>직원 구매요청</button>
     </div>
   </div>
+  <button class="menu-item" data-menu="gif" id="menu-gif" style="display:none;" onclick="showMenu('gif')"><i class="fa-solid fa-film" style="width:18px;text-align:center;color:#4f46e5;"></i>GIF 메이커</button>
   <button class="menu-item" data-menu="my" id="menu-my" onclick="showMenu('my')"><i class="fa-solid fa-id-card" style="width:18px;text-align:center;color:#4f46e5;"></i>마이페이지</button>
   <button class="menu-item" id="menu-agents" style="display:none;" title="AI 에이전트 — 같은 계정으로 자동 로그인, 새 탭으로 열립니다" onclick="agentsOpen()"><i class="fa-solid fa-robot" style="width:18px;text-align:center;color:#818cf8;"></i>AI 에이전트<i class="fa-solid fa-arrow-up-right-from-square" style="font-size:.66rem;color:#6b7280;margin-left:auto;"></i></button>
 </nav>
@@ -1764,6 +1771,12 @@
         <div id="cn-prod-list"></div>
       </div>
     </div>
+  </div>
+
+  <!-- GIF 메이커 (2026-11-26 사용자 요청 — 기존 GIF 메이커(카카오 로그인)와 연동하지 않는 별개 프로그램. 관리자 + MD/컨텐츠.
+       도구 화면은 gif/ 폴더(app.html = 탭 틀), 서버는 gif 함수. 여기서는 그 화면을 틀 안에 띄우기만 한다(처음 열 때 한 번 — gifInit). -->
+  <div class="section-card page-sec" id="sec-gif" style="padding:0;overflow:hidden;">
+    <iframe id="gif-frame" title="GIF 메이커"></iframe>
   </div>
 
   <!-- 업로드 캘린더 (2026-10-23 사용자 요청 — 상품관리 시스템의 업로드 캘린더를 물류팀도 워크스페이스에서, 보기 전용) -->
@@ -3469,6 +3482,15 @@ function upcalOptTipHtml(p) {
     : `<div style="margin-top:4px;"><span style="color:#6b7280;font-weight:700;">공급사 상품명</span> <span style="color:#111827;font-weight:700;">${p.supplier_name ? escHtml(p.supplier_name) : '<span style="color:#6b7280;font-weight:500;">안 적혀 있어요</span>'}</span></div>`;
   return `<div style="font-weight:800;color:#1e1b4b;">${escHtml(p.name || '')}</div>${sup}${body}${cs.length && zs.length ? `<div style="margin-top:6px;color:#6b7280;">옵션 ${n}개 (색상 ${cs.length} × 사이즈 ${zs.length})</div>` : ''}`;
 }
+/* ══ GIF 메이커 (#gif, 2026-11-26 사용자 요청) ══
+   기존 GIF 메이커(카카오 로그인·별도 서버)와 연동하지 않는 별개 프로그램. 쓸 수 있는 사람 = 관리자 + MD/컨텐츠(서버 gif 함수도 같은 기준).
+   도구(GIF 만들기·사진 리사이즈·프로젝트·카드뉴스·배너)는 gif/ 폴더의 화면이고, 여기서는 틀(gif/app.html)을 한 번만 띄운다
+   → 다른 메뉴에 다녀와도 올려 둔 사진·편집 중인 내용이 남는다. 로그인은 이 화면과 같은 저장값(dnrb_session)을 그대로 쓴다. */
+function gifAllowed() { return isAdmin() || isStaff(); }
+function gifInit() {
+  const f = $('gif-frame');
+  if (f && !f.getAttribute('src')) f.src = 'gif/app.html';
+}
 function upcalAllowed() { return isAdmin() || isStaff() || isCS(); }   // 관리자·MD·물류팀 + CS팀(2026-10-23 사용자 요청) = 로그인한 직원 전원
 function upcalToday() { return new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Seoul' }); }
 function upcalShift(ym, d) { const [y, m] = ym.split('-').map(Number); const t = y * 12 + (m - 1) + d; return `${Math.floor(t / 12)}-${String(t % 12 + 1).padStart(2, '0')}`; }
@@ -3975,6 +3997,7 @@ function applyRole() {
   $('menu-madechk').style.display = (isAdmin() || isStaff()) && !isCS() ? '' : 'none'; // 자체제작 주문 점검 = 관리자 + MD (2026-09-03)
   $('menu-npm').style.display = isAdmin() || isStaff() || SESSION?.role === 'logistics' ? '' : 'none';
   $('menu-upcal').style.display = upcalAllowed() ? '' : 'none';   // 업로드 캘린더 = 관리자 + MD + 물류팀 + CS팀 (2026-10-23 — 서버 npm-calendar도 같은 기준)    // 상품 관리(SSO 링크) = 관리자 + MD + 물류팀(2026-09-07, 자체제작 관리만)
+  $('menu-gif').style.display = gifAllowed() ? '' : 'none';   // GIF 메이커 = 관리자 + MD/컨텐츠 (2026-11-26 — 서버 gif 함수도 같은 기준)
   $('menu-profit').style.display = isAdmin() && !isCS() ? '' : 'none';
   $('menu-agents').style.display = (isAdmin() || agentUserState.me) ? '' : 'none';   // AI 에이전트 앱(별도 저장소 dnrb-agents, SSO 링크) = 관리자 전용 — 매출 절대액 포함 (2026-09-10)
   $('menu-wm').style.display = isAdmin() && !isCS() ? '' : 'none';
@@ -21206,7 +21229,7 @@ async function myChangePw() {
   } catch (e) { showToast('변경 실패 — ' + e.message); }
 }
 
-const MENU_KEYS = ['home', 'cr', 'an', 'perf', 'rwatch', 'rscan', 'unship', 'soldout', 'disp', 'stable', 'adv', 'admgr', 'profit', 'wm', 'meet', 'board', 'proj', 'users', 'my', 'purch', 'madechk', 'cnbuy', 'cxl', 'hire', 'bigret', 'upcal'];
+const MENU_KEYS = ['home', 'cr', 'an', 'perf', 'rwatch', 'rscan', 'unship', 'soldout', 'disp', 'stable', 'adv', 'admgr', 'profit', 'wm', 'meet', 'board', 'proj', 'users', 'my', 'purch', 'madechk', 'cnbuy', 'cxl', 'hire', 'bigret', 'upcal', 'gif'];
 
 /* 모바일 메뉴 서랍 (2026-08-27) — 열기/닫기. 데스크톱에선 ☰ 버튼이 숨겨져 호출되지 않는다. */
 /* ── 홈 접기 (2026-08-27 UI 정리) ──
@@ -21286,11 +21309,13 @@ function showMenu(key) {
     || (key === 'madechk' && isCS())                     // 자체제작 주문 점검 = 관리자 + MD (2026-09-03)
     || (key === 'cxl' && !cxlAllowed())                   // 취소·반품 접수 = 관리자 + 허용 목록 (2026-10-08)
     || (key === 'upcal' && !upcalAllowed())               // 업로드 캘린더 = 관리자 + MD + 물류팀 + CS팀 (2026-10-23)
+    || (key === 'gif' && !gifAllowed())                   // GIF 메이커 = 관리자 + MD/컨텐츠 (2026-11-26)
     || (['users', 'disp', 'stable', 'profit', 'board', 'proj', 'wm'].includes(key) && !isAdmin());   // admgr은 MD·마케터도 진입(테스트 소재 탭만, 2026-08-27), wm = 근무 관리 (급여·계좌 포함)
   if (denied) { showToast('접근 권한이 없습니다'); key = 'home'; }
   document.querySelectorAll('.page-sec').forEach(el => { el.style.display = 'none'; });
   const target = $('sec-' + key);
   if (target) target.style.display = 'block';
+  document.body.classList.toggle('gif-on', key === 'gif');   // GIF 메이커는 창을 넓게 쓴다
   // 취소 & 반품 메뉴는 소메뉴 카드가 둘(비율 분석 + 결제 주차별 코호트) — 두 번째 카드는 여기서 같이 보인다 (2026-09-11)
   const crCohort = $('sec-cr-cohort'); if (crCohort) crCohort.style.display = key === 'cr' ? 'block' : 'none';
   if (key === 'cr') crCohortInit();
@@ -21330,6 +21355,7 @@ function showMenu(key) {
   if (key === 'unship') unshipInit();
   if (key === 'bigret') bigretInit();
   if (key === 'upcal') upcalInit();
+  if (key === 'gif') gifInit();
   if (key === 'cnbuy') cnInit();
   if (key === 'cxl') cxlInit();
   if (key === 'hire') hireInit();

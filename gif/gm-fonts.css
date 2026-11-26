@@ -1,0 +1,16 @@
+/* 구글 폰트에 없는 한글 글꼴 — 화면에서 실제로 쓸 때만 내려받는다 */
+@font-face { font-family: 'GmarketSans'; font-weight: 300; font-display: swap;
+  src: url('https://cdn.jsdelivr.net/gh/projectnoonnu/noonfonts_2001@1.1/GmarketSansLight.woff') format('woff'); }
+@font-face { font-family: 'GmarketSans'; font-weight: 500; font-display: swap;
+  src: url('https://cdn.jsdelivr.net/gh/projectnoonnu/noonfonts_2001@1.1/GmarketSansMedium.woff') format('woff'); }
+@font-face { font-family: 'GmarketSans'; font-weight: 700; font-display: swap;
+  src: url('https://cdn.jsdelivr.net/gh/projectnoonnu/noonfonts_2001@1.1/GmarketSansBold.woff') format('woff'); }
+
+@font-face { font-family: 'NanumSquareRound'; font-weight: 300; font-display: swap;
+  src: url('https://hangeul.pstatic.net/hangeul_static/webfont/NanumSquareRound/NanumSquareRoundL.woff2') format('woff2'); }
+@font-face { font-family: 'NanumSquareRound'; font-weight: 400; font-display: swap;
+  src: url('https://hangeul.pstatic.net/hangeul_static/webfont/NanumSquareRound/NanumSquareRoundR.woff2') format('woff2'); }
+@font-face { font-family: 'NanumSquareRound'; font-weight: 700; font-display: swap;
+  src: url('https://hangeul.pstatic.net/hangeul_static/webfont/NanumSquareRound/NanumSquareRoundB.woff2') format('woff2'); }
+@font-face { font-family: 'NanumSquareRound'; font-weight: 800; font-display: swap;
+  src: url('https://hangeul.pstatic.net/hangeul_static/webfont/NanumSquareRound/NanumSquareRoundEB.woff2') format('woff2'); }

@@ -1,0 +1,956 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta name="robots" content="noindex">
+<script src="../config.js"></script>
+<script src="gm-ws.js?v=1"></script>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>배너 만들기 — PC 배너와 모바일 배너</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond&family=Montserrat:wght@300&family=Gowun+Batang&family=Noto+Sans+KR:wght@300&display=swap">
+<style>
+:root {
+  --bg: #f0efe9; --surface: #fff; --border: #e2e0da; --border-2: #ccc9c2;
+  --t1: #1a1816; --t2: #5a5652; --t3: #9a9690;
+  --accent: #e8500a; --accent-h: #c93f00; --accent-bg: #fff3ed;
+  --tag-bg: #f2f0ec; --radius: 6px; --radius-lg: 10px;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', 'Noto Sans KR', 'Malgun Gothic', 'Segoe UI', sans-serif;
+  font-size: 13px; background: var(--bg); color: var(--t1); line-height: 1.5; min-height: 100vh; }
+.hidden { display: none !important; }
+.header { background: #111; color: #fff; padding: 10px 20px; display: flex; align-items: center; gap: 12px; }
+.header-logo { display: flex; align-items: center; gap: 8px; font-weight: 700; font-size: 14px; white-space: nowrap; }
+.header-sep { width: 1px; height: 16px; background: rgba(255,255,255,0.25); }
+.header-sub { font-size: 12px; color: rgba(255,255,255,0.55); }
+
+.wrap { max-width: 1480px; margin: 0 auto; padding: 14px; display: flex; gap: 14px; align-items: flex-start; }
+.side { width: clamp(320px, 30vw, 440px); flex-shrink: 0; display: flex; flex-direction: column; gap: 10px; position: sticky; top: 12px; height: calc(100vh - 24px); }
+.main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 12px; }
+.panel { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 12px 14px; }
+.ptitle { font-size: 12.5px; font-weight: 700; margin-bottom: 8px; display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.ptitle small { font-weight: 500; color: var(--t3); font-size: 11.5px; }
+.ptitle .smart { font-weight: 500; color: var(--t2); font-size: 11.5px; display: inline-flex; align-items: center; gap: 4px; cursor: pointer; }
+.ptitle .smart input { accent-color: var(--accent); }
+/* ①·② 칸 접기: 접으면 제목 한 줄만 남고, 아래 상세 사진 칸이 그만큼 커진다 */
+.fold-t { width: 100%; border: none; background: none; padding: 0; font: inherit; font-size: 12.5px; font-weight: 700; color: var(--t1); text-align: left; cursor: pointer; align-items: center; }
+.fold-t:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 3px; }
+.fold-t .ft { flex: 0 0 auto; white-space: nowrap; }
+.fold-t .ft-s, .fold-t .fs { display: none; }
+.fold-t .fs { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fold-t .fx { flex: 0 0 auto; margin-left: auto; color: var(--t2); white-space: nowrap; }
+.fold-t:hover .fx { color: var(--accent); }
+.fold.folded .fold-t { margin-bottom: 0; }
+.fold.folded .fold-b { display: none; }
+.fold.folded .ft-l { display: none; }
+.fold.folded .ft-s, .fold.folded .fs { display: inline; }
+.note { font-size: 11.5px; color: var(--t3); line-height: 1.5; }
+.row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+
+.btn { height: 34px; padding: 0 14px; border: 1px solid var(--border-2); border-radius: var(--radius); background: #fff; font: inherit; font-size: 12.5px; font-weight: 600; color: var(--t1); cursor: pointer; white-space: nowrap; }
+.btn:hover { background: var(--tag-bg); }
+.btn:disabled { opacity: .45; cursor: default; }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.btn.primary:hover { background: var(--accent-h); }
+.btn.small { height: 28px; padding: 0 10px; font-size: 12px; }
+.inp, .txa { width: 100%; border: 1px solid var(--border); border-radius: var(--radius); padding: 7px 9px; font: inherit; font-size: 13px; color: var(--t1); background: #fff; }
+.inp:focus, .txa:focus { outline: none; border-color: var(--accent); }
+.txa { resize: vertical; min-height: 58px; line-height: 1.45; }
+.tags { display: flex; gap: 6px; flex-wrap: wrap; }
+.tag { height: 30px; padding: 0 12px; border: 1px solid var(--border); border-radius: 15px; background: var(--tag-bg); font: inherit; font-size: 12px; font-weight: 600; color: var(--t2); cursor: pointer; display: inline-flex; align-items: center; gap: 5px; }
+.tag.on { background: var(--t1); border-color: var(--t1); color: #fff; }
+.tag i { width: 7px; height: 7px; border-radius: 50%; background: #c9c5bd; font-style: normal; }
+.tag.has i { background: #3aa76d; }
+
+.urlrow { display: flex; gap: 6px; margin-top: 8px; }
+.urlrow .inp { flex: 1; min-width: 0; font-size: 12.5px; }
+.status { font-size: 12px; color: var(--t2); margin-top: 6px; }
+.status:empty { display: none; }
+.status.err { color: #dc2626; }
+
+/* 고른 칸 다루기 */
+.zoomrow { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--t2); margin-top: 8px; }
+.zoomrow input[type=range] { flex: 1; min-width: 60px; accent-color: var(--accent); }
+.zoomrow output { min-width: 38px; text-align: right; color: var(--t3); font-size: 11.5px; }
+
+/* 올린 사진 · 고른 장면 */
+.pool { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; max-height: 164px; overflow-y: auto; }
+.pool:empty::before { content: '올린 사진과 상세페이지에서 고른 장면이 여기에 모여요'; font-size: 11.5px; color: var(--t3); }
+.pth { position: relative; width: 54px; height: 72px; border-radius: 4px; overflow: hidden; border: 1px solid var(--border); cursor: pointer; flex: 0 0 auto; background: #eee; }
+.pth img { width: 100%; height: 100%; object-fit: cover; display: block; pointer-events: none; }
+.pth:hover { border-color: var(--accent); }
+.pth.used { box-shadow: 0 0 0 2px var(--t1); border-color: var(--t1); }
+.pth button { position: absolute; top: 1px; right: 1px; width: 18px; height: 18px; border: none; border-radius: 50%; background: rgba(0,0,0,.6); color: #fff; font-size: 10px; line-height: 18px; cursor: pointer; opacity: 0; }
+.pth:hover button, .pth button:focus { opacity: 1; }
+
+/* 상세 사진 */
+.strip-panel { flex: 1; min-height: 200px; display: flex; flex-direction: column; padding-bottom: 12px; }
+.strip-view { flex: 1; min-height: 0; position: relative; border-radius: var(--radius); overflow: hidden; background: #2a2826; }
+.strip-sc { position: absolute; inset: 0; overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain; cursor: pointer; }
+.strip-in { position: relative; }
+.strip-in img { display: block; width: 100%; height: auto; user-select: none; -webkit-user-drag: none; }
+.strip-empty { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; text-align: center; padding: 20px; color: rgba(255,255,255,.6); font-size: 12px; line-height: 1.7; }
+.sframe { position: absolute; left: 0; width: 100%; border: 2px solid #fff; box-shadow: 0 0 0 9999px rgba(0,0,0,.45); pointer-events: none; display: none; }
+.sframe span { position: absolute; left: 6px; top: 6px; white-space: nowrap; background: var(--accent); color: #fff; font-size: 11.5px; font-weight: 700; padding: 2px 8px; border-radius: 10px; }
+.sframe.flash { animation: sflash .35s; }
+@keyframes sflash { from { background: rgba(255,255,255,.7); } to { background: transparent; } }
+
+/* 배너 */
+.phead { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; flex-wrap: wrap; }
+.phead b { font-size: 14px; }
+.phead small { color: var(--t3); font-size: 12px; }
+.phead .sp { flex: 1; }
+.stage { position: relative; line-height: 0; border: 1px solid var(--border); border-radius: 4px; overflow: hidden; background: #eee; }
+.stage canvas { display: block; width: 100%; height: auto; }
+.slot { position: absolute; cursor: pointer; display: flex; align-items: center; justify-content: center; text-align: center; line-height: 1.5; color: #77736c; font-size: 12px; user-select: none; -webkit-user-select: none; }
+.slot.has { cursor: grab; }
+.slot.has.sel { touch-action: none; }
+.slot.has.dragging { cursor: grabbing; }
+.slot.empty { border: 1.5px dashed #b4b0a8; }
+.slot.sel { box-shadow: inset 0 0 0 3px var(--accent); }
+.slot.over { box-shadow: inset 0 0 0 4px var(--accent); background: rgba(232,80,10,.12); }
+.slot .badge { position: absolute; left: 6px; top: 6px; background: var(--accent); color: #fff; font-size: 11px; font-weight: 700; padding: 1px 8px; border-radius: 10px; display: none; line-height: 1.6; }
+.slot.sel .badge { display: block; }
+.fields { display: grid; grid-template-columns: 1fr 1.6fr 1fr; gap: 10px; margin-top: 12px; }
+.fields label, .ctl label { display: block; font-size: 11.5px; font-weight: 600; color: var(--t2); margin-bottom: 4px; }
+.mo-row { display: flex; gap: 18px; align-items: flex-start; }
+.mo-row .stage { width: min(340px, 46%); flex-shrink: 0; }
+.mo-ctl { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 12px; }
+.colors { display: flex; gap: 6px; flex-wrap: wrap; }
+.chip { width: 30px; height: 30px; border-radius: 50%; border: 1px solid rgba(0,0,0,.18); cursor: pointer; padding: 0; }
+.chip.on { box-shadow: 0 0 0 2px #fff, 0 0 0 4px var(--t1); }
+.colors:empty::before { content: '모바일 칸에 사진을 넣으면 어울리는 색이 여기에 나와요'; font-size: 11.5px; color: var(--t3); }
+.pick { display: flex; gap: 8px; align-items: center; }
+.pick input[type=color] { width: 38px; height: 34px; padding: 2px; border: 1px solid var(--border); border-radius: var(--radius); background: #fff; cursor: pointer; }
+.pick .inp { width: 110px; text-transform: lowercase; }
+
+#toast { position: fixed; left: 50%; bottom: 22px; transform: translateX(-50%); background: #1a1816; color: #fff; font-size: 13px; padding: 10px 16px; border-radius: 20px; z-index: 90; max-width: calc(100vw - 32px); box-shadow: 0 6px 20px rgba(0,0,0,.25); opacity: 0; pointer-events: none; transition: opacity .2s; }
+#toast.on { opacity: 1; }
+body.dropping::after { content: '여기에 놓으면 사진이 추가돼요'; position: fixed; inset: 8px; border: 2px dashed var(--accent); border-radius: 12px; background: rgba(255,243,237,.82); color: var(--accent); font-size: 16px; font-weight: 700; display: flex; align-items: center; justify-content: center; z-index: 80; pointer-events: none; }
+
+@media (max-width: 900px) {
+  .header-sep, .header-sub { display: none; }
+  .wrap { flex-direction: column; padding: 10px; }
+  .side { width: 100%; position: static; height: auto; }
+  .strip-panel { flex: none; }
+  .strip-view { flex: none; height: 130px; }
+  .strip-panel.loaded .strip-view { height: 58vh; }
+  .fields { grid-template-columns: 1fr; }
+  .mo-row { flex-direction: column; }
+  .mo-row .stage { width: 100%; max-width: 420px; }
+  .inp, .txa { font-size: 16px; } /* 아이폰 자동 확대 방지 */
+  .pth button { opacity: 1; }
+}
+</style>
+</head>
+<body>
+<header class="header">
+  <div class="header-logo">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><rect x="2" y="5" width="20" height="10" rx="1.5" fill="#fff" opacity=".9"/><rect x="8" y="17" width="8" height="3" rx="1" fill="#fff" opacity=".6"/></svg>
+    배너 만들기
+  </div>
+  <div class="header-sep"></div>
+  <div class="header-sub">사진을 넣고 글자만 바꾸면 PC 배너와 모바일 배너가 같은 틀로 만들어져요 · 사진은 내 기기 안에서만 처리돼요</div>
+</header>
+
+<div class="wrap">
+  <aside class="side">
+    <section class="panel fold" id="foldGet" data-fold="get">
+      <button type="button" class="ptitle fold-t" aria-expanded="true" aria-controls="foldGetB">
+        <span class="ft">① 사진 가져오기</span>
+        <small class="fs">사진 올리기 · 상세페이지 불러오기</small>
+        <small class="fx">접기 ▴</small>
+      </button>
+      <div class="fold-b" id="foldGetB">
+        <div class="row">
+          <button type="button" class="btn primary" id="btnUp">＋ 사진 올리기</button>
+          <span class="note">화면에 끌어다 놓아도 돼요</span>
+        </div>
+        <input type="file" id="file" accept="image/*" multiple hidden>
+        <form class="urlrow" id="dpForm">
+          <input class="inp" id="dpUrl" placeholder="다나로브 상품 주소 붙여 넣기" autocomplete="off">
+          <button class="btn" id="dpLoad">상세페이지 불러오기</button>
+        </form>
+      </div>
+      <div class="status" id="dpStatus"></div>
+    </section>
+
+    <section class="panel fold" id="foldSlot" data-fold="slot">
+      <button type="button" class="ptitle fold-t" aria-expanded="true" aria-controls="foldSlotB">
+        <span class="ft ft-l">② 넣을 칸을 고르고, 사진을 누르세요</span>
+        <span class="ft ft-s">② 넣을 칸</span>
+        <small class="fs" id="foldSlotS"></small>
+        <small class="fx">접기 ▴</small>
+      </button>
+      <div class="fold-b" id="foldSlotB">
+      <div class="tags" id="slotTags">
+        <button type="button" class="tag" data-slot="pcL"><i></i>PC 왼쪽</button>
+        <button type="button" class="tag" data-slot="pcR"><i></i>PC 오른쪽</button>
+        <button type="button" class="tag" data-slot="mob"><i></i>모바일</button>
+      </div>
+      <div class="zoomrow">
+        <span>확대</span>
+        <input type="range" id="zoom" min="100" max="300" step="1" value="100" disabled>
+        <output id="zoomV">100%</output>
+        <button type="button" class="btn small" id="btnCenter" disabled title="사진 위치와 확대를 처음대로">처음대로</button>
+        <button type="button" class="btn small" id="btnClear" disabled title="이 칸에서 사진을 빼요">빼기</button>
+      </div>
+      <div class="note" style="margin-top:6px">배너 위 사진은 끌어서 보이는 부분을 옮길 수 있어요.</div>
+      <div class="pool" id="pool"></div>
+      </div>
+    </section>
+
+    <section class="panel strip-panel" id="stripPanel">
+      <div class="ptitle">상세 사진 <label class="smart" title="끄면 가로 전체를 3:4 틀로 직접 잡아요 (여백이 있는 배경째로 담고 싶을 때)"><input type="checkbox" id="smart" checked> 누른 사진 한 장만 자동으로 잡기</label></div>
+      <div class="strip-view">
+        <div class="strip-sc" id="strip"><div class="strip-in" id="stripIn"><div class="sframe" id="sframe"><span id="sframeT"></span></div></div></div>
+        <div class="strip-empty" id="stripEmpty">위에 다나로브 상품 주소를 넣고<br>「상세페이지 불러오기」를 누르면<br>상세 사진이 여기에 이어져 보여요.</div>
+      </div>
+    </section>
+  </aside>
+
+  <main class="main">
+    <section class="panel">
+      <div class="phead">
+        <b>PC 배너</b><small>1920×1000</small><span class="sp"></span>
+        <div class="tags" id="fmtTags" title="저장 형식">
+          <button type="button" class="tag" data-v="jpg">JPG</button>
+          <button type="button" class="tag" data-v="png">PNG</button>
+        </div>
+        <button type="button" class="btn" id="saveBoth">둘 다 저장</button>
+        <button type="button" class="btn primary" id="savePc">PC 배너 저장</button>
+      </div>
+      <div class="stage" id="stagePc">
+        <canvas id="cvPc" width="1920" height="1000"></canvas>
+        <div class="slot" data-slot="pcL"><span class="badge">PC 왼쪽</span><span class="hint"></span></div>
+        <div class="slot" data-slot="pcR"><span class="badge">PC 오른쪽</span><span class="hint"></span></div>
+      </div>
+      <div class="fields">
+        <div><label for="tTop">위 작은 글씨</label><input class="inp" id="tTop" maxlength="40"></div>
+        <div><label for="tTitle">제목 (줄을 바꾸려면 Enter)</label><textarea class="txa" id="tTitle" rows="2" maxlength="200" placeholder="Snow Rabbit Fur Belted&#10;Handmade Coat"></textarea></div>
+        <div><label for="tSub">아래 작은 글씨</label><input class="inp" id="tSub" maxlength="40"></div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="phead">
+        <b>모바일 배너</b><small>1800×2268</small><span class="sp"></span>
+        <button type="button" class="btn primary" id="saveMo">모바일 배너 저장</button>
+      </div>
+      <div class="mo-row">
+        <div class="stage" id="stageMo">
+          <canvas id="cvMo" width="1800" height="2268"></canvas>
+          <div class="slot" data-slot="mob"><span class="badge">모바일</span><span class="hint"></span></div>
+        </div>
+        <div class="mo-ctl">
+          <div class="ctl">
+            <label>배경색</label>
+            <div class="pick">
+              <input type="color" id="bgColor" value="#cfceca" aria-label="배경색 고르기">
+              <input class="inp" id="bgHex" value="#cfceca" maxlength="7" spellcheck="false" aria-label="배경색 코드">
+            </div>
+          </div>
+          <div class="ctl">
+            <label>자주 쓰는 색</label>
+            <div class="colors" id="presets"></div>
+          </div>
+          <div class="ctl">
+            <label>사진에서 뽑은 색</label>
+            <div class="colors" id="fromPhoto"></div>
+          </div>
+          <div class="note">모바일 배너는 가운데 사진과 배경색만 바꿔요. 아래 Danarobe 글자는 그대로 들어가요.<br>PC 왼쪽에 넣은 사진이 모바일에도 먼저 들어가요. 다른 사진을 쓰려면 「모바일」 칸을 고르고 사진을 누르세요.</div>
+        </div>
+      </div>
+    </section>
+  </main>
+</div>
+<div id="toast" role="status" aria-live="polite"></div>
+
+<script>
+'use strict';
+const $ = id => document.getElementById(id);
+
+// ───────────────────────── 틀 (지금 쇼핑몰에 걸린 배너를 재서 맞춘 값) ─────────────────────────
+const BAN = { pc: { w: 1920, h: 1000, cv: $('cvPc') }, mo: { w: 1800, h: 2268, cv: $('cvMo') } };
+const PANEL_W = 432;                       // PC 배너 왼쪽 글자 칸
+const SLOT = {
+  pcL: { b: 'pc', x: 432, y: 0, w: 744, h: 1000, name: 'PC 왼쪽' },
+  pcR: { b: 'pc', x: 1176, y: 0, w: 744, h: 1000, name: 'PC 오른쪽' },
+  mob: { b: 'mo', x: 247, y: 339, w: 1306, h: 1740, name: '모바일' },
+};
+const ORDER = ['pcL', 'pcR', 'mob'];
+const F_SERIF = '"Cormorant Garamond", "Gowun Batang", serif';
+const F_SANS = 'Montserrat, "Noto Sans KR", "Apple SD Gothic Neo", sans-serif';
+// PC 왼쪽 칸 글자: 가운데 x, 글꼴, 자간(px), 줄 간격
+const PCT = {
+  cx: 209.5, cxSmall: 207.5, ink: '#5a5650', inkSmall: '#605c57', maxW: 392,
+  top:   { font: `300 24px ${F_SANS}`, ls: -2.2, dy: -71 },      // 제목 첫 줄 기준선에서 위로
+  title: { font: `400 40px ${F_SERIF}`, ls: 0, mid: 475.5, lh: 57 },
+  sub:   { font: `300 24px ${F_SANS}`, ls: -2.2, dy: 73 },       // 제목 끝 줄 기준선에서 아래로
+};
+const MOT = { text: 'Danarobe', font: `400 60px ${F_SERIF}`, ls: 2.6, cx: 900, y: 2139, dark: '#5a5650', light: '#f3f0ea' };
+// 왼쪽 칸 배경: 은은하게 아래로 갈수록 어두워지는 종이색 (세로 11 × 가로 5 지점의 색)
+const PANEL_GRID = [[[235,232,225],[237,233,226],[237,234,227],[238,235,228],[239,235,229]],[[237,234,227],[238,233,227],[239,234,228],[239,235,228],[239,236,229]],[[236,232,225],[237,232,226],[237,232,226],[238,233,227],[238,234,228]],[[236,231,225],[236,231,225],[237,232,226],[237,233,226],[237,234,227]],[[236,232,225],[237,233,226],[237,233,226],[238,233,227],[238,234,227]],[[235,231,225],[236,232,225],[236,232,226],[237,232,226],[237,233,226]],[[233,229,223],[234,230,223],[234,230,224],[235,231,224],[236,231,225]],[[232,228,221],[232,229,222],[233,229,222],[234,229,223],[234,230,223]],[[231,227,220],[231,227,221],[232,228,221],[233,228,222],[233,228,222]],[[231,227,220],[232,227,221],[232,228,221],[232,228,222],[233,229,222]],[[229,224,218],[229,226,219],[230,226,219],[231,226,220],[231,227,221]]];
+const PRESETS = ['#cfceca', '#9d907f', '#e9e6df', '#d9d3c8', '#bcb5a9', '#857c70', '#5f5a54', '#2e2c2a', '#ffffff'];
+const SCENE_RATIO = 0.75;                  // 상세 사진에서 장면을 고르는 틀 (가로:세로 3:4, 배너 사진 칸과 거의 같다)
+
+// ───────────────────────── 상태 ─────────────────────────
+const st = {};
+ORDER.forEach(k => { st[k] = { ph: null, cx: 0.5, cy: 0.5, z: 1, auto: false }; });
+let sel = 'pcL';
+const photos = [];                         // { id, bmp, w, h, thumb, name, fy }
+let _pid = 0;
+const T = { top: 'Danarobe', title: '', sub: '26 F/W Collection', bg: '#cfceca', fmt: 'jpg' };
+try {
+  const s = JSON.parse(localStorage.getItem('gm_bn_v1') || '{}');
+  if (typeof s.top === 'string') T.top = s.top.slice(0, 40);
+  if (typeof s.sub === 'string') T.sub = s.sub.slice(0, 40);
+  if (/^#[0-9a-f]{6}$/i.test(s.bg)) T.bg = s.bg.toLowerCase();
+  if (s.fmt === 'png') T.fmt = 'png';
+} catch {}
+function remember() { try { localStorage.setItem('gm_bn_v1', JSON.stringify({ top: T.top, sub: T.sub, bg: T.bg, fmt: T.fmt })); } catch {} }
+
+let _toastT = 0;
+function toast(msg) { const t = $('toast'); t.textContent = msg; t.classList.add('on'); clearTimeout(_toastT); _toastT = setTimeout(() => t.classList.remove('on'), 3200); }
+const mkCanvas = (w, h) => { const c = document.createElement('canvas'); c.width = w; c.height = h; return c; };
+const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
+
+// ───────────────────────── 그리기 ─────────────────────────
+let _panel = null;
+function panelCanvas() {
+  if (_panel) return _panel;
+  const w = PANEL_W, h = BAN.pc.h, cv = mkCanvas(w, h), ctx = cv.getContext('2d'), id = ctx.createImageData(w, h), d = id.data;
+  const NY = PANEL_GRID.length, NX = PANEL_GRID[0].length;
+  let seed = 20261124;
+  const rnd = () => (seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0) / 4294967296;
+  for (let y = 0, i = 0; y < h; y++) {
+    const fy = y / (h - 1) * (NY - 1), y0 = Math.min(NY - 2, Math.floor(fy)), ty = fy - y0;
+    for (let x = 0; x < w; x++, i += 4) {
+      const fx = x / (w - 1) * (NX - 1), x0 = Math.min(NX - 2, Math.floor(fx)), tx = fx - x0;
+      const a = PANEL_GRID[y0][x0], b = PANEL_GRID[y0][x0 + 1], c = PANEL_GRID[y0 + 1][x0], e = PANEL_GRID[y0 + 1][x0 + 1];
+      for (let k = 0; k < 3; k++) {
+        const v = (a[k] * (1 - tx) + b[k] * tx) * (1 - ty) + (c[k] * (1 - tx) + e[k] * tx) * ty;
+        d[i + k] = Math.floor(v + rnd());            // 색 띠가 생기지 않게 살짝 흩뿌린다
+      }
+      d[i + 3] = 255;
+    }
+  }
+  ctx.putImageData(id, 0, 0);
+  return (_panel = cv);
+}
+
+// 칸에 보이는 사진의 원본 영역 (칸을 빈틈없이 채우고, 확대·위치를 반영)
+function srcRect(k) {
+  const s = st[k], g = SLOT[k], p = s.ph;
+  const sc = Math.max(g.w / p.w, g.h / p.h) * s.z, vw = g.w / sc, vh = g.h / sc;
+  const x = clamp(s.cx * p.w - vw / 2, 0, p.w - vw), y = clamp(s.cy * p.h - vh / 2, 0, p.h - vh);
+  return { x, y, w: vw, h: vh, sc };
+}
+function settle(k) {                        // 가장자리를 넘어간 위치를 안쪽 값으로 되돌려 둔다
+  const s = st[k]; if (!s.ph) return;
+  const r = srcRect(k); s.cx = (r.x + r.w / 2) / s.ph.w; s.cy = (r.y + r.h / 2) / s.ph.h;
+}
+function paintSlot(ctx, k, dx, dy, dw, dh) {
+  const g = SLOT[k], s = st[k];
+  if (dx == null) { dx = g.x; dy = g.y; dw = g.w; dh = g.h; }
+  if (!s.ph) { ctx.fillStyle = '#e3e0d9'; ctx.fillRect(dx, dy, dw, dh); return; }
+  const r = srcRect(k);
+  ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'high';
+  ctx.drawImage(s.ph.bmp, r.x, r.y, r.w, r.h, dx, dy, dw, dh);
+}
+// 저장할 때: 많이 줄여야 하는 사진은 고품질 축소를 거친다 (그냥 그리면 자글자글해진다)
+async function paintSlotHQ(ctx, k) {
+  const g = SLOT[k], s = st[k];
+  if (!s.ph) return paintSlot(ctx, k);
+  const r = srcRect(k);
+  if (r.w / g.w > 1.25 && self.createImageBitmap) {
+    try {
+      const sx = Math.round(r.x), sy = Math.round(r.y), sw = Math.min(s.ph.w - sx, Math.round(r.w)), sh = Math.min(s.ph.h - sy, Math.round(r.h));
+      const small = await createImageBitmap(s.ph.bmp, sx, sy, sw, sh, { resizeWidth: g.w, resizeHeight: g.h, resizeQuality: 'high' });
+      ctx.drawImage(small, g.x, g.y); small.close && small.close();
+      return;
+    } catch {}
+  }
+  paintSlot(ctx, k);
+}
+
+const HAS_LS = 'letterSpacing' in CanvasRenderingContext2D.prototype;
+function textWidth(ctx, t, ls) {
+  if (!t) return 0;
+  if (HAS_LS) { ctx.letterSpacing = ls + 'px'; const w = ctx.measureText(t).width - ls; ctx.letterSpacing = '0px'; return w; }
+  let w = 0; const cs = [...t]; cs.forEach(c => { w += ctx.measureText(c).width; }); return w + ls * (cs.length - 1);
+}
+function fillCentered(ctx, t, cx, y, ls) {
+  if (!t) return;
+  ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
+  let x = cx - textWidth(ctx, t, ls) / 2;
+  if (HAS_LS) { ctx.letterSpacing = ls + 'px'; ctx.fillText(t, x, y); ctx.letterSpacing = '0px'; return; }
+  for (const c of [...t]) { ctx.fillText(c, x, y); x += ctx.measureText(c).width + ls; }
+}
+function titleLines(ctx) {
+  const out = [];
+  ctx.font = PCT.title.font;
+  for (const raw of T.title.split('\n')) {
+    const words = raw.trim().split(/\s+/).filter(Boolean);
+    let line = '';
+    for (const w of words) {
+      const next = line ? line + ' ' + w : w;
+      if (line && textWidth(ctx, next, PCT.title.ls) > PCT.maxW) { out.push(line); line = w; } else line = next;
+    }
+    if (line) out.push(line);
+  }
+  return out.slice(0, 6);
+}
+function paintPcText(ctx, ghost) {
+  if ('textRendering' in ctx) ctx.textRendering = 'geometricPrecision';
+  ctx.save();
+  ctx.beginPath(); ctx.rect(0, 0, PANEL_W, BAN.pc.h); ctx.clip();
+  let lines = titleLines(ctx), faint = false;
+  if (!lines.length && ghost) { lines = ['제목을 써 주세요']; faint = true; }
+  const n = lines.length, tt = PCT.title;
+  const first = tt.mid - (Math.max(n, 1) - 1) / 2 * tt.lh, last = first + (Math.max(n, 1) - 1) * tt.lh;
+  ctx.fillStyle = PCT.inkSmall;
+  ctx.font = PCT.top.font; fillCentered(ctx, T.top.trim(), PCT.cxSmall, first + PCT.top.dy, PCT.top.ls);
+  ctx.font = PCT.sub.font; fillCentered(ctx, T.sub.trim(), PCT.cxSmall, last + PCT.sub.dy, PCT.sub.ls);
+  ctx.fillStyle = PCT.ink; ctx.font = tt.font; if (faint) ctx.globalAlpha = 0.28;
+  lines.forEach((l, i) => fillCentered(ctx, l, PCT.cx, first + i * tt.lh, tt.ls));
+  ctx.restore();
+}
+const hexRgb = h => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16));
+const lum = h => { const [r, g, b] = hexRgb(h); return (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255; };
+function paintMoBase(ctx) {
+  ctx.fillStyle = T.bg; ctx.fillRect(0, 0, BAN.mo.w, BAN.mo.h);
+}
+function paintMoText(ctx) {
+  if ('textRendering' in ctx) ctx.textRendering = 'geometricPrecision';
+  ctx.fillStyle = lum(T.bg) < 0.4 ? MOT.light : MOT.dark;
+  ctx.font = MOT.font; fillCentered(ctx, MOT.text, MOT.cx, MOT.y, MOT.ls);
+}
+function paint(kind, ctx, ghost) {
+  if (kind === 'pc') { ctx.drawImage(panelCanvas(), 0, 0); paintSlot(ctx, 'pcL'); paintSlot(ctx, 'pcR'); paintPcText(ctx, ghost); }
+  else { paintMoBase(ctx); paintSlot(ctx, 'mob'); paintMoText(ctx); }
+}
+async function paintHQ(kind, ctx) {
+  if (kind === 'pc') { ctx.drawImage(panelCanvas(), 0, 0); await paintSlotHQ(ctx, 'pcL'); await paintSlotHQ(ctx, 'pcR'); paintPcText(ctx, false); }
+  else { paintMoBase(ctx); await paintSlotHQ(ctx, 'mob'); paintMoText(ctx); }
+}
+let _raf = 0;
+const dirty = { pc: true, mo: true };
+function redraw(kind) {
+  if (kind) dirty[kind] = true; else dirty.pc = dirty.mo = true;
+  if (_raf) return;
+  _raf = requestAnimationFrame(() => {
+    _raf = 0;
+    for (const k of ['pc', 'mo']) if (dirty[k]) { dirty[k] = false; paint(k, BAN[k].cv.getContext('2d'), true); }
+  });
+}
+// 글꼴은 실제로 쓰는 글자만 그때그때 내려받는다 → 받은 뒤 다시 그린다
+function ensureFonts() {
+  if (!document.fonts || !document.fonts.load) return Promise.resolve();
+  const jobs = [
+    document.fonts.load(PCT.title.font, T.title || 'A'),
+    document.fonts.load(PCT.top.font, (T.top + T.sub) || 'A'),
+    document.fonts.load(MOT.font, MOT.text),
+  ].map(p => p.catch(() => {}));
+  return Promise.race([Promise.all(jobs), new Promise(r => setTimeout(r, 6000))]);
+}
+if (document.fonts && document.fonts.addEventListener) document.fonts.addEventListener('loadingdone', () => redraw());
+
+// ───────────────────────── 칸 · 사진 ─────────────────────────
+const slotEls = {};
+document.querySelectorAll('.slot').forEach(el => {
+  const k = el.dataset.slot, g = SLOT[k], b = BAN[g.b];
+  slotEls[k] = el;
+  Object.assign(el.style, { left: g.x / b.w * 100 + '%', top: g.y / b.h * 100 + '%', width: g.w / b.w * 100 + '%', height: g.h / b.h * 100 + '%' });
+});
+function syncUI() {
+  for (const k of ORDER) {
+    const el = slotEls[k], has = !!st[k].ph;
+    el.classList.toggle('sel', k === sel); el.classList.toggle('has', has); el.classList.toggle('empty', !has);
+    el.querySelector('.hint').textContent = has ? '' : (k === sel ? '사진을 누르면 여기에 들어가요' : '눌러서 이 칸 고르기');
+    const tag = document.querySelector(`#slotTags [data-slot="${k}"]`);
+    tag.classList.toggle('on', k === sel); tag.classList.toggle('has', has);
+  }
+  const s = st[sel], has = !!s.ph;
+  $('zoom').disabled = $('btnCenter').disabled = $('btnClear').disabled = !has;
+  $('zoom').value = Math.round(s.z * 100); $('zoomV').textContent = Math.round(s.z * 100) + '%';
+  $('sframeT').textContent = `눌러서 「${SLOT[sel].name}」 칸에 넣기`;
+  $('foldSlotS').textContent = `지금 고른 칸: ${SLOT[sel].name}`;
+  document.querySelectorAll('.pth').forEach(el => el.classList.toggle('used', ORDER.some(k => st[k].ph && String(st[k].ph.id) === el.dataset.id)));
+}
+function select(k) { sel = k; syncUI(); }
+function put(k, ph, auto) {
+  Object.assign(st[k], { ph, cx: ph.fx == null ? 0.5 : ph.fx, cy: ph.fy == null ? 0.5 : ph.fy, z: 1, auto: !!auto });
+  settle(k); redraw(SLOT[k].b);
+  if (k === 'mob') suggestSoon();
+}
+// 사진을 칸에 넣는다. PC 왼쪽에 넣으면, 따로 고르지 않은 모바일 칸에도 같은 사진이 들어간다.
+function assign(k, ph) {
+  put(k, ph, false);
+  if (k === 'pcL' && (!st.mob.ph || st.mob.auto)) put('mob', ph, true);
+  // 다음 빈 칸으로 (모바일은 직접 고른 적이 없으면 빈 칸으로 본다). 다 찼으면 그대로.
+  const i = ORDER.indexOf(k);
+  for (let n = 1; n < ORDER.length; n++) {
+    const c = ORDER[(i + n) % ORDER.length];
+    if (!st[c].ph || st[c].auto) { sel = c; break; }
+  }
+  syncUI();
+}
+function clearSlot(k) { Object.assign(st[k], { ph: null, cx: 0.5, cy: 0.5, z: 1, auto: false }); redraw(SLOT[k].b); if (k === 'mob') suggestSoon(); syncUI(); }
+
+function thumbOf(bmp, w, h, fy, fx) {
+  const tw = 108, th = 144, cv = mkCanvas(tw, th), ctx = cv.getContext('2d');
+  const sc = Math.max(tw / w, th / h), vw = tw / sc, vh = th / sc;
+  ctx.imageSmoothingQuality = 'high';
+  ctx.drawImage(bmp, clamp((fx == null ? 0.5 : fx) * w - vw / 2, 0, w - vw), clamp((fy == null ? 0.5 : fy) * h - vh / 2, 0, h - vh), vw, vh, 0, 0, tw, th);
+  return cv.toDataURL('image/jpeg', 0.75);
+}
+function addPhoto(bmp, name, fy, fx) {
+  const ph = { id: ++_pid, bmp, w: bmp.width, h: bmp.height, name, fy: fy == null ? null : fy, fx: fx == null ? null : fx };
+  ph.thumb = thumbOf(bmp, ph.w, ph.h, fy, fx);
+  photos.push(ph);
+  const el = document.createElement('div');
+  el.className = 'pth'; el.dataset.id = ph.id; el.draggable = true; el.title = `${name} — 누르면 고른 칸에 들어가요`;
+  const im = new Image(); im.src = ph.thumb; im.alt = name;
+  const x = document.createElement('button'); x.type = 'button'; x.textContent = '✕'; x.title = '이 사진 지우기'; x.setAttribute('aria-label', '이 사진 지우기');
+  el.append(im, x);
+  el.onclick = ev => { if (ev.target === x) return removePhoto(ph); assign(sel, ph); };
+  el.addEventListener('dragstart', ev => { ev.dataTransfer.setData('text/x-gm-photo', String(ph.id)); ev.dataTransfer.effectAllowed = 'copy'; });
+  $('pool').appendChild(el);
+  return ph;
+}
+function removePhoto(ph) {
+  const i = photos.indexOf(ph); if (i < 0) return;
+  photos.splice(i, 1);
+  ORDER.forEach(k => { if (st[k].ph === ph) clearSlot(k); });
+  const el = document.querySelector(`.pth[data-id="${ph.id}"]`); if (el) el.remove();
+  try { ph.bmp.close && ph.bmp.close(); } catch {}
+  syncUI();
+}
+async function decode(file) {
+  let bmp;
+  try { bmp = await createImageBitmap(file, { imageOrientation: 'from-image' }); }
+  catch {
+    bmp = await new Promise((res, rej) => {
+      const im = new Image(), url = URL.createObjectURL(file);
+      im.onload = () => { URL.revokeObjectURL(url); const c = mkCanvas(im.naturalWidth, im.naturalHeight); c.getContext('2d').drawImage(im, 0, 0); res(c); };
+      im.onerror = () => { URL.revokeObjectURL(url); rej(new Error('decode')); };
+      im.src = url;
+    });
+  }
+  // 아주 큰 사진은 미리 줄여 둔다 (배너에 쓰기엔 충분하고, 기기가 느려지지 않게)
+  const m = Math.max(bmp.width, bmp.height), LIM = 3600;
+  if (m > LIM && self.createImageBitmap) {
+    try {
+      const k = LIM / m, small = await createImageBitmap(bmp, { resizeWidth: Math.round(bmp.width * k), resizeHeight: Math.round(bmp.height * k), resizeQuality: 'high' });
+      bmp.close && bmp.close(); bmp = small;
+    } catch {}
+  }
+  return bmp;
+}
+// 올린 사진은 비어 있는 칸에 차례로 들어간다 (PC 왼쪽 → PC 오른쪽, 모바일은 PC 왼쪽과 같은 사진)
+async function addFiles(list, toSlot) {
+  const files = [...list].filter(f => /^image\//.test(f.type) || /\.(jpe?g|png|webp|gif|avif|heic|heif)$/i.test(f.name));
+  if (!files.length) return;
+  let bad = 0, first = true;
+  for (const f of files) {
+    let bmp; try { bmp = await decode(f); } catch { bad++; continue; }
+    const ph = addPhoto(bmp, f.name);
+    if (toSlot && first) assign(toSlot, ph);
+    else if (!st[sel].ph) assign(sel, ph);
+    else { const e = ORDER.find(k => !st[k].ph); if (e) assign(e, ph); }
+    first = false;
+  }
+  syncUI();
+  if (bad) toast(`열 수 없는 사진 ${bad}장은 빠졌어요 (아이폰 HEIC 사진은 JPG로 바꿔서 올려 주세요)`);
+}
+$('btnUp').onclick = () => $('file').click();
+$('file').onchange = ev => { addFiles(ev.target.files); ev.target.value = ''; };
+
+// 끌어다 놓기: 파일은 화면 어디든, 올린 사진(작은 그림)은 배너의 칸 위에
+let _dragDepth = 0;
+const hasFiles = ev => ev.dataTransfer && [...ev.dataTransfer.types].includes('Files');
+document.addEventListener('dragenter', ev => { if (hasFiles(ev)) { _dragDepth++; document.body.classList.add('dropping'); } });
+document.addEventListener('dragleave', ev => { if (hasFiles(ev) && --_dragDepth <= 0) { _dragDepth = 0; document.body.classList.remove('dropping'); } });
+document.addEventListener('dragover', ev => { if (hasFiles(ev) || [...ev.dataTransfer.types].includes('text/x-gm-photo')) ev.preventDefault(); });
+document.addEventListener('drop', ev => {
+  _dragDepth = 0; document.body.classList.remove('dropping');
+  const slotEl = ev.target.closest && ev.target.closest('.slot'), k = slotEl && slotEl.dataset.slot;
+  document.querySelectorAll('.slot.over').forEach(e => e.classList.remove('over'));
+  if (hasFiles(ev)) { ev.preventDefault(); addFiles(ev.dataTransfer.files, k); return; }
+  const id = ev.dataTransfer.getData('text/x-gm-photo');
+  if (id && k) { ev.preventDefault(); const ph = photos.find(p => String(p.id) === id); if (ph) assign(k, ph); }
+});
+ORDER.forEach(k => {
+  const el = slotEls[k];
+  el.addEventListener('dragover', () => el.classList.add('over'));
+  el.addEventListener('dragleave', () => el.classList.remove('over'));
+});
+
+// 칸을 누르면 고르고, 사진이 있으면 끌어서 보이는 부분을 옮긴다
+ORDER.forEach(k => {
+  const el = slotEls[k];
+  el.addEventListener('pointerdown', ev => {
+    if (ev.button != null && ev.button !== 0) return;
+    const was = sel === k;
+    select(k);
+    const s = st[k]; if (!s.ph) return;
+    if (ev.pointerType === 'touch' && !was) return;      // 손가락: 처음 누름은 고르기만 (화면을 내리려던 것일 수 있다)
+    el.setPointerCapture(ev.pointerId); el.classList.add('dragging');
+    const r0 = srcRect(k), x0 = ev.clientX, y0 = ev.clientY, cx0 = (r0.x + r0.w / 2) / s.ph.w, cy0 = (r0.y + r0.h / 2) / s.ph.h;
+    const kpx = SLOT[k].w / el.getBoundingClientRect().width;      // 화면 1px = 배너 몇 px
+    const mv = e => {
+      s.cx = cx0 - (e.clientX - x0) * kpx / r0.sc / s.ph.w; s.cy = cy0 - (e.clientY - y0) * kpx / r0.sc / s.ph.h;
+      s.auto = false; settle(k); redraw(SLOT[k].b);
+    };
+    const up = () => {
+      el.classList.remove('dragging'); el.removeEventListener('pointermove', mv); el.removeEventListener('pointerup', up); el.removeEventListener('pointercancel', up);
+      if (k === 'mob') suggestSoon();
+      syncUI();
+    };
+    el.addEventListener('pointermove', mv); el.addEventListener('pointerup', up); el.addEventListener('pointercancel', up);
+  });
+});
+document.querySelectorAll('#slotTags .tag').forEach(b => { b.onclick = () => select(b.dataset.slot); });
+$('zoom').oninput = () => {
+  const s = st[sel]; if (!s.ph) return;
+  s.z = clamp(+$('zoom').value / 100, 1, 3); s.auto = false; settle(sel); redraw(SLOT[sel].b);
+  $('zoomV').textContent = Math.round(s.z * 100) + '%';
+  if (sel === 'mob') suggestSoon();
+};
+$('btnCenter').onclick = () => { const s = st[sel]; if (!s.ph) return; s.cx = s.ph.fx == null ? 0.5 : s.ph.fx; s.cy = s.ph.fy == null ? 0.5 : s.ph.fy; s.z = 1; settle(sel); redraw(SLOT[sel].b); syncUI(); if (sel === 'mob') suggestSoon(); };
+$('btnClear').onclick = () => clearSlot(sel);
+// 방향키: 고른 칸의 사진을 1px(Shift 10px)씩
+document.addEventListener('keydown', ev => {
+  const d = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] }[ev.key];
+  if (!d) return;
+  const t = ev.target, tag = t && t.tagName;
+  if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || (t && t.isContentEditable)) return;
+  const s = st[sel]; if (!s.ph) return;
+  ev.preventDefault();
+  const r = srcRect(sel), step = (ev.shiftKey ? 10 : 1) / r.sc;
+  s.cx = (r.x + r.w / 2 - d[0] * step) / s.ph.w; s.cy = (r.y + r.h / 2 - d[1] * step) / s.ph.h;
+  s.auto = false; settle(sel); redraw(SLOT[sel].b);
+  if (sel === 'mob') suggestSoon();
+});
+
+// ───────────────────────── ①·② 칸 접기 ─────────────────────────
+// 제목을 누르면 접히고 다시 누르면 펼쳐진다. 접어 두면 아래 상세 사진 칸이 그만큼 커진다. (접어 둔 상태는 기억한다)
+let folds = {};
+try { folds = JSON.parse(localStorage.getItem('gm_bn_fold') || '{}') || {}; } catch {}
+function setFold(el, on) {
+  el.classList.toggle('folded', on);
+  const t = el.querySelector('.fold-t');
+  t.setAttribute('aria-expanded', on ? 'false' : 'true');
+  t.querySelector('.fx').textContent = on ? '펼치기 ▾' : '접기 ▴';
+}
+document.querySelectorAll('.fold').forEach(el => {
+  setFold(el, folds[el.dataset.fold] === true);
+  el.querySelector('.fold-t').onclick = () => {
+    const on = !el.classList.contains('folded');
+    setFold(el, on); folds[el.dataset.fold] = on;
+    try { localStorage.setItem('gm_bn_fold', JSON.stringify(folds)); } catch {}
+  };
+});
+
+// ───────────────────────── 글자 · 배경색 ─────────────────────────
+$('tTop').value = T.top; $('tSub').value = T.sub;
+let _fontT = 0;
+function textChanged() {
+  T.top = $('tTop').value; T.title = $('tTitle').value; T.sub = $('tSub').value;
+  remember(); redraw('pc');
+  clearTimeout(_fontT); _fontT = setTimeout(() => ensureFonts().then(() => redraw('pc')), 150);
+}
+['tTop', 'tTitle', 'tSub'].forEach(id => { $(id).oninput = textChanged; });
+
+function setBg(hex, from) {
+  hex = String(hex || '').trim().toLowerCase();
+  if (/^[0-9a-f]{6}$/.test(hex)) hex = '#' + hex;
+  if (!/^#[0-9a-f]{6}$/.test(hex)) return false;
+  T.bg = hex; remember();
+  if (from !== 'color') $('bgColor').value = hex;
+  if (from !== 'hex') $('bgHex').value = hex;
+  document.querySelectorAll('.chip').forEach(c => c.classList.toggle('on', c.dataset.c === hex));
+  redraw('mo');
+  return true;
+}
+function chips(box, list) {
+  box.textContent = '';
+  list.forEach(c => {
+    const b = document.createElement('button');
+    b.type = 'button'; b.className = 'chip'; b.dataset.c = c; b.style.background = c; b.title = c; b.setAttribute('aria-label', '배경색 ' + c);
+    b.classList.toggle('on', c === T.bg);
+    b.onclick = () => setBg(c);
+    box.appendChild(b);
+  });
+}
+chips($('presets'), PRESETS);
+$('bgColor').oninput = () => setBg($('bgColor').value, 'color');
+$('bgHex').oninput = () => { setBg($('bgHex').value, 'hex'); };
+$('bgHex').onblur = () => { $('bgHex').value = T.bg; };
+// 모바일 칸에 보이는 사진에서 많이 쓰인 색을 뽑아 배경색 후보로 보여 준다
+let _sugT = 0;
+function suggestSoon() { clearTimeout(_sugT); _sugT = setTimeout(suggest, 180); }
+function suggest() {
+  const box = $('fromPhoto');
+  if (!st.mob.ph) { box.textContent = ''; return; }
+  const w = 30, h = 40, cv = mkCanvas(w, h), ctx = cv.getContext('2d', { willReadFrequently: true });
+  paintSlot(ctx, 'mob', 0, 0, w, h);
+  const d = ctx.getImageData(0, 0, w, h).data, m = new Map();
+  for (let i = 0; i < d.length; i += 4) {
+    const key = (d[i] >> 5) << 6 | (d[i + 1] >> 5) << 3 | (d[i + 2] >> 5);
+    const e = m.get(key) || [0, 0, 0, 0]; e[0]++; e[1] += d[i]; e[2] += d[i + 1]; e[3] += d[i + 2]; m.set(key, e);
+  }
+  const out = [];
+  for (const e of [...m.values()].sort((a, b) => b[0] - a[0])) {
+    const c = [e[1] / e[0], e[2] / e[0], e[3] / e[0]];
+    if (out.some(o => Math.abs(o[0] - c[0]) + Math.abs(o[1] - c[1]) + Math.abs(o[2] - c[2]) < 42)) continue;
+    out.push(c); if (out.length >= 7) break;
+  }
+  chips(box, out.map(c => '#' + c.map(v => Math.round(v).toString(16).padStart(2, '0')).join('')));
+}
+
+// ───────────────────────── 상세페이지에서 가져오기 ─────────────────────────
+// 다나로브 상품 상세 사진을 서버(/api/detail, /api/detail-img)를 거쳐 받아 아래로 이어 붙여 보여 준다.
+// 상세 사진은 가로 1200px에 세로로 아주 긴 판이고, 그 안에 사진·글이 흰 여백을 두고 놓여 있다.
+//  · 자동 잡기(기본): 누른 자리의 사진 한 장을 흰 여백 없이 찾아 고른 칸에 넣는다.
+//  · 끄거나 사진을 못 찾으면: 누른 자리의 가로 전체 × 3:4 틀을 (위아래로 조금 더) 잘라 넣는다.
+const strip = $('strip'), stripIn = $('stripIn'), sframe = $('sframe');
+let dimgs = [], _scene = 0;
+function dpStatus(msg, err) { $('dpStatus').textContent = msg || ''; $('dpStatus').classList.toggle('err', !!err); }
+try { $('dpUrl').value = localStorage.getItem('gm_dp_url') || ''; } catch {}
+try { $('smart').checked = localStorage.getItem('gm_bn_smart') !== '0'; } catch {}
+$('smart').onchange = () => { try { localStorage.setItem('gm_bn_smart', $('smart').checked ? '1' : '0'); } catch {} sframe.style.display = 'none'; };
+const BLANK = 0.015;                       // 한 줄에서 흰색이 아닌 점이 이만큼 이하면 빈 줄로 본다
+const isInk = (d, i) => d[i + 3] > 200 && Math.min(d[i], d[i + 1], d[i + 2]) < 240;
+// 긴 상세 사진을 작게 줄여 "흰 여백이 아닌 점" 지도를 만들어 둔다 (사진 경계를 빨리 찾으려고)
+function buildMask(im) {
+  try {
+    const w = Math.min(300, im.naturalWidth), h = Math.max(1, Math.round(im.naturalHeight * w / im.naturalWidth));
+    const cv = mkCanvas(w, h), ctx = cv.getContext('2d', { willReadFrequently: true });
+    ctx.drawImage(im, 0, 0, w, h);
+    const px = ctx.getImageData(0, 0, w, h).data, d = new Uint8Array(w * h);
+    for (let i = 0, j = 0; j < d.length; i += 4, j++) d[j] = isInk(px, i) ? 1 : 0;
+    im._mask = { w, h, d };
+  } catch { im._mask = null; }
+}
+// 누른 자리(px, py: 원본 좌표)를 품은 사진의 대략적인 자리. 못 찾으면 null.
+function findPhoto(im, px, py) {
+  const m = im._mask; if (!m) return null;
+  const k = m.w / im.naturalWidth, W = m.w;
+  const cx = clamp(Math.floor(px * k), 0, W - 1), cy = clamp(Math.floor(py * k), 0, m.h - 1);
+  const R = Math.round(2400 * k), yMin = Math.max(0, cy - R), yMax = Math.min(m.h - 1, cy + R);   // 위아래 2400px까지만
+  const rowBlank = (y, a, b) => { let n = 0; for (let x = a; x <= b; x++) n += m.d[y * W + x]; return n <= (b - a + 1) * BLANK; };
+  const colBlank = (x, a, b) => { let n = 0; for (let y = a; y <= b; y++) n += m.d[y * W + x]; return n <= (b - a + 1) * BLANK; };
+  let x0 = 0, x1 = W - 1, y0 = cy, y1 = cy;
+  for (let it = 0; it < 4; it++) {
+    if (rowBlank(cy, x0, x1)) return null;
+    let a = cy, b = cy;
+    while (a > yMin && !rowBlank(a - 1, x0, x1)) a--;
+    while (b < yMax && !rowBlank(b + 1, x0, x1)) b++;
+    if (colBlank(cx, a, b)) return null;
+    let l = cx, r = cx;
+    while (l > 0 && !colBlank(l - 1, a, b)) l--;
+    while (r < W - 1 && !colBlank(r + 1, a, b)) r++;
+    const same = l === x0 && r === x1 && a === y0 && b === y1;
+    x0 = l; x1 = r; y0 = a; y1 = b;
+    if (same) break;
+  }
+  const r = { x: x0 / k, y: y0 / k, w: (x1 - x0 + 1) / k, h: (y1 - y0 + 1) / k };
+  return r.w >= 240 && r.h >= 240 ? r : null;       // 너무 작으면 사진이 아니라 글자·아이콘
+}
+// 대략적인 자리를 원본 크기로 다시 살펴 흰 테두리가 한 줄도 남지 않게 다듬어 자른다
+function cutPhoto(im, r) {
+  const pad = Math.ceil(im.naturalWidth / im._mask.w) + 1;
+  const sx = Math.max(0, Math.floor(r.x) - pad), sy = Math.max(0, Math.floor(r.y) - pad);
+  const sw = Math.min(im.naturalWidth - sx, Math.ceil(r.w) + pad * 2), sh = Math.min(im.naturalHeight - sy, Math.ceil(r.h) + pad * 2);
+  const cv = mkCanvas(sw, sh), ctx = cv.getContext('2d', { willReadFrequently: true });
+  ctx.drawImage(im, sx, sy, sw, sh, 0, 0, sw, sh);
+  const d = ctx.getImageData(0, 0, sw, sh).data;
+  let x0 = 0, x1 = sw - 1, y0 = 0, y1 = sh - 1;
+  const rowBlank = y => { let n = 0; for (let x = x0; x <= x1; x++) if (isInk(d, (y * sw + x) * 4)) n++; return n <= (x1 - x0 + 1) * BLANK; };
+  const colBlank = x => { let n = 0; for (let y = y0; y <= y1; y++) if (isInk(d, (y * sw + x) * 4)) n++; return n <= (y1 - y0 + 1) * BLANK; };
+  const lim = pad * 2 + 2;                 // 가장자리 근처만 다듬는다 (사진 안쪽의 흰 부분은 건드리지 않게)
+  for (let i = 0; i < lim && y0 < y1 && rowBlank(y0); i++) y0++;
+  for (let i = 0; i < lim && y1 > y0 && rowBlank(y1); i++) y1--;
+  for (let i = 0; i < lim && x0 < x1 && colBlank(x0); i++) x0++;
+  for (let i = 0; i < lim && x1 > x0 && colBlank(x1); i++) x1--;
+  x0++; y0++; x1--; y1--;                  // 경계의 흐린 한 줄까지 빼 둔다
+  const w = x1 - x0 + 1, h = y1 - y0 + 1;
+  if (w < 200 || h < 200) return null;
+  const out = mkCanvas(w, h); out.getContext('2d').drawImage(cv, x0, y0, w, h, 0, 0, w, h);
+  return { cv: out, x: sx + x0, y: sy + y0, w, h };
+}
+// 상세 사진 한 장을 받아 온다. 한 번에 받을 수 없는 큰 사진(4MB 넘음)은 서버가 조각으로 나눠 주므로,
+// 조각을 모두 받아 차례로 이어 붙여 원래 사진으로 되돌린다. (동시에 6개까지만 받는다)
+const dpGate = (() => {
+  let n = 0; const q = [];
+  return async fn => {
+    if (n >= 6) await new Promise(r => q.push(r));
+    n++;
+    try { return await fn(); } finally { n--; const next = q.shift(); if (next) next(); }
+  };
+})();
+async function dpFetchBlob(src) {
+  const base = '/api/detail-img?u=' + encodeURIComponent(src);
+  const get = url => dpGate(() => fetch(url, { credentials: 'same-origin' }));
+  const r = await get(base);
+  if (r.ok) return r.blob();
+  if (r.status !== 413) throw new Error('fetch_' + r.status);
+  const j = await r.json().catch(() => ({}));
+  if (!(j.parts >= 2 && j.parts <= 12) || !j.size) throw new Error('too_big');
+  const parts = await Promise.all(Array.from({ length: j.parts }, (_, p) =>
+    get(base + '&p=' + p).then(x => { if (!x.ok) throw new Error('part_' + x.status); return x.blob(); })));
+  const blob = new Blob(parts, { type: j.type || 'image/jpeg' });
+  if (blob.size !== j.size) throw new Error('size');      // 조각이 모자라거나 받는 사이 사진이 바뀐 경우
+  return blob;
+}
+function dpLoadImage(src) {
+  return dpFetchBlob(src).then(blob => new Promise(res => {
+    const im = new Image(); im.alt = ''; im.decoding = 'async';
+    const url = URL.createObjectURL(blob);
+    im._url = url;                                         // 화면에서 뺄 때 dpFree 로 돌려준다
+    im.onload = () => res(im);
+    im.onerror = () => { URL.revokeObjectURL(url); res(null); };
+    im.src = url;
+  })).catch(() => null);
+}
+const dpFree = list => list.forEach(im => { if (im && im._url) { URL.revokeObjectURL(im._url); im._url = ''; } });
+$('dpForm').onsubmit = async ev => {
+  ev.preventDefault();
+  const url = $('dpUrl').value.trim(); if (!url) { $('dpUrl').focus(); return; }
+  $('dpLoad').disabled = true; dpStatus('상품 페이지를 읽는 중…');
+  try {
+    const r = await fetch('/api/detail?url=' + encodeURIComponent(url), { credentials: 'same-origin' });
+    const j = await r.json().catch(() => ({}));
+    if (r.status === 401) throw new Error('로그인한 뒤에 쓸 수 있어요.');
+    if (r.status === 400) throw new Error('다나로브 상품 주소만 넣을 수 있어요.');
+    if (!r.ok) throw new Error('상품 페이지를 열지 못했어요. 주소를 확인해주세요.');
+    const list = [j.main, ...(j.images || [])].filter(Boolean);
+    if (!list.length) throw new Error('이 페이지에서 상세 사진을 찾지 못했어요.');
+    try { localStorage.setItem('gm_dp_url', url); } catch {}
+    let done = 0, bad = 0;
+    dpStatus(`사진 ${list.length}장 받는 중… 0/${list.length}`);
+    const ims = await Promise.all(list.map(src => dpLoadImage(src).then(im => {
+      done++; if (!im) bad++;
+      dpStatus(`사진 ${list.length}장 받는 중… ${done}/${list.length}`);
+      return im;
+    })));
+    const ok = ims.filter(Boolean);
+    if (!ok.length) throw new Error('사진을 받지 못했어요. 잠시 뒤 다시 시도해주세요.');
+    dimgs.forEach(im => im.remove()); dpFree(dimgs); dimgs = ok;
+    ok.forEach(im => stripIn.appendChild(im));
+    $('stripEmpty').classList.add('hidden'); $('stripPanel').classList.add('loaded'); strip.scrollTop = 0; sframe.style.display = 'none';
+    const msg = `${j.title ? j.title.replace(/\s*-\s*Danarobe\s*$/i, '') + ' · ' : ''}사진 ${ok.length}장${bad ? ` (받지 못한 사진 ${bad}장은 빠졌어요)` : ''}`;
+    dpStatus(msg + ' — 사진 자리를 살펴보는 중…');
+    for (const im of ok) { buildMask(im); await new Promise(r2 => setTimeout(r2, 0)); }
+    dpStatus(msg + ' — 아래에서 쓸 사진을 누르세요');
+  } catch (e) { dpStatus(e.message, true); }
+  finally { $('dpLoad').disabled = false; }
+};
+// 마우스(손가락)가 가리키는 곳에서 담을 자리. 화면 좌표(상세 칸 안)와 원본 좌표를 함께 돌려준다.
+function targetAt(clientX, clientY) {
+  const box = stripIn.getBoundingClientRect(), y = clientY - box.top, x = clientX - box.left;
+  const im = dimgs.find(i => y >= i.offsetTop && y < i.offsetTop + i.offsetHeight);
+  if (!im || !im.naturalWidth) return null;
+  const k = im.naturalWidth / im.offsetWidth, px = clamp(x, 0, im.offsetWidth - 1) * k, py = (y - im.offsetTop) * k;
+  if ($('smart').checked) {
+    const r = findPhoto(im, px, py);
+    if (r) return { im, px, py, smart: r, left: r.x / k, top: im.offsetTop + r.y / k, w: r.w / k, h: r.h / k };
+  }
+  const h = Math.min(im.offsetHeight, im.offsetWidth / SCENE_RATIO), t = clamp(y - im.offsetTop - h / 2, 0, im.offsetHeight - h);
+  return { im, px, py, left: 0, top: im.offsetTop + t, w: im.offsetWidth, h, inTop: t };
+}
+function showFrame(f) { Object.assign(sframe.style, { display: 'block', left: f.left + 'px', right: 'auto', width: f.w + 'px', top: f.top + 'px', height: f.h + 'px' }); }
+strip.addEventListener('pointermove', ev => {
+  if (ev.pointerType === 'touch') return;
+  const f = targetAt(ev.clientX, ev.clientY);
+  if (!f) { sframe.style.display = 'none'; return; }
+  showFrame(f);
+});
+strip.addEventListener('pointerleave', () => { sframe.style.display = 'none'; });
+strip.addEventListener('click', async ev => {
+  const f = targetAt(ev.clientX, ev.clientY); if (!f) return;
+  const im = f.im, k = im.naturalWidth / im.offsetWidth;
+  let bmp = null, fx = 0.5, fy = 0.5;
+  if (f.smart) {
+    let c = null; try { c = cutPhoto(im, f.smart); } catch {}
+    if (c) { bmp = c.cv; fx = clamp((f.px - c.x) / c.w, 0, 1); fy = clamp((f.py - c.y) / c.h, 0, 1); }
+  }
+  if (!bmp) {
+    // 틀로 담기: 틀 높이의 1.5배를 담아 두어 배너에서 위아래로 끌어 맞출 수 있게
+    const h = f.inTop == null ? Math.min(im.offsetHeight, im.offsetWidth / SCENE_RATIO) : f.h;
+    const t = f.inTop == null ? clamp(f.py / k - h / 2, 0, im.offsetHeight - h) : f.inTop;
+    const mid = (t + h / 2) * k, sh = Math.min(im.naturalHeight, Math.round(h * k * 1.5)), sy = Math.round(clamp(mid - sh / 2, 0, im.naturalHeight - sh));
+    try { bmp = await createImageBitmap(im, 0, sy, im.naturalWidth, sh); }
+    catch {
+      try { const c = mkCanvas(im.naturalWidth, sh); c.getContext('2d').drawImage(im, 0, sy, im.naturalWidth, sh, 0, 0, im.naturalWidth, sh); bmp = c; }
+      catch { toast('이 장면을 담지 못했어요.'); return; }
+    }
+    fy = (mid - sy) / sh;
+  }
+  const to = sel, ph = addPhoto(bmp, `장면 ${++_scene}`, fy, fx);
+  assign(to, ph);
+  showFrame(f);
+  sframe.classList.remove('flash'); void sframe.offsetWidth; sframe.classList.add('flash');
+  toast(`「${SLOT[to].name}」 칸에 넣었어요${sel !== to ? ` · 다음은 「${SLOT[sel].name}」 칸` : ''}`);
+});
+
+// ───────────────────────── 저장 ─────────────────────────
+document.querySelectorAll('#fmtTags .tag').forEach(b => {
+  b.classList.toggle('on', b.dataset.v === T.fmt);
+  b.onclick = () => { T.fmt = b.dataset.v; remember(); document.querySelectorAll('#fmtTags .tag').forEach(x => x.classList.toggle('on', x === b)); };
+});
+function fileBase() {
+  const s = T.title.replace(/\s+/g, ' ').trim().replace(/[\\/:*?"<>|]+/g, '').replace(/ /g, '-').slice(0, 60);
+  if (s) return s;
+  const d = new Date(), p = n => String(n).padStart(2, '0');
+  return `배너-${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}`;
+}
+async function render(kind) {
+  await ensureFonts();
+  const b = BAN[kind], cv = mkCanvas(b.w, b.h);
+  await paintHQ(kind, cv.getContext('2d'));
+  return cv;
+}
+function missing(kind) { return (kind === 'pc' ? ['pcL', 'pcR'] : ['mob']).filter(k => !st[k].ph); }
+async function save(kind) {
+  const miss = missing(kind);
+  if (miss.length) { select(miss[0]); toast(`「${miss.map(k => SLOT[k].name).join('」, 「')}」 칸에 사진을 먼저 넣어 주세요`); return false; }
+  const cv = await render(kind);
+  const png = T.fmt === 'png';
+  const blob = await new Promise(res => cv.toBlob(res, png ? 'image/png' : 'image/jpeg', 0.92));
+  if (!blob) { toast('저장하지 못했어요. 다시 시도해주세요.'); return false; }
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob); a.download = `${fileBase()}_${kind === 'pc' ? 'PC배너' : '모바일배너'}.${png ? 'png' : 'jpg'}`;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 30000);
+  return true;
+}
+async function saveWith(btn, kinds) {
+  const miss = kinds.flatMap(missing);
+  if (miss.length) { select(miss[0]); toast(`「${miss.map(k => SLOT[k].name).join('」, 「')}」 칸에 사진을 먼저 넣어 주세요`); return; }
+  btn.disabled = true;
+  try {
+    for (let i = 0; i < kinds.length; i++) { if (i) await new Promise(r => setTimeout(r, 400)); await save(kinds[i]); }
+    const noTitle = kinds.includes('pc') && !T.title.trim();
+    toast((kinds.length > 1 ? 'PC 배너와 모바일 배너를 저장했어요' : kinds[0] === 'pc' ? 'PC 배너를 저장했어요' : '모바일 배너를 저장했어요') + (noTitle ? ' (PC 배너는 제목 없이 저장됐어요)' : ''));
+  } catch { toast('저장하지 못했어요. 다시 시도해주세요.'); }
+  finally { btn.disabled = false; }
+}
+$('savePc').onclick = () => saveWith($('savePc'), ['pc']);
+$('saveMo').onclick = () => saveWith($('saveMo'), ['mo']);
+$('saveBoth').onclick = () => saveWith($('saveBoth'), ['pc', 'mo']);
+
+// ───────────────────────── 시작 ─────────────────────────
+setBg(T.bg);
+syncUI();
+redraw();
+ensureFonts().then(() => redraw());
+// 시험용: 저장될 그림을 그대로 돌려준다
+window.__bn = { render, st, T, SLOT, photos, assign, select, addFiles, redraw, PCT, MOT, findPhoto, cutPhoto };
+</script>
+</body>
+</html>

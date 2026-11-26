@@ -1,0 +1,699 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta name="robots" content="noindex">
+<script src="../config.js"></script>
+<script src="gm-ws.js?v=1"></script>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Image Resizer — 사진 해상도 일괄 변경</title>
+<style>
+:root {
+  --bg:       #f0efe9;
+  --surface:  #ffffff;
+  --border:   #e2e0da;
+  --border-2: #ccc9c2;
+  --t1: #1a1816;
+  --t2: #5a5652;
+  --t3: #9a9690;
+  --accent:   #e8500a;
+  --accent-h: #c93f00;
+  --accent-bg:#fff3ed;
+  --tag-bg:   #f2f0ec;
+  --tag-act:  #1a1816;
+  --tag-act-t:#ffffff;
+  --radius: 6px;
+  --radius-lg: 10px;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo',
+    'Noto Sans KR', 'Malgun Gothic', 'Segoe UI', sans-serif;
+  font-size: 13px;
+  background: var(--bg);
+  color: var(--t1);
+  line-height: 1.5;
+  min-height: 100vh;
+}
+
+/* ── Header ── */
+.header {
+  background: #111;
+  color: #fff;
+  padding: 10px 20px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.header-logo { display: flex; align-items: center; gap: 8px; font-weight: 700; font-size: 14px; }
+.header-sep { width: 1px; height: 16px; background: rgba(255,255,255,0.25); }
+.header-sub { font-size: 12px; color: rgba(255,255,255,0.55); }
+
+.wrap { max-width: 1080px; margin: 0 auto; padding: 20px; }
+.layout { display: grid; grid-template-columns: 1fr 320px; gap: 16px; align-items: start; }
+/* 1fr만 쓰면 긴 파일명이 칸을 밀어 화면을 넘친다 → minmax(0, 1fr) */
+@media (max-width: 860px) { .layout { grid-template-columns: minmax(0, 1fr); } }
+.panel { min-width: 0; }
+@media (max-width: 700px) {
+  .header { padding: 10px 12px; }
+  .header-logo { white-space: nowrap; }
+  .header-sep, .header-sub { display: none; }
+  .wrap { padding: 10px; }
+  .layout { gap: 10px; }
+  .panel { padding: 14px; }
+  .tag { padding: 9px 13px; font-size: 13px; }
+  /* 아이폰은 16px보다 작은 입력 칸을 누르면 화면을 자동으로 확대한다 */
+  .num-input { font-size: 16px; width: 110px; }
+  .img-row { min-width: 0; }
+}
+
+.panel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 16px;
+}
+.panel-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+.panel-head-title { font-weight: 700; font-size: 13px; display: flex; align-items: center; gap: 6px; }
+.count-badge {
+  background: var(--tag-bg); color: var(--t2);
+  font-size: 11px; font-weight: 700;
+  border-radius: 20px; padding: 1px 8px;
+}
+.count-badge:empty { display: none; }
+.btn-add {
+  display: inline-flex; align-items: center; gap: 5px;
+  background: var(--tag-bg); border: none; border-radius: var(--radius);
+  padding: 5px 10px; font-size: 12px; font-weight: 600; color: var(--t2);
+  cursor: pointer;
+}
+.btn-add:hover { background: #e8e6e0; }
+
+/* ── Drop zone ── */
+.drop-zone {
+  border: 1.5px dashed var(--border-2);
+  border-radius: var(--radius-lg);
+  padding: 36px 20px;
+  text-align: center;
+  color: var(--t3);
+  cursor: pointer;
+  transition: border-color .15s, background .15s;
+}
+.drop-zone:hover, .drop-zone.drag-over { border-color: var(--accent); background: var(--accent-bg); color: var(--accent); }
+.drop-zone p { margin-top: 8px; font-weight: 600; font-size: 13px; }
+.drop-zone small { font-size: 11px; }
+.hidden { display: none !important; }
+
+/* ── Image list ── */
+.img-list { margin-top: 12px; display: flex; flex-direction: column; gap: 6px; }
+.img-row {
+  display: flex; align-items: center; gap: 10px;
+  border: 1px solid var(--border); border-radius: var(--radius);
+  padding: 6px 10px 6px 6px;
+}
+.img-thumb {
+  width: 44px; height: 44px; border-radius: 4px; object-fit: cover;
+  background: var(--tag-bg); flex-shrink: 0;
+}
+.img-info { flex: 1; min-width: 0; }
+.img-name { font-size: 12px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.img-dims { font-size: 11px; color: var(--t3); font-variant-numeric: tabular-nums; }
+.img-dims .arrow { color: var(--t3); margin: 0 4px; }
+.img-dims .to { color: var(--accent); font-weight: 700; }
+.img-dims .warn-up { color: #c9820a; font-weight: 700; }
+.img-status { font-size: 11px; font-weight: 700; flex-shrink: 0; }
+.img-status.done { color: #2e9e5b; }
+.img-status.doing { color: var(--accent); }
+.img-status.err { color: #d64545; }
+.btn-rm {
+  background: none; border: none; color: var(--t3); cursor: pointer;
+  font-size: 14px; line-height: 1; padding: 4px; flex-shrink: 0;
+}
+.btn-rm:hover { color: #d64545; }
+
+/* ── Controls ── */
+.ctrl-group { margin-bottom: 16px; }
+.ctrl-label { font-size: 12px; font-weight: 700; color: var(--t2); margin-bottom: 7px; display: flex; align-items: center; justify-content: space-between; }
+.tag-group { display: flex; flex-wrap: wrap; gap: 6px; }
+.tag {
+  background: var(--tag-bg); border: 1px solid transparent; border-radius: var(--radius);
+  padding: 6px 12px; font-size: 12px; font-weight: 600; color: var(--t2);
+  cursor: pointer; transition: all .12s;
+}
+.tag:hover { background: #e8e6e0; }
+.tag.act { background: var(--tag-act); color: var(--tag-act-t); }
+.num-input {
+  width: 90px; border: 1px solid var(--border-2); border-radius: var(--radius);
+  padding: 6px 9px; font-size: 13px; font-weight: 600; color: var(--t1);
+  font-variant-numeric: tabular-nums;
+}
+.num-input:focus { outline: none; border-color: var(--accent); }
+.input-row { display: flex; align-items: center; gap: 7px; }
+.input-unit { font-size: 12px; color: var(--t3); font-weight: 600; }
+.slider-row { display: flex; align-items: center; justify-content: space-between; }
+.slider-val { font-size: 12px; color: var(--t1); font-weight: 700; font-variant-numeric: tabular-nums; }
+input[type="range"] { width: 100%; accent-color: var(--accent); margin-top: 4px; }
+.ctrl-hint { font-size: 11px; color: var(--t3); margin-top: 6px; line-height: 1.5; }
+
+/* ── Generate ── */
+.btn-gen {
+  width: 100%;
+  background: var(--accent); color: #fff;
+  border: none; border-radius: var(--radius-lg);
+  padding: 13px; font-size: 14px; font-weight: 700;
+  cursor: pointer; transition: background .15s;
+}
+.btn-gen:hover:not(:disabled) { background: var(--accent-h); }
+.btn-gen:disabled { background: var(--border-2); cursor: not-allowed; }
+
+.progress-area { display: none; margin-top: 12px; }
+.progress-area.show { display: block; }
+.progress-track { height: 6px; background: var(--tag-bg); border-radius: 3px; overflow: hidden; }
+.progress-bar-fill { height: 100%; width: 0%; background: var(--accent); border-radius: 3px; transition: width .2s; }
+.progress-msg { font-size: 11px; color: var(--t3); margin-top: 5px; text-align: center; font-variant-numeric: tabular-nums; }
+
+/* ── Result ── */
+.result-actions { display: none; margin-top: 12px; flex-direction: column; gap: 8px; }
+.result-actions.show { display: flex; }
+.btn-dl {
+  width: 100%; display: flex; align-items: center; justify-content: center; gap: 7px;
+  border: none; border-radius: var(--radius-lg);
+  padding: 12px; font-size: 13px; font-weight: 700; cursor: pointer;
+  transition: background .15s;
+}
+.btn-dl.primary { background: var(--tag-act); color: #fff; }
+.btn-dl.primary:hover { background: #333; }
+.btn-dl.sub { background: var(--tag-bg); color: var(--t2); }
+.btn-dl.sub:hover { background: #e8e6e0; }
+.result-summary { font-size: 12px; color: var(--t2); text-align: center; }
+.result-summary b { color: var(--t1); }
+</style>
+</head>
+<body>
+
+<header class="header">
+  <div class="header-logo">
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+      <rect x="1.5" y="1.5" width="13" height="13" rx="2" stroke="white" stroke-width="1.4"/>
+      <path d="M5 11l2.5-3 2 2.2L11 8.5" stroke="white" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
+      <circle cx="6" cy="5.5" r="1" fill="white"/>
+    </svg>
+    Image Resizer
+  </div>
+  <div class="header-sep"></div>
+  <div class="header-sub">원본 색감 그대로 · 브라우저에서만 처리 · 서버에 사진이 올라가지 않아요</div>
+</header>
+
+<div class="wrap">
+  <div class="layout">
+
+    <!-- ── Left: Images ── -->
+    <div class="panel panel-left">
+      <div class="panel-head">
+        <span class="panel-head-title">이미지
+          <span class="count-badge" id="cntBadge"></span>
+        </span>
+        <button class="btn-add" onclick="document.getElementById('fi').click()">
+          <svg width="10" height="10" viewBox="0 0 10 10"><path d="M5 1v8M1 5h8" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+          추가
+        </button>
+      </div>
+      <input type="file" id="fi" accept="image/jpeg,image/png,image/webp" multiple style="display:none">
+
+      <div class="drop-zone" id="dropZone" onclick="document.getElementById('fi').click()">
+        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4">
+          <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/>
+          <polyline points="17 8 12 3 7 8"/>
+          <line x1="12" y1="3" x2="12" y2="15"/>
+        </svg>
+        <p>이미지를 끌어다 놓거나 클릭해서 선택</p>
+        <small>JPG, PNG, WebP · 여러 장 선택 가능</small>
+      </div>
+
+      <div class="img-list hidden" id="imgList"></div>
+    </div>
+
+    <!-- ── Right: Settings ── -->
+    <div class="panel">
+      <div class="ctrl-group">
+        <div class="ctrl-label">크기 조절 방식</div>
+        <div class="tag-group" id="modeGroup">
+          <button class="tag act" data-mode="width">가로 폭 기준</button>
+          <button class="tag" data-mode="height">세로 높이 기준</button>
+          <button class="tag" data-mode="percent">배율 %</button>
+        </div>
+      </div>
+
+      <div class="ctrl-group" id="sizeCtrl">
+        <div class="ctrl-label" id="sizeLabel">가로 폭</div>
+        <div class="input-row">
+          <input type="number" class="num-input" id="sizeInput" value="1200" min="1" max="20000">
+          <span class="input-unit" id="sizeUnit">px</span>
+        </div>
+        <div class="tag-group" id="presetGroup" style="margin-top:8px"></div>
+        <p class="ctrl-hint">가로·세로 비율은 항상 유지됩니다. (예: 3600×4800 → 폭 1200 지정 시 1200×1600)</p>
+      </div>
+
+      <div class="ctrl-group">
+        <div class="ctrl-label">저장 형식</div>
+        <div class="tag-group" id="fmtGroup">
+          <button class="tag act" data-fmt="jpg">JPG</button>
+          <button class="tag" data-fmt="jpeg">JPEG</button>
+          <button class="tag" data-fmt="webp">WebP</button>
+          <button class="tag" data-fmt="png">PNG</button>
+        </div>
+        <p class="ctrl-hint" id="fmtHint">JPG와 JPEG는 같은 형식이며 파일 확장자만 다릅니다.</p>
+      </div>
+
+      <div class="ctrl-group" id="qualCtrl">
+        <div class="ctrl-label slider-row">
+          <span>품질</span>
+          <span class="slider-val" id="qualVal">100%</span>
+        </div>
+        <input type="range" id="qualSlider" min="1" max="100" value="100">
+        <p class="ctrl-hint">100%로 두면 화질 저하가 거의 없습니다. PNG는 무손실이라 품질 설정이 적용되지 않습니다.</p>
+      </div>
+
+      <button class="btn-gen" id="genBtn" disabled onclick="startResize()">해상도 변경하기</button>
+
+      <div class="progress-area" id="progArea">
+        <div class="progress-track"><div class="progress-bar-fill" id="progFill"></div></div>
+        <div class="progress-msg" id="progMsg">준비 중...</div>
+      </div>
+
+      <div class="result-actions" id="resultActions">
+        <div class="result-summary" id="resultSummary"></div>
+        <button class="btn-dl primary" onclick="dlZip()">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/>
+            <polyline points="7 10 12 15 17 10"/>
+            <line x1="12" y1="15" x2="12" y2="3"/>
+          </svg>
+          전체 ZIP으로 다운로드
+        </button>
+        <button class="btn-dl sub" onclick="dlEach()">한 장씩 개별 다운로드</button>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+'use strict';
+
+// ── Config (localStorage) ──
+const cfg = (() => {
+  const def = { mode: 'width', width: 1200, height: 1600, percent: 50, fmt: 'jpg', quality: 100 };
+  try { return { ...def, ...JSON.parse(localStorage.getItem('ir_cfg') || '{}') }; }
+  catch { return def; }
+})();
+function saveCfg() { localStorage.setItem('ir_cfg', JSON.stringify(cfg)); }
+
+const MIME = { jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp', png: 'image/png' };
+const PRESETS = {
+  width:   [800, 1000, 1200, 1600, 2000],
+  height:  [1000, 1200, 1600, 2000, 2400],
+  percent: [25, 33.3, 50, 66.7, 75],
+};
+
+let imgs = [];      // { file, url, name, w, h, status, result: {blob, name, w, h} | null }
+let busy = false;
+
+// ── File handling ──
+document.getElementById('fi').addEventListener('change', e => { addFiles(e.target.files); e.target.value = ''; });
+const dz = document.getElementById('dropZone');
+dz.addEventListener('dragover', e => { e.preventDefault(); dz.classList.add('drag-over'); });
+dz.addEventListener('dragleave', () => dz.classList.remove('drag-over'));
+dz.addEventListener('drop', e => {
+  e.preventDefault();
+  dz.classList.remove('drag-over');
+  addFiles(e.dataTransfer.files);
+});
+
+async function addFiles(files) {
+  const tasks = [];
+  for (const f of files) {
+    if (!MIME[extOf(f)] && !f.type.startsWith('image/')) continue;
+    tasks.push(loadFile(f));
+  }
+  const loaded = await Promise.all(tasks);
+  loaded.forEach(item => { if (item) imgs.push(item); });
+  clearResults();
+  render();
+}
+
+function extOf(f) {
+  const m = f.name.toLowerCase().match(/\.([a-z0-9]+)$/);
+  return m ? m[1] : '';
+}
+
+function loadFile(f) {
+  return new Promise(res => {
+    const url = URL.createObjectURL(f);
+    const el = new Image();
+    el.onload = () => res({ file: f, url, name: f.name, w: el.naturalWidth, h: el.naturalHeight, status: '', result: null });
+    el.onerror = () => { URL.revokeObjectURL(url); res(null); };
+    el.src = url;
+  });
+}
+
+function rm(i) {
+  URL.revokeObjectURL(imgs[i].url);
+  imgs.splice(i, 1);
+  clearResults();
+  render();
+}
+
+// ── Target size calc ──
+function targetOf(w, h) {
+  let tw, th;
+  if (cfg.mode === 'width') {
+    tw = Math.max(1, Math.round(cfg.width));
+    th = Math.max(1, Math.round(h * tw / w));
+  } else if (cfg.mode === 'height') {
+    th = Math.max(1, Math.round(cfg.height));
+    tw = Math.max(1, Math.round(w * th / h));
+  } else {
+    const p = Math.max(0.1, cfg.percent) / 100;
+    tw = Math.max(1, Math.round(w * p));
+    th = Math.max(1, Math.round(h * p));
+  }
+  return { tw, th };
+}
+
+// ── Render ──
+function render() {
+  const list = document.getElementById('imgList');
+  const badge = document.getElementById('cntBadge');
+  badge.textContent = imgs.length ? `${imgs.length}장` : '';
+  list.classList.toggle('hidden', imgs.length === 0);
+  dz.classList.toggle('hidden', imgs.length > 12);
+
+  list.innerHTML = '';
+  imgs.forEach((im, i) => {
+    const { tw, th } = targetOf(im.w, im.h);
+    const upscale = tw > im.w || th > im.h;
+    const row = document.createElement('div');
+    row.className = 'img-row';
+
+    const thumb = document.createElement('img');
+    thumb.className = 'img-thumb';
+    thumb.src = im.url;
+    thumb.alt = '';
+
+    const info = document.createElement('div');
+    info.className = 'img-info';
+    const nm = document.createElement('div');
+    nm.className = 'img-name';
+    nm.textContent = im.name;
+    const dims = document.createElement('div');
+    dims.className = 'img-dims';
+    dims.innerHTML = `${im.w}×${im.h}<span class="arrow">→</span><span class="${upscale ? 'warn-up' : 'to'}">${tw}×${th}</span>${upscale ? ' (원본보다 커짐)' : ''}`;
+    info.appendChild(nm);
+    info.appendChild(dims);
+
+    const st = document.createElement('span');
+    st.className = 'img-status ' + (im.status === '완료' ? 'done' : im.status === '변환 중' ? 'doing' : im.status === '실패' ? 'err' : '');
+    st.textContent = im.status;
+
+    const rmBtn = document.createElement('button');
+    rmBtn.className = 'btn-rm';
+    rmBtn.textContent = '✕';
+    rmBtn.title = '삭제';
+    rmBtn.onclick = () => rm(i);
+
+    row.appendChild(thumb);
+    row.appendChild(info);
+    row.appendChild(st);
+    row.appendChild(rmBtn);
+    list.appendChild(row);
+  });
+
+  document.getElementById('genBtn').disabled = imgs.length === 0 || busy;
+}
+
+// ── Controls ──
+function buildPresets() {
+  const g = document.getElementById('presetGroup');
+  g.innerHTML = '';
+  PRESETS[cfg.mode].forEach(v => {
+    const b = document.createElement('button');
+    b.className = 'tag';
+    b.textContent = cfg.mode === 'percent' ? `${v}%` : `${v}px`;
+    const cur = cfg.mode === 'width' ? cfg.width : cfg.mode === 'height' ? cfg.height : cfg.percent;
+    if (Math.abs(cur - v) < 0.01) b.classList.add('act');
+    b.onclick = () => {
+      setSizeValue(v);
+      document.getElementById('sizeInput').value = v;
+      buildPresets();
+      render();
+    };
+    g.appendChild(b);
+  });
+}
+
+function setSizeValue(v) {
+  if (cfg.mode === 'width') cfg.width = v;
+  else if (cfg.mode === 'height') cfg.height = v;
+  else cfg.percent = v;
+  saveCfg();
+}
+
+function syncSizeCtrl() {
+  const label = document.getElementById('sizeLabel');
+  const unit = document.getElementById('sizeUnit');
+  const input = document.getElementById('sizeInput');
+  if (cfg.mode === 'width')      { label.textContent = '가로 폭';    unit.textContent = 'px'; input.value = cfg.width; }
+  else if (cfg.mode === 'height'){ label.textContent = '세로 높이';  unit.textContent = 'px'; input.value = cfg.height; }
+  else                           { label.textContent = '배율';       unit.textContent = '%';  input.value = cfg.percent; }
+  buildPresets();
+}
+
+document.getElementById('modeGroup').addEventListener('click', e => {
+  const b = e.target.closest('.tag'); if (!b) return;
+  cfg.mode = b.dataset.mode;
+  saveCfg();
+  document.querySelectorAll('#modeGroup .tag').forEach(t => t.classList.toggle('act', t === b));
+  syncSizeCtrl();
+  clearResults();
+  render();
+});
+
+document.getElementById('sizeInput').addEventListener('input', e => {
+  const v = parseFloat(e.target.value);
+  if (!isFinite(v) || v <= 0) return;
+  setSizeValue(v);
+  buildPresets();
+  clearResults();
+  render();
+});
+
+document.getElementById('fmtGroup').addEventListener('click', e => {
+  const b = e.target.closest('.tag'); if (!b) return;
+  cfg.fmt = b.dataset.fmt;
+  saveCfg();
+  document.querySelectorAll('#fmtGroup .tag').forEach(t => t.classList.toggle('act', t === b));
+  syncFmtUI();
+  clearResults();
+});
+
+function syncFmtUI() {
+  const hint = document.getElementById('fmtHint');
+  if (cfg.fmt === 'jpg' || cfg.fmt === 'jpeg') hint.textContent = 'JPG와 JPEG는 같은 형식이며 파일 확장자만 다릅니다.';
+  else if (cfg.fmt === 'webp') hint.textContent = 'WebP는 같은 품질에서 용량이 더 작습니다.';
+  else hint.textContent = 'PNG는 무손실 형식이라 품질이 전혀 손상되지 않습니다. (용량은 커질 수 있음)';
+  document.getElementById('qualCtrl').style.opacity = cfg.fmt === 'png' ? '0.45' : '1';
+  document.getElementById('qualSlider').disabled = cfg.fmt === 'png';
+}
+
+document.getElementById('qualSlider').addEventListener('input', e => {
+  cfg.quality = parseInt(e.target.value, 10);
+  document.getElementById('qualVal').textContent = cfg.quality + '%';
+  saveCfg();
+  clearResults();
+});
+
+// ── Resize core ──
+async function decodeFile(im) {
+  // EXIF 회전을 반영해 디코드 (지원 안 되는 브라우저는 단계적으로 폴백)
+  try { return await createImageBitmap(im.file, { imageOrientation: 'from-image' }); }
+  catch (e1) {
+    try { return await createImageBitmap(im.file); }
+    catch (e2) {
+      return await new Promise((res, rej) => {
+        const el = new Image();
+        el.onload = () => res(el);
+        el.onerror = rej;
+        el.src = im.url;
+      });
+    }
+  }
+}
+
+function resizeToCanvas(src, tw, th, fillWhite) {
+  // 큰 폭으로 줄일 때 계단식(절반씩) 축소 — 한 번에 줄이면 디테일이 뭉개짐
+  let sw = src.width, sh = src.height;
+  let cur = src;
+  while (sw / 2 > tw && sh / 2 > th) {
+    const nw = Math.max(tw, Math.round(sw / 2));
+    const nh = Math.max(th, Math.round(sh / 2));
+    const c = document.createElement('canvas');
+    c.width = nw; c.height = nh;
+    const ctx = c.getContext('2d');
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+    ctx.drawImage(cur, 0, 0, sw, sh, 0, 0, nw, nh);
+    if (cur !== src && cur.width) { /* 이전 중간 캔버스는 GC에 맡김 */ }
+    cur = c; sw = nw; sh = nh;
+  }
+  const out = document.createElement('canvas');
+  out.width = tw; out.height = th;
+  const ctx = out.getContext('2d');
+  if (fillWhite) { ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, tw, th); } // JPEG는 투명도가 없어 흰 배경 처리
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
+  ctx.drawImage(cur, 0, 0, sw, sh, 0, 0, tw, th);
+  return out;
+}
+
+function canvasToBlob(canvas, mime, quality) {
+  return new Promise((res, rej) => {
+    canvas.toBlob(b => b ? res(b) : rej(new Error('toBlob failed')), mime, quality);
+  });
+}
+
+function outName(name, tw, th, ext) {
+  const base = name.replace(/\.[a-z0-9]+$/i, '');
+  return `${base}_${tw}x${th}.${ext}`;
+}
+
+async function startResize() {
+  if (busy || imgs.length === 0) return;
+  busy = true;
+  clearResults();
+  const btn = document.getElementById('genBtn');
+  btn.disabled = true;
+  const prog = document.getElementById('progArea');
+  const fill = document.getElementById('progFill');
+  const msg = document.getElementById('progMsg');
+  prog.classList.add('show');
+
+  const mime = MIME[cfg.fmt];
+  const quality = cfg.fmt === 'png' ? undefined : cfg.quality / 100;
+  const fillWhite = mime === 'image/jpeg';
+  let ok = 0, totalBytes = 0;
+
+  for (let i = 0; i < imgs.length; i++) {
+    const im = imgs[i];
+    im.status = '변환 중';
+    render();
+    msg.textContent = `${i + 1} / ${imgs.length} — ${im.name}`;
+    try {
+      const bmp = await decodeFile(im);
+      const w = bmp.width, h = bmp.height;
+      const { tw, th } = targetOf(w, h);
+      const canvas = resizeToCanvas(bmp, tw, th, fillWhite);
+      if (bmp.close) bmp.close();
+      const blob = await canvasToBlob(canvas, mime, quality);
+      im.result = { blob, name: outName(im.name, tw, th, cfg.fmt), w: tw, h: th };
+      im.status = '완료';
+      ok++;
+      totalBytes += blob.size;
+    } catch (err) {
+      console.error('resize failed:', im.name, err);
+      im.status = '실패';
+      im.result = null;
+    }
+    fill.style.width = `${Math.round((i + 1) / imgs.length * 100)}%`;
+    render();
+    await new Promise(r => setTimeout(r, 0)); // UI가 멈추지 않게 양보
+  }
+
+  prog.classList.remove('show');
+  fill.style.width = '0%';
+  busy = false;
+  render();
+
+  if (ok > 0) {
+    const summary = document.getElementById('resultSummary');
+    const fail = imgs.length - ok;
+    summary.innerHTML = `<b>${ok}장</b> 변환 완료 · 총 ${fmtBytes(totalBytes)}` + (fail ? ` · <span style="color:#d64545">${fail}장 실패</span>` : '');
+    document.getElementById('resultActions').classList.add('show');
+  }
+}
+
+function clearResults() {
+  imgs.forEach(im => { im.result = null; if (im.status) im.status = ''; });
+  document.getElementById('resultActions').classList.remove('show');
+}
+
+function fmtBytes(n) {
+  if (n < 1024 * 1024) return (n / 1024).toFixed(0) + ' KB';
+  return (n / 1024 / 1024).toFixed(1) + ' MB';
+}
+
+// ── Download ──
+function saveBlob(blob, name) {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = name;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+}
+
+async function dlEach() {
+  const done = imgs.filter(im => im.result);
+  for (const im of done) {
+    saveBlob(im.result.blob, im.result.name);
+    await new Promise(r => setTimeout(r, 300)); // 브라우저 다운로드 차단 방지 간격
+  }
+}
+
+const JSZIP_URL = 'vendor/jszip.min.js';
+function loadJSZip() {
+  if (typeof JSZip !== 'undefined') return Promise.resolve();
+  return new Promise((res, rej) => {
+    const s = document.createElement('script');
+    s.src = JSZIP_URL;
+    s.onload = res; s.onerror = rej;
+    document.head.appendChild(s);
+  });
+}
+
+async function dlZip() {
+  const done = imgs.filter(im => im.result);
+  if (done.length === 0) return;
+  if (done.length === 1) { saveBlob(done[0].result.blob, done[0].result.name); return; }
+  try {
+    await loadJSZip();
+    const zip = new JSZip();
+    const used = new Set();
+    done.forEach(im => {
+      let name = im.result.name, k = 1;
+      while (used.has(name)) name = im.result.name.replace(/(\.[a-z0-9]+)$/i, `_${k++}$1`);
+      used.add(name);
+      zip.file(name, im.result.blob);
+    });
+    const blob = await zip.generateAsync({ type: 'blob' });
+    saveBlob(blob, `resized_${done.length}장.zip`);
+  } catch (e) {
+    console.error('zip failed, falling back to individual downloads', e);
+    dlEach();
+  }
+}
+
+// ── Init ──
+document.querySelectorAll('#modeGroup .tag').forEach(t => t.classList.toggle('act', t.dataset.mode === cfg.mode));
+document.querySelectorAll('#fmtGroup .tag').forEach(t => t.classList.toggle('act', t.dataset.fmt === cfg.fmt));
+document.getElementById('qualSlider').value = cfg.quality;
+document.getElementById('qualVal').textContent = cfg.quality + '%';
+syncSizeCtrl();
+syncFmtUI();
+render();
+</script>
+</body>
+</html>

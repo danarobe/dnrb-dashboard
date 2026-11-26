@@ -45,3 +45,7 @@ verify_jwt = true
 # 상품 등록 전용 카페24 앱(2026-11-25) — 카페24 리다이렉트를 받으므로 JWT 검증 끔(함수가 직접 로그인·서명 검사)
 [functions.cafe24-product]
 verify_jwt = false
+
+# GIF 메이커(워크스페이스 내장, 2026-11-26) — 관리자 + MD/컨텐츠. 프로젝트·템플릿·상세 사진·구글 드라이브 지정 폴더
+[functions.gif]
+verify_jwt = true

@@ -1,0 +1,1524 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta name="robots" content="noindex">
+<script src="../config.js"></script>
+<script src="gm-ws.js?v=1"></script>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>프로젝트 — 상품별 사진·멘트</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<script>
+// 글꼴 목록(CSS)은 합쳐서 2MB가 넘는다. 화면을 그리는 걸 막지 않도록 첫 화면이 뜬 뒤에 불러온다.
+// 글자를 그리는 쪽은 window.__fontCss(전부 불러오면 끝나는 약속)를 기다렸다가 그린다.
+window.__fontCss = new Promise(function (done) {
+  var list = [["https://fonts.googleapis.com/css2?family=Bodoni+Moda:ital,opsz,wght@0,6..96,400..900;1,6..96,400..900&family=Cinzel:wght@400..900&family=Geist+Mono:wght@100..900&family=Newsreader:ital,opsz,wght@0,6..72,300..700;1,6..72,300..700&family=Cormorant+Garamond:ital,wght@0,300..700;1,300..700&family=Dancing+Script:wght@400..700&family=EB+Garamond:ital,wght@0,400..800;1,400..800&family=Gowun+Dodum&family=IBM+Plex+Mono:wght@300;400;500;700&family=Jost:ital,wght@0,100..900;1,100..900&family=Lora:ital,wght@0,400..700;1,400..700&family=Montserrat:ital,wght@0,100..900;1,100..900&family=Nanum+Gothic:wght@400;700;800&family=Nanum+Myeongjo:wght@400;700;800&family=Noto+Sans+KR:wght@100..900&family=Playfair+Display:ital,wght@0,400..900;1,400..900&display=swap", null], ["https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard-dynamic-subset.min.css", "sha384-V1aeodcjJTo8c7lEQKPTnsMG6Yk8y6O/1kzqU/BCXw78Yw1W8XYFJGgjYa3oInYZ"], ["gm-fonts.css", null]];
+  var left = list.length;
+  function go() {
+    list.forEach(function (it) {
+      var l = document.createElement('link');
+      l.rel = 'stylesheet'; l.href = it[0];
+      if (it[1]) { l.integrity = it[1]; l.crossOrigin = 'anonymous'; }
+      l.onload = l.onerror = function () { if (--left === 0) done(); };
+      document.head.appendChild(l);
+    });
+  }
+  if (document.readyState === 'complete') setTimeout(go, 0);
+  else window.addEventListener('load', function () { setTimeout(go, 0); });
+  setTimeout(done, 10000); // 네트워크가 막혀도 기능이 멈추지 않게
+});
+</script>
+
+
+<style>
+:root {
+  --bg:       #f0efe9;
+  --surface:  #ffffff;
+  --border:   #e2e0da;
+  --border-2: #ccc9c2;
+  --t1: #1a1816;
+  --t2: #5a5652;
+  --t3: #9a9690;
+  --accent:   #e8500a;
+  --accent-h: #c93f00;
+  --accent-bg:#fff3ed;
+  --tag-bg:   #f2f0ec;
+  --tag-act:  #1a1816;
+  --tag-act-t:#ffffff;
+  --radius: 6px;
+  --radius-lg: 10px;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo',
+    'Noto Sans KR', 'Malgun Gothic', 'Segoe UI', sans-serif;
+  font-size: 13px; background: var(--bg); color: var(--t1); line-height: 1.5; min-height: 100vh;
+}
+.header { background: #111; color: #fff; padding: 10px 20px; display: flex; align-items: center; gap: 12px; }
+.header-logo { display: flex; align-items: center; gap: 8px; font-weight: 700; font-size: 14px; }
+.header-sep { width: 1px; height: 16px; background: rgba(255,255,255,0.25); }
+.header-sub { font-size: 12px; color: rgba(255,255,255,0.55); }
+
+.wrap { max-width: 1240px; margin: 0 auto; padding: 16px; display: flex; gap: 14px; align-items: flex-start; }
+.panel { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); }
+.hidden { display: none !important; }
+
+/* ── Project list ── */
+.side-col { width: 240px; flex-shrink: 0; position: sticky; top: 12px; max-height: calc(100vh - 80px); overflow-y: auto; display: flex; flex-direction: column; gap: 10px; }
+.plist { padding: 10px; }
+.pitem-owner { font-size: 10.5px; color: var(--accent); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.plist-note { font-size: 11.5px; color: var(--t3); padding: 2px 6px 6px; line-height: 1.5; }
+/* 함께 쓰는 사람 */
+.share-box { padding: 10px; }
+.share-box summary { font-size: 11px; font-weight: 700; color: var(--t3); letter-spacing: .6px; padding: 4px 6px; cursor: pointer; list-style: none; display: flex; align-items: center; justify-content: space-between; }
+.share-box summary::-webkit-details-marker { display: none; }
+.share-box summary::after { content: '▾'; font-size: 11px; }
+.share-box[open] summary::after { content: '▴'; }
+.share-body { padding: 4px 6px 4px; }
+.share-desc { font-size: 11.5px; color: var(--t3); line-height: 1.5; margin: 2px 0 8px; }
+.share-person { display: flex; align-items: center; gap: 6px; padding: 5px 0; border-top: 1px solid var(--border); }
+.share-person-info { flex: 1; min-width: 0; }
+.share-person-name { font-size: 12.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.share-person-mail { font-size: 10.5px; color: var(--t3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.share-x { border: none; background: none; color: var(--t3); font-size: 11px; cursor: pointer; padding: 3px 5px; border-radius: 4px; flex-shrink: 0; }
+.share-x:hover { background: #fee2e2; color: #dc2626; }
+.share-x.sure { background: #dc2626; color: #fff; }
+.perm-sel { flex-shrink: 0; height: 30px; border: 1px solid var(--border); border-radius: 6px; background: #fff; font: inherit; font-size: 12px; color: var(--t1); padding: 0 6px; cursor: pointer; }
+.perm-sel:disabled { opacity: .6; cursor: default; }
+.perm-fixed { flex-shrink: 0; font-size: 11.5px; font-weight: 600; color: var(--t2); padding: 0 6px; }
+.perm-lv { display: inline-block; font-weight: 700; border-radius: 5px; padding: 1px 7px; font-size: 11.5px; }
+.perm-lv.write { background: #dcfce7; color: #166534; } .perm-lv.read { background: #dbeafe; color: #1e40af; } .perm-lv.none { background: #f3f4f6; color: #4b5563; }
+body.ro .saved-note { color: #b45309; font-weight: 600; }
+body.ro #fName, body.ro #fTitle, body.ro #fCaption, body.ro #fReels { background: #f7f6f2; color: var(--t2); }
+.share-add { display: flex; gap: 6px; margin-top: 8px; }
+.share-add .inp { flex: 1; min-width: 0; height: 32px; font-size: 12px; padding: 0 8px; }
+.share-add .btn { height: 32px; padding: 0 10px; font-size: 12px; flex-shrink: 0; }
+.share-note { font-size: 11.5px; line-height: 1.5; margin-top: 6px; min-height: 0; color: var(--t2); }
+.share-note.err { color: #dc2626; }
+.share-sub { font-size: 11px; font-weight: 700; color: var(--t3); margin: 12px 0 2px; }
+.share-me { font-size: 11px; color: var(--t3); margin-top: 10px; padding-top: 8px; border-top: 1px dashed var(--border); line-height: 1.6; word-break: break-all; }
+.share-me b { color: var(--t2); font-weight: 600; }
+.share-me button { border: 1px solid var(--border); background: #fff; border-radius: 4px; font-size: 10.5px; padding: 1px 6px; cursor: pointer; margin-left: 4px; color: var(--t2); }
+.plist-title { font-size: 11px; font-weight: 700; color: var(--t3); letter-spacing: .6px; padding: 4px 6px 8px; }
+.pitem { display: flex; align-items: center; gap: 9px; padding: 7px; border-radius: var(--radius); cursor: pointer; border: 1px solid transparent; }
+.pitem:hover { background: var(--tag-bg); }
+.pitem.on { background: var(--accent-bg); border-color: #ffd9c4; }
+.pitem img { width: 38px; height: 38px; object-fit: cover; border-radius: 4px; background: var(--tag-bg); flex-shrink: 0; }
+.pitem-info { flex: 1; min-width: 0; }
+.pitem-name { font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pitem-meta { font-size: 11px; color: var(--t3); }
+.pitem-del { border: none; background: none; color: var(--t3); font-size: 11px; cursor: pointer; padding: 3px 5px; border-radius: 4px; flex-shrink: 0; }
+.pitem-del:hover { background: #fee2e2; color: #dc2626; }
+.pitem-del.sure { background: #dc2626; color: #fff; }
+
+/* ── Main ── */
+.main { flex: 1; min-width: 0; }
+.empty { padding: 60px 24px; text-align: center; color: var(--t3); }
+.empty b { display: block; font-size: 15px; color: var(--t2); margin-bottom: 6px; }
+.pform { padding: 16px 18px; }
+.frow { display: flex; gap: 12px; flex-wrap: wrap; }
+.field { flex: 1; min-width: 180px; margin-bottom: 12px; }
+.flabel { font-size: 11px; font-weight: 700; color: var(--t3); letter-spacing: .5px; margin-bottom: 5px; display: flex; justify-content: space-between; }
+.flabel small { font-weight: 500; letter-spacing: 0; }
+.inp, .txa, .sel {
+  width: 100%; border: 1px solid var(--border-2); border-radius: var(--radius);
+  padding: 8px 10px; font-size: 13px; color: var(--t1); background: #fff; font-family: inherit;
+}
+.txa { resize: vertical; min-height: 92px; line-height: 1.55; }
+.inp:focus, .txa:focus, .sel:focus { outline: none; border-color: var(--accent); }
+.tag-group { display: flex; flex-wrap: wrap; gap: 5px; }
+.tag {
+  height: 28px; padding: 0 11px; border: 1px solid var(--border-2); border-radius: 5px;
+  background: var(--tag-bg); font-size: 12px; font-weight: 500; color: var(--t2);
+  cursor: pointer; transition: all .15s; white-space: nowrap; display: flex; align-items: center;
+}
+.tag:hover { border-color: var(--t1); color: var(--t1); }
+.tag.on { background: var(--tag-act); border-color: var(--tag-act); color: var(--tag-act-t); }
+.actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding-top: 4px; }
+.btn {
+  height: 34px; padding: 0 14px; border-radius: var(--radius); cursor: pointer;
+  font-size: 13px; font-weight: 600; transition: all .15s;
+  border: 1px solid var(--border-2); background: var(--tag-bg); color: var(--t2);
+}
+.btn:hover:not(:disabled) { border-color: var(--t1); color: var(--t1); }
+.btn:disabled { opacity: .4; cursor: default; }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.btn.primary:hover:not(:disabled) { background: var(--accent-h); border-color: var(--accent-h); color: #fff; }
+.saved-note { font-size: 11px; color: var(--t3); margin-left: auto; }
+.preset-box { border-top: 1px dashed var(--border); padding-top: 12px; margin-bottom: 12px; }
+.preset-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 8px; }
+.preset-row .sel { max-width: 240px; }
+
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px; margin-top: 14px; }
+.card { overflow: hidden; }
+.card canvas { display: block; width: 100%; height: auto; cursor: pointer; background: #000; }
+.card-foot { display: flex; align-items: center; gap: 6px; padding: 7px 9px; }
+.card-n { font-size: 12px; font-weight: 700; color: var(--t2); flex: 1; }
+.card-btn { border: 1px solid var(--border-2); background: var(--tag-bg); border-radius: 5px; font-size: 11px; font-weight: 600; color: var(--t2); padding: 4px 9px; cursor: pointer; }
+.card-btn:hover { border-color: var(--t1); color: var(--t1); }
+.grid-hint { font-size: 11px; color: var(--t3); margin-top: 10px; }
+
+/* ── Editor modal ── */
+.ed-backdrop { display: none; position: fixed; inset: 0; z-index: 1000; background: rgba(20,18,16,.55); align-items: center; justify-content: center; padding: 16px; }
+.ed-backdrop.show { display: flex; }
+.ed-dialog { background: var(--surface); border-radius: 12px; width: 100%; max-width: 900px; max-height: calc(100vh - 32px); display: flex; flex-direction: column; overflow: hidden; box-shadow: 0 20px 60px rgba(0,0,0,.3); }
+.ed-head { display: flex; align-items: center; gap: 10px; padding: 12px 16px; border-bottom: 1px solid var(--border); }
+.ed-title { font-size: 14px; font-weight: 700; }
+.ed-count { font-size: 12px; color: var(--t3); font-weight: 600; flex: 1; }
+.ed-x { border: none; background: none; font-size: 16px; color: var(--t3); cursor: pointer; padding: 4px 6px; border-radius: 4px; }
+.ed-x:hover { background: var(--tag-bg); color: var(--t1); }
+.ed-body { display: flex; min-height: 0; flex: 1; overflow: auto; }
+.ed-stage { flex: 1; min-width: 0; background: #2a2725; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 14px; gap: 8px; }
+.ed-stage canvas { display: block; touch-action: none; max-width: 100%; }
+.ed-tip { font-size: 11px; color: rgba(255,255,255,.6); text-align: center; }
+.ed-side { width: 290px; flex-shrink: 0; overflow-y: auto; border-left: 1px solid var(--border); }
+.ed-sec { padding: 14px 16px; border-bottom: 1px solid var(--border); }
+.ed-sec:last-child { border-bottom: none; }
+.ed-sec-title { font-size: 11px; font-weight: 700; color: var(--t3); letter-spacing: .6px; margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center; }
+.ed-sec-title label { font-weight: 500; letter-spacing: 0; color: var(--t2); display: flex; align-items: center; gap: 4px; cursor: pointer; }
+.srow { margin-top: 10px; }
+.shead { display: flex; justify-content: space-between; margin-bottom: 5px; font-size: 12px; color: var(--t2); font-weight: 500; }
+.shead b { color: var(--t1); font-variant-numeric: tabular-nums; }
+input[type=range] { width: 100%; accent-color: var(--accent); }
+.crow { display: flex; align-items: center; gap: 8px; margin-top: 10px; font-size: 12px; color: var(--t2); }
+.crow input[type=color] { width: 34px; height: 26px; border: 1px solid var(--border-2); border-radius: 4px; padding: 1px; background: #fff; cursor: pointer; }
+.ed-wide { width: 100%; height: 32px; margin-top: 6px; border: 1px solid var(--border-2); border-radius: 6px; background: var(--tag-bg); font-size: 12px; font-weight: 600; color: var(--t2); cursor: pointer; }
+.ed-wide:hover { border-color: var(--t1); color: var(--t1); }
+.ed-foot { display: flex; align-items: center; gap: 6px; padding: 12px 16px; border-top: 1px solid var(--border); }
+.ed-foot .sp { flex: 1; }
+.nwrap { display: flex; align-items: center; gap: 3px; font-size: 11px; color: var(--t3); }
+.nin { width: 58px; border: 1px solid var(--border-2); border-radius: 4px; padding: 2px 4px; font-size: 12px; font-weight: 700; color: var(--t1); text-align: right; font-variant-numeric: tabular-nums; background: #fff; }
+.nin:focus { outline: none; border-color: var(--accent); }
+.wrow { display: flex; gap: 8px; align-items: center; margin-top: 8px; }
+.wrow .sel { flex: 1; }
+.chk { display: flex; align-items: center; gap: 4px; font-size: 12px; color: var(--t2); cursor: pointer; white-space: nowrap; }
+.fx { margin-top: 12px; padding-top: 10px; border-top: 1px dashed var(--border); }
+.fx-head { display: flex; align-items: center; justify-content: space-between; font-size: 12px; font-weight: 600; color: var(--t2); }
+.fx-body { padding-top: 2px; }
+.emo-bar { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
+.emo-tip { font-size: 11px; color: var(--t3); }
+@media (max-width: 760px) {
+  .header { padding: 10px 12px; }
+  .header-logo { white-space: nowrap; }
+  .header-sep, .header-sub { display: none; }
+  .wrap { flex-direction: column; padding: 10px; gap: 10px; }
+  .side-col { width: 100%; position: static; max-height: none; overflow: visible; }
+  .plist { max-height: 200px; overflow-y: auto; }
+  .share-add .inp { font-size: 16px; }
+  .main { width: 100%; }
+  .pform { padding: 14px; }
+  .field { min-width: 100%; }
+  .tag { height: 34px; padding: 0 12px; font-size: 13px; }
+  .btn, .card-btn { white-space: nowrap; }
+  .actions .btn { flex: 1 1 auto; }
+  .saved-note { margin-left: 0; width: 100%; }
+  .preset-row .sel, .preset-row .inp { max-width: none !important; flex: 1 1 100%; }
+  .preset-row .btn { flex: 1 1 auto; }
+  .emo-tip { display: none; }
+  .grid { grid-template-columns: repeat(2, 1fr); gap: 8px; }
+  .card-foot { padding: 6px; gap: 4px; }
+  /* 아이폰은 16px보다 작은 입력 칸을 누르면 화면을 자동으로 확대한다 */
+  .inp, .txa, .sel, .nin { font-size: 16px; }
+  .nin { width: 70px; }
+  /* 편집 창은 화면 전체를 쓴다 */
+  .ed-backdrop { padding: 0; }
+  .ed-dialog { max-width: none; height: 100dvh; max-height: 100dvh; border-radius: 0; }
+  .ed-body { flex-direction: column; }
+  .ed-stage { flex: none; padding: 10px; }
+  .ed-tip { display: none; }
+  .ed-side { width: 100%; border-left: none; border-top: 1px solid var(--border); overflow: visible; }
+  .ed-foot { flex-wrap: wrap; padding: 10px 12px; }
+  .ed-foot .btn { flex: 1 1 auto; padding: 0 10px; }
+  .ed-foot .sp { display: none; }
+}
+</style>
+</head>
+<body>
+
+<header class="header">
+  <div class="header-logo">
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+      <path d="M1.5 4.5a1 1 0 011-1h3.2l1.3 1.5h6.5a1 1 0 011 1v6.5a1 1 0 01-1 1h-11a1 1 0 01-1-1v-8z" stroke="white" stroke-width="1.4" stroke-linejoin="round"/>
+    </svg>
+    프로젝트
+  </div>
+  <div class="header-sep"></div>
+  <div class="header-sub">상품별로 저장한 사진에 영문 상품명과 멘트가 자동으로 들어가요 · 워크스페이스에 저장되고, 프로젝트 권한을 받은 사람이 함께 봐요</div>
+</header>
+
+<div class="wrap">
+  <aside class="side-col">
+    <details class="panel share-box" id="permBox">
+      <summary><span>프로젝트 권한 <span id="permCount"></span></span></summary>
+      <div class="share-body">
+        <p class="share-desc" id="permDesc">불러오는 중…</p>
+        <div id="permList"></div>
+        <div class="share-note" id="permNote"></div>
+      </div>
+    </details>
+    <div class="panel plist">
+      <div class="plist-title">프로젝트</div>
+      <div class="plist-note hidden" id="plistNote"></div>
+      <div id="plist"></div>
+    </div>
+  </aside>
+
+  <main class="main">
+    <div class="panel empty" id="emptyBox">
+      <b id="emptyTitle">아직 프로젝트가 없어요</b>
+      <span id="emptyDesc">"GIF 만들기"에서 GIF를 만든 뒤 <b style="display:inline;font-size:13px">프로젝트로 저장</b>을 누르면 여기에 나타나요.</span>
+    </div>
+
+    <div id="projView" class="hidden">
+      <div class="panel pform">
+        <div class="frow">
+          <div class="field">
+            <div class="flabel">프로젝트 이름</div>
+            <input class="inp" id="fName" placeholder="예: 상품1">
+          </div>
+          <div class="field">
+            <div class="flabel">영문 상품명 <small>사진마다 자동으로 들어가요</small></div>
+            <input class="inp" id="fTitle" placeholder="예: Monaco Wool Knit">
+          </div>
+        </div>
+        <div class="frow">
+          <div class="field" style="flex:2">
+            <div class="flabel">멘트 <small>줄바꿈 그대로 들어가요</small></div>
+            <textarea class="txa" id="fCaption" placeholder="예:&#10;후기 BEST&#10;울 100 high quality&#10;딱 붙지 않는 여유핏&#10;목 조임 없이 부드럽게"></textarea>
+            <div class="emo-bar">
+              <button class="card-btn" id="emoBtn" type="button">😊 이모지 넣기</button>
+              <span class="emo-tip">상품명·멘트·릴스 멘트 칸 어디든 들어가요 · Mac은 ⌃⌘Space로 전체 이모지</span>
+            </div>
+            <div id="emoPanel"></div>
+            <div class="flabel" style="margin-top:14px">릴스 멘트 <small>메모용이에요 · 사진에는 들어가지 않아요</small></div>
+            <textarea class="txa" id="fReels" maxlength="4000" placeholder="릴스에 쓸 멘트를 적어 두세요"></textarea>
+          </div>
+          <div class="field">
+            <div class="flabel">멘트 박스 나누기</div>
+            <div class="tag-group" id="gSplit">
+              <button class="tag" data-v="auto2">2줄씩</button>
+              <button class="tag" data-v="blank">빈 줄 기준</button>
+              <button class="tag" data-v="one">한 박스</button>
+            </div>
+            <div class="flabel" style="margin-top:12px">출력 형식</div>
+            <div class="tag-group" id="gFormat">
+              <button class="tag" data-v="story">스토리 9:16 (위아래 여백)</button>
+              <button class="tag" data-v="photo">사진 비율 그대로</button>
+            </div>
+            <div class="flabel" style="margin-top:12px">저장 파일</div>
+            <div class="tag-group" id="gOutFmt">
+              <button class="tag" data-v="png">PNG (가장 선명)</button>
+              <button class="tag" data-v="jpg">JPG (용량 작음)</button>
+            </div>
+            <div class="flabel" style="margin-top:12px">필터 <small id="fltAmtV"></small></div>
+            <div class="tag-group" id="gFilter">
+              <button class="tag" data-v="none">없음</button>
+              <button class="tag" data-v="fade">Fade (인스타 느낌)</button>
+            </div>
+            <input type="range" id="fltAmt" min="0" max="100" step="1" value="100" style="margin-top:8px" class="hidden">
+          </div>
+        </div>
+        <div class="preset-box">
+          <div class="flabel">저장한 설정 <small>글꼴·크기·색·자간·테두리·그림자·필터·출력 형식을 통째로 저장해요</small></div>
+          <div class="preset-row">
+            <select class="sel" id="psSel"></select>
+            <button class="btn" id="psApply" onclick="applyPreset()">모든 사진에 적용</button>
+            <label class="chk"><input type="checkbox" id="psPos"> 위치도 같이</label>
+            <label class="chk"><input type="checkbox" id="psDef"> 새 프로젝트에 자동 적용</label>
+            <button class="btn" id="psDel" onclick="deletePreset()">삭제</button>
+          </div>
+          <div class="preset-row">
+            <input class="inp" id="psName" placeholder="설정 이름 (예: 니트 기본)" style="max-width:240px">
+            <button class="btn" onclick="savePreset()">현재 설정 저장</button>
+            <span class="saved-note" id="psNote" style="margin-left:0"></span>
+          </div>
+        </div>
+        <div class="actions">
+          <button class="btn primary" id="btnZip" onclick="downloadAll()">이미지 전체 다운로드 (ZIP)</button>
+          <button class="btn" id="btnGif" onclick="downloadGif()">GIF 다운로드</button>
+          <button class="btn" onclick="reAutoAll()">전체 자동 배치 다시</button>
+          <span class="saved-note" id="savedNote"></span>
+        </div>
+      </div>
+
+      <div class="grid" id="grid"></div>
+      <p class="grid-hint">사진을 누르면 상품명·멘트의 위치, 크기, 글꼴, 배경색을 바꿀 수 있어요.</p>
+    </div>
+  </main>
+</div>
+
+<!-- ── Editor ── -->
+<div class="ed-backdrop" id="edModal">
+  <div class="ed-dialog" role="dialog" aria-modal="true" aria-label="멘트 스타일 편집">
+    <div class="ed-head">
+      <span class="ed-title">멘트 스타일 편집</span>
+      <span class="ed-count" id="edCount"></span>
+      <button class="ed-x" onclick="closeEd()" title="닫기">✕</button>
+    </div>
+    <div class="ed-body">
+      <div class="ed-stage">
+        <canvas id="edCanvas"></canvas>
+        <p class="ed-tip">상품명과 멘트를 드래그해서 위치를 옮길 수 있어요.</p>
+      </div>
+      <div class="ed-side" id="edSide">
+        <div class="ed-sec" id="secT"></div>
+        <div class="ed-sec" id="secC"></div>
+        <div class="ed-sec">
+          <button class="ed-wide" id="btnStyleAll" onclick="styleToAll()">이 스타일을 모든 사진에 적용</button>
+          <button class="ed-wide" onclick="reAutoOne()">이 사진 자동 배치로 되돌리기</button>
+        </div>
+      </div>
+    </div>
+    <div class="ed-foot">
+      <button class="btn" id="edPrev" onclick="edStep(-1)">◀ 이전</button>
+      <button class="btn" id="edNext" onclick="edStep(1)">다음 ▶</button>
+      <span class="sp"></span>
+      <button class="btn" onclick="downloadOne(_ed.i)">이 사진 다운로드</button>
+      <button class="btn primary" onclick="closeEd()">완료</button>
+    </div>
+  </div>
+</div>
+
+<script src="gm-projects-db.js?v=2"></script>
+<script src="gm-emoji.js"></script>
+<script>
+'use strict';
+
+// ── 글꼴 ──
+// w: 기본 굵기, i: 기본 기울임. 영문 글꼴은 한글이 섞이면 프리텐다드로 이어 쓴다.
+const KR = "'Pretendard', 'Noto Sans KR', sans-serif";
+const FONTS = {
+  // 인스타그램 글꼴은 Meta 전용이라 넣을 수 없어, 가장 비슷한 무료 글꼴로 대신한다
+  // Elegant는 맥·아이폰 기본 글꼴인 Didot 이탤릭과 일치(사용자 샘플 대조). Didot이 없는 기기는 Bodoni Moda로 대신한다.
+  bodoni:      { g: '인스타 느낌', label: 'Elegant — 인스타와 같은 이탤릭 세리프',     fam: "'Didot', 'Bodoni Moda', 'Playfair Display', " + KR, w: 400, i: true },
+  // Editor는 Meta 전용 글꼴이라 일치하는 무료 글꼴이 없음. 사용자 샘플과 글자 단위로 대조해 가장 가까운 Geist Mono 사용.
+  ig_editor:   { g: '인스타 느낌', label: 'Editor 느낌 — 고정폭 글씨 (가장 가까운 글꼴)',  fam: "'Geist Mono', " + KR, w: 400 },
+  ig_serif:    { g: '인스타 느낌', label: '세리프 느낌 — 영문 세리프 + 한글 고딕',     fam: "'Newsreader', " + KR, w: 400 },
+  pretendard:  { g: '한글', label: '프리텐다드 — 깔끔한 기본 고딕',        fam: KR, w: 500 },
+  noto:        { g: '한글', label: '노토산스 — 단정한 고딕',               fam: "'Noto Sans KR', sans-serif", w: 400 },
+  gmarket:     { g: '한글', label: '지마켓 산스 — 동글동글한 고딕',         fam: "'GmarketSans', " + KR, w: 500 },
+  nsround:     { g: '한글', label: '나눔스퀘어라운드 — 부드러운 둥근 고딕', fam: "'NanumSquareRound', " + KR, w: 700 },
+  nanumgothic: { g: '한글', label: '나눔고딕',                              fam: "'Nanum Gothic', " + KR, w: 400 },
+  gowun:       { g: '한글', label: '고운돋움 — 부드러운 감성',              fam: "'Gowun Dodum', " + KR, w: 400 },
+  myeongjo:    { g: '한글', label: '나눔명조 — 세리프',                     fam: "'Nanum Myeongjo', serif", w: 400 },
+  serifmix:    { g: '한글', label: '세리프 영문 + 고딕 한글',               fam: "'Lora', 'Noto Sans KR', sans-serif", w: 400 },
+  cinzel:      { g: '영문', label: 'Cinzel — 클래식 대문자 세리프',         fam: "'Cinzel', " + KR, w: 400 },
+  playfair:    { g: '영문', label: 'Playfair Italic — 매거진 세리프',       fam: "'Playfair Display', " + KR, w: 400, i: true },
+  cormorant:   { g: '영문', label: 'Cormorant Italic — 가늘고 우아한',      fam: "'Cormorant Garamond', " + KR, w: 500, i: true },
+  garamond:    { g: '영문', label: 'EB Garamond — 정통 세리프',             fam: "'EB Garamond', " + KR, w: 500 },
+  jost:        { g: '영문', label: 'Jost — Futura 느낌의 기하학 고딕',      fam: "'Jost', " + KR, w: 400 },
+  montserrat:  { g: '영문', label: 'Montserrat — 모던 고딕',                fam: "'Montserrat', " + KR, w: 300 },
+  plexmono:    { g: '영문', label: 'IBM Plex Mono — 타자기 느낌',           fam: "'IBM Plex Mono', " + KR, w: 400 },
+  dancing:     { g: '영문', label: 'Dancing Script — 필기체',               fam: "'Dancing Script', " + KR, w: 400 },
+};
+const EMOJI_FAM = ", 'Apple Color Emoji', 'Segoe UI Emoji', 'Noto Color Emoji'";
+const WEIGHTS = [[100, '아주 얇게'], [300, '얇게'], [400, '보통'], [500, '중간'], [600, '약간 굵게'], [700, '굵게'], [900, '아주 굵게']];
+const fontOf = o => FONTS[o.font] || FONTS.pretendard;
+// 굵기·기울임을 따로 고르지 않았으면 글꼴 기본값을 쓴다
+function eff(o, p, k) {
+  if (p === 'weight') return o.weight != null ? o.weight : (fontOf(o).w || 400);
+  if (p === 'italic') return o.italic != null ? o.italic : !!fontOf(o).i;
+  if (p === 'sh') return !!o.sh;
+  return o[p];
+}
+const fontSpec = (o, fs) => `${eff(o, 'italic') ? 'italic ' : ''}${eff(o, 'weight')} ${fs}px ${fontOf(o).fam}${EMOJI_FAM}`;
+
+// 크기는 사진 너비의 1000분율, 자간·테두리·그림자는 글자 크기의 % → 출력 해상도와 무관
+const FX = { ls: 0, st: false, stW: 4, stColor: '#000000', shBlur: 12, shX: 0, shY: 0, shAlpha: 28, shColor: '#000000' };
+const DEF_T = { x: 0.5, y: 0.93, size: 64, font: 'bodoni', color: '#ffffff', show: true, ...FX, sh: false };
+const DEF_C = { x: 0.5, y: 0.74, size: 30, font: 'ig_serif', box: 'white', boxColor: '#ffffff', textColor: '#ffffff', lh: 1.32, ...FX, shBlur: 30, shAlpha: 35 };
+const STORY_W = 1125; // 스토리 출력 너비 (1125×2000)
+
+let projects = [];
+let P = null;                 // 현재 프로젝트
+const bmps = new Map();       // photo.id → ImageBitmap
+const stats = new Map();      // photo.id → 자동 배치용 분석 결과
+const mctx = document.createElement('canvas').getContext('2d'); // 글자 폭 측정용
+// 맥의 크롬은 캔버스 글자에도 '글자 다듬기'를 적용해 획을 부풀린다(같은 글꼴인데 25~33% 굵게 찍힘).
+// geometricPrecision으로 끄면 글꼴 원래 굵기로 그려져 인스타 결과와 같은 획 굵기가 된다.
+function crispText(ctx) { if ('textRendering' in ctx) ctx.textRendering = 'geometricPrecision'; }
+crispText(mctx);
+
+// ── 저장 ──
+// 고친 내용은 잠깐 뒤 내 계정(서버)에 저장한다. 한 번에 한 건씩만 보내고, 바뀐 게 없으면 보내지 않는다.
+let _saveT = 0, _saveBusy = false, _saveAgain = false;
+function setNote(msg) { document.getElementById('savedNote').textContent = msg; }
+function save() {
+  if (!P || P.canEdit === false) return;   // 읽기 권한: 저장하지 않는다
+  clearTimeout(_saveT);
+  _saveT = setTimeout(() => flushSave(P), 600);
+}
+async function flushSave(p) {
+  if (!p || p.canEdit === false) return;
+  if (_saveBusy) { _saveAgain = true; return; }
+  const snap = GMDB.editState(p);
+  if (snap === p._snap) return;
+  _saveBusy = true;
+  try {
+    await GMDB.save(p);
+    p._snap = snap;
+    const meta = projects.find(x => x.id === p.id);
+    if (meta) { meta.name = p.name; meta.rev = p.rev; meta.updated = p.updated; }
+    if (P === p) setNote('자동 저장됨');
+  } catch (e) {
+    console.error(e);
+    if (P !== p) { /* 이미 다른 프로젝트를 보고 있음 */ }
+    else if (e.status === 409) {
+      // 그 사이 다른 사람이 고쳤다 → 최신 내용으로 다시 불러온다
+      _saveBusy = false; _saveAgain = false;
+      await openProject(p.id, true);
+      setNote('다른 사람이 방금 수정해서 최신 내용으로 다시 불러왔어요');
+      return;
+    }
+    else if (e.status === 404 || e.status === 403) { _saveBusy = false; return refreshFromStorage(); }
+    else if (e.status === 401) setNote('로그인이 풀렸어요 — 새로고침한 뒤 다시 로그인해주세요');
+    else { setNote('저장 실패 — 인터넷 연결을 확인해주세요 (자동으로 다시 시도해요)'); clearTimeout(_saveT); _saveT = setTimeout(() => flushSave(P), 5000); }
+  } finally {
+    _saveBusy = false;
+    if (_saveAgain) { _saveAgain = false; save(); }
+  }
+}
+
+// ── 멘트 → 박스(문단) 나누기 ──
+function capBlocks(p) {
+  const lines = (p.caption || '').replace(/\r/g, '').split('\n').map(s => s.trim());
+  if (p.split === 'one') { const l = lines.filter(Boolean); return l.length ? [l] : []; }
+  const groups = []; let cur = [];
+  for (const l of lines) { if (!l) { if (cur.length) { groups.push(cur); cur = []; } } else cur.push(l); }
+  if (cur.length) groups.push(cur);
+  if (p.split === 'blank' || groups.length > 1) return groups;
+  const one = groups[0] || [], out = [];
+  for (let i = 0; i < one.length; i += 2) out.push(one.slice(i, i + 2));
+  return out;
+}
+
+// ── 배치 계산 ──
+function canvasSize(p, ph, CW) {
+  return p.format === 'story' ? { CW, CH: Math.round(CW * 16 / 9) } : { CW, CH: Math.round(CW * ph.h / ph.w) };
+}
+function photoRect(CW, CH, pw, phh) {
+  const s = Math.min(CW / pw, CH / phh);
+  const w = pw * s, h = phh * s;
+  return { x: (CW - w) / 2, y: (CH - h) / 2, w, h };
+}
+// 자간: 캔버스가 지원하면 그대로, 아니면 글자(이모지 포함)를 하나씩 놓는다
+const HAS_LS = 'letterSpacing' in CanvasRenderingContext2D.prototype;
+const _seg = typeof Intl !== 'undefined' && Intl.Segmenter ? new Intl.Segmenter(undefined, { granularity: 'grapheme' }) : null;
+const graphemes = t => _seg ? Array.from(_seg.segment(t), x => x.segment) : Array.from(t);
+function textW(ctx, text, ls) {
+  if (!ls) return ctx.measureText(text).width;
+  if (HAS_LS) { ctx.letterSpacing = ls + 'px'; const w = ctx.measureText(text).width - ls; ctx.letterSpacing = '0px'; return w; }
+  const g = graphemes(text);
+  return g.reduce((a, ch) => a + ctx.measureText(ch).width, 0) + ls * Math.max(0, g.length - 1);
+}
+function drawLine(ctx, text, cx, y, ls, stroke) {
+  const fn = stroke ? 'strokeText' : 'fillText';
+  if (!ls) { ctx[fn](text, cx, y); return; }
+  if (HAS_LS) { ctx.letterSpacing = ls + 'px'; ctx[fn](text, cx + ls / 2, y); ctx.letterSpacing = '0px'; return; }
+  let x = cx - textW(ctx, text, ls) / 2;
+  ctx.textAlign = 'left';
+  for (const ch of graphemes(text)) { ctx[fn](ch, x, y); x += ctx.measureText(ch).width + ls; }
+  ctx.textAlign = 'center';
+}
+function rgba(hex, a) {
+  const n = parseInt((hex || '#000000').slice(1), 16);
+  return `rgba(${n >> 16 & 255},${n >> 8 & 255},${n & 255},${a})`;
+}
+// 테두리 → 채움 순서로 그린다. 그림자는 한 번만 지도록 테두리가 있으면 테두리에만 건다.
+function paintText(ctx, lines, cx, yAt, o, k, fs, fg) {
+  ctx.font = fontSpec(o, fs);
+  const ls = (o.ls || 0) / 100 * fs;
+  const shadow = on => {
+    ctx.shadowColor = on ? rgba(o.shColor, o.shAlpha / 100) : 'transparent';
+    ctx.shadowBlur = on ? o.shBlur / 100 * fs : 0;
+    ctx.shadowOffsetX = on ? o.shX / 100 * fs : 0;
+    ctx.shadowOffsetY = on ? o.shY / 100 * fs : 0;
+  };
+  const shOn = !!eff(o, 'sh', k);
+  shadow(shOn);
+  if (o.st && o.stW > 0) {
+    ctx.lineJoin = 'round';
+    ctx.lineWidth = o.stW / 100 * fs * 2;
+    ctx.strokeStyle = o.stColor;
+    lines.forEach((l, i) => drawLine(ctx, l, cx, yAt(i), ls, true));
+    shadow(false);
+  }
+  ctx.fillStyle = fg;
+  lines.forEach((l, i) => drawLine(ctx, l, cx, yAt(i), ls, false));
+  shadow(false);
+}
+
+function measureCap(ctx, p, c, rw) {
+  const fs = c.size / 1000 * rw;
+  ctx.font = fontSpec(c, fs);
+  const ls = (c.ls || 0) / 100 * fs;
+  const lh = fs * (c.lh || 1.32), padX = fs * 0.42, padY = fs * 0.22, gap = fs * 0.5;
+  const blocks = capBlocks(p).map(lines => ({
+    lines, w: Math.max(...lines.map(l => textW(ctx, l, ls))) + padX * 2, h: lines.length * lh + padY * 2,
+  }));
+  const W = Math.max(0, ...blocks.map(b => b.w));
+  const H = blocks.reduce((a, b) => a + b.h, 0) + gap * Math.max(0, blocks.length - 1);
+  return { blocks, W, H, fs, lh, padY, gap };
+}
+function measureTitle(ctx, p, t, rw) {
+  const fs = t.size / 1000 * rw;
+  ctx.font = fontSpec(t, fs);
+  return { w: textW(ctx, p.titleEn || '', (t.ls || 0) / 100 * fs), h: fs * 1.15, fs };
+}
+function capColors(c) {
+  if (c.box === 'white') return { bg: '#ffffff', fg: '#111111' };
+  if (c.box === 'black') return { bg: '#000000', fg: '#ffffff' };
+  if (c.box === 'custom') return { bg: c.boxColor, fg: c.textColor };
+  return { bg: null, fg: c.textColor };
+}
+
+// ── 필터 ──
+// Fade: 같은 사진의 '필터 전'과 '인스타 Fade 적용 후'를 픽셀 단위로 비교해 뽑은 색 곡선(16 간격 제어점).
+// 검정을 띄우고 흰색을 눌러 대비를 낮춘다. 인스타처럼 위아래 여백에도 적용하고 글자에는 적용하지 않는다.
+const FILTER_PTS = {
+  fade: [
+    [21.5, 30.4, 40.4, 51.7, 63.4, 77.8, 92.9, 108.6, 125.5, 143.4, 160.4, 175.9, 190.7, 203.9, 215.3, 226.5, 237.1],
+    [21.5, 30.2, 39.4, 50.6, 62.3, 76.5, 91.3, 106.9, 123.4, 140.1, 156.3, 172.0, 186.6, 199.8, 212.1, 222.7, 232.7],
+    [21.5, 30.9, 40.0, 51.4, 63.3, 77.1, 92.6, 108.9, 125.0, 142.3, 158.2, 173.6, 187.1, 201.0, 212.9, 223.9, 232.2],
+  ],
+};
+// 따로 고르지 않은 프로젝트는 Fade 100% · PNG 저장이 기본
+function filterOf(p) { return { id: 'fade', amt: 100, ...(p.filter || {}) }; }
+function outFmtOf(p) { return p.outFmt === 'jpg' ? 'jpg' : 'png'; }
+function filterLut(f) {
+  const pts = FILTER_PTS[f.id];
+  if (!pts || f.amt <= 0) return null;
+  const k = Math.min(1, f.amt / 100);
+  return pts.map(row => {
+    const lut = new Uint8ClampedArray(256);
+    for (let v = 0; v < 256; v++) {
+      const i = Math.min(15, v >> 4), x0 = i * 16, x1 = i === 15 ? 255 : x0 + 16;
+      const y = row[i] + (row[i + 1] - row[i]) * (v - x0) / (x1 - x0);
+      lut[v] = v + (y - v) * k;
+    }
+    return lut;
+  });
+}
+// 필터를 입힌 사진(원본 해상도)을 보관해 두고, 필터나 강도가 바뀌면 다시 만든다
+const fcache = new Map();
+function filteredSource(p, ph) {
+  const bmp = bmps.get(ph.id), f = filterOf(p), lut = filterLut(f);
+  if (!bmp || !lut) return { src: bmp, bar: '#000' };
+  const key = `${f.id}|${f.amt}`;
+  let hit = fcache.get(ph.id);
+  if (!hit || hit.key !== key) {
+    const c = document.createElement('canvas');
+    c.width = ph.w; c.height = ph.h;
+    const x = c.getContext('2d', { willReadFrequently: true });
+    x.drawImage(bmp, 0, 0, ph.w, ph.h);
+    const id = x.getImageData(0, 0, ph.w, ph.h), d = id.data;
+    const [lr, lg, lb] = lut;
+    for (let i = 0; i < d.length; i += 4) { d[i] = lr[d[i]]; d[i + 1] = lg[d[i + 1]]; d[i + 2] = lb[d[i + 2]]; }
+    x.putImageData(id, 0, 0);
+    hit = { key, c };
+    fcache.set(ph.id, hit);
+  }
+  return { src: hit.c, bar: `rgb(${lut[0][0]},${lut[1][0]},${lut[2][0]})` };
+}
+
+// 사진 + 상품명 + 멘트를 그린다. 편집 창에서 쓸 수 있게 각 요소의 영역을 돌려준다.
+function drawComposite(ctx, CW, CH, bmp, p, ph) {
+  const lay = ph.lay;
+  const fs = filteredSource(p, ph);
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.fillStyle = fs.bar;
+  ctx.fillRect(0, 0, CW, CH);
+  const r = photoRect(CW, CH, ph.w, ph.h);
+  ctx.imageSmoothingQuality = 'high';
+  if (fs.src) ctx.drawImage(fs.src, r.x, r.y, r.w, r.h);
+  const hits = {};
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  crispText(ctx);
+
+  const m = measureCap(ctx, p, lay.c, r.w);
+  if (m.blocks.length) {
+    const cx = r.x + lay.c.x * r.w, cy = r.y + lay.c.y * r.h;
+    const col = capColors(lay.c);
+    let y = cy - m.H / 2;
+    for (const b of m.blocks) {
+      if (col.bg) { ctx.fillStyle = col.bg; ctx.fillRect(cx - b.w / 2, y, b.w, b.h); }
+      const y0 = y;
+      paintText(ctx, b.lines, cx, i => y0 + m.padY + m.lh * (i + 0.5), lay.c, 'c', m.fs, col.fg);
+      y += b.h + m.gap;
+    }
+    hits.c = { x: cx - m.W / 2, y: cy - m.H / 2, w: m.W, h: m.H };
+  }
+
+  if (lay.t.show && p.titleEn) {
+    const t = measureTitle(ctx, p, lay.t, r.w);
+    const tx = r.x + lay.t.x * r.w, ty = r.y + lay.t.y * r.h;
+    paintText(ctx, [p.titleEn], tx, () => ty, lay.t, 't', t.fs, lay.t.color);
+    hits.t = { x: tx - t.w / 2, y: ty - t.h / 2, w: t.w, h: t.h };
+  }
+  return { hits, rect: r };
+}
+
+// ── 자동 배치: 사진에서 무늬가 적은(평평한) 곳을 찾아 글자를 놓는다 ──
+function analyze(ph) {
+  if (stats.has(ph.id)) return stats.get(ph.id);
+  const bmp = bmps.get(ph.id);
+  const gw = 48, gh = Math.max(8, Math.round(48 * ph.h / ph.w));
+  const c = document.createElement('canvas'); c.width = gw; c.height = gh;
+  const x = c.getContext('2d', { willReadFrequently: true });
+  x.drawImage(bmp, 0, 0, gw, gh);
+  const d = x.getImageData(0, 0, gw, gh).data;
+  const lum = new Float32Array(gw * gh);
+  for (let i = 0; i < gw * gh; i++) lum[i] = 0.299 * d[i * 4] + 0.587 * d[i * 4 + 1] + 0.114 * d[i * 4 + 2];
+  const IL = new Float64Array((gw + 1) * (gh + 1)), IB = new Float64Array((gw + 1) * (gh + 1));
+  let total = 0;
+  for (let yy = 0; yy < gh; yy++) for (let xx = 0; xx < gw; xx++) {
+    const i = yy * gw + xx;
+    const gx = lum[yy * gw + Math.min(gw - 1, xx + 1)] - lum[yy * gw + Math.max(0, xx - 1)];
+    const gy = lum[Math.min(gh - 1, yy + 1) * gw + xx] - lum[Math.max(0, yy - 1) * gw + xx];
+    const b = Math.abs(gx) + Math.abs(gy);
+    total += b;
+    const k = (yy + 1) * (gw + 1) + xx + 1;
+    IL[k] = lum[i] + IL[k - 1] + IL[k - gw - 1] - IL[k - gw - 2];
+    IB[k] = b + IB[k - 1] + IB[k - gw - 1] - IB[k - gw - 2];
+  }
+  const mean = total / (gw * gh) + 1;
+  // 가운데 좌표(cx, cy)와 크기(w, h) — 모두 0~1 — 영역의 평균 밝기와 '복잡한 정도'(전체 평균 대비)
+  const at = (cx, cy, w, h) => {
+    const x0 = Math.max(0, Math.floor((cx - w / 2) * gw)), x1 = Math.min(gw, Math.ceil((cx + w / 2) * gw));
+    const y0 = Math.max(0, Math.floor((cy - h / 2) * gh)), y1 = Math.min(gh, Math.ceil((cy + h / 2) * gh));
+    const n = Math.max(1, (x1 - x0) * (y1 - y0));
+    const sum = I => I[y1 * (gw + 1) + x1] - I[y0 * (gw + 1) + x1] - I[y1 * (gw + 1) + x0] + I[y0 * (gw + 1) + x0];
+    return { lum: sum(IL) / n, busy: sum(IB) / n / mean };
+  };
+  const res = { at };
+  stats.set(ph.id, res);
+  return res;
+}
+
+// 예전에는 그림자가 기본으로 켜져 있어 글자 둘레가 뿌옇게 보였다. 손대지 않은 예전 기본값만 끈다.
+function dropOldDefaultShadow(t, c) {
+  if (t && t.sh === true && t.shBlur === 12 && t.shAlpha === 28 && !t.shX && !t.shY && t.shColor === '#000000') t.sh = false;
+  if (c && c.sh == null) c.sh = false;
+}
+function ensureLay(ph) {
+  if (!ph.lay) ph.lay = { t: { ...DEF_T }, c: { ...DEF_C }, manual: false, boxManual: false };
+  ph.lay.t = { ...DEF_T, ...ph.lay.t };
+  ph.lay.c = { ...DEF_C, ...ph.lay.c };
+  if (ph.lay.c.font === 'mont') { ph.lay.c.font = 'montserrat'; if (ph.lay.c.weight == null) ph.lay.c.weight = 500; }
+  if (!ph.lay.v) { dropOldDefaultShadow(ph.lay.t, ph.lay.c); ph.lay.v = 2; }
+}
+
+function autoLayout(p, ph) {
+  ensureLay(ph);
+  const lay = ph.lay;
+  if (lay.manual && lay.boxManual) return;
+  const an = analyze(ph);
+  const RW = 1000, asp = ph.w / ph.h; // 높이를 0~1로 바꿀 때 곱하는 값
+  const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+
+  if (!lay.manual) {
+    // 글자가 사진 폭을 넘으면 크기를 줄인다
+    let t = measureTitle(mctx, p, lay.t, RW);
+    if (t.w > RW * 0.9) { lay.t.size = Math.max(30, Math.floor(lay.t.size * RW * 0.9 / t.w)); t = measureTitle(mctx, p, lay.t, RW); }
+    let m = measureCap(mctx, p, lay.c, RW);
+    if (m.W > RW * 0.9) { lay.c.size = Math.max(15, Math.floor(lay.c.size * RW * 0.9 / m.W)); m = measureCap(mctx, p, lay.c, RW); }
+    const tw = t.w / RW, th = t.h / RW * asp, cw = m.W / RW, ch = m.H / RW * asp;
+    const hasT = lay.t.show && !!p.titleEn, hasC = m.blocks.length > 0;
+
+    // 상품명: 아래 가운데를 우선하고, 그 자리가 복잡하면 위 가운데 → 좌우 순으로 옮긴다
+    let tr = null, tBottom = true;
+    if (hasT) {
+      const cands = [[0.5, 0.93, 0], [0.5, 0.1, 0.15], [0.33, 0.9, 0.35], [0.67, 0.9, 0.35], [0.33, 0.1, 0.45], [0.67, 0.1, 0.45]];
+      let best = null;
+      for (const [x, y, pen] of cands) {
+        const cx = clamp(x, tw / 2 + 0.04, 1 - tw / 2 - 0.04), cy = clamp(y, th / 2 + 0.03, 1 - th / 2 - 0.03);
+        const cost = an.at(cx, cy, tw, th).busy + pen;
+        if (!best || cost < best.cost) best = { cost, cx, cy };
+      }
+      lay.t.x = best.cx; lay.t.y = best.cy;
+      tBottom = best.cy > 0.5;
+      tr = { x0: best.cx - tw / 2 - 0.02, x1: best.cx + tw / 2 + 0.02, y0: best.cy - th / 2 - 0.02, y1: best.cy + th / 2 + 0.02 };
+    }
+    // 멘트: 상품(사진 가운데)을 가리지 않게 아래·위 띠를 우선하고, 옆 가운데는 마지막 선택지
+    if (hasC) {
+      const yLow = (hasT && tBottom ? tr.y0 - 0.015 : 0.95) - ch / 2;   // 아래 띠: 상품명 바로 위 (상품명이 위에 있으면 맨 아래)
+      const yHigh = (hasT && !tBottom ? tr.y1 + 0.015 : 0.05) + ch / 2; // 위 띠
+      const cands = [
+        [0.5, yLow, 0], [0.24, yLow, 0.12], [0.76, yLow, 0.12],
+        [0.24, yHigh, 0.2], [0.76, yHigh, 0.2], [0.5, yHigh, 0.25],
+        [0.2, 0.62, 0.4], [0.8, 0.62, 0.4], [0.2, 0.42, 0.45], [0.8, 0.42, 0.45],
+      ];
+      let best = null;
+      for (const [x, y, pen] of cands) {
+        const cx = clamp(x, cw / 2 + 0.05, 1 - cw / 2 - 0.05), cy = clamp(y, ch / 2 + 0.04, 1 - ch / 2 - 0.04);
+        if (tr && cx - cw / 2 < tr.x1 && cx + cw / 2 > tr.x0 && cy - ch / 2 < tr.y1 && cy + ch / 2 > tr.y0) continue;
+        const st = an.at(cx, cy, cw, ch);
+        const cost = st.busy + pen;
+        if (!best || cost < best.cost) best = { cost, cx, cy };
+      }
+      if (best) { lay.c.x = best.cx; lay.c.y = best.cy; }
+    }
+  }
+  if (!lay.boxManual) {
+    const m = measureCap(mctx, p, lay.c, RW);
+    if (m.blocks.length) {
+      const s = an.at(lay.c.x, lay.c.y, m.W / RW, m.H / RW * asp);
+      // 어둡고 평평한 곳은 박스 없이 흰 글자, 밝은 곳은 흰 박스, 그 외는 검정 박스
+      lay.c.box = s.busy < 0.45 && s.lum < 90 ? 'none' : s.lum >= 140 ? 'white' : 'black';
+      if (lay.c.box === 'none') lay.c.textColor = '#ffffff';
+    }
+  }
+}
+
+// ── 글꼴 로딩 (글자가 쓰이는 범위만 내려받으므로 실제 문구로 요청) ──
+async function ensureFonts() {
+  if (!P || !document.fonts) return;
+  await window.__fontCss;
+  const jobs = new Map();
+  P.photos.forEach(ph => {
+    ensureLay(ph);
+    jobs.set('t' + fontSpec(ph.lay.t, 40), [fontSpec(ph.lay.t, 40), P.titleEn || 'A']);
+    jobs.set('c' + fontSpec(ph.lay.c, 40), [fontSpec(ph.lay.c, 40), (P.caption || '') + ' A가']);
+  });
+  await Promise.all([...jobs.values()].map(([spec, text]) => document.fonts.load(spec, text).catch(() => {})));
+}
+
+// ── 목록 ──
+function fmtDate(ts) { const d = new Date(ts); return `${d.getMonth() + 1}/${d.getDate()}`; }
+function renderList() {
+  const box = document.getElementById('plist');
+  box.innerHTML = '';
+  projects.forEach(p => {
+    const el = document.createElement('div');
+    el.className = 'pitem' + (P && P.id === p.id ? ' on' : '');
+    const img = document.createElement('img'); img.alt = ''; if (p.thumb) img.src = p.thumb;
+    const info = document.createElement('div'); info.className = 'pitem-info';
+    const nm = document.createElement('div'); nm.className = 'pitem-name'; nm.textContent = p.name || '이름 없음';
+    const mt = document.createElement('div'); mt.className = 'pitem-meta'; mt.textContent = `사진 ${p.photoCount}장 · ${fmtDate(p.updated)}`;
+    info.append(nm, mt);
+    if (!p.mine) {
+      // 다른 사람이 만든 프로젝트: 만든 사람을 보여 준다
+      const ow = document.createElement('div'); ow.className = 'pitem-owner'; ow.textContent = `만든 사람: ${p.ownerName || '다른 사람'}`;
+      info.append(ow);
+    }
+    if (!p.canDelete) {
+      // 삭제는 만든 사람(쓰기 권한이 있을 때)과 관리자만
+      el.append(img, info);
+      el.onclick = () => openProject(p.id);
+      box.appendChild(el);
+      return;
+    }
+    const del = document.createElement('button'); del.className = 'pitem-del'; del.textContent = '삭제';
+    del.onclick = ev => {
+      ev.stopPropagation();
+      if (!del.classList.contains('sure')) {
+        del.classList.add('sure'); del.textContent = '정말 삭제';
+        setTimeout(() => { del.classList.remove('sure'); del.textContent = '삭제'; }, 3000);
+        return;
+      }
+      deleteProject(p.id);
+    };
+    el.append(img, info, del);
+    el.onclick = () => openProject(p.id);
+    box.appendChild(el);
+  });
+  document.getElementById('emptyBox').classList.toggle('hidden', projects.length > 0);
+}
+
+function closeProject() {
+  clearTimeout(_saveT);
+  P = null;
+  if (_ed.i >= 0) closeEd();
+  document.getElementById('projView').classList.add('hidden');
+}
+
+async function deleteProject(id) {
+  const meta = projects.find(p => p.id === id);
+  try { await GMDB.del(id, meta && meta.ownerId); }
+  catch (e) { console.error(e); if (e.status !== 404) { plistNote('삭제하지 못했어요. 잠시 뒤 다시 시도해주세요.'); return; } }
+  projects = projects.filter(p => p.id !== id);
+  if (P && P.id === id) {
+    closeProject();
+    if (projects.length) return openProject(projects[0].id);
+  }
+  renderList();
+}
+
+function plistNote(msg) {
+  const el = document.getElementById('plistNote');
+  el.textContent = msg || '';
+  el.classList.toggle('hidden', !msg);
+}
+
+// 프로젝트를 서버에서 받아 연다. force: 이미 열려 있어도 최신 내용으로 다시 받는다
+let _openSeq = 0;
+async function openProject(id, force) {
+  if (!projects.some(x => x.id === id)) return;
+  if (P && P.id === id && !force) return;
+  // 다른 프로젝트로 옮기기 전에, 보던 프로젝트의 고친 내용을 먼저 저장한다
+  clearTimeout(_saveT);
+  if (P && P.id !== id) await flushSave(P);
+  const seq = ++_openSeq;
+  if (!P || P.id !== id) setNote('');
+  plistNote('불러오는 중…');
+  let p;
+  try { p = await GMDB.get(id); }
+  catch (e) {
+    console.error(e);
+    if (seq !== _openSeq) return;
+    plistNote(e.status === 404 ? '이 프로젝트는 삭제되었어요.' : e.status === 403 ? '프로젝트 권한이 없어요.' : '프로젝트를 불러오지 못했어요. 인터넷 연결을 확인해주세요.');
+    if (e.status === 404) { projects = projects.filter(x => x.id !== id); if (P && P.id === id) closeProject(); renderList(); }
+    return;
+  }
+  if (seq !== _openSeq) return; // 그 사이 다른 프로젝트를 열었으면 중단
+  plistNote('');
+  if (_ed.i >= 0) closeEd();
+  P = p;
+  P._snap = GMDB.editState(P);   // 서버에 저장된 그대로의 상태 (이후 바뀐 게 있을 때만 저장)
+  P.split = P.split || 'auto2';
+  P.format = P.format || 'story';
+  bmps.forEach(b => { try { b.close(); } catch {} });
+  bmps.clear(); stats.clear(); fcache.clear();
+  await Promise.all(P.photos.map(async ph => { bmps.set(ph.id, await createImageBitmap(ph.blob)); }));
+  if (P !== p) return; // 그 사이 다른 프로젝트를 열었으면 중단
+  document.getElementById('fName').value = P.name || '';
+  document.getElementById('fTitle').value = P.titleEn || '';
+  document.getElementById('fCaption').value = P.caption || '';
+  document.getElementById('fReels').value = P.reels || '';
+  applyRo();
+  applyDefaultPreset();
+  syncTags('gSplit', P.split);
+  syncTags('gFormat', P.format);
+  syncTags('gOutFmt', outFmtOf(P));
+  syncFilterUI();
+  document.getElementById('btnGif').classList.toggle('hidden', !P.gifPath);
+  document.getElementById('projView').classList.remove('hidden');
+  renderList();
+  await ensureFonts();
+  if (P !== p) return; // 글꼴을 기다리는 사이 닫히거나(삭제) 다른 프로젝트로 바뀜
+  P.photos.forEach(ph => autoLayout(P, ph));
+  buildGrid();
+  save();
+}
+
+function syncTags(id, v) {
+  document.querySelectorAll(`#${id} .tag`).forEach(t => t.classList.toggle('on', t.dataset.v === v));
+}
+
+// ── 사진 그리드 ──
+function buildGrid() {
+  const grid = document.getElementById('grid');
+  grid.innerHTML = '';
+  P.photos.forEach((ph, i) => {
+    const card = document.createElement('div'); card.className = 'panel card';
+    const cv = document.createElement('canvas'); cv.dataset.i = i; cv.title = '눌러서 위치·스타일 편집';
+    cv.onclick = () => openEd(i);
+    const foot = document.createElement('div'); foot.className = 'card-foot';
+    const n = document.createElement('span'); n.className = 'card-n'; n.textContent = `${i + 1}번`;
+    const b1 = document.createElement('button'); b1.className = 'card-btn'; b1.textContent = '편집'; b1.onclick = () => openEd(i);
+    const b2 = document.createElement('button'); b2.className = 'card-btn'; b2.textContent = '다운로드'; b2.onclick = () => downloadOne(i);
+    foot.append(n, b1, b2);
+    card.append(cv, foot);
+    grid.appendChild(card);
+  });
+  drawGrid();
+}
+let _gridRaf = 0;
+function drawGrid() {
+  if (_gridRaf) return;
+  _gridRaf = requestAnimationFrame(() => {
+    _gridRaf = 0;
+    if (!P) return;
+    document.querySelectorAll('#grid canvas').forEach(cv => {
+      const ph = P.photos[+cv.dataset.i];
+      if (!ph) return;
+      const { CW, CH } = canvasSize(P, ph, 480);
+      if (cv.width !== CW || cv.height !== CH) { cv.width = CW; cv.height = CH; }
+      drawComposite(cv.getContext('2d'), CW, CH, bmps.get(ph.id), P, ph);
+    });
+  });
+}
+
+// 문구·형식이 바뀌면: 글꼴을 확보하고, 손으로 옮기지 않은 사진은 자동 배치를 다시 한다
+let _txtT = 0;
+function textChanged() {
+  save();
+  clearTimeout(_txtT);
+  _txtT = setTimeout(async () => {
+    const p = P;
+    await ensureFonts();
+    if (P !== p) return;
+    P.photos.forEach(ph => autoLayout(P, ph));
+    drawGrid();
+    if (_ed.i >= 0) drawEd();
+    save();
+  }, 120);
+}
+document.getElementById('fName').addEventListener('input', e => { P.name = e.target.value; const m = projects.find(x => x.id === P.id); if (m) m.name = P.name; save(); renderListNames(); });
+document.getElementById('fTitle').addEventListener('input', e => { P.titleEn = e.target.value; textChanged(); });
+document.getElementById('fCaption').addEventListener('input', e => { P.caption = e.target.value; textChanged(); });
+// 릴스 멘트: 적어 두기만 하는 메모 — 저장만 하고 사진은 다시 그리지 않는다
+document.getElementById('fReels').addEventListener('input', e => { P.reels = e.target.value; save(); });
+function renderListNames() {
+  const el = document.querySelector('.pitem.on .pitem-name');
+  if (el) el.textContent = P.name || '이름 없음';
+}
+document.getElementById('gSplit').addEventListener('click', e => {
+  const b = e.target.closest('.tag'); if (!b) return;
+  P.split = b.dataset.v; syncTags('gSplit', P.split); textChanged();
+});
+document.getElementById('gFormat').addEventListener('click', e => {
+  const b = e.target.closest('.tag'); if (!b) return;
+  P.format = b.dataset.v; syncTags('gFormat', P.format); drawGrid(); save();
+});
+
+document.getElementById('gOutFmt').addEventListener('click', e => {
+  const b = e.target.closest('.tag'); if (!b) return;
+  P.outFmt = b.dataset.v; syncTags('gOutFmt', P.outFmt); save();
+});
+function syncFilterUI() {
+  const f = filterOf(P);
+  syncTags('gFilter', f.id);
+  const sl = document.getElementById('fltAmt');
+  sl.classList.toggle('hidden', f.id === 'none');
+  sl.value = f.amt;
+  document.getElementById('fltAmtV').textContent = f.id === 'none' ? '' : `강도 ${f.amt}%`;
+}
+document.getElementById('gFilter').addEventListener('click', e => {
+  const b = e.target.closest('.tag'); if (!b) return;
+  P.filter = { ...filterOf(P), id: b.dataset.v };
+  syncFilterUI(); drawGrid(); if (_ed.i >= 0) drawEd(); save();
+});
+document.getElementById('fltAmt').addEventListener('input', e => {
+  P.filter = { ...filterOf(P), amt: +e.target.value };
+  syncFilterUI(); drawGrid(); if (_ed.i >= 0) drawEd(); save();
+});
+
+// ── 저장한 설정 (이 브라우저에 보관, 모든 프로젝트에서 공유) ──
+const PRESET_KEY = 'gm_style_presets';
+function loadPresets() { try { return JSON.parse(localStorage.getItem(PRESET_KEY) || '[]'); } catch { return []; } }
+function storePresets(list) { try { localStorage.setItem(PRESET_KEY, JSON.stringify(list)); } catch {} }
+function renderPresets(selectId) {
+  const list = loadPresets(), sel = document.getElementById('psSel');
+  const keep = selectId || sel.value;
+  sel.innerHTML = list.length ? '' : '<option value="">저장한 설정이 없어요</option>';
+  list.forEach(ps => sel.add(new Option(ps.name + (ps.isDefault ? ' ★' : ''), ps.id)));
+  if (list.some(ps => ps.id === keep)) sel.value = keep;
+  const cur = list.find(ps => ps.id === sel.value);
+  document.getElementById('psDef').checked = !!(cur && cur.isDefault);
+  ['psApply', 'psDel', 'psDef', 'psPos'].forEach(id => { document.getElementById(id).disabled = !cur; });
+}
+function presetNote(t) {
+  const el = document.getElementById('psNote');
+  el.textContent = t;
+  clearTimeout(presetNote._t);
+  presetNote._t = setTimeout(() => { el.textContent = ''; }, 3500);
+}
+// 지금 편집 중인 사진(없으면 첫 사진)의 글자 스타일 + 프로젝트의 필터·형식·박스 나누기를 저장
+function savePreset() {
+  if (!P || !P.photos.length) return;
+  const src = P.photos[_ed.i >= 0 ? _ed.i : 0].lay;
+  const list = loadPresets();
+  const name = document.getElementById('psName').value.trim() || `설정 ${list.length + 1}`;
+  const data = { v: 2, t: { ...src.t }, c: { ...src.c }, split: P.split, format: P.format, filter: filterOf(P), outFmt: outFmtOf(P) };
+  const old = list.find(ps => ps.name === name);
+  let id;
+  if (old) { Object.assign(old, data); id = old.id; }
+  else { id = GMDB.uid(); list.push({ id, name, isDefault: false, ...data }); }
+  storePresets(list);
+  document.getElementById('psName').value = '';
+  renderPresets(id);
+  presetNote(old ? `"${name}" 설정을 덮어썼어요` : `"${name}" 설정을 저장했어요`);
+}
+// 스타일을 사진에 입힌다. 위치는 withPos일 때만 가져오고, 아니면 그 사진의 자리를 유지한다.
+function putPreset(ph, ps, withPos) {
+  ensureLay(ph);
+  const { x: tx, y: ty } = ph.lay.t, { x: cx, y: cy } = ph.lay.c;
+  ph.lay.t = { ...DEF_T, ...ps.t };
+  ph.lay.c = { ...DEF_C, ...ps.c };
+  if (!ps.v) dropOldDefaultShadow(ph.lay.t, ph.lay.c);
+  ph.lay.boxManual = true;
+  if (withPos) ph.lay.manual = true;
+  else { ph.lay.t.x = tx; ph.lay.t.y = ty; ph.lay.c.x = cx; ph.lay.c.y = cy; }
+}
+async function applyPreset() {
+  const ps = loadPresets().find(x => x.id === document.getElementById('psSel').value);
+  if (!ps || !P) return;
+  const withPos = document.getElementById('psPos').checked;
+  P.photos.forEach(ph => putPreset(ph, ps, withPos));
+  P.split = ps.split || P.split; P.format = ps.format || P.format; P.filter = { ...filterOf({ filter: ps.filter }) };
+  if (ps.outFmt) P.outFmt = ps.outFmt;
+  syncTags('gSplit', P.split); syncTags('gFormat', P.format); syncTags('gOutFmt', outFmtOf(P)); syncFilterUI();
+  await ensureFonts();
+  if (!P) return;
+  P.photos.forEach(ph => autoLayout(P, ph));
+  drawGrid();
+  if (_ed.i >= 0) { edLayout(); edSync(); drawEd(); }
+  save();
+  presetNote(`"${ps.name}" 설정을 ${P.photos.length}장에 적용했어요`);
+}
+function deletePreset() {
+  const id = document.getElementById('psSel').value;
+  const list = loadPresets(), ps = list.find(x => x.id === id);
+  if (!ps) return;
+  storePresets(list.filter(x => x.id !== id));
+  renderPresets();
+  presetNote(`"${ps.name}" 설정을 지웠어요`);
+}
+document.getElementById('psSel').addEventListener('change', () => renderPresets());
+document.getElementById('psDef').addEventListener('change', e => {
+  const id = document.getElementById('psSel').value;
+  const list = loadPresets();
+  list.forEach(ps => { ps.isDefault = e.target.checked && ps.id === id; });
+  storePresets(list);
+  renderPresets(id);
+});
+// 처음 여는(아직 배치가 없는) 프로젝트에는 '자동 적용'으로 지정한 설정을 입힌다
+function applyDefaultPreset() {
+  const ps = loadPresets().find(x => x.isDefault);
+  if (!ps || !P.photos.length || P.photos.some(ph => ph.lay)) return;
+  P.photos.forEach(ph => putPreset(ph, ps, false));
+  P.split = ps.split || P.split; P.format = ps.format || P.format; P.filter = { ...filterOf({ filter: ps.filter }) };
+}
+renderPresets();
+
+function reAutoAll() {
+  P.photos.forEach(ph => { ensureLay(ph); ph.lay.manual = false; ph.lay.boxManual = false; autoLayout(P, ph); });
+  drawGrid(); save();
+}
+
+// ── 내보내기 ──
+function exportBlob(i) {
+  const ph = P.photos[i];
+  const { CW, CH } = canvasSize(P, ph, P.format === 'story' ? STORY_W : ph.w);
+  const c = document.createElement('canvas'); c.width = CW; c.height = CH;
+  drawComposite(c.getContext('2d'), CW, CH, bmps.get(ph.id), P, ph);
+  return new Promise(res => outFmtOf(P) === 'png' ? c.toBlob(res, 'image/png') : c.toBlob(res, 'image/jpeg', 0.95));
+}
+function fileName(i) {
+  const base = (P.name || 'project').replace(/[\\/:*?"<>|]/g, '_').trim() || 'project';
+  return `${base}_${String(i + 1).padStart(2, '0')}.${outFmtOf(P)}`;
+}
+function saveBlob(blob, name) {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob); a.download = name;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+}
+async function downloadOne(i) { saveBlob(await exportBlob(i), fileName(i)); }
+function downloadGif() {
+  if (!P || !P.gifPath) return;
+  const p = P, btn = document.getElementById('btnGif');
+  btn.disabled = true; btn.textContent = 'GIF 받는 중…';
+  GMDB.loadGif(p)
+    .then(blob => { if (blob) saveBlob(blob, ((p.name || 'project').replace(/[\\/:*?"<>|]/g, '_') || 'project') + '.gif'); })
+    .catch(e => { console.error(e); setNote('GIF를 받지 못했어요. 인터넷 연결을 확인해주세요.'); })
+    .finally(() => { btn.disabled = false; btn.textContent = 'GIF 다운로드'; });
+}
+function loadJSZip() {
+  if (typeof JSZip !== 'undefined') return Promise.resolve();
+  return new Promise((res, rej) => {
+    const s = document.createElement('script');
+    s.src = 'vendor/jszip.min.js';
+    s.onload = res; s.onerror = rej;
+    document.head.appendChild(s);
+  });
+}
+async function buildZip() {
+  await loadJSZip();
+  const zip = new JSZip();
+  for (let i = 0; i < P.photos.length; i++) zip.file(fileName(i), await exportBlob(i));
+  return zip.generateAsync({ type: 'blob' });
+}
+async function downloadAll() {
+  const btn = document.getElementById('btnZip');
+  btn.disabled = true; btn.textContent = '만드는 중...';
+  try {
+    if (P.photos.length === 1) await downloadOne(0);
+    else saveBlob(await buildZip(), ((P.name || 'project').replace(/[\\/:*?"<>|]/g, '_') || 'project') + '.zip');
+  } catch (e) {
+    console.error(e);
+    for (let i = 0; i < P.photos.length; i++) { await downloadOne(i); await new Promise(r => setTimeout(r, 300)); }
+  }
+  btn.disabled = false; btn.textContent = '이미지 전체 다운로드 (ZIP)';
+}
+
+// ── 편집 창 ──
+const _ed = { i: -1, drag: null, hits: null, rect: null };
+const edCanvas = document.getElementById('edCanvas');
+const edCtx = edCanvas.getContext('2d');
+
+// 상품명(t)·멘트(c) 스타일 컨트롤을 같은 틀로 만든다. 입력마다 data-k(대상)·data-p(속성)를 달아 한곳에서 처리.
+function numRow(k, p, label, min, max, step, unit) {
+  return `<div class="srow"><div class="shead"><span>${label}</span><span class="nwrap"><input type="number" class="nin" data-k="${k}" data-p="${p}" min="${min}" max="${max}" step="${step}">${unit || ''}</span></div>` +
+    `<input type="range" data-k="${k}" data-p="${p}" min="${min}" max="${max}" step="${step}"></div>`;
+}
+function styleControls(k) {
+  const groups = {};
+  Object.entries(FONTS).forEach(([id, f]) => { (groups[f.g] = groups[f.g] || []).push(`<option value="${id}">${f.label}</option>`); });
+  const fontSel = `<select class="sel" data-k="${k}" data-p="font">` +
+    Object.entries(groups).map(([g, o]) => `<optgroup label="${g}">${o.join('')}</optgroup>`).join('') + '</select>';
+  const weightSel = `<select class="sel" data-k="${k}" data-p="weight">${WEIGHTS.map(([w, l]) => `<option value="${w}">${l}</option>`).join('')}</select>`;
+  const isT = k === 't';
+  return `
+    <div class="ed-sec-title">${isT ? '영문 상품명' : '멘트'}${isT ? '<label><input type="checkbox" data-k="t" data-p="show"> 표시</label>' : ''}</div>
+    ${fontSel}
+    <div class="wrow">${weightSel}<label class="chk"><input type="checkbox" data-k="${k}" data-p="italic"> 기울임</label></div>
+    ${numRow(k, 'size', '크기', isT ? 20 : 10, isT ? 220 : 120, 0.5)}
+    ${numRow(k, 'ls', '자간', -15, 100, 0.5, '%')}
+    ${isT ? '' : numRow(k, 'lh', '행간', 0.8, 3, 0.01, '배')}
+    ${isT ? '<div class="crow"><input type="color" data-k="t" data-p="color"> 글자색</div>' : `
+    <div class="srow"><div class="shead"><span>배경</span></div>
+      <div class="tag-group" id="gBox">
+        <button class="tag" data-v="none">없음</button>
+        <button class="tag" data-v="white">흰색</button>
+        <button class="tag" data-v="black">검정</button>
+        <button class="tag" data-v="custom">직접 선택</button>
+      </div>
+    </div>
+    <div class="crow" id="rowBoxColor"><input type="color" data-k="c" data-p="boxColor"> 배경색</div>
+    <div class="crow" id="rowTextColor"><input type="color" data-k="c" data-p="textColor"> 글자색</div>`}
+    <div class="fx">
+      <label class="fx-head chk"><span>테두리</span><input type="checkbox" data-k="${k}" data-p="st"></label>
+      <div class="fx-body" data-sub="${k}.st">
+        ${numRow(k, 'stW', '두께', 0, 30, 0.1, '%')}
+        <div class="crow"><input type="color" data-k="${k}" data-p="stColor"> 테두리 색</div>
+      </div>
+    </div>
+    <div class="fx">
+      <label class="fx-head chk"><span>그림자</span><input type="checkbox" data-k="${k}" data-p="sh"></label>
+      <div class="fx-body" data-sub="${k}.sh">
+        ${numRow(k, 'shBlur', '흐림', 0, 100, 0.5, '%')}
+        ${numRow(k, 'shX', '가로 위치', -50, 50, 0.5, '%')}
+        ${numRow(k, 'shY', '세로 위치', -50, 50, 0.5, '%')}
+        ${numRow(k, 'shAlpha', '진하기', 0, 100, 1, '%')}
+        <div class="crow"><input type="color" data-k="${k}" data-p="shColor"> 그림자 색</div>
+      </div>
+    </div>`;
+}
+document.getElementById('secT').innerHTML = styleControls('t');
+document.getElementById('secC').innerHTML = styleControls('c');
+
+function openEd(i) {
+  _ed.i = i;
+  document.getElementById('edModal').classList.add('show');
+  document.getElementById('edCount').textContent = `${i + 1} / ${P.photos.length}`;
+  document.getElementById('edPrev').disabled = i === 0;
+  document.getElementById('edNext').disabled = i === P.photos.length - 1;
+  document.getElementById('btnStyleAll').textContent = '이 스타일을 모든 사진에 적용';
+  edLayout(); edSync(); drawEd();
+}
+function closeEd() {
+  _ed.i = -1; _ed.drag = null;
+  document.getElementById('edModal').classList.remove('show');
+  drawGrid();
+}
+function edStep(d) {
+  const j = _ed.i + d;
+  if (j >= 0 && j < P.photos.length) openEd(j);
+}
+function edLayout() {
+  const ph = P.photos[_ed.i];
+  const { CW, CH } = canvasSize(P, ph, 1000);
+  const stage = edCanvas.parentElement;
+  const maxW = Math.max(160, stage.clientWidth - 28);
+  // 모바일에서는 미리보기 높이를 줄여 아래 스타일 조절 칸이 함께 보이게 한다
+  const maxH = window.innerWidth <= 760 ? Math.max(200, window.innerHeight * 0.42) : Math.max(220, Math.min(window.innerHeight - 220, 640));
+  const f = Math.min(maxW / CW, maxH / CH);
+  const cssW = Math.round(CW * f), cssH = Math.round(CH * f);
+  const dpr = Math.min(2, window.devicePixelRatio || 1);
+  edCanvas.style.width = cssW + 'px'; edCanvas.style.height = cssH + 'px';
+  edCanvas.width = Math.round(cssW * dpr); edCanvas.height = Math.round(cssH * dpr);
+}
+function edSync() {
+  const lay = P.photos[_ed.i].lay;
+  document.querySelectorAll('#edSide [data-k]').forEach(el => {
+    const k = el.dataset.k, p = el.dataset.p, v = eff(lay[k], p, k);
+    if (el.type === 'checkbox') el.checked = !!v;
+    else if (document.activeElement !== el || el.type === 'range') el.value = v;
+  });
+  document.querySelectorAll('#edSide [data-sub]').forEach(el => {
+    const [k, p] = el.dataset.sub.split('.');
+    el.classList.toggle('hidden', !eff(lay[k], p, k));
+  });
+  syncTags('gBox', lay.c.box);
+  document.getElementById('rowBoxColor').classList.toggle('hidden', lay.c.box !== 'custom');
+  document.getElementById('rowTextColor').classList.toggle('hidden', lay.c.box === 'white' || lay.c.box === 'black');
+}
+let _edRaf = 0;
+function drawEd() {
+  if (_edRaf) return;
+  _edRaf = requestAnimationFrame(() => {
+    _edRaf = 0;
+    if (_ed.i < 0) return;
+    const ph = P.photos[_ed.i];
+    const out = drawComposite(edCtx, edCanvas.width, edCanvas.height, bmps.get(ph.id), P, ph);
+    _ed.hits = out.hits; _ed.rect = out.rect;
+    // 옮길 수 있는 요소 표시 (화면에만 보이고 다운로드에는 들어가지 않음)
+    edCtx.save();
+    edCtx.setLineDash([6, 5]); edCtx.lineWidth = 1.5;
+    for (const k of ['t', 'c']) {
+      const h = out.hits[k]; if (!h) continue;
+      edCtx.strokeStyle = 'rgba(0,0,0,.45)'; edCtx.strokeRect(h.x - 7, h.y - 7, h.w + 14, h.h + 14);
+      edCtx.lineDashOffset = 5.5;
+      edCtx.strokeStyle = 'rgba(255,255,255,.9)'; edCtx.strokeRect(h.x - 7, h.y - 7, h.w + 14, h.h + 14);
+      edCtx.lineDashOffset = 0;
+    }
+    edCtx.restore();
+  });
+}
+function edChanged() { drawEd(); save(); document.getElementById('btnStyleAll').textContent = '이 스타일을 모든 사진에 적용'; }
+async function edFontChanged() { await ensureFonts(); edChanged(); }
+
+// 스타일 입력 처리 (슬라이더와 숫자 칸은 같은 값을 가리킨다)
+function onStyleInput(ev) {
+  const el = ev.target.closest('[data-k]');
+  if (!el || _ed.i < 0) return;
+  const k = el.dataset.k, p = el.dataset.p, o = P.photos[_ed.i].lay[k];
+  let v;
+  if (el.type === 'checkbox') v = el.checked;
+  else if (el.type === 'range' || el.type === 'number') {
+    v = parseFloat(el.value);
+    if (!isFinite(v)) return;
+    v = Math.max(+el.min, Math.min(+el.max, v));
+  } else if (p === 'weight') v = parseInt(el.value, 10);
+  else v = el.value;
+  o[p] = v;
+  if (p === 'font') { o.weight = fontOf(o).w || 400; o.italic = !!fontOf(o).i; }
+  edSync();
+  if (p === 'font' || p === 'weight' || p === 'italic') edFontChanged(); else edChanged();
+}
+document.getElementById('edSide').addEventListener('input', onStyleInput);
+document.getElementById('edSide').addEventListener('change', onStyleInput);
+document.getElementById('gBox').addEventListener('click', e => {
+  const b = e.target.closest('.tag'); if (!b) return;
+  const lay = P.photos[_ed.i].lay;
+  lay.c.box = b.dataset.v; lay.boxManual = true;
+  if (lay.c.box === 'custom' && lay.c.textColor.toLowerCase() === lay.c.boxColor.toLowerCase()) lay.c.textColor = '#111111';
+  edSync(); edChanged();
+});
+
+// ── 이모지 (공용 패널) ──
+GMEmoji.attach({
+  button: document.getElementById('emoBtn'),
+  panel: document.getElementById('emoPanel'),
+  fields: [document.getElementById('fTitle'), document.getElementById('fReels'), document.getElementById('fCaption')],   // 마지막 칸(멘트)이 처음 기본 대상
+});
+
+function styleToAll() {
+  const src = P.photos[_ed.i].lay;
+  P.photos.forEach((ph, j) => {
+    if (j === _ed.i) return;
+    ensureLay(ph);
+    const { x: tx, y: ty } = ph.lay.t, { x: cx, y: cy } = ph.lay.c;
+    ph.lay.t = { ...src.t, x: tx, y: ty };
+    ph.lay.c = { ...src.c, x: cx, y: cy };
+    ph.lay.boxManual = true;
+    autoLayout(P, ph); // 손으로 옮기지 않은 사진은 바뀐 크기에 맞춰 위치를 다시 잡는다
+  });
+  src.boxManual = true;
+  save();
+  document.getElementById('btnStyleAll').textContent = `✓ ${P.photos.length}장에 적용했어요`;
+}
+function reAutoOne() {
+  const ph = P.photos[_ed.i];
+  ph.lay.manual = false; ph.lay.boxManual = false;
+  autoLayout(P, ph);
+  edSync(); edChanged();
+}
+
+// 드래그로 위치 이동
+function edPoint(ev) {
+  const b = edCanvas.getBoundingClientRect();
+  const k = edCanvas.width / b.width;
+  return { x: (ev.clientX - b.left) * k, y: (ev.clientY - b.top) * k };
+}
+function edHit(pt) {
+  if (!_ed.hits) return null;
+  for (const k of ['t', 'c']) { // 상품명이 위에 그려지므로 먼저 검사
+    const h = _ed.hits[k];
+    if (h && pt.x >= h.x - 10 && pt.x <= h.x + h.w + 10 && pt.y >= h.y - 10 && pt.y <= h.y + h.h + 10) return k;
+  }
+  return null;
+}
+edCanvas.addEventListener('pointerdown', ev => {
+  if (ev.button !== 0 || _ed.i < 0) return;
+  const pt = edPoint(ev), k = edHit(pt);
+  if (!k) return;
+  const h = _ed.hits[k];
+  _ed.drag = { k, id: ev.pointerId, dx: pt.x - (h.x + h.w / 2), dy: pt.y - (h.y + h.h / 2) };
+  edCanvas.setPointerCapture(ev.pointerId);
+  edCanvas.style.cursor = 'grabbing';
+});
+edCanvas.addEventListener('pointermove', ev => {
+  const pt = edPoint(ev), g = _ed.drag;
+  if (!g) { edCanvas.style.cursor = edHit(pt) ? 'grab' : 'default'; return; }
+  if (ev.pointerId !== g.id) return;
+  const r = _ed.rect, lay = P.photos[_ed.i].lay;
+  const o = lay[g.k];
+  o.x = Math.max(0, Math.min(1, (pt.x - g.dx - r.x) / r.w));
+  o.y = Math.max(0, Math.min(1, (pt.y - g.dy - r.y) / r.h));
+  lay.manual = true;
+  drawEd();
+});
+const edDragEnd = ev => {
+  if (!_ed.drag || ev.pointerId !== _ed.drag.id) return;
+  _ed.drag = null; edCanvas.style.cursor = 'default';
+  save();
+};
+edCanvas.addEventListener('pointerup', edDragEnd);
+edCanvas.addEventListener('pointercancel', edDragEnd);
+document.getElementById('edModal').addEventListener('pointerdown', ev => { if (ev.target.id === 'edModal') closeEd(); });
+document.addEventListener('keydown', ev => { if (ev.key === 'Escape' && _ed.i >= 0) closeEd(); });
+window.addEventListener('resize', () => { if (_ed.i >= 0) { edLayout(); drawEd(); } });
+
+// ── 프로젝트 권한 ──
+// 관리자가 계정마다 '읽기'(보기만) 또는 '쓰기'(만들기·고치기)를 준다. 권한을 받은 사람은 모든 프로젝트를 같이 본다.
+// 관리자는 항상 쓰기. 삭제는 만든 사람(쓰기 권한이 있을 때)과 관리자만. 진짜 차단은 서버가 한다.
+let _me = null;
+const LEVEL_KO = { write: '쓰기', read: '읽기', none: '없음' };
+const LEVEL_DESC = {
+  write: '프로젝트를 만들고 고칠 수 있어요. 삭제는 만든 사람과 관리자만 할 수 있어요.',
+  read: '프로젝트를 보고 사진을 받을 수 있어요. 고친 내용은 저장되지 않아요.',
+  none: '프로젝트 권한이 없어요. 관리자에게 읽기 또는 쓰기 권한을 요청해 주세요.',
+};
+function permNote(msg, isErr) {
+  const el = document.getElementById('permNote');
+  el.textContent = msg || '';
+  el.classList.toggle('err', !!isErr);
+}
+// 읽기 권한으로 연 프로젝트: 글자 칸을 잠그고, 저장되지 않는다는 것을 알려 준다
+function applyRo() {
+  const ro = !!P && P.canEdit === false;
+  document.body.classList.toggle('ro', ro);
+  ['fName', 'fTitle', 'fCaption', 'fReels'].forEach(id => { document.getElementById(id).readOnly = ro; });
+  if (ro) setNote('읽기 전용 · 고친 내용은 저장되지 않아요');
+}
+function renderPerms(users) {
+  const list = document.getElementById('permList');
+  list.innerHTML = '';
+  const given = users.filter(u => !u.admin && u.level !== 'none').length;
+  document.getElementById('permCount').textContent = given ? `· ${given}명에게 줌` : '· 누르면 펼쳐져요';
+  users.forEach(u => {
+    const row = document.createElement('div'); row.className = 'share-person';
+    const info = document.createElement('div'); info.className = 'share-person-info';
+    const nm = document.createElement('div'); nm.className = 'share-person-name'; nm.textContent = u.name || u.id;
+    const sub = document.createElement('div'); sub.className = 'share-person-mail';
+    sub.textContent = u.admin ? '관리자 · 항상 쓰기' : (u.level !== 'none' && u.by ? `MD/컨텐츠 · ${u.by}님이 지정` : 'MD/컨텐츠');
+    info.append(nm, sub);
+    row.append(info);
+    if (u.admin) {
+      const fx = document.createElement('span'); fx.className = 'perm-fixed'; fx.textContent = '쓰기';
+      row.append(fx);
+    } else {
+      const sel = document.createElement('select'); sel.className = 'perm-sel';
+      sel.setAttribute('aria-label', `${u.name || u.id} 프로젝트 권한`);
+      ['none', 'read', 'write'].forEach(v => { const o = document.createElement('option'); o.value = v; o.textContent = LEVEL_KO[v]; sel.append(o); });
+      sel.value = u.level;
+      sel.onchange = async () => {
+        const next = sel.value, prev = u.level;
+        sel.disabled = true; permNote('');
+        try {
+          await GMDB.perms.set(u.id, next);
+          u.level = next;
+          permNote(next === 'none' ? `${u.name}님의 권한을 뺐어요.` : `${u.name}님에게 ${LEVEL_KO[next]} 권한을 줬어요.`);
+          loadPerms();
+        } catch (e) {
+          console.error(e);
+          sel.value = prev;
+          permNote('권한을 바꾸지 못했어요. 잠시 뒤 다시 시도해주세요.', true);
+        }
+        sel.disabled = false;
+      };
+      row.append(sel);
+    }
+    list.appendChild(row);
+  });
+}
+async function loadPerms() {
+  const desc = document.getElementById('permDesc');
+  try { _me = await GMWS.me(true); }
+  catch (e) { console.error(e); desc.textContent = '권한을 확인하지 못했어요. 인터넷 연결을 확인해주세요.'; return; }
+  if (!_me.admin) {
+    desc.innerHTML = '';
+    const b = document.createElement('span'); b.className = 'perm-lv ' + _me.proj; b.textContent = '내 권한: ' + LEVEL_KO[_me.proj];
+    desc.append(b, document.createElement('br'), document.createTextNode(LEVEL_DESC[_me.proj]));
+    document.getElementById('permList').innerHTML = '';
+    document.getElementById('permCount').textContent = '· 내 권한 ' + LEVEL_KO[_me.proj];
+    return;
+  }
+  desc.textContent = '계정마다 읽기(보기만) 또는 쓰기(만들기·고치기)를 줄 수 있어요. 권한을 받은 사람은 모든 프로젝트를 같이 봐요. 관리자는 항상 쓰기예요.';
+  try { renderPerms((await GMDB.perms.get()).users); }
+  catch (e) { console.error(e); permNote('권한 목록을 불러오지 못했어요. 잠시 뒤 다시 시도해주세요.', true); }
+}
+
+// ── 목록 불러오기 ──
+function showEmpty(title, descHtml) {
+  document.getElementById('emptyTitle').textContent = title;
+  if (descHtml != null) document.getElementById('emptyDesc').innerHTML = descHtml;
+}
+const EMPTY_DESC = document.getElementById('emptyDesc').innerHTML;
+async function loadList() {
+  try {
+    projects = await GMDB.list();
+    showEmpty('아직 프로젝트가 없어요', EMPTY_DESC);
+    return true;
+  } catch (e) {
+    if (e.status !== 401 && e.status !== 403) console.error(e);
+    if (e.status === 401) { projects = []; closeProject(); showEmpty('로그인이 필요해요', '워크스페이스에 로그인한 뒤 다시 열어주세요.'); renderList(); }
+    else if (e.status === 403) { projects = []; closeProject(); plistNote(''); showEmpty('프로젝트 권한이 없어요', '관리자에게 프로젝트 <b style="display:inline;font-size:13px">읽기</b> 또는 <b style="display:inline;font-size:13px">쓰기</b> 권한을 요청해 주세요.'); renderList(); }
+    else plistNote('목록을 불러오지 못했어요. 인터넷 연결을 확인해주세요.');
+    return false;
+  }
+}
+
+// 앱에서 이 탭으로 돌아오거나 창을 다시 볼 때마다: 그 사이 저장·공유·수정된 내용을 다시 읽는다
+let _refreshBusy = false, _refreshAt = 0;
+async function refreshFromStorage() {
+  if (_refreshBusy) return;
+  _refreshBusy = true;
+  try {
+    _refreshAt = Date.now();
+    if (!(await loadList())) return;
+    let want = null;
+    try { want = localStorage.getItem('gm_open_project'); localStorage.removeItem('gm_open_project'); } catch {}
+    if (want && projects.some(p => p.id === want) && (!P || P.id !== want)) { renderList(); return await openProject(want); }
+    if (P) {
+      const meta = projects.find(p => p.id === P.id);
+      if (!meta) {
+        // 그 사이 지워짐
+        closeProject();
+        plistNote('보던 프로젝트는 삭제되었어요.');
+      } else if (meta.rev > P.rev && !_saveBusy && GMDB.editState(P) === P._snap && _ed.i < 0) {
+        // 다른 사람이 고친 최신 내용으로 바꾼다 (내가 고치던 중이 아닐 때만)
+        renderList();
+        return await openProject(P.id, true);
+      }
+    }
+    renderList();
+    if (!P && projects.length) return await openProject(projects[0].id);
+    if (P) drawGrid();
+  } finally {
+    _refreshBusy = false;
+    loadPerms();
+  }
+}
+window.addEventListener('message', ev => {
+  if (ev.origin === location.origin && ev.data && ev.data.type === 'gm_show') refreshFromStorage();
+});
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible' && Date.now() - _refreshAt > 5000) refreshFromStorage();
+});
+// 창을 닫거나 다른 곳으로 가기 직전에 남은 변경을 저장한다
+window.addEventListener('pagehide', () => { if (P) { clearTimeout(_saveT); flushSave(P); } });
+
+// ── 시작 ──
+(async () => {
+  loadPerms();   // 권한 칸은 사진을 기다리지 않고 바로 채운다
+  await refreshFromStorage();
+})();
+</script>
+</body>
+</html>
