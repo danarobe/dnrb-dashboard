@@ -111,6 +111,22 @@ body.ro #fName, body.ro #fTitle, body.ro #fCaption, body.ro #fReels { background
 .pitem-del { border: none; background: none; color: var(--t3); font-size: 11px; cursor: pointer; padding: 3px 5px; border-radius: 4px; flex-shrink: 0; }
 .pitem-del:hover { background: #fee2e2; color: #dc2626; }
 .pitem-del.sure { background: #dc2626; color: #fff; }
+/* 내 프로젝트 / 공유 프로젝트 탭 (2026-11-26) */
+.ptabs { display: flex; gap: 4px; padding: 2px 2px 8px; }
+.ptab { flex: 1; min-width: 0; height: 32px; border: 1px solid var(--border); background: #fff; border-radius: var(--radius); font: inherit; font-size: 12px; font-weight: 600; color: var(--t2); cursor: pointer; white-space: nowrap; padding: 0 6px; transition: background-color .15s, color .15s, border-color .15s; }
+.ptab:hover { background: var(--tag-bg); }
+.ptab[aria-selected="true"] { background: var(--tag-act); color: var(--tag-act-t); border-color: var(--tag-act); }
+.ptab-n { font-weight: 500; opacity: .8; margin-left: 2px; }
+.plist-desc { font-size: 11px; color: var(--t2); line-height: 1.5; padding: 0 6px 8px; }
+.plist-empty { font-size: 11.5px; color: var(--t2); line-height: 1.6; padding: 10px 6px; }
+.pitem-share { margin-top: 3px; border: 1px solid #ffd9c4; background: var(--accent-bg); color: #b13a00; font: inherit; font-size: 11px; font-weight: 600; border-radius: 4px; padding: 1px 8px; min-height: 24px; cursor: pointer; }
+.pitem-share:hover { background: #ffe6d8; }
+.pitem-share:disabled { border-color: var(--border); background: var(--tag-bg); color: var(--t2); cursor: default; }
+.pitem-shared { font-size: 10.5px; color: #166534; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pshare-bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 12px; color: var(--t2); background: var(--tag-bg); border-radius: var(--radius); padding: 7px 10px; margin-bottom: 12px; }
+.pshare-bar b { color: var(--t1); }
+.pshare-bar .btn { height: 30px; padding: 0 12px; font-size: 12px; }
+.pshare-bar.shared { background: #f0fdf4; }
 
 /* ── Main ── */
 .main { flex: 1; min-width: 0; }
@@ -244,7 +260,7 @@ input[type=range] { width: 100%; accent-color: var(--accent); }
     프로젝트
   </div>
   <div class="header-sep"></div>
-  <div class="header-sub">상품별로 저장한 사진에 영문 상품명과 멘트가 자동으로 들어가요 · 워크스페이스에 저장되고, 프로젝트 권한을 받은 사람이 함께 봐요</div>
+  <div class="header-sub">상품별로 저장한 사진에 영문 상품명과 멘트가 자동으로 들어가요 · 내 프로젝트는 나만 보고, 공유하면 프로젝트 권한을 받은 사람이 함께 봐요</div>
 </header>
 
 <div class="wrap">
@@ -258,7 +274,11 @@ input[type=range] { width: 100%; accent-color: var(--accent); }
       </div>
     </details>
     <div class="panel plist">
-      <div class="plist-title">프로젝트</div>
+      <div class="ptabs" role="tablist" aria-label="프로젝트 나눠 보기">
+        <button type="button" class="ptab" role="tab" id="ptab-mine" data-tab="mine" aria-selected="true" onclick="setTab('mine')">내 프로젝트<span class="ptab-n" id="ptabMineN"></span></button>
+        <button type="button" class="ptab" role="tab" id="ptab-shared" data-tab="shared" aria-selected="false" onclick="setTab('shared')">공유 프로젝트<span class="ptab-n" id="ptabSharedN"></span></button>
+      </div>
+      <div class="plist-desc" id="plistDesc"></div>
       <div class="plist-note hidden" id="plistNote"></div>
       <div id="plist"></div>
     </div>
@@ -272,6 +292,7 @@ input[type=range] { width: 100%; accent-color: var(--accent); }
 
     <div id="projView" class="hidden">
       <div class="panel pform">
+        <div class="pshare-bar" id="pshareBar"></div>
         <div class="frow">
           <div class="field">
             <div class="flabel">프로젝트 이름</div>
@@ -380,7 +401,7 @@ input[type=range] { width: 100%; accent-color: var(--accent); }
   </div>
 </div>
 
-<script src="gm-projects-db.js?v=2"></script>
+<script src="gm-projects-db.js?v=3"></script>
 <script src="gm-emoji.js"></script>
 <script>
 'use strict';
@@ -787,10 +808,49 @@ async function ensureFonts() {
 
 // ── 목록 ──
 function fmtDate(ts) { const d = new Date(ts); return `${d.getMonth() + 1}/${d.getDate()}`; }
+// 내 프로젝트(나만 봄) / 공유 프로젝트(권한 받은 사람이 함께 봄) — 2026-11-26
+let _tab = 'mine';
+try { if (localStorage.getItem('gm_proj_tab') === 'shared') _tab = 'shared'; } catch {}
+const tabOf = p => (p.shared ? 'shared' : 'mine');
+const tabList = t => projects.filter(p => tabOf(p) === t);
+function setTab(t, keepOpen) {
+  if (t !== 'mine' && t !== 'shared') return;
+  _tab = t;
+  try { localStorage.setItem('gm_proj_tab', t); } catch {}
+  renderList();
+  // 다른 칸으로 옮기면 그 칸의 첫 프로젝트를 연다 (보던 프로젝트가 그 칸에 있으면 그대로)
+  if (keepOpen) return;
+  if (P && tabOf(P) === t) return;
+  const first = tabList(t)[0];
+  if (first) openProject(first.id);
+  else { clearTimeout(_saveT); if (P) flushSave(P); closeProject(); renderList(); }
+}
+function sharedLevel() { return (_me && _me.proj) || _projLevel || ''; }
+function renderTabs() {
+  const nm = tabList('mine').length, ns = tabList('shared').length;
+  document.getElementById('ptabMineN').textContent = ` ${nm}`;
+  document.getElementById('ptabSharedN').textContent = sharedLevel() === 'none' ? '' : ` ${ns}`;
+  ['mine', 'shared'].forEach(t => document.getElementById('ptab-' + t).setAttribute('aria-selected', String(_tab === t)));
+  const lv = sharedLevel();
+  document.getElementById('plistDesc').textContent = _tab === 'mine'
+    ? '나만 볼 수 있어요 · [공유하기]를 누르면 공유 프로젝트로 옮겨져요'
+    : lv === 'none' ? '' : `프로젝트 권한을 받은 사람이 함께 봐요 · 내 권한: ${LEVEL_KO[lv] || '확인 중'}`;
+}
 function renderList() {
   const box = document.getElementById('plist');
   box.innerHTML = '';
-  projects.forEach(p => {
+  renderTabs();
+  const rows = tabList(_tab);
+  if (!rows.length) {
+    const em = document.createElement('div'); em.className = 'plist-empty';
+    em.innerHTML = _tab === 'mine'
+      ? '아직 내 프로젝트가 없어요.<br>"GIF 만들기"에서 <b>프로젝트로 저장</b>을 누르면 여기에 생겨요.'
+      : sharedLevel() === 'none'
+      ? '공유 프로젝트를 보려면 프로젝트 권한이 필요해요.<br>관리자에게 <b>읽기</b> 또는 <b>쓰기</b> 권한을 요청해 주세요.'
+      : '아직 공유된 프로젝트가 없어요.<br>내 프로젝트에서 <b>공유하기</b>를 누르면 여기로 옮겨져요.';
+    box.appendChild(em);
+  }
+  rows.forEach(p => {
     const el = document.createElement('div');
     el.className = 'pitem' + (P && P.id === p.id ? ' on' : '');
     const img = document.createElement('img'); img.alt = ''; if (p.thumb) img.src = p.thumb;
@@ -802,7 +862,11 @@ function renderList() {
       // 다른 사람이 만든 프로젝트: 만든 사람을 보여 준다
       const ow = document.createElement('div'); ow.className = 'pitem-owner'; ow.textContent = `만든 사람: ${p.ownerName || '다른 사람'}`;
       info.append(ow);
+    } else if (p.shared) {
+      const sh = document.createElement('div'); sh.className = 'pitem-shared'; sh.textContent = '내가 공유함';
+      info.append(sh);
     }
+    if (!p.shared && p.mine) info.append(shareBtn(p, 'pitem-share'));
     if (!p.canDelete) {
       // 삭제는 만든 사람(쓰기 권한이 있을 때)과 관리자만
       el.append(img, info);
@@ -824,7 +888,63 @@ function renderList() {
     el.onclick = () => openProject(p.id);
     box.appendChild(el);
   });
-  document.getElementById('emptyBox').classList.toggle('hidden', projects.length > 0);
+  document.getElementById('emptyBox').classList.toggle('hidden', rows.length > 0 || !!P);
+  renderShareBar();
+}
+
+// [공유하기] 버튼 — 공유 프로젝트 쓰기 권한(관리자 포함)이 있어야 누를 수 있다
+function shareBtn(p, cls) {
+  const b = document.createElement('button'); b.type = 'button'; b.className = cls; b.textContent = '공유하기';
+  if (!p.canShare) {
+    b.disabled = true;
+    b.title = '공유 프로젝트 쓰기 권한이 있어야 공유할 수 있어요 — 관리자에게 요청해 주세요';
+  } else b.title = '공유 프로젝트로 옮겨요 — 프로젝트 권한을 받은 사람이 함께 봐요';
+  b.onclick = ev => { ev.stopPropagation(); shareProject(p.id); };
+  return b;
+}
+function renderShareBar() {
+  const bar = document.getElementById('pshareBar');
+  bar.innerHTML = '';
+  if (!P) return;
+  bar.classList.toggle('shared', !!P.shared);
+  const t = document.createElement('span');
+  if (!P.shared) {
+    t.innerHTML = '<b>내 프로젝트</b> · 나만 볼 수 있어요';
+    bar.append(t);
+    if (P.mine) {
+      const b = shareBtn(P, 'btn');
+      if (!P.canShare) { const n = document.createElement('span'); n.textContent = '(공유하려면 쓰기 권한이 필요해요)'; bar.append(b, n); }
+      else bar.append(b);
+    }
+  } else {
+    t.innerHTML = '<b>공유 프로젝트</b> · 프로젝트 권한을 받은 사람이 함께 봐요';
+    const n = document.createElement('span');
+    n.textContent = P.sharedBy && P.sharedBy !== '처음부터 공유' ? `· ${P.sharedBy}님이 ${P.sharedAt ? fmtDate(P.sharedAt) + '에 ' : ''}공유함` : '';
+    bar.append(t);
+    if (n.textContent) bar.append(n);
+  }
+}
+
+async function shareProject(id) {
+  const meta = projects.find(p => p.id === id);
+  if (!meta || meta.shared || !meta.canShare) return;
+  if (!confirm(`'${meta.name || '이름 없음'}'을(를) 공유 프로젝트로 옮길까요?\n\n프로젝트 권한을 받은 사람들이 함께 보게 돼요. 다시 내 프로젝트로 되돌릴 수는 없어요.`)) return;
+  if (P && P.id === id) { clearTimeout(_saveT); await flushSave(P); }
+  plistNote('공유하는 중…');
+  let out;
+  try { out = await GMDB.share(id); }
+  catch (e) {
+    console.error(e);
+    plistNote(e.status === 409 ? '이미 공유된 프로젝트예요.' : e.status === 403 ? '공유 프로젝트 쓰기 권한이 있어야 공유할 수 있어요.' : e.status === 404 ? '이 프로젝트는 삭제되었어요.' : '공유하지 못했어요. 잠시 뒤 다시 시도해주세요.');
+    if (e.status === 409 || e.status === 404) refreshFromStorage();
+    return;
+  }
+  plistNote('');
+  Object.assign(meta, { shared: true, sharedAt: out.sharedAt, sharedBy: out.sharedBy, canEdit: out.canEdit, canDelete: out.canDelete, canShare: false });
+  if (P && P.id === id) Object.assign(P, { shared: true, sharedAt: out.sharedAt, sharedBy: out.sharedBy, canEdit: out.canEdit, canDelete: out.canDelete, canShare: false });
+  setTab('shared', true);
+  if (!P || P.id !== id) await openProject(id);
+  plistNote(`'${meta.name || '이름 없음'}'을(를) 공유 프로젝트로 옮겼어요.`);
 }
 
 function closeProject() {
@@ -841,7 +961,8 @@ async function deleteProject(id) {
   projects = projects.filter(p => p.id !== id);
   if (P && P.id === id) {
     closeProject();
-    if (projects.length) return openProject(projects[0].id);
+    const next = tabList(_tab)[0];
+    if (next) return openProject(next.id);
   }
   renderList();
 }
@@ -868,7 +989,7 @@ async function openProject(id, force) {
   catch (e) {
     console.error(e);
     if (seq !== _openSeq) return;
-    plistNote(e.status === 404 ? '이 프로젝트는 삭제되었어요.' : e.status === 403 ? '프로젝트 권한이 없어요.' : '프로젝트를 불러오지 못했어요. 인터넷 연결을 확인해주세요.');
+    plistNote(e.status === 404 ? '이 프로젝트는 삭제되었어요.' : e.status === 403 ? '공유 프로젝트 권한이 없어요.' : '프로젝트를 불러오지 못했어요. 인터넷 연결을 확인해주세요.');
     if (e.status === 404) { projects = projects.filter(x => x.id !== id); if (P && P.id === id) closeProject(); renderList(); }
     return;
   }
@@ -876,6 +997,7 @@ async function openProject(id, force) {
   plistNote('');
   if (_ed.i >= 0) closeEd();
   P = p;
+  if (tabOf(P) !== _tab) { _tab = tabOf(P); try { localStorage.setItem('gm_proj_tab', _tab); } catch {} }
   P._snap = GMDB.editState(P);   // 서버에 저장된 그대로의 상태 (이후 바뀐 게 있을 때만 저장)
   P.split = P.split || 'auto2';
   P.format = P.format || 'story';
@@ -1380,10 +1502,11 @@ window.addEventListener('resize', () => { if (_ed.i >= 0) { edLayout(); drawEd()
 let _me = null;
 const LEVEL_KO = { write: '쓰기', read: '읽기', none: '없음' };
 const LEVEL_DESC = {
-  write: '프로젝트를 만들고 고칠 수 있어요. 삭제는 만든 사람과 관리자만 할 수 있어요.',
-  read: '프로젝트를 보고 사진을 받을 수 있어요. 고친 내용은 저장되지 않아요.',
-  none: '프로젝트 권한이 없어요. 관리자에게 읽기 또는 쓰기 권한을 요청해 주세요.',
+  write: '공유 프로젝트를 보고 고칠 수 있고, 내 프로젝트를 공유할 수 있어요. 삭제는 만든 사람과 관리자만 할 수 있어요.',
+  read: '공유 프로젝트를 보고 사진을 받을 수 있어요(고친 내용은 저장되지 않아요). 내 프로젝트를 공유하려면 쓰기 권한이 필요해요.',
+  none: '공유 프로젝트를 볼 권한이 없어요. 내 프로젝트는 그대로 쓸 수 있어요. 관리자에게 읽기 또는 쓰기 권한을 요청해 주세요.',
 };
+let _projLevel = '';
 function permNote(msg, isErr) {
   const el = document.getElementById('permNote');
   el.textContent = msg || '';
@@ -1447,9 +1570,11 @@ async function loadPerms() {
     desc.append(b, document.createElement('br'), document.createTextNode(LEVEL_DESC[_me.proj]));
     document.getElementById('permList').innerHTML = '';
     document.getElementById('permCount').textContent = '· 내 권한 ' + LEVEL_KO[_me.proj];
+    renderTabs();
     return;
   }
-  desc.textContent = '계정마다 읽기(보기만) 또는 쓰기(만들기·고치기)를 줄 수 있어요. 권한을 받은 사람은 모든 프로젝트를 같이 봐요. 관리자는 항상 쓰기예요.';
+  renderTabs();
+  desc.textContent = '공유 프로젝트를 볼 사람을 정해요. 계정마다 읽기(보기만) 또는 쓰기(고치기·공유하기)를 줄 수 있어요. 관리자는 항상 쓰기예요. 내 프로젝트는 권한과 상관없이 만든 사람만 봐요.';
   try { renderPerms((await GMDB.perms.get()).users); }
   catch (e) { console.error(e); permNote('권한 목록을 불러오지 못했어요. 잠시 뒤 다시 시도해주세요.', true); }
 }
@@ -1462,8 +1587,10 @@ function showEmpty(title, descHtml) {
 const EMPTY_DESC = document.getElementById('emptyDesc').innerHTML;
 async function loadList() {
   try {
-    projects = await GMDB.list();
-    showEmpty('아직 프로젝트가 없어요', EMPTY_DESC);
+    const r = await GMDB.listAll();
+    projects = r.projects || [];
+    _projLevel = r.level || '';
+    showEmpty('프로젝트를 골라 주세요', '왼쪽 목록에서 프로젝트를 누르면 열려요. 새 프로젝트는 "GIF 만들기"에서 <b style="display:inline;font-size:13px">프로젝트로 저장</b>을 누르면 내 프로젝트에 생겨요.');
     return true;
   } catch (e) {
     if (e.status !== 401 && e.status !== 403) console.error(e);
@@ -1484,7 +1611,7 @@ async function refreshFromStorage() {
     if (!(await loadList())) return;
     let want = null;
     try { want = localStorage.getItem('gm_open_project'); localStorage.removeItem('gm_open_project'); } catch {}
-    if (want && projects.some(p => p.id === want) && (!P || P.id !== want)) { renderList(); return await openProject(want); }
+    if (want && projects.some(p => p.id === want) && (!P || P.id !== want)) { _tab = tabOf(projects.find(p => p.id === want)); renderList(); return await openProject(want); }
     if (P) {
       const meta = projects.find(p => p.id === P.id);
       if (!meta) {
@@ -1498,7 +1625,8 @@ async function refreshFromStorage() {
       }
     }
     renderList();
-    if (!P && projects.length) return await openProject(projects[0].id);
+    const first = tabList(_tab)[0];
+    if (!P && first) return await openProject(first.id);
     if (P) drawGrid();
   } finally {
     _refreshBusy = false;

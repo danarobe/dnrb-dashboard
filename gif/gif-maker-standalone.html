@@ -959,14 +959,14 @@ input[type=color] {
             <!-- 프로젝트로 저장 -->
             <div class="pj-box">
               <div class="pj-title">프로젝트로 저장</div>
-              <p class="pj-desc">사진 묶음을 상품별로 저장해 두면, 사진마다 영문 상품명과 멘트가 자동으로 들어간 이미지를 만들 수 있어요. 저장한 프로젝트는 워크스페이스에 보관되고, 프로젝트 권한을 받은 사람이 함께 봐요.</p>
+              <p class="pj-desc">사진 묶음을 상품별로 저장해 두면, 사진마다 영문 상품명과 멘트가 자동으로 들어간 이미지를 만들 수 있어요. 저장한 프로젝트는 '내 프로젝트'(나만 봄)에 들어가고, 프로젝트 화면에서 [공유하기]를 누르면 '공유 프로젝트'로 옮겨져 함께 봐요.</p>
               <input class="pj-inp" id="pjName" placeholder="프로젝트 이름 (예: 상품1)">
               <input class="pj-inp" id="pjTitle" placeholder="영문 상품명 (예: Monaco Wool Knit)">
               <textarea class="pj-inp pj-txa" id="pjCaption" placeholder="멘트 (줄바꿈 가능 · 나중에 프로젝트에서 수정할 수 있어요)"></textarea>
               <button type="button" class="pj-emo-btn" id="pjEmoBtn">😊 이모지 넣기</button>
               <div id="pjEmoPanel" style="margin-bottom:8px"></div>
               <button class="btn-dl primary" id="pjSaveBtn" onclick="saveProject()">프로젝트로 저장</button>
-              <p class="pj-done" id="pjDone" style="display:none">✓ 저장했어요 · <a href="#" onclick="openProjects();return false">프로젝트 열기 →</a></p>
+              <p class="pj-done" id="pjDone" style="display:none">✓ 내 프로젝트에 저장했어요 · <a href="#" onclick="openProjects();return false">프로젝트 열기 →</a></p>
             </div>
           </div>
 
@@ -1235,7 +1235,7 @@ window.__fontCss = new Promise(function (done) {
   </div>
 </div>
 
-<script src="gm-projects-db.js"></script>
+<script src="gm-projects-db.js?v=3"></script>
 <script src="gm-emoji.js"></script>
 <script src="gm-drive.js?v=1"></script>
 <script>
@@ -2122,17 +2122,11 @@ window.__fontCss.then(() => { try { redrawOverlay(); } catch {} });
 // ── 프로젝트로 저장 ──
 // GIF에 쓰인 그대로(자르기·편집·필터 반영) 사진을 고해상도로 다시 그려 브라우저 저장소에 넣는다.
 let _pjAutoName = '';
-// 프로젝트 쓰기 권한(관리자가 준다)이 있어야 저장할 수 있다
-let _pjLevel = '';
+// 저장하면 '내 프로젝트'(나만 봄)로 들어간다 — 프로젝트 권한과 상관없이 누구나 (2026-11-26)
 async function resetProjectBox() {
   const btn = document.getElementById('pjSaveBtn');
-  btn.disabled = false; btn.textContent = '프로젝트로 저장';
+  btn.disabled = false; btn.textContent = '프로젝트로 저장'; btn.title = '';
   document.getElementById('pjDone').style.display = 'none';
-  try { _pjLevel = (await GMWS.me(true)).proj; } catch { _pjLevel = ''; }
-  if (_pjLevel && _pjLevel !== 'write') {
-    btn.disabled = true; btn.textContent = '프로젝트 쓰기 권한이 없어요';
-    btn.title = '관리자에게 프로젝트 쓰기 권한을 요청해 주세요';
-  } else btn.title = '';
   const nameEl = document.getElementById('pjName');
   if (!nameEl.value || nameEl.value === _pjAutoName) {
     let n = 1;
@@ -2195,8 +2189,6 @@ async function saveProject() {
     btn.disabled = false; btn.textContent = '프로젝트로 저장';
     alert(err && err.status === 401
       ? '로그인이 끝났어요. 워크스페이스에 다시 로그인한 뒤 시도해주세요.'
-      : err && err.status === 403
-      ? '프로젝트 쓰기 권한이 없어요. 관리자에게 권한을 요청해 주세요.'
       : '프로젝트 저장에 실패했습니다. 인터넷 연결을 확인한 뒤 다시 시도해주세요.');
   }
 }

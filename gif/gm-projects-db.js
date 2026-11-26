@@ -1,5 +1,5 @@
-// 프로젝트 저장소 — 워크스페이스 서버에 저장한다. 사진·GIF 파일은 비공개 보관함에 올라가고,
-// 관리자가 프로젝트 권한(읽기/쓰기)을 준 계정이 모든 프로젝트를 같이 본다.
+// 프로젝트 저장소 — 워크스페이스 서버에 저장한다. 사진·GIF 파일은 비공개 보관함에 올라간다.
+// 새로 만든 프로젝트는 '내 프로젝트'(만든 사람만 봄) → [공유하기]로 '공유 프로젝트'(관리자가 프로젝트 권한(읽기/쓰기)을 준 계정이 같이 봄).
 // GIF 만들기 화면과 프로젝트 화면이 함께 쓴다. ('/api/…' 호출은 gm-ws.js 가 워크스페이스 서버로 보낸다)
 (function () {
   'use strict';
@@ -171,6 +171,8 @@
   window.GMDB = {
     uid: () => Date.now().toString(36) + Math.random().toString(36).slice(2, 8),
     list: () => api('GET', '/api/projects').then(r => r.projects),
+    listAll: () => api('GET', '/api/projects'),   // { level, projects }
+    share: id => api('POST', '/api/projects/' + encodeURIComponent(id) + '/share'),   // 내 프로젝트 → 공유 프로젝트
     get, create, save, del, loadGif, editState,
     // 프로젝트 권한 (관리자만): 계정마다 'none' | 'read' | 'write'
     perms: {
