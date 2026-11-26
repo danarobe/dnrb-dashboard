@@ -4,14 +4,15 @@
 //   쓸 수 있는 사람 = 관리자(대표 포함) + MD/컨텐츠(staff·marketer). CS팀·물류팀 403.
 //   주소: /functions/v1/gif/api/…  (화면 gif/gm-ws.js 가 도구 화면의 '/api/…' 호출을 여기로 돌린다)
 //     GET  /api/me                                   내 권한
-//     GET·POST /api/projects · GET·PATCH·DELETE /api/projects/{id} · POST /api/projects/{id}/share · POST /api/projects/upload-urls
+//     GET·POST /api/projects · GET·PATCH·DELETE /api/projects/{id} · POST /api/projects/{id}/share|unshare · POST /api/projects/upload-urls
 //     GET·POST /api/perms                            프로젝트 권한(관리자만) — 계정별 읽기/쓰기
 //     GET·POST /api/templates · PATCH·DELETE /api/templates/{id} · POST /api/template-names
 //     GET  /api/detail?url= · /api/detail-img?u=     다나로브 상세 사진 대신 받기
 //     GET  /api/drive/list · /api/drive/thumb · /api/drive/file   구글 드라이브 지정 폴더
 //   내 프로젝트 / 공유 프로젝트 (2026-11-26 사용자 요청, migrations/0093 gif_projects.shared):
 //     내 프로젝트(shared=false) = 만든 사람만 보기·고치기·지우기(권한과 상관없음 — 관리자도 남의 것은 안 보임). 새로 만들면 여기.
-//     [공유하기](POST /api/projects/{id}/share) = 만든 사람이 공유 프로젝트로 옮김 — 공유 프로젝트 쓰기 권한(관리자 포함)이 있을 때만, 되돌리기 없음.
+//     [공유하기](POST /api/projects/{id}/share) = 만든 사람이 공유 프로젝트로 옮김 — 공유 프로젝트 쓰기 권한(관리자 포함)이 있을 때만.
+//     [내 프로젝트로 되돌리기](POST /api/projects/{id}/unshare) = 만든 사람 또는 관리자 → 만든 사람의 내 프로젝트로(같은 날 사용자 요청).
 //     공유 프로젝트(shared=true) = 프로젝트 권한: 관리자 = 항상 쓰기. MD/컨텐츠 = gif_perms 에 준 만큼(read 읽기 / write 쓰기), 없으면 못 봄.
 //       읽기 = 목록·열기 / 쓰기 = 고치기 / 지우기 = 만든 사람(쓰기 권한이 있을 때) 또는 관리자.
 // ═══════════════════════════════════════════════════════════════
@@ -59,14 +60,15 @@ const isMine = (r: PRow, me: Me) => !!r.created_by && r.created_by === me.id;
 // 이 프로젝트에 내가 할 수 있는 것. 남의 내 프로젝트는 아예 없는 것처럼(404) 다룬다.
 function rights(r: PRow, me: Me, lv: Level) {
   const mine = isMine(r, me);
-  if (!r.shared) return { see: mine, edit: mine, del: mine, share: mine && lv === "write" };
-  return { see: lv !== "none", edit: lv === "write", del: me.admin || (lv === "write" && mine), share: false };
+  if (!r.shared) return { see: mine, edit: mine, del: mine, share: mine && lv === "write", unshare: false };
+  const see = lv !== "none" || mine;   // 만든 사람은 권한이 빠져도 자기 것을 되돌릴 수 있게 본다
+  return { see, edit: lv === "write", del: me.admin || (lv === "write" && mine), share: false, unshare: !!r.created_by && (mine || me.admin) };
 }
 
 async function projectsList(me: Me, lv: Level) {
   // 공유 프로젝트(권한이 있을 때) + 내가 만든 내 프로젝트
   const meQ = `created_by.eq.${JSON.stringify(me.id)}`;
-  const where = lv === "none" ? `shared=is.false&created_by=eq.${enc(me.id)}` : `or=${enc(`(shared.is.true,and(shared.is.false,${meQ}))`)}`;
+  const where = lv === "none" ? `created_by=eq.${enc(me.id)}` : `or=${enc(`(shared.is.true,and(shared.is.false,${meQ}))`)}`;
   const r = await rest(`gif_projects?select=${P_COLS}&${where}&order=updated_at.desc&limit=1000`);
   if (!r.ok) return err("db", 500);
   const rows = (await r.json() as PRow[]).filter((p) => rights(p, me, lv).see);
@@ -78,7 +80,7 @@ async function projectsList(me: Me, lv: Level) {
       return {
         id: p.id, name: p.name, rev: p.rev, updated: ms(p.updated_at),
         mine, shared: !!p.shared, sharedAt: p.shared_at ? ms(p.shared_at) : null, sharedBy: p.shared ? (p.shared_by_name || "") : "",
-        ownerId: ROOT, ownerName: mine ? "" : ownerName(p), canEdit: rt.edit, canDelete: rt.del, canShare: rt.share,
+        ownerId: ROOT, ownerName: mine ? "" : ownerName(p), canEdit: rt.edit, canDelete: rt.del, canShare: rt.share, canUnshare: rt.unshare,
         thumb: d.thumb ?? "", photoCount: Array.isArray(d.photos) ? d.photos.length : 0,
       };
     }),
@@ -131,7 +133,7 @@ async function projectGet(me: Me, lv: Level, id: string) {
     project: {
       id: row.id, name: row.name, rev: row.rev, updated: ms(row.updated_at),
       mine, shared: !!row.shared, sharedAt: row.shared_at ? ms(row.shared_at) : null, sharedBy: row.shared ? (row.shared_by_name || "") : "",
-      ownerId: ROOT, ownerName: mine ? "" : ownerName(row), canEdit: rt.edit, canDelete: rt.del, canShare: rt.share,
+      ownerId: ROOT, ownerName: mine ? "" : ownerName(row), canEdit: rt.edit, canDelete: rt.del, canShare: rt.share, canUnshare: rt.unshare,
       ...data,
     },
     urls,
@@ -189,7 +191,23 @@ async function projectShare(me: Me, lv: Level, id: string) {
   });
   if (!r.ok) return err("db", 500);
   if (!(await r.json()).length) return err("already_shared", 409);
-  return json({ id, shared: true, sharedAt: ms(at), sharedBy: me.name, canEdit: true, canDelete: true, canShare: false });
+  return json({ id, shared: true, sharedAt: ms(at), sharedBy: me.name, canEdit: true, canDelete: true, canShare: false, canUnshare: true });
+}
+
+// [내 프로젝트로 되돌리기] 공유 프로젝트 → 만든 사람의 내 프로젝트. 만든 사람 또는 관리자만.
+async function projectUnshare(me: Me, lv: Level, id: string) {
+  const row = await projectRow(id);
+  if (!row || !rights(row, me, lv).see) return row && row.shared ? err("no_permission", 403) : err("not_found", 404);
+  if (!row.shared) return err("not_shared", 409);
+  if (!rights(row, me, lv).unshare) return err("forbidden", 403);
+  const r = await rest(`gif_projects?id=eq.${enc(id)}&shared=is.true`, {
+    method: "PATCH", headers: { Prefer: "return=representation" },
+    body: JSON.stringify({ shared: false, shared_at: null, shared_by_name: "" }),
+  });
+  if (!r.ok) return err("db", 500);
+  if (!(await r.json()).length) return err("not_shared", 409);
+  const mine = isMine(row, me);
+  return json({ id, shared: false, mine, ownerName: mine ? "" : ownerName(row), canEdit: mine, canDelete: mine, canShare: mine && lv === "write", canUnshare: false });
 }
 
 // 사진·GIF를 브라우저에서 보관함으로 곧장 올릴 수 있는 1회용 주소
@@ -405,10 +423,10 @@ Deno.serve(async (req) => {
         if (m === "POST") return await projectCreate(me, body);
       } else if (path === "/api/projects/upload-urls") {
         if (m === "POST") return await uploadUrls(body);
-      } else if ((mt = path.match(/^\/api\/projects\/([^/]+)\/share$/))) {
+      } else if ((mt = path.match(/^\/api\/projects\/([^/]+)\/(share|unshare)$/))) {
         const id = decodeURIComponent(mt[1]);
         if (!ID_RE.test(id)) return err("bad_id", 400);
-        if (m === "POST") return await projectShare(me, lv, id);
+        if (m === "POST") return mt[2] === "share" ? await projectShare(me, lv, id) : await projectUnshare(me, lv, id);
       } else if ((mt = path.match(/^\/api\/projects\/([^/]+)$/))) {
         const id = decodeURIComponent(mt[1]);
         if (!ID_RE.test(id)) return err("bad_id", 400);

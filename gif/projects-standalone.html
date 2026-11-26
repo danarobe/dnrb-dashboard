@@ -122,6 +122,8 @@ body.ro #fName, body.ro #fTitle, body.ro #fCaption, body.ro #fReels { background
 .pitem-share { margin-top: 3px; border: 1px solid #ffd9c4; background: var(--accent-bg); color: #b13a00; font: inherit; font-size: 11px; font-weight: 600; border-radius: 4px; padding: 1px 8px; min-height: 24px; cursor: pointer; }
 .pitem-share:hover { background: #ffe6d8; }
 .pitem-share:disabled { border-color: var(--border); background: var(--tag-bg); color: var(--t2); cursor: default; }
+.pitem-unshare { margin-top: 3px; border: 1px solid var(--border-2); background: #fff; color: var(--t2); font: inherit; font-size: 11px; font-weight: 600; border-radius: 4px; padding: 1px 8px; min-height: 24px; cursor: pointer; }
+.pitem-unshare:hover { background: var(--tag-bg); color: var(--t1); }
 .pitem-shared { font-size: 10.5px; color: #166534; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .pshare-bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 12px; color: var(--t2); background: var(--tag-bg); border-radius: var(--radius); padding: 7px 10px; margin-bottom: 12px; }
 .pshare-bar b { color: var(--t1); }
@@ -401,7 +403,7 @@ input[type=range] { width: 100%; accent-color: var(--accent); }
   </div>
 </div>
 
-<script src="gm-projects-db.js?v=3"></script>
+<script src="gm-projects-db.js?v=4"></script>
 <script src="gm-emoji.js"></script>
 <script>
 'use strict';
@@ -867,6 +869,7 @@ function renderList() {
       info.append(sh);
     }
     if (!p.shared && p.mine) info.append(shareBtn(p, 'pitem-share'));
+    if (p.shared && p.canUnshare) info.append(unshareBtn(p, 'pitem-unshare'));
     if (!p.canDelete) {
       // 삭제는 만든 사람(쓰기 권한이 있을 때)과 관리자만
       el.append(img, info);
@@ -902,6 +905,13 @@ function shareBtn(p, cls) {
   b.onclick = ev => { ev.stopPropagation(); shareProject(p.id); };
   return b;
 }
+// [내 프로젝트로 되돌리기] — 만든 사람 또는 관리자
+function unshareBtn(p, cls) {
+  const b = document.createElement('button'); b.type = 'button'; b.className = cls; b.textContent = '내 프로젝트로 되돌리기';
+  b.title = p.mine ? '공유를 멈추고 내 프로젝트로 옮겨요 — 다른 사람은 더 이상 못 봐요' : `공유를 멈추고 ${p.ownerName || '만든 사람'}님의 내 프로젝트로 옮겨요`;
+  b.onclick = ev => { ev.stopPropagation(); unshareProject(p.id); };
+  return b;
+}
 function renderShareBar() {
   const bar = document.getElementById('pshareBar');
   bar.innerHTML = '';
@@ -922,13 +932,48 @@ function renderShareBar() {
     n.textContent = P.sharedBy && P.sharedBy !== '처음부터 공유' ? `· ${P.sharedBy}님이 ${P.sharedAt ? fmtDate(P.sharedAt) + '에 ' : ''}공유함` : '';
     bar.append(t);
     if (n.textContent) bar.append(n);
+    if (P.canUnshare) bar.append(unshareBtn(P, 'btn'));
+  }
+}
+
+async function unshareProject(id) {
+  const meta = projects.find(p => p.id === id);
+  if (!meta || !meta.shared || !meta.canUnshare) return;
+  const nm = meta.name || '이름 없음';
+  const msg = meta.mine
+    ? `'${nm}'을(를) 내 프로젝트로 되돌릴까요?\n\n다른 사람은 더 이상 이 프로젝트를 볼 수 없어요. 나중에 다시 공유할 수 있어요(쓰기 권한 필요).`
+    : `'${nm}'을(를) ${meta.ownerName || '만든 사람'}님의 내 프로젝트로 되돌릴까요?\n\n그분만 볼 수 있게 되고, 목록에서 사라져요.`;
+  if (!confirm(msg)) return;
+  if (P && P.id === id) { clearTimeout(_saveT); await flushSave(P); }
+  plistNote('되돌리는 중…');
+  let out;
+  try { out = await GMDB.unshare(id); }
+  catch (e) {
+    console.error(e);
+    plistNote(e.status === 409 ? '이미 내 프로젝트예요.' : e.status === 403 ? '만든 사람이나 관리자만 되돌릴 수 있어요.' : e.status === 404 ? '이 프로젝트는 삭제되었어요.' : '되돌리지 못했어요. 잠시 뒤 다시 시도해주세요.');
+    if (e.status === 409 || e.status === 404) refreshFromStorage();
+    return;
+  }
+  const upd = { shared: false, sharedAt: null, sharedBy: '', canEdit: out.canEdit, canDelete: out.canDelete, canShare: out.canShare, canUnshare: false };
+  if (out.mine) {
+    Object.assign(meta, upd);
+    if (P && P.id === id) { Object.assign(P, upd); applyRo(); setNote(''); }
+    setTab('mine', true);
+    if (!P || P.id !== id) await openProject(id);
+    plistNote(`'${nm}'을(를) 내 프로젝트로 되돌렸어요.`);
+  } else {
+    // 다른 사람이 만든 것(관리자가 되돌림): 그 사람의 내 프로젝트로 가서 내 목록에서는 사라진다
+    projects = projects.filter(p => p.id !== id);
+    if (P && P.id === id) { closeProject(); const next = tabList(_tab)[0]; if (next) await openProject(next.id); }
+    renderList();
+    plistNote(`'${nm}'을(를) ${meta.ownerName || '만든 사람'}님의 내 프로젝트로 되돌렸어요.`);
   }
 }
 
 async function shareProject(id) {
   const meta = projects.find(p => p.id === id);
   if (!meta || meta.shared || !meta.canShare) return;
-  if (!confirm(`'${meta.name || '이름 없음'}'을(를) 공유 프로젝트로 옮길까요?\n\n프로젝트 권한을 받은 사람들이 함께 보게 돼요. 다시 내 프로젝트로 되돌릴 수는 없어요.`)) return;
+  if (!confirm(`'${meta.name || '이름 없음'}'을(를) 공유 프로젝트로 옮길까요?\n\n프로젝트 권한을 받은 사람들이 함께 보게 돼요. 나중에 [내 프로젝트로 되돌리기]로 되돌릴 수 있어요.`)) return;
   if (P && P.id === id) { clearTimeout(_saveT); await flushSave(P); }
   plistNote('공유하는 중…');
   let out;

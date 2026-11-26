@@ -368,6 +368,7 @@ input[type=range] { accent-color: var(--accent); flex: 1; min-width: 70px; }
       <div class="ptitle">카드 <small id="cardCount"></small></div>
       <div class="drop" id="drop"><b>+ 사진 추가</b>사진 한 장이 카드 한 장이 돼요</div>
       <button type="button" class="btn small dp-open-btn" data-dp-open="card">🛍 상세페이지에서 가져오기</button>
+      <button type="button" class="btn small dp-open-btn" onclick="openDrive('card')" title="구글 드라이브 '01_보정완료' 폴더의 사진을 카드로 넣어요 (한 장 = 카드 한 장)">📁 구글 드라이브에서 가져오기</button>
       <button type="button" class="btn small spo-btn" data-goods-new title="사진 없는 밝은 바탕에 누끼 딴 상품을 놓는 카드">🧥 상품 누끼 카드 추가</button>
       <div class="goods-menu hidden" data-goods-menu></div>
       <div class="clist" id="clist"></div>
@@ -379,6 +380,7 @@ input[type=range] { accent-color: var(--accent); flex: 1; min-width: 70px; }
       <b>사진을 끌어다 놓거나 눌러서 올려주세요</b>
       사진 한 장이 카드 한 장이 되고, 첫 장은 표지로 쓰기 좋아요.<br>JPG · PNG · WebP · 여러 장 한 번에
       <button type="button" class="btn dp-open-btn" data-dp-open="card" style="margin-top:12px">🛍 다나로브 상세페이지에서 장면 가져오기</button>
+      <button type="button" class="btn dp-open-btn" onclick="event.stopPropagation();openDrive('card')" style="margin-top:12px">📁 구글 드라이브에서 가져오기</button>
       <button type="button" class="btn dp-open-btn" data-goods-new style="margin-top:12px">🧥 상품 누끼 카드 만들기</button>
       <div class="goods-menu hidden" data-goods-menu></div>
     </div>
@@ -426,6 +428,7 @@ input[type=range] { accent-color: var(--accent); flex: 1; min-width: 70px; }
               <div id="goodsRows"></div>
               <div class="row">
                 <button type="button" class="btn small" id="goodsAdd">+ 상품 추가</button>
+                <button type="button" class="btn small" onclick="openDrive('goods')" title="구글 드라이브 '01_보정완료' 폴더의 사진으로 상품(누끼)을 넣어요 — 한 상품의 사진을 함께 고르세요">📁 드라이브에서</button>
                 <span class="note" id="goodsNote">한 상품의 사진(색상별·앞뒤)을 함께 고르세요</span>
               </div>
               <div class="goods-status hidden" id="goodsStatus"></div>
@@ -462,6 +465,7 @@ input[type=range] { accent-color: var(--accent); flex: 1; min-width: 70px; }
               <div id="insetRows"></div>
               <div class="row">
                 <button type="button" class="btn small" id="insetAdd">+ 작은 사진 추가</button>
+                <button type="button" class="btn small" onclick="openDrive('inset')" title="구글 드라이브 '01_보정완료' 폴더의 사진을 이 카드의 작은 사진으로 넣어요">📁 드라이브에서</button>
                 <button type="button" class="btn small" data-dp-open="inset" title="상세 사진에서 장면을 골라 이 카드의 작은 사진으로 넣어요">🛍 상세페이지에서</button>
               </div>
             </div>
@@ -578,6 +582,7 @@ input[type=range] { accent-color: var(--accent); flex: 1; min-width: 70px; }
 <input type="file" id="fiGoods" accept="image/*" multiple class="hidden">
 
 <script src="gm-emoji.js"></script>
+<script src="gm-drive.js?v=2"></script>
 <script>
 'use strict';
 // ───────────────────────── 기본값 ─────────────────────────
@@ -3044,15 +3049,27 @@ $('fi').addEventListener('change', e => { addFiles(e.target.files); e.target.val
 
 // 겹치는 작은 사진 (여러 장)
 $('insetAdd').onclick = () => $('fiInset').click();
-$('fiInset').addEventListener('change', async e => {
-  const files = [...e.target.files]; e.target.value = '';
+$('fiInset').addEventListener('change', e => { const files = [...e.target.files]; e.target.value = ''; addInsetFiles(files); });
+async function addInsetFiles(files) {
   const c = card(); if (!files.length || !c) return;
   for (const f of files) {
     try { const bmp = await loadBitmap(f); c.insets.push({ bmp, name: f.name, thumb: thumbOf(bmp, 54, 72), x: null, y: null, w: INSET_W }); }
     catch (err) { console.error(err); alert(`${f.name} 사진을 열지 못했어요.`); }
   }
   renderInsetRows(); changed();
-});
+}
+
+// 구글 드라이브 지정 폴더('01_보정완료')에서 고른 사진을 직접 올린 사진과 똑같이 넣는다 (2026-11-26 사용자 요청)
+//   card = 한 장마다 카드 한 장 / inset = 지금 카드의 작은 사진 / goods = 새 상품(누끼) 하나에 고른 사진 전부
+function openDrive(kind) {
+  if (typeof GMDrive === 'undefined') return alert('드라이브 창을 불러오지 못했어요. 새로고침한 뒤 다시 시도해주세요.');
+  if ((kind === 'inset' || kind === 'goods') && !card()) return alert('먼저 카드를 하나 만들어 주세요.');
+  const title = kind === 'inset' ? '구글 드라이브에서 작은 사진 가져오기' : kind === 'goods' ? '구글 드라이브에서 상품(누끼) 사진 가져오기' : '구글 드라이브에서 카드 사진 가져오기';
+  GMDrive.open({
+    title,
+    onPick: files => kind === 'inset' ? addInsetFiles(files) : kind === 'goods' ? addGoodsFiles(files, null) : addFiles(files),
+  });
+}
 
 // ───────────────────────── 상품 (누끼 사진) ─────────────────────────
 // 누끼(배경 지우기)는 작업자(/gm-cutout.worker.js)에게 맡긴다. 사진은 이 기기 밖으로 나가지 않는다.

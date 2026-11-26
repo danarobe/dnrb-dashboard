@@ -1,5 +1,5 @@
-// 구글 드라이브 지정 폴더에서 사진 가져오기 (GIF 만들기 화면)
-//   GMDrive.open({ onPick(files) })  — 고른 사진을 File 목록으로 넘겨 준다(폴더에 보이는 순서 = 이름 순서).
+// 구글 드라이브 지정 폴더에서 사진 가져오기 (GIF 만들기 · 카드뉴스 화면)
+//   GMDrive.open({ onPick(files), title? })  — 고른 사진을 File 목록으로 넘겨 준다(폴더에 보이는 순서 = 이름 순서).
 //   서버(gif 함수 /api/drive/…)가 서비스 계정으로 지정 폴더만 읽어 준다. 사진은 고른 것만 이 브라우저로 받는다.
 (function () {
   'use strict';
@@ -85,9 +85,9 @@
     let io = null;
 
     const back = el('div', 'gdv-back');
-    const box = el('div', 'gdv'); box.setAttribute('role', 'dialog'); box.setAttribute('aria-modal', 'true'); box.setAttribute('aria-label', '구글 드라이브에서 가져오기');
+    const box = el('div', 'gdv'); box.setAttribute('role', 'dialog'); box.setAttribute('aria-modal', 'true'); box.setAttribute('aria-label', (opts && opts.title) || '구글 드라이브에서 가져오기');
     const head = el('div', 'gdv-head');
-    head.append(el('div', 'gdv-title', '구글 드라이브에서 가져오기'));
+    head.append(el('div', 'gdv-title', (opts && opts.title) || '구글 드라이브에서 가져오기'));
     const xBtn = el('button', 'gdv-x', '닫기'); xBtn.type = 'button';
     head.append(xBtn);
     const crumbs = el('div', 'gdv-crumbs');

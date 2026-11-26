@@ -173,6 +173,7 @@
     list: () => api('GET', '/api/projects').then(r => r.projects),
     listAll: () => api('GET', '/api/projects'),   // { level, projects }
     share: id => api('POST', '/api/projects/' + encodeURIComponent(id) + '/share'),   // 내 프로젝트 → 공유 프로젝트
+    unshare: id => api('POST', '/api/projects/' + encodeURIComponent(id) + '/unshare'),   // 공유 프로젝트 → 만든 사람의 내 프로젝트
     get, create, save, del, loadGif, editState,
     // 프로젝트 권한 (관리자만): 계정마다 'none' | 'read' | 'write'
     perms: {
