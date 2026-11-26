@@ -12,7 +12,8 @@
 //   내 프로젝트 / 공유 프로젝트 (2026-11-26 사용자 요청, migrations/0093 gif_projects.shared):
 //     내 프로젝트(shared=false) = 만든 사람만 보기·고치기·지우기(권한과 상관없음 — 관리자도 남의 것은 안 보임). 새로 만들면 여기.
 //     [공유하기](POST /api/projects/{id}/share) = 만든 사람이 공유 프로젝트로 옮김 — 공유 프로젝트 쓰기 권한(관리자 포함)이 있을 때만.
-//     [내 프로젝트로 되돌리기](POST /api/projects/{id}/unshare) = 만든 사람 또는 관리자 → 만든 사람의 내 프로젝트로(같은 날 사용자 요청).
+//     [내 프로젝트로 되돌리기](POST /api/projects/{id}/unshare) = 관리자, 또는 공유 프로젝트 쓰기 권한이 있는 만든 사람 → 만든 사람의 내 프로젝트로
+//       (같은 날 사용자 요청. 보안 점검: 권한이 빠진 만든 사람이 팀이 고친 프로젝트를 빼 가지 못하게 공유하기와 같은 조건, 누가·언제는 unshared_* 칸에)
 //     공유 프로젝트(shared=true) = 프로젝트 권한: 관리자 = 항상 쓰기. MD/컨텐츠 = gif_perms 에 준 만큼(read 읽기 / write 쓰기), 없으면 못 봄.
 //       읽기 = 목록·열기 / 쓰기 = 고치기 / 지우기 = 만든 사람(쓰기 권한이 있을 때) 또는 관리자.
 // ═══════════════════════════════════════════════════════════════
@@ -61,14 +62,13 @@ const isMine = (r: PRow, me: Me) => !!r.created_by && r.created_by === me.id;
 function rights(r: PRow, me: Me, lv: Level) {
   const mine = isMine(r, me);
   if (!r.shared) return { see: mine, edit: mine, del: mine, share: mine && lv === "write", unshare: false };
-  const see = lv !== "none" || mine;   // 만든 사람은 권한이 빠져도 자기 것을 되돌릴 수 있게 본다
-  return { see, edit: lv === "write", del: me.admin || (lv === "write" && mine), share: false, unshare: !!r.created_by && (mine || me.admin) };
+  return { see: lv !== "none", edit: lv === "write", del: me.admin || (lv === "write" && mine), share: false, unshare: !!r.created_by && (me.admin || (mine && lv === "write")) };
 }
 
 async function projectsList(me: Me, lv: Level) {
   // 공유 프로젝트(권한이 있을 때) + 내가 만든 내 프로젝트
   const meQ = `created_by.eq.${JSON.stringify(me.id)}`;
-  const where = lv === "none" ? `created_by=eq.${enc(me.id)}` : `or=${enc(`(shared.is.true,and(shared.is.false,${meQ}))`)}`;
+  const where = lv === "none" ? `shared=is.false&created_by=eq.${enc(me.id)}` : `or=${enc(`(shared.is.true,and(shared.is.false,${meQ}))`)}`;
   const r = await rest(`gif_projects?select=${P_COLS}&${where}&order=updated_at.desc&limit=1000`);
   if (!r.ok) return err("db", 500);
   const rows = (await r.json() as PRow[]).filter((p) => rights(p, me, lv).see);
@@ -202,7 +202,7 @@ async function projectUnshare(me: Me, lv: Level, id: string) {
   if (!rights(row, me, lv).unshare) return err("forbidden", 403);
   const r = await rest(`gif_projects?id=eq.${enc(id)}&shared=is.true`, {
     method: "PATCH", headers: { Prefer: "return=representation" },
-    body: JSON.stringify({ shared: false, shared_at: null, shared_by_name: "" }),
+    body: JSON.stringify({ shared: false, shared_at: null, shared_by_name: "", unshared_at: new Date().toISOString(), unshared_by: me.id, unshared_by_name: me.name }),
   });
   if (!r.ok) return err("db", 500);
   if (!(await r.json()).length) return err("not_shared", 409);
