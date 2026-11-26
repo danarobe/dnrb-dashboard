@@ -693,6 +693,16 @@ input[type=color] {
 .pj-emo-btn:hover { border-color: var(--t1); color: var(--t1); }
 .pj-done { font-size: 12px; color: #2e9e5b; font-weight: 600; margin-top: 8px; }
 .pj-done a { color: var(--accent); }
+/* 구글 드라이브에 저장 (관리자만 — 2026-11-26) */
+.gd-box { margin-top: 12px; padding: 12px; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--tag-bg); }
+.gd-box [hidden] { display: none !important; }   /* .btn-dl 의 display 가 hidden 을 덮지 않게 */
+.gd-box .pj-title small { font-weight: 500; color: var(--t2); margin-left: 4px; }
+.gd-state { font-size: 11.5px; color: var(--t2); line-height: 1.5; margin: 4px 0 8px; overflow-wrap: anywhere; }
+.gd-state b { color: var(--t1); font-weight: 600; }
+.gd-link { border: none; background: none; padding: 0 2px; font: inherit; font-size: 11.5px; color: var(--t2); text-decoration: underline; cursor: pointer; }
+.gd-link:hover { color: var(--t1); }
+.gd-done { font-size: 12px; color: #166534; font-weight: 600; margin-top: 8px; line-height: 1.5; overflow-wrap: anywhere; }
+.gd-done a { color: var(--accent-h); }
 
 /* ── Photo editor ── */
 .img-edited {
@@ -1133,6 +1143,18 @@ input[type=color] {
               <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M2 2h8v8H2z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/><path d="M5 4.5l3 1.5-3 1.5V4.5z" fill="currentColor"/></svg>
               MP4 다운로드 (릴스용)
             </button>
+
+            <!-- 구글 드라이브에 저장 (관리자만) -->
+            <div class="gd-box" id="gdBox" hidden>
+              <div class="pj-title">구글 드라이브에 저장<small>관리자만</small></div>
+              <div class="gd-state" id="gdState" role="status">확인하는 중…</div>
+              <div id="gdSaveWrap" hidden>
+                <input class="pj-inp" id="gdName" maxlength="100" placeholder="파일 이름 (비우면 gif_text)" aria-label="드라이브에 저장할 파일 이름">
+                <button class="btn-dl primary" id="gdSaveBtn" type="button" onclick="gdSave()">구글 드라이브에 저장</button>
+                <p class="gd-done" id="gdDone" hidden></p>
+              </div>
+              <button class="btn-dl primary" id="gdConnBtn" type="button" onclick="gdConnect()" hidden>구글 계정 연결</button>
+            </div>
           </div>
 
         </div><!-- /result-body -->
@@ -1237,7 +1259,7 @@ window.__fontCss = new Promise(function (done) {
 
 <script src="gm-projects-db.js?v=4"></script>
 <script src="gm-emoji.js"></script>
-<script src="gm-drive.js?v=2"></script>
+<script src="gm-drive.js?v=3"></script>
 <script>
 'use strict';
 
@@ -2486,20 +2508,17 @@ function dlRaw() {
   trigger(URL.createObjectURL(gifBlob), 'animated.gif');
 }
 
-async function dlWithText() {
-  if (!gifBlob) return;
+// 텍스트가 들어간 GIF 파일을 만든다 — [텍스트 포함 GIF 다운로드]와 [구글 드라이브에 저장]이 같이 쓴다.
+// 글이 하나도 없으면 원본 GIF 그대로. 돌려주는 값 { blob, text(글이 들어갔는지) }
+async function buildTextGif(onProgress) {
   await window.__fontCss;
   const tc = getTextCfg();
 
-  // 장면별 모드: 하나라도 텍스트가 있으면 진행, 아니면 원본 다운로드
+  // 장면별 모드: 하나라도 텍스트가 있으면 진행, 아니면 원본
   const hasAnyText = _perFrame
     ? _pfTexts.some(t => t && t.trim())
     : !!tc.text;
-  if (!hasAnyText) { dlRaw(); return; }
-
-  const btn = document.getElementById('dlTxtBtn');
-  btn.textContent = '생성 중...';
-  btn.disabled = true;
+  if (!hasAnyText) return { blob: gifBlob, text: false };
 
   const { W, H } = getDims();
 
@@ -2534,9 +2553,17 @@ async function dlWithText() {
     frames.push(ctx.getImageData(0, 0, W, H).data.buffer);
   }
 
+  const blob = await encodeGif(frames, { W, H, delay, onProgress });
+  return { blob, text: true };
+}
+
+async function dlWithText() {
+  if (!gifBlob) return;
+  const btn = document.getElementById('dlTxtBtn');
+  btn.disabled = true;
   try {
-    const blob = await encodeGif(frames, { W, H, delay, onProgress: p => { btn.textContent = `생성 중... ${Math.round(p * 100)}%`; } });
-    trigger(URL.createObjectURL(blob), 'gif_text.gif');
+    const out = await buildTextGif(p => { btn.textContent = `생성 중... ${Math.round(p * 100)}%`; });
+    trigger(URL.createObjectURL(out.blob), out.text ? 'gif_text.gif' : 'animated.gif');
   } catch (err) {
     console.error(err);
     alert('GIF 인코딩에 실패했습니다. 다시 시도해주세요.');
@@ -2544,6 +2571,113 @@ async function dlWithText() {
   btn.innerHTML = '<svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M6 1v7M2 8l4 3 4-3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg> 텍스트 포함 GIF 다운로드';
   btn.disabled = false;
 }
+
+// ── 구글 드라이브에 저장 (관리자만 — 2026-11-26 사용자 요청) ──
+// 드라이브 주인 구글 계정을 한 번 연결해 두면(관리자), 만든 GIF를 지정 폴더('01_보정완료') 아래 고른 폴더에 바로 저장한다.
+// 진짜 차단은 서버(/api/gdrive/… — 관리자만)가 한다. 여기서는 관리자에게만 칸을 보여 준다.
+let _gd = null, _gdAt = 0;
+async function gdRefresh() {
+  const box = document.getElementById('gdBox');
+  if (!box) return;
+  let me;
+  try { me = await GMWS.me(); } catch { return; }
+  if (!me.admin) { box.hidden = true; return; }
+  box.hidden = false;
+  _gdAt = Date.now();
+  const st = document.getElementById('gdState'), saveWrap = document.getElementById('gdSaveWrap'), conn = document.getElementById('gdConnBtn');
+  try {
+    const r = await fetch('/api/gdrive/status');
+    if (!r.ok) throw new Error('status_' + r.status);
+    _gd = await r.json();
+  } catch (e) { st.textContent = '구글 연결 상태를 확인하지 못했어요. 인터넷 연결을 확인해 주세요.'; saveWrap.hidden = true; conn.hidden = true; return; }
+  st.textContent = '';
+  if (!_gd.configured) {
+    st.textContent = '구글 연결 설정이 아직 없어요. 구글 클라우드에서 만든 클라이언트 값 2개를 서버에 넣으면 여기서 구글 계정을 연결할 수 있어요.';
+    saveWrap.hidden = true; conn.hidden = true;
+  } else if (!_gd.connected) {
+    st.textContent = '구글 계정이 아직 연결되지 않았어요. 드라이브 주인 계정으로 한 번만 연결하면 돼요.';
+    saveWrap.hidden = true; conn.hidden = false;
+  } else {
+    const b = document.createElement('b'); b.textContent = _gd.email || '구글 계정';
+    const x = document.createElement('button'); x.type = 'button'; x.className = 'gd-link'; x.textContent = '연결 끊기'; x.onclick = gdDisconnect;
+    st.append('연결된 구글 계정: ', b, ' · ', x);
+    saveWrap.hidden = false; conn.hidden = true;
+  }
+}
+async function gdConnect() {
+  // 누른 순간에 창을 먼저 연다(주소를 받은 뒤에 열면 브라우저가 팝업으로 막는다)
+  const w = window.open('', '_blank');
+  try {
+    const r = await fetch('/api/gdrive/start', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok || typeof j.url !== 'string' || j.url.indexOf('https://accounts.google.com/') !== 0) throw new Error(j.error || 'start');
+    if (!w) return alert('새 창이 막혀 있어요. 브라우저 주소창 오른쪽의 팝업 차단을 풀고 다시 눌러 주세요.');
+    w.opener = null;
+    w.location.href = j.url;
+  } catch (e) {
+    console.error(e);
+    if (w) w.close();
+    alert('구글 연결을 시작하지 못했어요. 잠시 뒤 다시 시도해주세요.');
+    gdRefresh();
+  }
+}
+async function gdDisconnect() {
+  if (!confirm('구글 계정 연결을 끊을까요?\n\n끊으면 다시 연결하기 전까지 드라이브에 저장할 수 없어요. 이미 저장한 파일은 그대로 있어요.')) return;
+  try {
+    const r = await fetch('/api/gdrive/disconnect', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
+    if (!r.ok) throw new Error('disconnect_' + r.status);
+  } catch (e) { console.error(e); alert('연결을 끊지 못했어요. 잠시 뒤 다시 시도해주세요.'); }
+  gdRefresh();
+}
+function gdSave() {
+  if (!gifBlob) return;
+  if (typeof GMDrive === 'undefined') return alert('드라이브 창을 불러오지 못했어요. 새로고침한 뒤 다시 시도해주세요.');
+  const done = document.getElementById('gdDone');
+  done.hidden = true;
+  const name = document.getElementById('gdName').value.trim();
+  const shown = (name.replace(/\.gif$/i, '') || 'gif_text') + '.gif';
+  const mb = n => (n / 1048576).toFixed(1) + 'MB';
+  GMDrive.open({
+    title: `구글 드라이브에 저장 — ${shown}`,
+    folder: {
+      label: '이 폴더에 저장',
+      onSave: async (folder, ui) => {
+        ui.note('GIF를 만드는 중…');
+        let out;
+        try { out = await buildTextGif(p => ui.note(`GIF를 만드는 중… ${Math.round(p * 100)}%`)); }
+        catch (e) { console.error(e); return 'GIF를 만들지 못했어요. 다시 시도해주세요.'; }
+        if (out.blob.size > 40000000) return `GIF가 너무 커요(${mb(out.blob.size)}). 40MB까지 저장할 수 있어요.`;
+        const send = async replace => {
+          ui.note(`드라이브에 올리는 중… (${mb(out.blob.size)})`);
+          const q = new URLSearchParams({ folder: folder.id, k: folder.k, name });
+          if (replace) q.set('replace', '1');
+          const r = await fetch('/api/gdrive/upload?' + q, { method: 'POST', headers: { 'content-type': 'image/gif' }, body: out.blob });
+          const j = await r.json().catch(() => ({}));
+          if (!r.ok) { const e = new Error(j.error || ('http_' + r.status)); e.status = r.status; e.code = j.error || ''; throw e; }
+          return j;
+        };
+        let saved;
+        try { saved = await send(false); }
+        catch (e) {
+          if (e.code !== 'exists') { console.error(e); return ui.errText(e, '저장하지 못했어요.'); }
+          if (!confirm(`"${folder.name}" 폴더에 같은 이름의 파일(${shown})이 이미 있어요.\n\n그 파일을 지금 만든 GIF로 바꿀까요?\n(취소하면 저장하지 않아요 — 파일 이름을 바꿔 다시 저장할 수 있어요)`)) return '같은 이름의 파일이 있어서 저장하지 않았어요. 파일 이름을 바꾸거나 다른 폴더를 골라 주세요.';
+          try { saved = await send(true); } catch (e2) { console.error(e2); return ui.errText(e2, '저장하지 못했어요.'); }
+        }
+        done.textContent = `✓ 드라이브에 저장했어요${saved.replaced ? '(같은 이름 파일을 바꿈)' : ''} · ${folder.path} › ${saved.name} `;
+        if (saved.link && saved.link.indexOf('https://') === 0) {
+          const a = document.createElement('a'); a.href = saved.link; a.target = '_blank'; a.rel = 'noopener noreferrer'; a.textContent = '드라이브에서 보기 ↗';
+          done.append(a);
+        }
+        done.hidden = false;
+        return true;
+      },
+    },
+  });
+}
+// 연결 화면(gauth.html)에서 연결이 끝나면 알려 준다 + 다른 창에 다녀오면 다시 확인
+try { new BroadcastChannel('gm_gdrive').onmessage = () => gdRefresh(); } catch {}
+window.addEventListener('focus', () => { if (_gd && Date.now() - _gdAt > 3000) gdRefresh(); });
+gdRefresh();
 
 let _mp4MuxerP = null;
 function loadMp4Muxer() {

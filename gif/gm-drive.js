@@ -1,5 +1,7 @@
 // 구글 드라이브 지정 폴더에서 사진 가져오기 (GIF 만들기 · 카드뉴스 화면)
-//   GMDrive.open({ onPick(files), title? })  — 고른 사진을 File 목록으로 넘겨 준다(폴더에 보이는 순서 = 이름 순서).
+//   GMDrive.open({ onPick(files), title? })
+//   GMDrive.open({ title?, folder: { label?, onSave(folder, ui) } })  — 저장할 폴더 고르기(사진은 보기만). 관리자의 [구글 드라이브에 저장]용.
+//       folder = { id, k, name, path }, ui.note(글) = 아래 줄에 진행 상황. onSave 가 true 를 돌려주면 창을 닫고, 글자를 돌려주면 그 글을 빨갛게 보여 준다.  — 고른 사진을 File 목록으로 넘겨 준다(폴더에 보이는 순서 = 이름 순서).
 //   서버(gif 함수 /api/drive/…)가 서비스 계정으로 지정 폴더만 읽어 준다. 사진은 고른 것만 이 브라우저로 받는다.
 (function () {
   'use strict';
@@ -46,7 +48,7 @@
 @media (max-width: 600px) { .gdv-back { padding: 0; } .gdv { border-radius: 0; height: 100%; } .gdv-grid { grid-template-columns: repeat(3, 1fr); gap: 6px; } }
 `;
   const MAX_PICK = 200;
-  const LAST_KEY = 'gm_drive_last';
+  const LAST_KEY = 'gm_drive_last', LAST_SAVE_KEY = 'gm_drive_save_last';
   let styled = false;
 
   const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
@@ -68,11 +70,19 @@
     if (!r.ok) { const e = new Error((j && j.error) || ('http_' + r.status)); e.status = r.status; e.code = (j && j.error) || ''; throw e; }
     return j;
   }
+  async function post(path, body) {
+    const r = await fetch(path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+    let j = null; try { j = await r.json(); } catch {}
+    if (!r.ok) { const e = new Error((j && j.error) || ('http_' + r.status)); e.status = r.status; e.code = (j && j.error) || ''; throw e; }
+    return j;
+  }
   const qs = o => Object.keys(o).map(k => k + '=' + encodeURIComponent(o[k])).join('&');
 
   function open(opts) {
     if (!styled) { const st = el('style'); st.textContent = CSS; document.head.appendChild(st); styled = true; }
     const onPick = (opts && opts.onPick) || (() => {});
+    const FM = (opts && opts.folder) || null;          // 저장할 폴더 고르기
+    const LAST = FM ? LAST_SAVE_KEY : LAST_KEY;
     const thumbGate = gate(6), fileGate = gate(4);
     const thumbUrls = [];              // 닫을 때 지울 미리보기 주소
     const got = new Map();             // 받아 둔 원본 (다시 시도할 때 또 받지 않게)
@@ -121,6 +131,14 @@
       return m;
     }
     function syncFoot(note, isErr) {
+      if (FM) {
+        count.classList.toggle('err', !!isErr);
+        count.textContent = note != null ? note : stack.length ? '저장할 곳: ' + stack.map(f => f.name).join(' › ') : '저장할 폴더를 골라 주세요';
+        allBtn.style.display = stack.length ? '' : 'none'; allBtn.textContent = '새 폴더'; allBtn.disabled = busy;
+        goBtn.style.display = ''; goBtn.disabled = busy || !stack.length;
+        if (!busy) goBtn.textContent = FM.label || '이 폴더에 저장';
+        return;
+      }
       const sel = images.filter(im => picked.has(im.id));
       const size = sel.reduce((a, im) => a + (im.size || 0), 0);
       count.classList.toggle('err', !!isErr);
@@ -145,7 +163,7 @@
       if (roots.length > 1) add('지정 폴더', () => showRoots(), !stack.length);
       stack.forEach((f, i) => add(f.name, () => { stack = stack.slice(0, i + 1); load(); }, i === stack.length - 1));
     }
-    function remember() { try { localStorage.setItem(LAST_KEY, JSON.stringify(stack)); } catch {} }
+    function remember() { try { localStorage.setItem(LAST, JSON.stringify(stack)); } catch {} }
 
     function showRoots() {
       stack = []; images = []; picked = new Set(); seq++;
@@ -189,7 +207,7 @@
     }
 
     function toggle(i, ev) {
-      if (busy) return;
+      if (busy || FM) return;
       const im = images[i];
       const turnOn = !picked.has(im.id);
       const range = ev && ev.shiftKey && lastIdx >= 0 ? [Math.min(lastIdx, i), Math.max(lastIdx, i)] : [i, i];
@@ -230,10 +248,11 @@
         body.append(wrap);
       }
       if (images.length) {
-        body.append(el('div', 'gdv-sec', `사진 ${images.length}장`));
+        body.append(el('div', 'gdv-sec', FM ? `이 폴더에 있는 사진 ${images.length}장` : `사진 ${images.length}장`));
         const grid = el('div', 'gdv-grid');
         images.forEach((im, i) => {
           const b = el('button', 'gdv-item'); b.type = 'button'; b.title = im.name; b.setAttribute('aria-pressed', 'false'); b.setAttribute('aria-label', im.name);
+          if (FM) { b.disabled = true; b.style.cursor = 'default'; }
           const img = el('img', 'gdv-thumb'); img.alt = ''; img.decoding = 'async';
           img.src = 'data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==';
           watchThumb(img, im);
@@ -244,7 +263,7 @@
         body.append(grid);
       }
       if (!images.length && !(d.folders && d.folders.length)) {
-        message(d.other ? `이 폴더에는 가져올 수 있는 사진이 없어요.<br>(사진이 아닌 파일 ${Number(d.other) || 0}개)` : '이 폴더는 비어 있어요.');
+        message(FM ? '이 폴더는 비어 있어요. 여기에 저장할 수 있어요.' : d.other ? `이 폴더에는 가져올 수 있는 사진이 없어요.<br>(사진이 아닌 파일 ${Number(d.other) || 0}개)` : '이 폴더는 비어 있어요.');
       } else if (d.other) {
         body.append(el('div', 'gdv-sec', `사진이 아닌 파일 ${d.other}개는 보이지 않아요`));
         body.lastChild.style.marginTop = '14px';
@@ -291,7 +310,7 @@
       }
       // 지난번에 보던 폴더가 지금도 지정 폴더 아래면 거기서 시작한다
       let last = [];
-      try { last = JSON.parse(localStorage.getItem(LAST_KEY)) || []; } catch {}
+      try { last = JSON.parse(localStorage.getItem(LAST)) || []; } catch {}
       const okLast = Array.isArray(last) && last.length && last.every(f => f && typeof f.id === 'string' && typeof f.k === 'string' && typeof f.name === 'string')
         && roots.some(r => r.id === last[0].id);
       if (okLast) { stack = last.map(f => ({ id: f.id, name: f.name, k: f.k })); return load(); }
@@ -299,7 +318,44 @@
       showRoots();
     }
 
+    // 저장할 폴더 고르기: [새 폴더]
+    async function newFolder() {
+      const cur = stack[stack.length - 1];
+      if (!cur) return;
+      const name = (prompt(`"${cur.name}" 안에 만들 새 폴더 이름을 적어 주세요`) || '').trim();
+      if (!name) return;
+      busy = true; syncFoot('폴더를 만드는 중…');
+      try {
+        const f = await post('/api/gdrive/mkdir', { folder: cur.id, k: cur.k, name });
+        busy = false;
+        if (closed) return;
+        stack.push({ id: f.id, name: f.name, k: f.k });
+        await load();
+        if (f.existed) syncFoot(`"${f.name}" 폴더가 이미 있어서 그 폴더를 열었어요`);
+      } catch (e) {
+        busy = false;
+        if (closed) return;
+        syncFoot(saveErr(e, '폴더를 만들지 못했어요.'), true);
+      }
+    }
+    function saveErr(e, fallback) {
+      const c = (e && e.code) || '';
+      return c === 'gdrive_not_connected' ? '구글 계정이 연결되어 있지 않아요. 창을 닫고 [구글 계정 연결]을 먼저 해 주세요.'
+        : c === 'gdrive_expired' ? '구글 계정 연결이 끊겼어요. 창을 닫고 다시 연결해 주세요.'
+        : c === 'gdrive_no_edit' ? '연결한 구글 계정에 이 폴더의 편집 권한이 없어요.'
+        : c === 'gdrive_no_folder' ? '연결한 구글 계정으로는 이 폴더가 보이지 않아요.'
+        : c === 'gdrive_quota' ? '구글 드라이브 저장 공간이 부족해요.'
+        : c === 'bad_name' ? '쓸 수 없는 이름이에요. 다른 이름으로 적어 주세요.'
+        : c === 'many' ? '같은 이름의 파일이 여러 개 있어서 바꿀 수 없어요. 드라이브에서 정리하거나 다른 이름으로 저장해 주세요.'
+        : c === 'too_big' ? 'GIF가 너무 커요. 40MB까지 저장할 수 있어요.'
+        : c === 'not_gif' ? 'GIF 파일만 저장할 수 있어요.'
+        : c === 'gdrive_not_configured' ? '서버에 구글 연결 설정이 아직 없어요.'
+        : (e && e.status === 403) ? '관리자만 할 수 있어요.'
+        : fallback + ' 잠시 뒤 다시 시도해주세요.';
+    }
+
     allBtn.onclick = () => {
+      if (FM) { if (!busy) newFolder(); return; }
       if (busy) return;
       const cap = Math.min(images.length, MAX_PICK);
       if (picked.size === cap) picked = new Set();
@@ -333,6 +389,19 @@
 
     goBtn.onclick = async () => {
       if (busy) return;
+      if (FM) {
+        const cur = stack[stack.length - 1];
+        if (!cur) return;
+        busy = true; goBtn.textContent = '저장 중…'; syncFoot('저장하는 중…');
+        let out;
+        try { out = await FM.onSave({ id: cur.id, k: cur.k, name: cur.name, path: stack.map(f => f.name).join(' › ') }, { note: t => { if (!closed) count.textContent = t; }, errText: saveErr }); }
+        catch (e) { console.error(e); out = saveErr(e, '저장하지 못했어요.'); }
+        busy = false;
+        if (closed) return;
+        if (out === true) return close();
+        syncFoot(typeof out === 'string' && out ? out : null, typeof out === 'string' && !!out);
+        return;
+      }
       const sel = images.filter(im => picked.has(im.id));   // 폴더에 보이는 순서
       if (!sel.length) return;
       busy = true;

@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex">
+<meta name="referrer" content="no-referrer">
+<title>구글 계정 연결 — GIF 메이커</title>
+<link rel="icon" href="../icons/favicon-64.png">
+<script src="../config.js"></script>
+<script src="gm-ws.js?v=1"></script>
+<style>
+/* 구글 동의 화면에서 돌아오는 곳 (GIF 메이커 › 구글 드라이브에 저장, 2026-11-26).
+   주소에 실려 온 일회용 코드를 바로 지우고, 로그인한 관리자 이름으로 서버(/api/gdrive/finish)에 넘긴다. */
+* { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; }
+body { display: flex; align-items: center; justify-content: center; background: #f0efe9; color: #1a1816; font-family: -apple-system, BlinkMacSystemFont, 'Pretendard', 'Noto Sans KR', 'Apple SD Gothic Neo', sans-serif; }
+.box { max-width: 380px; margin: 24px; padding: 28px 24px; background: #fff; border: 1px solid #e2e0da; border-radius: 16px; text-align: center; }
+.t { font-size: 16px; font-weight: 700; margin-bottom: 8px; text-wrap: balance; }
+.d { font-size: 13px; line-height: 1.6; color: #5a5652; overflow-wrap: anywhere; }
+.btn { display: inline-block; margin-top: 16px; padding: 9px 16px; border-radius: 9px; border: none; background: #1a1816; color: #fff; font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; }
+.btn:focus-visible { outline: 2px solid #e8500a; outline-offset: 2px; }
+.ok .t { color: #166534; } .bad .t { color: #b91c1c; }
+</style>
+</head>
+<body>
+<div class="box" id="box" role="status" aria-live="polite">
+  <div class="t" id="t">구글 계정을 연결하는 중…</div>
+  <div class="d" id="d">잠시만 기다려 주세요.</div>
+  <button type="button" class="btn" id="closeBtn" hidden>이 창 닫기</button>
+</div>
+<script>
+(function () {
+  'use strict';
+  var q = new URLSearchParams(location.search);
+  var code = q.get('code'), state = q.get('state'), error = q.get('error');
+  // 일회용 코드가 주소·방문 기록에 남지 않게 바로 지운다
+  try { history.replaceState(null, '', location.pathname); } catch (e) {}
+  if (window.GMWS.blocked) return;   // 로그인 안 됨 → gm-ws.js 가 안내 화면을 보여 준다
+
+  var box = document.getElementById('box'), closeBtn = document.getElementById('closeBtn');
+  function show(kind, title, desc) {
+    box.className = 'box ' + kind;
+    document.getElementById('t').textContent = title;
+    document.getElementById('d').textContent = desc;
+    closeBtn.hidden = false;
+  }
+  closeBtn.onclick = function () { window.close(); setTimeout(function () { location.href = '../#gif'; }, 300); };
+  function tell() { try { var c = new BroadcastChannel('gm_gdrive'); c.postMessage({ type: 'changed' }); c.close(); } catch (e) {} }
+
+  var MSG = {
+    bad_state: '연결을 시작한 지 10분이 지났거나, 다른 계정으로 로그인되어 있어요. GIF 메이커에서 [구글 계정 연결]을 다시 눌러 주세요.',
+    bad_code: '구글에서 받은 값이 올바르지 않아요. GIF 메이커에서 [구글 계정 연결]을 다시 눌러 주세요.',
+    gdrive_exchange: '구글이 연결을 받아 주지 않았어요. GIF 메이커에서 [구글 계정 연결]을 다시 눌러 주세요. 계속 안 되면 구글 클라우드의 설정(돌아오는 주소·클라이언트 값)을 확인해야 해요.',
+    gdrive_no_refresh: '구글이 계속 쓸 수 있는 연결을 주지 않았어요. GIF 메이커에서 [구글 계정 연결]을 다시 눌러 주세요.',
+    gdrive_scope: '구글 동의 화면에서 드라이브 권한이 꺼져 있었어요. 다시 연결하면서 드라이브 권한 칸을 체크해 주세요.',
+    gdrive_not_configured: '서버에 구글 연결 설정(클라이언트 값 2개)이 아직 없어요.',
+    forbidden: '구글 계정 연결은 관리자만 할 수 있어요.',
+  };
+
+  if (error) return show('bad', '구글 계정을 연결하지 않았어요', error === 'access_denied' ? '동의 화면에서 취소했어요. 연결하려면 GIF 메이커에서 [구글 계정 연결]을 다시 눌러 주세요.' : '구글이 연결을 거절했어요. GIF 메이커에서 다시 시도해 주세요.');
+  if (!code || !state) return show('bad', '잘못 열린 화면이에요', 'GIF 메이커 › GIF 만들기에서 [구글 계정 연결]을 눌러 주세요.');
+
+  fetch('/api/gdrive/finish', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ code: code, state: state }) })
+    .then(function (r) { return r.json().catch(function () { return {}; }).then(function (j) { return { ok: r.ok, status: r.status, j: j }; }); })
+    .then(function (x) {
+      if (x.status === 401) return;   // gm-ws.js 가 '로그인이 끝났어요'를 보여 준다
+      if (!x.ok) return show('bad', '구글 계정을 연결하지 못했어요', MSG[x.j.error] || '잠시 뒤 GIF 메이커에서 다시 시도해 주세요.');
+      tell();
+      show('ok', '구글 계정을 연결했어요', (x.j.email ? x.j.email + ' 계정으로 ' : '') + '구글 드라이브에 저장할 수 있어요. 이 창을 닫고 GIF 메이커로 돌아가 주세요.');
+    })
+    .catch(function () { show('bad', '구글 계정을 연결하지 못했어요', '인터넷 연결을 확인한 뒤 GIF 메이커에서 다시 시도해 주세요.'); });
+})();
+</script>
+</body>
+</html>

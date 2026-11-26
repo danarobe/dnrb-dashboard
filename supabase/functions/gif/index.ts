@@ -9,6 +9,7 @@
 //     GET·POST /api/templates · PATCH·DELETE /api/templates/{id} · POST /api/template-names
 //     GET  /api/detail?url= · /api/detail-img?u=     다나로브 상세 사진 대신 받기
 //     GET  /api/drive/list · /api/drive/thumb · /api/drive/file   구글 드라이브 지정 폴더
+//     GET  /api/gdrive/status · POST /api/gdrive/start|finish|disconnect|mkdir|upload   구글 드라이브에 저장(관리자만 — gdrive.ts)
 //   내 프로젝트 / 공유 프로젝트 (2026-11-26 사용자 요청, migrations/0093 gif_projects.shared):
 //     내 프로젝트(shared=false) = 만든 사람만 보기·고치기·지우기(권한과 상관없음 — 관리자도 남의 것은 안 보임). 새로 만들면 여기.
 //     [공유하기](POST /api/projects/{id}/share) = 만든 사람이 공유 프로젝트로 옮김 — 공유 프로젝트 쓰기 권한(관리자 포함)이 있을 때만.
@@ -20,6 +21,7 @@
 import { verifyAuthToken } from "../_shared/util.ts";
 import { BUCKET, BUILTIN_IDS, FILE_RE, ID_RE, MAX_PHOTOS, MAX_PROJECTS, ROOT, cleanNewData, cleanTemplateData, cleanTemplateName, mergeEdit, type ProjectData } from "./projects.ts";
 import { IMG_HOSTS, MAX_IMG_TOTAL, PAGE_HOSTS, allowedUrl, fetchAllowed, parseDetail } from "./detail.ts";
+import { MAX_GIF_BYTES, disconnect, finish, gdriveStatus, mkdir, startUrl, upload } from "./gdrive.ts";
 import { DriveError, checkId, driveConfigured, driveShareEmail, fetchFile, fetchThumb, listFolder, listRoots, ROOT_NAMES } from "./drive.ts";
 
 const CORS: Record<string, string> = {
@@ -396,6 +398,46 @@ async function drive(sub: string, q: URLSearchParams) {
   }
 }
 
+// ── 구글 드라이브에 저장 (관리자만) ──
+async function readCapped(req: Request, max: number): Promise<Uint8Array | null> {
+  // 한도를 넘는 파일은 담지 않고 끝까지 흘려보낸 뒤 거절한다(중간에 끊으면 브라우저가 답을 못 받는다)
+  const reader = req.body?.getReader();
+  if (!reader) return new Uint8Array();
+  let over = Number(req.headers.get("content-length") ?? 0) > max;
+  const chunks: Uint8Array[] = []; let n = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    n += value.length;
+    if (n > max) { over = true; chunks.length = 0; }
+    if (!over) chunks.push(value);
+  }
+  if (over) return null;
+  const out = new Uint8Array(n); let o = 0;
+  for (const c of chunks) { out.set(c, o); o += c.length; }
+  return out;
+}
+async function gdrive(sub: string, m: string, me: Me, req: Request, body: any, q: URLSearchParams) {
+  try {
+    if (sub === "status" && m === "GET") return json(await gdriveStatus());
+    if (m !== "POST") return err("not_found", 404);
+    if (sub === "start") return json({ url: await startUrl(me.id) });
+    if (sub === "finish") return json(await finish(me, body?.code, body?.state));
+    if (sub === "disconnect") return json(await disconnect());
+    if (sub === "mkdir") return json(await mkdir(await checkId("d", body?.folder, body?.k), body?.name));
+    if (sub === "upload") {
+      const folder = await checkId("d", q.get("folder"), q.get("k"));
+      const bytes = await readCapped(req, MAX_GIF_BYTES);
+      if (!bytes) return err("too_big", 413);
+      return json(await upload(me, folder, q.get("name"), bytes, q.get("replace") === "1"));
+    }
+    return err("not_found", 404);
+  } catch (e) {
+    if (e instanceof DriveError) return err(e.code, e.status);
+    return err("gdrive_failed", 502);
+  }
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
   const url = new URL(req.url);
@@ -408,7 +450,8 @@ Deno.serve(async (req) => {
   const me: Me = { id: u.id, name: u.name, admin: u.role === "admin" };
 
   try {
-    const body = m === "POST" || m === "PATCH" ? await req.json().catch(() => null) : null;
+    const rawBody = path === "/api/gdrive/upload";   // GIF 파일 그대로 받는다
+    const body = !rawBody && (m === "POST" || m === "PATCH") ? await req.json().catch(() => null) : null;
     let mt: RegExpMatchArray | null;
 
     if (path === "/api/me" && m === "GET") {
@@ -458,6 +501,10 @@ Deno.serve(async (req) => {
     if (path === "/api/detail" && m === "GET") return await detail(url.searchParams);
     if (path === "/api/detail-img" && m === "GET") return await detailImg(url.searchParams);
     if ((mt = path.match(/^\/api\/drive\/(list|thumb|file)$/)) && m === "GET") return await drive(mt[1], url.searchParams);
+    if ((mt = path.match(/^\/api\/gdrive\/(status|start|finish|disconnect|mkdir|upload)$/))) {
+      if (!me.admin) return err("forbidden", 403);   // 연결·저장 모두 관리자만 (사용자 지정)
+      return await gdrive(mt[1], m, me, req, body, url.searchParams);
+    }
 
     return err("not_found", 404);
   } catch {
