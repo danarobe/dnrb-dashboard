@@ -3487,9 +3487,15 @@ function upcalOptTipHtml(p) {
    도구(GIF 만들기·사진 리사이즈·프로젝트·카드뉴스·배너)는 gif/ 폴더의 화면이고, 여기서는 틀(gif/app.html)을 한 번만 띄운다
    → 다른 메뉴에 다녀와도 올려 둔 사진·편집 중인 내용이 남는다. 로그인은 이 화면과 같은 저장값(dnrb_session)을 그대로 쓴다. */
 function gifAllowed() { return isAdmin() || isStaff(); }
+let _gifInitOn = false;
 function gifInit() {
   const f = $('gif-frame');
-  if (f && !f.getAttribute('src')) f.src = 'gif/app.html';
+  if (!f || f.getAttribute('src') || _gifInitOn) return;
+  _gifInitOn = true;
+  // 틀(gif/app.html)도 늘 최신으로: 서버에 파일 버전(ETag)만 물어보고 주소에 붙인다(브라우저가 저장해 둔 예전 화면을 안 쓰게 — 2026-11-26). 못 물어봐도 3초 뒤엔 그냥 연다.
+  const ask = fetch('gif/app.html', { method: 'HEAD', cache: 'no-store' })
+    .then(r => r.ok ? (r.headers.get('etag') || r.headers.get('last-modified') || '').replace(/[^A-Za-z0-9]/g, '').slice(-24) : '').catch(() => '');
+  Promise.race([ask, new Promise(res => setTimeout(() => res(''), 3000))]).then(v => { f.src = 'gif/app.html' + (v ? '?v=' + v : ''); });
 }
 function upcalAllowed() { return isAdmin() || isStaff() || isCS(); }   // 관리자·MD·물류팀 + CS팀(2026-10-23 사용자 요청) = 로그인한 직원 전원
 function upcalToday() { return new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Seoul' }); }

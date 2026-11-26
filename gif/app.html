@@ -28,6 +28,8 @@ body { display: flex; flex-direction: column; background: #f0efe9; color: #1a181
 .right { display: flex; align-items: center; gap: 10px; flex-shrink: 0; font-size: 12px; color: #6b6660; white-space: nowrap; }
 .act { border: 1px solid #d9d6cf; background: #fff; border-radius: 8px; font: inherit; font-size: 12px; font-weight: 600; color: #1a1816; padding: 6px 10px; cursor: pointer; text-decoration: none; }
 .act:hover { border-color: #1a1816; }
+.act.upd { border-color: #e8500a; background: #fff3ed; color: #b13a00; }
+.act.upd:hover { background: #ffe6d8; border-color: #c93f00; }
 .frames { flex: 1; min-height: 0; position: relative; }
 .frames iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; display: block; background: #f0efe9; }
 .frames iframe.off { visibility: hidden; pointer-events: none; }
@@ -41,6 +43,7 @@ body.embed .bar { padding: 6px 10px; }
   <div class="brand"><i aria-hidden="true"><b></b><b></b><b></b><b></b></i>GIF 메이커</div>
   <div class="tabs" role="tablist" aria-label="도구" id="tabs"></div>
   <div class="right">
+    <button type="button" class="act upd" id="updBtn" hidden title="이 도구 화면이 새로 바뀌었어요 — 누르면 새 화면으로 다시 열어요">새 버전 받기</button>
     <span id="who"></span>
     <a class="act" id="popBtn" href="app.html" target="dnrb_gif" rel="noopener" title="새 창에서 화면을 넓게 써요" hidden>새 창으로 크게 보기 ↗</a>
     <a class="act" id="homeBtn" href="../" hidden>워크스페이스</a>
@@ -68,6 +71,36 @@ body.embed .bar { padding: 6px 10px; }
 
   var tabs = document.getElementById('tabs'), frames = document.getElementById('frames');
   var made = {}, active = null;
+
+  // ── 늘 최신 화면으로 (2026-11-26 — 카드뉴스에 새 버튼을 넣었는데 브라우저가 저장해 둔 예전 화면을 보여 줌) ──
+  //   도구 화면은 틀 안의 틀이라 새로고침(Ctrl+F5)으로도 예전 화면이 남을 수 있다
+  //   → 열 때마다 서버에 그 파일의 버전(ETag)만 물어보고 주소에 붙인다(파일이 바뀌면 주소가 바뀌어 새로 받는다).
+  //   이미 열어 둔 화면은 작업 중일 수 있어 저절로 바꾸지 않고, 탭으로 돌아올 때 바뀐 게 있으면 [새 버전 받기]를 보여 준다.
+  var vers = {}, pending = {}, checked = {};
+  var updBtn = document.getElementById('updBtn');
+  function verOf(t) {
+    var ask = fetch(t.src.split('?')[0], { method: 'HEAD', cache: 'no-store' }).then(function (r) {
+      if (!r.ok) return '';
+      return (r.headers.get('etag') || r.headers.get('last-modified') || '').replace(/[^A-Za-z0-9]/g, '').slice(-24);
+    }).catch(function () { return ''; });
+    var wait = new Promise(function (res) { setTimeout(function () { res(''); }, 3000); });   // 인터넷이 느려도 화면은 연다
+    return Promise.race([ask, wait]);
+  }
+  function srcOf(t, v) { return v ? t.src + (t.src.indexOf('?') < 0 ? '?' : '&') + 'v=' + v : t.src; }
+  function toolOf(key) { return TOOLS.filter(function (x) { return x.key === key; })[0]; }
+  function syncUpd() { updBtn.hidden = !(active && pending[active]); }
+  function recheck(key) {
+    if (!vers[key] || (checked[key] && Date.now() - checked[key] < 60000)) return;
+    checked[key] = Date.now();
+    verOf(toolOf(key)).then(function (v) { if (v && v !== vers[key]) { pending[key] = v; syncUpd(); } });
+  }
+  updBtn.onclick = function () {
+    var key = active, v = pending[key];
+    if (!v || !made[key]) return;
+    if (!confirm('이 도구 화면을 새 버전으로 다시 열까요?\n\n이 화면에서 저장하지 않은 작업(올려 둔 사진·편집 중인 내용)은 사라져요. 다른 탭의 작업은 그대로예요.')) return;
+    vers[key] = v; delete pending[key]; syncUpd();
+    made[key].src = srcOf(toolOf(key), v);
+  };
   TOOLS.forEach(function (t) {
     var b = document.createElement('button');
     b.type = 'button'; b.className = 'tab'; b.textContent = t.label; b.dataset.key = t.key;
@@ -81,13 +114,19 @@ body.embed .bar { padding: 6px 10px; }
     active = t.key;
     if (!made[t.key]) {
       var f = document.createElement('iframe');
-      f.title = t.label; f.src = t.src; f.dataset.key = t.key;
+      f.title = t.label; f.dataset.key = t.key;
       frames.appendChild(f);
       made[t.key] = f;
-    } else if (t.key === 'projects' || t.key === 'cardnews') {
-      // 돌아오면 그 사이 저장된 프로젝트·템플릿을 다시 읽게 한다
-      try { made[t.key].contentWindow.postMessage({ type: 'gm_show' }, location.origin); } catch (e) {}
+      checked[t.key] = Date.now();
+      verOf(t).then(function (v) { vers[t.key] = v; f.src = srcOf(t, v); });
+    } else {
+      if (t.key === 'projects' || t.key === 'cardnews') {
+        // 돌아오면 그 사이 저장된 프로젝트·템플릿을 다시 읽게 한다
+        try { made[t.key].contentWindow.postMessage({ type: 'gm_show' }, location.origin); } catch (e) {}
+      }
+      recheck(t.key);
     }
+    syncUpd();
     Object.keys(made).forEach(function (k) {
       var on = k === t.key;
       made[k].classList.toggle('off', !on);
@@ -102,6 +141,9 @@ body.embed .bar { padding: 6px 10px; }
     if (e.data.type === 'gm_nav' && NAV[e.data.href]) show(NAV[e.data.href], true);
   });
   window.addEventListener('hashchange', function () { show(location.hash.slice(1), false); });
+  // 다른 창·메뉴에 다녀오면 지금 보는 도구에 새 버전이 있는지 본다
+  document.addEventListener('visibilitychange', function () { if (document.visibilityState === 'visible' && active) recheck(active); });
+  window.addEventListener('focus', function () { if (active) recheck(active); });
   show(location.hash.slice(1) || 'gif', false);
 })();
 </script>
