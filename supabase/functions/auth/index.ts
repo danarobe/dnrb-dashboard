@@ -19,7 +19,7 @@
 // 필요 secret: AUTH_SECRET
 // ═══════════════════════════════════════════════
 import bcrypt from "npm:bcryptjs@2.4.3";
-import { handleOptions, json, signAuthToken, verifyAuthTokenString, cacheGet, cacheSet, safeEqual, AUTH_MAX_AGE, authEffectiveExp } from "../_shared/util.ts";
+import { handleOptions, json, signAuthToken, verifyAuthTokenString, cacheGet, cacheSet, safeEqual, AUTH_MAX_AGE, authEffectiveExp, authGenOk } from "../_shared/util.ts";
 
 const SB_URL = Deno.env.get("SUPABASE_URL")!;
 const SB_KEY = (Deno.env.get("SB_SERVICE_KEY") || Deno.env.get("SUPABASE_SERVICE_ROLE_KEY"))!;
@@ -33,7 +33,7 @@ async function hmacAud(data: string, aud: string): Promise<string> {
   const sig = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(data));
   return btoa(String.fromCharCode(...new Uint8Array(sig)));
 }
-interface AudUser { id: string; name: string; role: string; exp: number; aud: string; iat?: number }
+interface AudUser { id: string; name: string; role: string; exp: number; aud: string; iat?: number; gen?: number }
 async function signAudToken(user: AudUser): Promise<string> {
   const payload = btoa(unescape(encodeURIComponent(JSON.stringify(user))));
   return `${payload}.${await hmacAud(payload, user.aud)}`;
@@ -92,6 +92,8 @@ async function getUser(id: string): Promise<Record<string, unknown> | null> {
 
 // 퇴사 처리한 직원의 계정(app_users.login_blocked — 근무 관리 비활성, DB 트리거가 맞춰 둠)은 로그인·토큰 발급·확인에서 없는 계정처럼 다룬다 (2026-10-11).
 // 관리자 계정은 잠그지 않는다. 계정 관리(목록·역할 변경·삭제)는 getUser를 그대로 써서 차단된 계정도 다룰 수 있다.
+// 로그인 세대 번호(app_users.session_gen — 비밀번호를 바꾸면 1 올라감, util authGenOk). 토큰을 만들 때 그 순간의 번호를 싣는다 (2026-11-27)
+const genOf = (u: Record<string, unknown> | null) => { const n = Number(u?.session_gen ?? 0); return Number.isInteger(n) ? n : 0; };
 const isBlocked = (u: Record<string, unknown> | null) => !!u && u.login_blocked === true && String(u.role) !== "admin";
 async function getActiveUser(id: string): Promise<Record<string, unknown> | null> {
   const u = await getUser(id);
@@ -127,7 +129,7 @@ Deno.serve(async (req) => {
       if (isBlocked(user)) return json({ error: "퇴사 처리된 계정이라 로그인할 수 없어요 — 관리자에게 문의해주세요", blocked: true }, 403);
       const payload = {
         id: String(user.id), name: String(user.name),
-        role: String(user.role), exp: Date.now() + TOKEN_TTL, iat: Date.now(),
+        role: String(user.role), exp: Date.now() + TOKEN_TTL, iat: Date.now(), gen: genOf(user),
       };
       return json({ token: await signAuthToken(payload), ...payload });
     }
@@ -140,7 +142,7 @@ Deno.serve(async (req) => {
       if (!secret || !safeEqual(req.headers.get("x-sync-secret") ?? "", secret)) return json({ error: "접근 권한이 없습니다" }, 403);
       const user = await getActiveUser(String(body.id ?? "").trim());
       if (!user) return json({ error: "대시보드에 없는 계정" }, 404);
-      const payload = { id: String(user.id), name: String(user.name), role: String(user.role), exp: Date.now() + TOKEN_TTL, iat: Date.now() };
+      const payload = { id: String(user.id), name: String(user.name), role: String(user.role), exp: Date.now() + TOKEN_TTL, iat: Date.now(), gen: genOf(user) };
       return json({ token: await signAuthToken(payload), ...payload });
     }
 
@@ -162,10 +164,10 @@ Deno.serve(async (req) => {
       if (aud) {   // 외부 앱 전용 토큰 — 우리 함수에서는 못 쓰는 파생 키 서명 (2026-09-11)
         const perms = await audAllowed(aud, String(user.id), String(user.role));
         if (!perms) return json({ error: "이 앱에 대한 접근 권한이 없습니다" }, 403);
-        const payload: AudUser = { id: String(user.id), name: String(user.name), role: String(user.role), exp: Date.now() + TOKEN_TTL, iat: Date.now(), aud };
+        const payload: AudUser = { id: String(user.id), name: String(user.name), role: String(user.role), exp: Date.now() + TOKEN_TTL, iat: Date.now(), aud, gen: genOf(user) };
         return json({ token: await signAudToken(payload), ...payload, perms });
       }
-      const payload = { id: String(user.id), name: String(user.name), role: String(user.role), exp: Date.now() + TOKEN_TTL, iat: Date.now() };
+      const payload = { id: String(user.id), name: String(user.name), role: String(user.role), exp: Date.now() + TOKEN_TTL, iat: Date.now(), gen: genOf(user) };
       return json({ token: await signAuthToken(payload), ...payload });
     }
 
@@ -175,6 +177,7 @@ Deno.serve(async (req) => {
       if (!u) return json({ error: "유효하지 않은 토큰" }, 401);
       const user = await getActiveUser(u.id);
       if (!user) return json({ error: "유효하지 않은 토큰" }, 401);
+      if (!authGenOk(u.gen, user.session_gen)) return json({ error: "유효하지 않은 토큰" }, 401);   // 비밀번호를 바꾸기 전 토큰
       const perms = await audAllowed(u.aud, String(user.id), String(user.role));
       if (!perms) return json({ error: "이 앱에 대한 접근 권한이 없습니다" }, 403);
       return json({ id: String(user.id), name: String(user.name), role: String(user.role), exp: u.exp, aud: u.aud, perms });
@@ -191,7 +194,7 @@ Deno.serve(async (req) => {
       if (!user) return json({ error: "대시보드에 없는 계정" }, 404);
       const perms = await audAllowed(aud, String(user.id), String(user.role));
       if (!perms) return json({ error: "이 앱에 대한 접근 권한이 없습니다" }, 403);
-      const payload: AudUser = { id: String(user.id), name: String(user.name), role: String(user.role), exp: Date.now() + TOKEN_TTL, iat: Date.now(), aud };
+      const payload: AudUser = { id: String(user.id), name: String(user.name), role: String(user.role), exp: Date.now() + TOKEN_TTL, iat: Date.now(), aud, gen: genOf(user) };
       return json({ token: await signAudToken(payload), exp: payload.exp, id: payload.id, role: payload.role });
     }
 
@@ -201,6 +204,7 @@ Deno.serve(async (req) => {
     if (!me) return json({ error: "로그인이 필요합니다" }, 401);
     const meRow = await getActiveUser(me.id);
     if (!meRow) return json({ error: "로그인이 필요합니다" }, 401);
+    if (!authGenOk(me.gen, meRow.session_gen)) return json({ error: "로그인이 필요합니다" }, 401);   // 비밀번호를 바꾸기 전 토큰 (2026-11-27)
     me.role = String(meRow.role);
 
     // ── 토큰 확인 (2026-09-22 보안 점검): 상품관리에서 #sso 해시로 넘어온 토큰을 클라이언트가 그대로 믿지 않고
@@ -245,10 +249,13 @@ Deno.serve(async (req) => {
       const res = await usersRest(`app_users?id=eq.${encodeURIComponent(me.id)}`, {
         method: "PATCH",
         headers: { Prefer: "return=minimal" },
-        body: JSON.stringify({ password_hash: bcrypt.hashSync(newPw, 10) }),
+        // 번호를 1 올려 이 계정으로 이미 로그인된 다른 기기를 로그아웃시킨다 (2026-11-27)
+        body: JSON.stringify({ password_hash: bcrypt.hashSync(newPw, 10), session_gen: genOf(user) + 1 }),
       });
       if (!res.ok) throw new Error("비밀번호 변경 실패 " + res.status);
-      return json({ ok: true });
+      // 지금 이 기기는 새 번호의 토큰으로 바꿔 줘 로그인이 유지되게 (화면이 받아서 저장한다)
+      const payload = { id: me.id, name: String(user.name), role: String(user.role), exp: Date.now() + TOKEN_TTL, iat: Date.now(), gen: genOf(user) + 1 };
+      return json({ ok: true, token: await signAuthToken(payload), exp: payload.exp });
     }
 
     // 이름 목록만 — 로그인한 누구나 (@멘션 대상 찾기용, 2026-08-20. 역할·가입일 미포함)
@@ -313,7 +320,8 @@ Deno.serve(async (req) => {
       const res = await usersRest(`app_users?id=eq.${encodeURIComponent(id)}`, {
         method: "PATCH",
         headers: { Prefer: "return=minimal" },
-        body: JSON.stringify({ password_hash: bcrypt.hashSync(newPw, 10) }),
+        // 번호를 1 올려 그 직원의 기존 로그인을 모두 무효로 (2026-11-27)
+        body: JSON.stringify({ password_hash: bcrypt.hashSync(newPw, 10), session_gen: genOf(target) + 1 }),
       });
       if (!res.ok) throw new Error("비밀번호 변경 실패 " + res.status);
       return json({ ok: true });
