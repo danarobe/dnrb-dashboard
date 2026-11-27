@@ -380,7 +380,7 @@ async function drive(sub: string, q: URLSearchParams) {
       return json(await listFolder(await checkId("d", folder, q.get("k"))));
     }
     if (sub === "thumb") {
-      const r = await fetchThumb(q.get("u"), q.get("k"));
+      const r = await fetchThumb(q.get("u"), q.get("k"), q.get("big") === "1");
       const type = (r.headers.get("content-type") || "").split(";")[0].trim();
       if (!IMG_TYPE.test(type)) { await r.body?.cancel().catch(() => {}); return err("not_image", 415); }
       return new Response(r.body, { headers: passHeaders(type, r.headers.get("content-length")) });

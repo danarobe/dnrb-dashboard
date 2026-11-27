@@ -142,10 +142,10 @@ export async function listFolder(folderId: string) {
   return { folders: folders.sort(byName), images: images.sort(byName), other };
 }
 
-/** 미리보기(작은 사진). 주소는 목록에서 서버가 서명해 내려 준 것만 받는다. */
-export async function fetchThumb(raw: unknown, k: unknown): Promise<Response> {
+/** 미리보기(작은 사진, big 이면 크게 보기용 1600px). 주소는 목록에서 서버가 서명해 내려 준 것만 받는다 — 크게 볼 때도 서명은 그 주소로 확인하고 끝의 크기 표시(=s400)만 바꾼다. */
+export async function fetchThumb(raw: unknown, k: unknown, big = false): Promise<Response> {
   if (typeof raw !== "string" || raw.length > 2000 || typeof k !== "string" || !sameStr(await hmac(`t|${raw}`), k)) throw new DriveError("bad_id", 400);
-  const u = new URL(raw);
+  const u = new URL(big ? raw.replace(/=s\d+$/, "=s1600") : raw);
   if (!thumbHostOk(u)) throw new DriveError("bad_id", 400);
   const r = await fetch(u, { headers: { Authorization: `Bearer ${await token()}` }, redirect: "manual", signal: AbortSignal.timeout(20000) });
   if (!r.ok) { await r.body?.cancel().catch(() => {}); throw new DriveError("drive_thumb", r.status === 404 ? 404 : 502); }
