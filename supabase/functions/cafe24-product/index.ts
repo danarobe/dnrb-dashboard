@@ -16,6 +16,8 @@
 //   GET  ?action=lookups       (관리자·상품관리) 분류·메인 진열 영역·최근 상품의 아이콘/진열/분류 사용 빈도 (읽기만)
 //   POST ?action=register      (관리자·상품관리) 상품 관리 시스템 상품 하나를 숨김·판매 안 함으로 등록 — 2단계(2026-11-25)
 //   POST ?action=reg_list      (관리자·상품관리) {npm_ids} → 등록 기록
+//   POST ?action=forget        (관리자·상품관리) {npm_id, product_name?} → 사람이 카페24에서 지운 상품의 등록 기록을 비워 다시 등록할 수 있게(2026-11-27).
+//                              카페24에는 아무것도 보내지 않는다(읽기로 '정말 없어졌는지'만 확인 — 아직 있으면 거부)
 //   GET  ?action=compare&product_no=&ref=  (관리자·상품관리) 우리가 만든 상품과 엑셀로 만든 상품의 설정 칸 비교
 //   POST ?action=upload_image  (상품관리) {npm_id, data(base64), mime} → 상세 본문용 사진을 카페24에 올리고 주소 — 이 시스템이 만든 상품만
 //   POST ?action=set_photos    (상품관리) {npm_id, urls[], thumb(data URI gif)} → 상세설명(사진 순서대로) + 대표이미지(gif, 대표이미지등록) — 3단계(2026-11-25)
@@ -353,6 +355,17 @@ async function sameNameProducts(name: string): Promise<number[]> {
   return ((b.products ?? []) as Record<string, unknown>[]).filter((p) => nfc(p.product_name) === name).map((p) => Number(p.product_no));
 }
 
+// 카페24에 그 상품번호가 더는 없는지(사람이 지웠는지) — 읽기만. 카페24는 없는 번호에도 200 + 빈 product 를 돌려준다(2026-11-27 실측)
+//   → 한 건 읽기가 비어 있고, 목록 검색에도 없을 때만 '없음'. 읽기가 실패하면 그대로 오류(없다고 단정하지 않음)
+async function productGone(no: number): Promise<boolean> {
+  let one: Record<string, unknown> = {};
+  try { one = ((await c24Get(`/admin/products/${no}?fields=product_no`)).product ?? {}) as Record<string, unknown>; }
+  catch (e) { if (!/^카페24 404/.test((e as Error).message)) throw e; }
+  if (Number(one.product_no) === no) return false;
+  const list = ((await c24Get(`/admin/products?product_no=${no}&fields=product_no&limit=10`)).products ?? []) as Record<string, unknown>[];
+  return !list.some((p) => Number(p.product_no) === no);
+}
+
 // 같은 상품을 동시에 두 번 처리하지 않게 잠금 — UPDATE 한 문장(WHERE에 잠금 조건)이라 두 요청 중 하나만 잡는다.
 //   잠금 시간 10분 = 엣지 함수 한 번의 최대 실행 시간보다 길다(함수가 먼저 끝나므로 실행 중에 잠금이 풀리지 않음).
 //   잠근 요청만 풀고(lock_by 토큰), 상품 만들기 직전에 토큰·상품번호를 다시 확인한다(보안 검토 2026-11-25).
@@ -526,7 +539,7 @@ Deno.serve(async (req) => {
     const viaSync = !!syncSecret && safeEqual(req.headers.get("x-sync-secret") ?? "", syncSecret);
     let user: { id: string; name: string; role: string } | null = null;
     if (viaSync) {
-      if (!["lookups", "register", "reg_list", "compare", "upload_image", "set_photos"].includes(action ?? "")) return json({ error: "권한 없음" }, 403);
+      if (!["lookups", "register", "reg_list", "compare", "upload_image", "set_photos", "forget"].includes(action ?? "")) return json({ error: "권한 없음" }, 403);
       user = { id: "npm", name: "상품관리", role: "admin" };
     } else {
       const u = await verifyAuthToken(req);
@@ -636,6 +649,34 @@ Deno.serve(async (req) => {
         await regPatch(npm_id, { steps });
         return json({ ok: checks.every((c) => c.ok), product_no: no, checks, detail_image: p.detail_image ?? null });
       } catch (e) { return json({ ok: false, error: (e as Error).message }, 400); }
+    }
+
+    if (action === "forget") {
+      // 사람이 카페24에서 지운 상품을 다시 등록할 수 있게 등록 기록을 비운다(2026-11-27 사용자 요청).
+      //   카페24에 그 번호가 아직 있으면 거부 — 살아 있는 상품의 기록을 지우면 같은 상품이 두 번 만들어질 수 있다.
+      if (req.method !== "POST") return json({ error: "POST만" }, 405);
+      const body = await req.json().catch(() => ({})) as Record<string, unknown>;
+      const npm_id = nfc(body.npm_id);
+      if (!/^[0-9a-f-]{36}$/.test(npm_id)) return json({ ok: false, error: "npm_id 형식 오류" }, 400);
+      const by = viaSync ? (nfc(body.by_name).slice(0, 30) || "상품관리") : user.name;
+      const name = nfc(body.product_name).trim().slice(0, 250);
+      const cur = await regGet(npm_id);
+      if (!cur?.product_no) return json({ ok: true, cleared: false, same_name: name ? await sameNameProducts(name) : [] });
+      const token = crypto.randomUUID();
+      const row = await regLock(npm_id, token);
+      if (!row) return json({ ok: false, error: "이 상품 등록이 진행 중이에요 — 잠시 뒤 다시 눌러 주세요" }, 409);
+      try {
+        const no = Number(row.product_no);
+        if (!no) return json({ ok: true, cleared: false, same_name: name ? await sameNameProducts(name) : [] });
+        if (!(await productGone(no))) return json({ ok: false, exists: true, product_no: no, error: `카페24에 상품번호 ${no}이(가) 아직 있어요 — 카페24에서 지운 상품만 다시 등록할 수 있어요` }, 409);
+        // dry: 확인만 하고 아무것도 바꾸지 않는다(배포 뒤 점검용)
+        if (body.dry === true) return json({ ok: true, cleared: false, dry: true, gone: true, product_no: no, same_name: name ? await sameNameProducts(name) : [] });
+        const old = (row.steps ?? {}) as Record<string, unknown>;
+        const history = [...((old.history ?? []) as unknown[]), { product_no: no, created_at: (old.create as Record<string, unknown> | undefined)?.at ?? null, forgot_at: new Date().toISOString(), by }].slice(-10);
+        await regPatch(npm_id, { product_no: null, state: "pending", steps: { history }, by_name: by });
+        await writeLog({ by_name: by, npm_id, method: "FORGET", path: `/admin/products/${no}`, status: 0, ok: true, note: "카페24에서 지워진 상품 — 등록 기록 비움(카페24로 보낸 요청 없음)" });
+        return json({ ok: true, cleared: true, product_no: no, same_name: name ? await sameNameProducts(name) : [] });
+      } finally { await regUnlock(npm_id, token); }
     }
 
     if (action === "reg_list") {
