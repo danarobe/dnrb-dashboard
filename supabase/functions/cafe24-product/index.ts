@@ -151,11 +151,23 @@ async function accessToken(force = false): Promise<string> {
   }
 }
 
-// ── 카페24 읽기 (429·401 재시도) ──
+// 카페24와의 연결이 응답 전에 끊기는 일이 가끔 있다(2026-11-27 실제 사례: 사진 8장 올린 직후 상세설명 PUT).
+//   화면에는 내부 주소가 섞인 원문 대신 쉬운 문구만 보낸다.
+const NET_MSG = "카페24 연결이 끊겼어요 — 잠시 뒤 다시 눌러 주세요";
+const NET_RE = /error sending request|connection (closed|reset|refused)|tcp connect|dns error|timed out|unexpected eof/i;
+function userMsg(e: unknown): string {
+  const m = (e as Error)?.message ?? String(e);
+  return NET_RE.test(m) ? "연결이 끊겼어요 — 잠시 뒤 다시 눌러 주세요" : m;
+}
+
+// ── 카페24 읽기 (429·401·연결 끊김 재시도) ──
 async function c24Get(path: string): Promise<Record<string, unknown>> {
   let tok = await accessToken();
+  let net = 0;
   for (let i = 0; i < 6; i++) {
-    const res = await fetch(`${API_BASE}${path}`, { headers: { Authorization: `Bearer ${tok}`, "Content-Type": "application/json", "X-Cafe24-Api-Version": API_VERSION } });
+    let res: Response;
+    try { res = await fetch(`${API_BASE}${path}`, { headers: { Authorization: `Bearer ${tok}`, "Content-Type": "application/json", "X-Cafe24-Api-Version": API_VERSION } }); }
+    catch { if (net++ < 3) { await sleep(700 * net); i--; continue; } throw new Error(NET_MSG); }   // 읽기는 다시 해도 안전
     if (res.status === 401 && i === 0) { tok = await accessToken(true); continue; }
     if (res.status === 429) { await sleep(Number(res.headers.get("Retry-After")) * 1000 || 1000 * 2 ** i); continue; }
     const body = await res.json().catch(() => ({}));
@@ -213,12 +225,24 @@ async function c24pWrite(method: "POST" | "PUT", path: string, body: Record<stri
   }
   let tok = await accessToken();
   let last: Response | null = null;
+  // 연결이 끊겼을 때 다시 보내도 되는 쓰기만 자동으로 다시 시도한다: PUT(같은 값 덮어쓰기)·사진 올리기(…/images).
+  //   상품 만들기·옵션 추가는 다시 보내면 두 번 만들어질 수 있어 다시 시도하지 않는다.
+  const retryNet = method === "PUT" || /\/images$/.test(path);
+  let net = 0;
   for (let i = 0; i < 6; i++) {
-    last = await fetch(`${API_BASE}${path}`, {
-      method,
-      headers: { Authorization: `Bearer ${tok}`, "Content-Type": "application/json", "X-Cafe24-Api-Version": API_VERSION },
-      body: JSON.stringify(body),
-    });
+    try {
+      last = await fetch(`${API_BASE}${path}`, {
+        method,
+        headers: { Authorization: `Bearer ${tok}`, "Content-Type": "application/json", "X-Cafe24-Api-Version": API_VERSION },
+        body: JSON.stringify(body),
+      });
+    } catch {
+      if (retryNet && net++ < 3) { await sleep(1000 * net); i--; continue; }
+      await writeLog({ by_name: who.name, npm_id: who.npm_id ?? null, method, path, status: 0, ok: false, note: `연결 끊김(응답 없음) — ${retryNet ? "3번 다시 시도했지만 실패" : "다시 시도 안 함(두 번 만들기 방지)"}` });
+      throw new Error(rule.kind === "create"
+        ? "카페24 연결이 끊겨 상품이 만들어졌는지 알 수 없어요 — 카페24 상품 목록을 확인한 뒤 다시 눌러 주세요(같은 이름 상품이 있으면 새로 만들지 않아요)"
+        : NET_MSG);
+    }
     if (last.status === 401 && i === 0) { tok = await accessToken(true); continue; }
     if (last.status === 429) { await sleep(Number(last.headers.get("Retry-After")) * 1000 || 1000 * 2 ** i); continue; }
     break;
@@ -591,7 +615,7 @@ Deno.serve(async (req) => {
       try { inp = await checkRegInput(body); } catch (e) { return json({ ok: false, error: (e as Error).message }, 400); }
       try { return json(await registerProduct(inp, by)); } catch (e) {
         const err = e as Error & { status?: number; product_nos?: number[] };
-        return json({ ok: false, error: err.message, product_nos: err.product_nos ?? null }, err.status ?? 500);
+        return json({ ok: false, error: userMsg(err), product_nos: err.product_nos ?? null }, err.status ?? 500);
       }
     }
 
@@ -614,7 +638,7 @@ Deno.serve(async (req) => {
         steps.uploads = [...ups, path].slice(-300);
         await regPatch(npm_id, { steps });
         return json({ ok: true, url: path, product_no: no });
-      } catch (e) { return json({ ok: false, error: (e as Error).message }, 400); }
+      } catch (e) { return json({ ok: false, error: userMsg(e) }, 400); }
     }
 
     if (action === "set_photos") {
@@ -648,7 +672,7 @@ Deno.serve(async (req) => {
         steps.photos = { ok: checks.every((c) => c.ok), at: new Date().toISOString(), count: urls.length, checks };
         await regPatch(npm_id, { steps });
         return json({ ok: checks.every((c) => c.ok), product_no: no, checks, detail_image: p.detail_image ?? null });
-      } catch (e) { return json({ ok: false, error: (e as Error).message }, 400); }
+      } catch (e) { return json({ ok: false, error: userMsg(e) }, 400); }
     }
 
     if (action === "forget") {
@@ -731,6 +755,6 @@ Deno.serve(async (req) => {
 
     return json({ error: "unknown action" }, 400);
   } catch (e) {
-    return json({ error: String(e) }, 500);
+    return json({ error: NET_RE.test(String(e)) ? userMsg(e) : String(e) }, 500);
   }
 });
